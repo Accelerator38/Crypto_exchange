@@ -1,0 +1,140 @@
+# Настройки генетического обучения.
+# Формат: параметр = значение.
+
+# Популяция
+pop_size = 900
+n_generations = 100
+elite_size = 8
+tournament_k = 5
+tournament_k_max = 10
+crossover_rate = 0.70
+mutation_rate = 0.20
+mutation_sigma = 0.25
+sigma_decay = 0.997
+sigma_min = 0.100
+
+# Сеть
+n_input = 28
+n_hidden1 = 128
+n_hidden2 = 64
+n_hidden3 = 32
+n_actions = 9                # 0 ожидание, 1/2 спот, 3 продажа, 4/5 long, 6/7 short, 8 закрытие
+
+# Острова и фазы
+n_islands = 3
+migration_interval = 7
+migration_size = 3
+phase1_enabled = on
+phase1_gens_frac = 0.15
+phase1_own_weight = 0.80
+phase1_bonus_weight = 0.40
+phase1_min_weight = 0.30
+phase2_enabled = on
+phase2_gens_frac = 0.12
+phase2_sigma = 0.050
+phase3_sigma_restart = 0.135
+
+# Поиск
+de_fraction = 0.20
+de_f = 0.45
+nes_frac = 0.20
+nes_lr = 0.08
+cma_memory_lr = 0.15
+cma_blend = 0.08
+levy_enabled = on
+levy_frac = 0.10
+levy_alpha = 1.50
+levy_scale = 0.08
+cosine_sigma_enabled = on
+cosine_t0 = 25
+cosine_tmult = 1.5
+stagnation_gens = 8
+exploit_sigma_mult = 0.50
+escape_sigma_mult = 4.5
+exploit_sigma_on_best_mult = 0.75
+exploit_sigma_on_best_floor = 0.08
+max_restarts_no_improve = 2
+layer_sigma_mult = 1.2,0.9,0.8,1.5
+diversity_interval = 6
+diversity_frac = 0.28
+diversity_threshold = 0.10
+nes_collapse_gens = 8
+nes_collapse_threshold = 0.18
+layer_injection_enabled = on
+local_frac = 0.15
+local_sigma_mult = 0.08
+
+# Фитнес
+fitness_phase2_frac = 0.60   # совместимость со старыми прогонами
+fitness_w_mean = 0.20
+fitness_w_calmar = 0.25
+fitness_w_sharpe = 0.10
+fitness_w_daily_sharpe = 0.15
+fitness_w_daily_winrate = 0.10
+fitness_w_consistency = 0.08
+fitness_alpha = 0.20
+fitness_beta = 0.10
+fitness_gamma = 2.00
+fitness_delta = 0.08
+fitness_epsilon = 0.60
+fitness_zeta = 0.10
+fitness_eta = 0.08
+fitness_theta = 0.18
+calmar_weight_adj = 0.70
+pos_rate_bonus_w = 0.80
+neg_streak_pen_w = 0.30
+neg_streak_thresh = 3
+dynamic_regime_weights = off  # экспериментально
+dynamic_rw_window = 10
+dynamic_rw_beta = 0.70
+dynamic_rw_min = 0.30
+dynamic_rw_max = 2.5
+dynamic_rw_target = 0.5
+trade_reward_w = 0.30
+trade_reward_ref = 0.01
+pareto_regime_ranking = on
+pareto_bonus_weight = 3.0
+directed_diversity_enabled = on
+directed_diversity_frac = 0.40
+win1_profit_thresh = 0.5
+win1_fitness_weight = 0.12
+win5_profit_thresh = 3.0
+win5_fitness_weight = 0.25
+win20_profit_thresh = 15.0
+win20_fitness_weight = 0.18
+
+# Выполнение и архив
+train_max_pos = 10
+snapshot_bars = 24
+gpu_chunk_bars = 1024
+bc_enabled = off
+agent_seed_frac = 0.20
+bc_lr = 0.003
+bc_epochs = 50
+bc_noise = 0.015
+bc_max_bars = 4000
+bc_regimes_per_type = 2
+agent_seed_list =
+continue_training = on
+load_best_genome = on
+load_extra_genomes = on
+load_regime_genomes = on
+load_island_genomes = on
+load_extra_max = 0
+archive_size = 5
+archive_advantage_max = 3.0
+save_every = 3
+chart_every = 1
+zero_thresh = 0.05
+
+# Выбор валют
+currency_selection_enabled = on
+currency_learning_enabled = on
+top_currencies_n = 0
+currency_momentum_weight = 0.35
+currency_volume_weight = 0.30
+currency_efficiency_weight = 0.35
+
+# Оптимизация свопов
+swap_enabled = on
+swap_fee_multiplier = 0.30
