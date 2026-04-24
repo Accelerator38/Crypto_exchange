@@ -38,6 +38,7 @@ from collections import deque, OrderedDict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
+from project_paths import PROJECT_ROOT, RUNTIME_DIR
 from agent_safety import (
     DeclineGuard as SharedDeclineGuard,
     ExtremeMoveGuard as SharedExtremeMoveGuard,
@@ -1989,10 +1990,9 @@ def _run():
     import os as _os
     from datetime import timezone as _tz
     _ts  = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    _out = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                         "Results", "MasterPlayer", _ts)
+    _out = _os.path.join(str(PROJECT_ROOT), "Results", "MasterPlayer", _ts)
     _setup_logging(_out)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = str(RUNTIME_DIR)
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
 

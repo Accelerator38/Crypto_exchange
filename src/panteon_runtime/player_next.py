@@ -37,6 +37,7 @@ class PanteonNextResearch(Panteon):
     """
 
     ROTATION_INT = 60
+    ENABLE_META_PLAYERS = False
     MIN_AGENTS = 3
     MAX_AGENTS = 6
     MIN_WEIGHT = 0.10
@@ -145,6 +146,7 @@ class PanteonNextResearch(Panteon):
     ) -> MarketSnapshot:
         self._t = bar_index if bar_index is not None else getattr(self, "_t", 0) + 1
         t = self._t
+        prev_regime = self._canonical_market_regime(self._r) if self._r is not None else None
         for sym, price in prices.items():
             self._ph.setdefault(sym, deque(maxlen=5760)).append(float(price))
             self._vh.setdefault(sym, deque(maxlen=5760)).append(float(volumes.get(sym, 0.0) or 0.0))
@@ -156,7 +158,11 @@ class PanteonNextResearch(Panteon):
             self._current_context = self._build_market_context(month=month)
             self._last_context_bar = t
 
-        if self._shadow_perf is not None and t - self._last_rotation >= self.ROTATION_INT:
+        regime = self._canonical_market_regime(self._r or "neutral")
+        regime_changed = prev_regime is not None and regime != prev_regime
+        if self._shadow_perf is not None and (regime_changed or t - self._last_rotation >= self.ROTATION_INT):
+            if regime_changed and not self._quiet_info_logs():
+                log.info("  [PanteonNextResearch] regime changed %s -> %s; forcing agent rotation", prev_regime, regime)
             self._rotate_agents()
             self._last_rotation = t
 
@@ -166,7 +172,7 @@ class PanteonNextResearch(Panteon):
             month=month,
             portfolio_value=portfolio_value,
             bar_index=t,
-            regime=self._r or "neutral",
+            regime=regime,
             context=dict(self._current_context or {}),
         )
 

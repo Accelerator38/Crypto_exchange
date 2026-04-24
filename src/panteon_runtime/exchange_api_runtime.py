@@ -17,18 +17,11 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+from project_paths import PROJECT_ROOT, RUNTIME_DIR, add_runtime_paths
+
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()
@@ -259,7 +252,7 @@ MIN_BALANCE_USD = 1.0
 # ИНИЦИАЛИЗАЦИЯ ПУТЕЙ
 # ══════════════════════════════════════════════════════════════════════════════
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+script_dir = str(RUNTIME_DIR)
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
@@ -318,6 +311,7 @@ class MexcDirectClient:
         self._session.headers.update({"X-MEXC-APIKEY": api_key})
         self._last_good_futures_snapshot: Optional[dict] = None
         self._last_good_futures_snapshot_at = 0.0
+        self._contract_meta_cache: Dict[str, dict] = {}
 
     # ── Подпись ───────────────────────────────────────────────────────────────
     def _sign(self, params: dict) -> str:
@@ -475,6 +469,66 @@ class MexcDirectClient:
         return {}
 
     # ── Полный снапшот аккаунта ───────────────────────────────────────────────
+    _CONTRACT_SIZE_FALLBACKS = {
+        "BTC": 0.0001,
+        "ETH": 0.01,
+        "BNB": 0.01,
+        "SOL": 0.1,
+        "XRP": 10.0,
+        "ADA": 10.0,
+    }
+
+    @staticmethod
+    def _first_float(raw: dict, *keys: str, default: float = 0.0) -> float:
+        for key in keys:
+            try:
+                value = raw.get(key)
+                if value is None or value == "":
+                    continue
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return float(default)
+
+    def _get_contract_meta(self, symbol: str) -> dict:
+        base = str(symbol or "").replace("_USDT", "").upper()
+        cached = self._contract_meta_cache.get(base)
+        if cached:
+            return cached
+
+        fallback = {
+            "symbol": f"{base}_USDT",
+            "contractSize": float(self._CONTRACT_SIZE_FALLBACKS.get(base, 1.0)),
+        }
+        try:
+            r = requests.get(
+                f"{self.FUTURES_BASE}/api/v1/contract/detail",
+                params={"symbol": fallback["symbol"]},
+                timeout=5,
+            )
+            r.raise_for_status()
+            payload = r.json()
+            data = payload.get("data", [])
+            if isinstance(data, list):
+                raw = data[0] if data else {}
+            elif isinstance(data, dict):
+                raw = data
+            else:
+                raw = {}
+            contract_size = float(
+                raw.get("contractSize", fallback["contractSize"])
+                or fallback["contractSize"]
+            )
+            meta = {
+                "symbol": raw.get("symbol", fallback["symbol"]),
+                "contractSize": contract_size,
+            }
+        except Exception:
+            meta = fallback
+
+        self._contract_meta_cache[base] = meta
+        return meta
+
     def get_full_snapshot(self) -> dict:
         """
         Единый срез реального аккаунта: фьючерсы + спот.
@@ -567,15 +621,47 @@ class MexcDirectClient:
         try:
             for p in self.get_futures_positions():
                 sym = str(p.get("symbol", "")).replace("_USDT", "")
-                side = "long" if p.get("positionType") == 1 else "short"
+                pos_type = str(p.get("positionType", "")).strip().lower()
+                side = "long" if pos_type in ("1", "long") else "short"
+                raw_contracts = float(p.get("holdVol", 0) or 0)
+                meta = self._get_contract_meta(sym)
+                contract_size = max(float(meta.get("contractSize", 1.0) or 1.0), 1e-12)
+                qty = raw_contracts * contract_size
+                entry = float(p.get("openAvgPrice", p.get("holdAvgPrice", 0)) or 0)
+                unrealized_pnl = self._first_float(
+                    p,
+                    "unrealizedValue",
+                    "unrealisedValue",
+                    "unrealizedPnl",
+                    "unrealisedPnl",
+                    "holdProfitLoss",
+                    "profit",
+                    "pnl",
+                    default=0.0,
+                )
+                if abs(unrealized_pnl) <= 1e-12 and entry > 0 and raw_contracts > 0:
+                    mark = self._first_float(
+                        p,
+                        "markPrice",
+                        "fairPrice",
+                        "lastPrice",
+                        "indexPrice",
+                        default=0.0,
+                    )
+                    if mark > 0:
+                        direction = 1.0 if side == "long" else -1.0
+                        unrealized_pnl = qty * (mark - entry) * direction
                 snap['futures']['positions'].append({
                     'symbol':         sym,
                     'side':           side,
-                    'qty':            float(p.get("holdVol", 0) or 0),
+                    'qty':            qty,
+                    'contracts':      raw_contracts,
+                    'contract_size':  contract_size,
                     'leverage':       int(p.get("leverage", 1) or 1),
-                    'entry':          float(p.get("openAvgPrice", 0) or 0),
-                    'unrealized_pnl': float(p.get("unrealizedValue", 0) or 0),
+                    'entry':          entry,
+                    'unrealized_pnl': unrealized_pnl,
                     'margin':         float(p.get("im", p.get("margin", 0)) or 0),
+                    'notional':       qty * entry,
                 })
         except Exception as e:
             log.debug("get_full_snapshot futures positions: %s", e)
@@ -777,6 +863,7 @@ class TradingStats:
         # Новые поля для расширенного дашборда v5
         self.has_futures_perm: bool            = True
         self.sub_agent_pvs:    Dict[str, float] = {}   # {name: virtual_pv}
+        self.sub_agent_initials: Dict[str, float] = {}  # {name: baseline_pv}
         self.order_history:    List[dict]       = []   # {sym, ok, code, color, time}
         self.orders_ok:        int              = 0
         self.orders_fail:      int              = 0
@@ -861,6 +948,73 @@ class TradingStats:
                 sig["order_ok"] = success
                 break
 
+    def capture_price_history(self, price_history, limit: int = 360):
+        """Сохраняет хвост истории цен в stats для детекта режима рынка в дашбордах."""
+        try:
+            hist = list(price_history or [])
+        except Exception:
+            hist = []
+        if not hist:
+            return
+        tail = hist[-max(int(limit or 0), 2):]
+        raw = {}
+        for snapshot in tail:
+            if not isinstance(snapshot, dict):
+                continue
+            for sym, value in snapshot.items():
+                try:
+                    price = float(value)
+                except Exception:
+                    continue
+                if not math.isfinite(price) or price <= 0.0:
+                    continue
+                raw.setdefault(str(sym), []).append(price)
+        if raw:
+            self._price_hist_raw = raw
+
+    def reset_live_baseline(
+        self,
+        initial_capital: float,
+        *,
+        balance: Optional[float] = None,
+        pnl: float = 0.0,
+        available: Optional[float] = None,
+        live_bar: int = 0,
+        reset_activity: bool = False,
+    ):
+        """Сбрасывает стартовую live-базу после warmup и переинициализирует equity curve."""
+        ic = max(float(initial_capital or 0.0), 0.0)
+        bal = float(ic if balance is None else balance)
+        avail = float(bal if available is None else available)
+
+        self.initial_capital = ic
+        self.current_balance = bal
+        self.timestamps.clear()
+        self.equity_curve.clear()
+        self.balance_curve.clear()
+        self.unrealized_curve.clear()
+        self.live_bar_curve.clear()
+        self.total_assets_curve.clear()
+        self.pnl_history.clear()
+        self.last_signal_bar = -1
+
+        if reset_activity:
+            self.signals.clear()
+            self.trades.clear()
+            self.open_orders.clear()
+            self.order_history.clear()
+            self.orders_ok = 0
+            self.orders_fail = 0
+            self.funding_history.clear()
+
+        self.record_tick(
+            datetime.now(tz=timezone.utc),
+            bal,
+            pnl=float(pnl or 0.0),
+            available=avail,
+            live_bar=int(live_bar or 0),
+        )
+
     @property
     def uptime_str(self) -> str:
         delta = datetime.now(tz=timezone.utc) - self.start_time
@@ -897,6 +1051,62 @@ class TradingStats:
             if dd > maxdd:
                 maxdd = dd
         return maxdd * 100.0
+
+
+def _infer_market_regime_from_price_hist(price_hist_raw) -> str:
+    try:
+        from crypto_agents import _detect_regime_live, _r3
+    except Exception:
+        return "unknown"
+
+    if not isinstance(price_hist_raw, dict) or not price_hist_raw:
+        return "unknown"
+
+    try:
+        raw = _detect_regime_live(
+            {sym: deque(values, maxlen=len(values)) for sym, values in price_hist_raw.items() if values}
+        )
+        return {
+            "bullish": "bull",
+            "bearish": "bear",
+            "neutral": "sideways",
+            "crash": "crash",
+        }.get(_r3(raw), "sideways")
+    except Exception:
+        return "unknown"
+
+
+def _infer_market_regime_from_stats(stats: TradingStats) -> str:
+    return _infer_market_regime_from_price_hist(getattr(stats, "_price_hist_raw", {}))
+
+
+def _resolve_sub_agent_baselines(stats: TradingStats) -> Dict[str, float]:
+    baselines = {}
+    initial_map = getattr(stats, "sub_agent_initials", {}) or {}
+    for name, value in initial_map.items():
+        try:
+            baselines[str(name)] = float(value)
+        except Exception:
+            continue
+    return baselines
+
+
+def _compute_sub_agent_pnl(stats: TradingStats, sub_pvs: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    pvs = sub_pvs if isinstance(sub_pvs, dict) else (getattr(stats, "sub_agent_pvs", {}) or {})
+    if not pvs:
+        return {}
+
+    baselines = _resolve_sub_agent_baselines(stats)
+    fallback_base = float(getattr(stats, "initial_capital", 0.0) or 0.0)
+    pnl = {}
+    for name, pv_val in pvs.items():
+        try:
+            pv = float(pv_val)
+        except Exception:
+            continue
+        base = baselines.get(str(name), fallback_base)
+        pnl[str(name)] = pv - base
+    return pnl
 
 
 
@@ -1240,6 +1450,7 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
         bonus    = stats.bonus_info or {}
         live_bars = stats.live_bar_count
         uptime   = stats.uptime_str
+        market_regime = _infer_market_regime_from_stats(stats)
 
         title_color = WHT if has_perm else RED
         title_suffix = "" if has_perm else "  ⚠ НЕТ ПРАВ FUTURES"
@@ -1466,16 +1677,19 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
                    fontweight="bold", transform=ax_ag.transAxes)
 
         sub_pvs = getattr(stats, 'sub_agent_pvs', {})
+        sub_agent_pnl = _compute_sub_agent_pnl(stats, sub_pvs)
+        sub_agent_initials = _resolve_sub_agent_baselines(stats)
         if sub_pvs:
             sorted_pvs = sorted(sub_pvs.items(), key=lambda kv: -kv[1])
             top_pvs = sorted_pvs[:8]
-            per_agent_start = ic / max(len(sorted_pvs), 1)
             y_top = 0.86
             y_bottom = 0.14
             step = (y_top - y_bottom) / max(len(top_pvs) - 1, 1)
             for idx, (name, pv_val) in enumerate(top_pvs):
                 y0 = y_top - idx * step
-                chg = (pv_val - per_agent_start) / per_agent_start * 100 if per_agent_start > 0 else 0
+                base = float(sub_agent_initials.get(str(name), ic) or 0.0)
+                pnl_val = float(sub_agent_pnl.get(str(name), float(pv_val) - base))
+                chg = (pnl_val / base * 100.0) if base > 0 else 0.0
                 c = GRN if chg >= 0 else RED
                 short_name = _shorten_label(name.replace("STP_", "").replace("V_", ""), 18)
                 ax_ag.text(0.04, y0, short_name, color=CYN, fontsize=8,
@@ -1571,16 +1785,54 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
         ax_fund = fig.add_subplot(layout[2, 2])
         _style(ax_fund, "Funding rate (avg)")
 
-        fund_hist = getattr(stats, 'funding_history', [])
+        raw_fund_hist = getattr(stats, 'funding_history', [])
+        fund_hist = []
+        for value in raw_fund_hist:
+            try:
+                fval = float(value)
+            except Exception:
+                continue
+            if np.isfinite(fval):
+                fund_hist.append(fval)
         if len(fund_hist) > 1:
             fvals = [f * 100 for f in fund_hist[-60:]]
             fcols = [GRN if v >= 0 else RED for v in fvals]
             ax_fund.bar(range(len(fvals)), fvals, color=fcols, width=0.8, alpha=0.8)
             ax_fund.axhline(0, color=WHT, lw=0.5, alpha=0.4)
             ax_fund.set_ylabel("%", color=GRY, fontsize=7)
+        elif fund_hist:
+            fval = fund_hist[-1] * 100
+            ax_fund.bar([0], [fval], color=GRN if fval >= 0 else RED, width=0.55, alpha=0.85)
+            ax_fund.axhline(0, color=WHT, lw=0.5, alpha=0.4)
+            ax_fund.set_xticks([0])
+            ax_fund.set_xticklabels(["now"], color=GRY, fontsize=7)
+            ax_fund.set_ylabel("%", color=GRY, fontsize=7)
+            ax_fund.text(0.5, 0.88, f"{fval:+.4f}%", ha="center", va="top",
+                         color=WHT, fontsize=8, transform=ax_fund.transAxes)
         else:
-            ax_fund.text(0.5, 0.5, "Накопление...", ha="center", va="center",
+            regime_colors = {
+                "bull": GRN,
+                "bear": RED,
+                "sideways": CYN,
+                "crash": ORG,
+            }
+            regime_labels = {
+                "bull": "BULL",
+                "bear": "BEAR",
+                "sideways": "SIDEWAYS",
+                "crash": "CRASH",
+            }
+            ax_fund.text(0.5, 0.62, "No funding data\n(waiting or unsupported)",
+                         ha="center", va="center",
                          color=GRY, fontsize=9, transform=ax_fund.transAxes)
+            ax_fund.text(
+                0.5, 0.18,
+                regime_labels.get(market_regime, "UNKNOWN"),
+                ha="center", va="center",
+                color=regime_colors.get(market_regime, WHT),
+                fontsize=12, fontweight="bold",
+                transform=ax_fund.transAxes,
+            )
 
         # ══════════════════════════════════════════════════════
         # ROW 2 col 3 — Инструкция если нет прав
@@ -1640,26 +1892,10 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
                 _sys.path.insert(0, _db_dir)
             from mexc_dashboards import plot_api_trading_dashboard
 
-            # Определяем тип рынка из sub_agent_pvs / equity curve
-            _regime = 'unknown'
-            try:
-                from crypto_agents import _detect_regime_live, _r3
-                from collections import deque as _dq
-                _ph_raw = getattr(stats, '_price_hist_raw', {})
-                if _ph_raw:
-                    _raw = _detect_regime_live(
-                        {s: _dq(v, maxlen=len(v)) for s, v in _ph_raw.items()})
-                    _regime = {'bullish': 'bull', 'bearish': 'bear',
-                               'neutral': 'sideways'}.get(_r3(_raw), 'sideways')
-            except Exception:
-                pass
-
+            _regime = _infer_market_regime_from_stats(stats)
             _fund_hist = getattr(stats, 'funding_history', [])
             _fund_avg  = float(_fund_hist[-1]) if _fund_hist else 0.0
-            _sub_pvs   = getattr(stats, 'sub_agent_pvs', {})
-            _ic        = stats.initial_capital
-            _per_ag    = _ic / max(len(_sub_pvs), 1) if _sub_pvs else _ic
-            _sub_pnl   = {k: v - _per_ag for k, v in _sub_pvs.items()}
+            _sub_pnl   = _compute_sub_agent_pnl(stats)
 
             plot_api_trading_dashboard(
                 stats=stats,
@@ -1982,19 +2218,25 @@ class MonitorThread(threading.Thread):
         #   • dashboard_latest.png  — всегда перезаписывается (актуальное состояние)
         #   • api_trading_enhanced.png — строится внутри save_dashboard (полный дашборд)
         #   • timestamped dashboard_{HH-MM-SS}.png — УБРАНЫ (дублировали enhanced без пользы)
-        save_dashboard(self._stats, self._output_dir, "dashboard_latest.png")
         save_summary_json(self._stats, self._output_dir)
 
         # Собираем sub_agent_pvs — поддержка Panteon (нет _virt) и PlayerStop (есть _virt)
         try:
             bridge = self._bridge
             if bridge is not None:
+                self._stats.sub_agent_pvs = {}
+                self._stats.sub_agent_initials = {}
+                self._stats.capture_price_history(getattr(bridge, "_price_hist", None), limit=360)
                 for agent_name, agent in bridge.agents.items():
                     player = getattr(agent, '_inner', agent)
                     if hasattr(player, '_virt'):
                         # PlayerStop: виртуальный PV каждого суб-агента
                         for name, vv in player._virt.items():
                             self._stats.sub_agent_pvs[name] = round(vv.value, 4)
+                            try:
+                                self._stats.sub_agent_initials[name] = round(float(vv.initial), 4)
+                            except Exception:
+                                pass
                     elif hasattr(player, '_open_pos'):
         # Panteon — взвешиваем вклад по числу сигналов суб-агентов
                         eq = self._stats.equity_curve
@@ -2023,8 +2265,11 @@ class MonitorThread(threading.Thread):
                                 sig_share = 1.0 / n_subs
                             pv_approx = per_base + total_pnl * sig_share
                             self._stats.sub_agent_pvs[label] = round(pv_approx, 4)
+                            self._stats.sub_agent_initials[label] = round(per_base, 4)
         except Exception:
             pass
+
+        save_dashboard(self._stats, self._output_dir, "dashboard_latest.png")
 
     def stop(self):
         self._stop_evt.set()
@@ -2043,13 +2288,18 @@ def _check_futures_api_permission(direct_client: 'MexcDirectClient') -> bool:
     """
     import requests as _req, hmac as _hm, hashlib as _hs, time as _t
     try:
+        api_key = getattr(direct_client, "api_key", None) or API_KEY
+        api_secret = getattr(direct_client, "api_secret", None) or API_SECRET
+        if not api_key or not api_secret:
+            log.error("MEXC futures permission check: API key/secret are empty.")
+            return False
         ts  = str(int(_t.time() * 1000))
         q   = ""  # GET без параметров
-        msg = f"{API_KEY}{ts}{q}"
-        sig = _hm.new(API_SECRET.encode(), msg.encode(), _hs.sha256).hexdigest()
+        msg = f"{api_key}{ts}{q}"
+        sig = _hm.new(api_secret.encode(), msg.encode(), _hs.sha256).hexdigest()
         r = _req.get(
             "https://contract.mexc.com/api/v1/private/position/open_positions",
-            headers={"ApiKey": API_KEY, "Request-Time": ts,
+            headers={"ApiKey": api_key, "Request-Time": ts,
                      "Signature": sig, "Content-Type": "application/json",
                      "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -2058,8 +2308,17 @@ def _check_futures_api_permission(direct_client: 'MexcDirectClient') -> bool:
         )
         # 200 = аутентификация прошла, права есть
         # 401/403 = ключ неверный или нет прав
-        return r.status_code == 200
-    except Exception:
+        if r.status_code == 200:
+            return True
+        body_preview = (r.text or "")[:240].replace("\n", " ")
+        log.warning(
+            "MEXC futures permission check: HTTP %s, body=%s",
+            r.status_code,
+            body_preview,
+        )
+        return False
+    except Exception as e:
+        log.debug("MEXC futures permission check skipped after error: %s", e)
         return True  # при сетевой ошибке не блокируем запуск
 
 
@@ -2071,7 +2330,7 @@ def main():
 
     # ── Папка результатов ──────────────────────────────────────────────────
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    out = os.path.join(script_dir, RESULTS_ROOT, session_date)
+    out = os.path.join(str(PROJECT_ROOT), RESULTS_ROOT, session_date)
     os.makedirs(out, exist_ok=True)
     _setup_file_logging(out)
 
@@ -2282,6 +2541,19 @@ def main():
             log.info("  💡 Капитал обновлён: $%.4f (баланс изменился за время прогрева)",
                      detected_capital)
 
+        fut = live_snapshot.get("futures", {}) or {}
+        live_balance = float(fut.get("equity", detected_capital) or detected_capital)
+        live_available = float(fut.get("available", live_balance) or live_balance)
+        live_unrealized = float(fut.get("unrealized", 0.0) or 0.0)
+        stats.reset_live_baseline(
+            detected_capital,
+            balance=live_balance,
+            available=live_available,
+            pnl=live_unrealized,
+            live_bar=0,
+            reset_activity=True,
+        )
+
         # Инъектируем реальные позиции в агент
         # SignalCapturingAgent хранит оригинальный агент в _inner
         raw_player_ref = getattr(capturing_agent, '_inner', raw_player)
@@ -2290,8 +2562,8 @@ def main():
     except Exception as e:
         log.warning("  Синхронизация не удалась: %s — агент стартует без реальных позиций.", e)
 
-    # Начальный дашборд сразу после прогрева
-    save_dashboard(stats, out, "dashboard_after_warmup.png")
+    # Initial dashboard after warmup updates the rolling latest file.
+    save_dashboard(stats, out, "dashboard_latest.png")
 
     # ── Live-торговля ─────────────────────────────────────────────────────
     log.info("═" * 70)
@@ -2308,9 +2580,9 @@ def main():
     finally:
         monitor.stop()
 
-        # Финальный дашборд
+        # Final dashboard refreshes the rolling latest file.
         try:
-            save_dashboard(stats, out, "dashboard_FINAL.png")
+            save_dashboard(stats, out, "dashboard_latest.png")
             save_summary_json(stats, out)
         except Exception:
             pass

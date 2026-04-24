@@ -14,18 +14,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+from project_paths import PROJECT_ROOT, add_runtime_paths
+
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()
@@ -45,7 +38,7 @@ log = logging.getLogger("mexc_connector")
 def _load_settings(path=None) -> dict:
     if path is None:
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        for cand in [os.path.join(script_dir, "settings.txt"), "settings.txt"]:
+        for cand in [os.path.join(str(PROJECT_ROOT), "settings.txt"), "settings.txt", os.path.join(script_dir, "settings.txt")]:
             if os.path.exists(cand):
                 path = cand; break
     if not path:
@@ -923,6 +916,11 @@ class MexcFuturesClient:
         if contract is None:
             log.debug("place_order: %s пропущен (блэклист)", symbol)
             return {"success": False, "data": None, "skip": True}
+        meta = self._get_contract_meta(symbol)
+        contract_size = max(float(meta.get("contractSize", 1.0) or 1.0), 1e-12)
+        base_amount = float(vol) * contract_size
+        notional = 0.0
+
         if self.is_symbol_on_margin_cooldown(symbol):
             remain = self.margin_cooldown_remaining(symbol)
             log.info("  ⏳ order skip: %s side=%d → cooldown after insufficient margin (%ds)",
@@ -1020,7 +1018,15 @@ class MexcFuturesClient:
                     self._insufficient_symbol_until[symbol] = time.time() + 180
                 elif code in (2011, 2013, 2019):
                     self._bad_symbols.add(symbol)
-            return {"success": success, "data": res.get("data"), "code": code}
+            return {
+                "success": success,
+                "data": res.get("data"),
+                "code": code,
+                "contracts": vol,
+                "contractSize": contract_size,
+                "amount": base_amount,
+                "notional": notional,
+            }
         except ImportError:
             log.debug("pymexc не установлен, fallback на прямой запрос")
         except Exception as e:
@@ -1053,7 +1059,15 @@ class MexcFuturesClient:
                     self._insufficient_symbol_until[symbol] = time.time() + 180
                 if code in (2011, 2013, 2019, 429, 400):
                     self._bad_symbols.add(symbol)
-            return {"success": success, "data": res.get("data"), "code": code}
+            return {
+                "success": success,
+                "data": res.get("data"),
+                "code": code,
+                "contracts": vol,
+                "contractSize": contract_size,
+                "amount": base_amount,
+                "notional": notional,
+            }
         except requests.HTTPError as e:
             log.error("  ❌ order HTTP error: %s side=%d → %s", contract, side, e)
             return {"success": False, "data": None, "error": str(e)}
@@ -1882,6 +1896,7 @@ class AgentMexcBridge:
         self._bar        = 0
         self._warmup_end = 0
         self._price_hist : List[dict] = []
+        self._volume_hist: List[dict] = []
         # FIX v4: direct_client (MexcDirectClient, SHA256) как резервный источник
         # баланса если MexcFuturesClient.account_assets() вернул 0.
         self._direct_client = direct_client
@@ -1911,7 +1926,7 @@ class AgentMexcBridge:
             self.output_dir = output_dir
         else:
             ts   = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            base = os.path.dirname(os.path.abspath(__file__))
+            base = str(PROJECT_ROOT)
             self.output_dir = os.path.join(base, "Results", "MEXC", ts)
         os.makedirs(self.output_dir, exist_ok=True)
         log.info("📁 Результаты: %s", self.output_dir)
@@ -2072,6 +2087,7 @@ class AgentMexcBridge:
         for i, (prices, volumes) in enumerate(zip(prices_bars, volumes_bars)):
             self._bar += 1
             self._price_hist.append(dict(prices))
+            self._volume_hist.append(dict(volumes))
             is_active = (i >= active_start)
 
             for agent_name, agent in self.agents.items():
@@ -2286,6 +2302,8 @@ class AgentMexcBridge:
                 # Теперь: pv = equity (реальная стоимость счёта с PnL позиций).
                 usdt_avail = assets.get("USDT_AVAIL", 0.0)
                 usdt_eq    = assets.get("USDT", 0.0)          # equity = avail + margin + unrealPnL
+                self._last_futures_available_margin = float(usdt_avail or 0.0)
+                self._last_futures_equity = float(usdt_eq or 0.0)
                 # Используем equity как PV — отражает реальный капитал с учётом позиций
                 usdt = usdt_eq if usdt_eq >= MIN_ORDER_USDT else usdt_avail
                 if usdt >= MIN_ORDER_USDT:
@@ -2297,6 +2315,7 @@ class AgentMexcBridge:
                         snap = self._direct_client.get_full_snapshot()
                         equity = snap['futures']['equity']
                         if equity >= MIN_ORDER_USDT:
+                            self._last_futures_equity = float(equity)
                             self._last_good_futures_pv = float(equity)
                             return equity
                     except Exception:
@@ -2603,6 +2622,17 @@ class AgentMexcBridge:
         for agent_name, agent in self.agents.items():
             pv = self._get_pv(agent_name, prices)
             log.info("  [%s] portfolio_value=%.2f USDT", agent_name, pv)
+            if self.mode in ("demo_futures", "live_futures"):
+                available_margin = float(getattr(self, '_last_futures_available_margin', 0.0) or 0.0)
+                account_equity = float(getattr(self, '_last_futures_equity', pv) or pv)
+                for target in (agent, getattr(agent, '_inner', None)):
+                    if target is None:
+                        continue
+                    try:
+                        setattr(target, '_last_available_margin', available_margin)
+                        setattr(target, '_last_account_equity', account_equity)
+                    except Exception:
+                        pass
             try:
                 actions: dict = agent.act(
                     prices=prices, volumes=volumes,
@@ -2642,22 +2672,23 @@ class AgentMexcBridge:
 
             # Фаза 2: OPEN — по одному, с проверкой маржи перед каждым
             for sym, action in open_actions:
-                if self.futures_client.is_symbol_on_margin_cooldown(sym):
-                    remain = self.futures_client.margin_cooldown_remaining(sym)
-                    log.info("  [%s] ⏳ cooldown после insufficient margin: %s (%ds)",
-                             agent_name, sym, remain)
-                    continue
-                # Свежая проверка маржи перед КАЖДЫМ open-ордером
-                _free = 0.0
-                try:
-                    _assets = self.futures_client.account_assets()
-                    _free = float(_assets.get("USDT_AVAIL", 0) or 0)
-                    if _free < MIN_ORDER_USDT:
-                        log.info("  [%s] ⛔ Маржа $%.2f < MIN $%.1f → пропуск %s",
-                                 agent_name, _free, MIN_ORDER_USDT, sym)
+                _free = float(pv or 0.0)
+                if self.mode in ("demo_futures", "live_futures") and self.futures_client is not None:
+                    if self.futures_client.is_symbol_on_margin_cooldown(sym):
+                        remain = self.futures_client.margin_cooldown_remaining(sym)
+                        log.info("  [%s] ⏳ cooldown после insufficient margin: %s (%ds)",
+                                 agent_name, sym, remain)
                         continue
-                except Exception:
-                    pass
+                    # Свежая проверка маржи перед КАЖДЫМ open-ордером
+                    try:
+                        _assets = self.futures_client.account_assets()
+                        _free = float(_assets.get("USDT_AVAIL", 0) or 0)
+                        if _free < MIN_ORDER_USDT:
+                            log.info("  [%s] ⛔ Маржа $%.2f < MIN $%.1f → пропуск %s",
+                                     agent_name, _free, MIN_ORDER_USDT, sym)
+                            continue
+                    except Exception:
+                        pass
                 risk_multiplier = float(risk_map.get(sym, 1.0) or 1.0)
                 log.info("  [%s] → %s %s  (action=%d)  free=$%.1f  risk=%.2fx",
                          agent_name, ACTION_NAMES.get(action, action), sym, action, _free, risk_multiplier)

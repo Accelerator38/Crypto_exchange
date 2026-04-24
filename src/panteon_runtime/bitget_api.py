@@ -8,12 +8,11 @@ import sys
 import time
 from typing import Dict, List
 
+from project_paths import add_runtime_paths
+
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_site = os.path.join(base_dir, ".venv", "Lib", "site-packages")
-    if os.path.isdir(venv_site) and venv_site not in sys.path:
-        sys.path.insert(0, venv_site)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()

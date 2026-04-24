@@ -38,23 +38,17 @@ from datetime import datetime, timezone, timedelta
 from collections import OrderedDict, deque, defaultdict
 from typing import Dict, List, Optional, Tuple
 
+from env_bootstrap import load_local_env
 from exchange_registry import load_exchange_runtime
+from project_paths import PROJECT_ROOT, RUNTIME_DIR, add_runtime_paths
 
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()
+load_local_env(PROJECT_ROOT)
 
 
 def _write_json_atomic(path: str, payload, *, log_context: str = "json") -> None:
@@ -110,6 +104,79 @@ STATUS_REFRESH_INTERVAL_SEC = 60
 LEADERBOARD_INTERVAL_SEC = 600   # Таблица лидеров каждые 10 мин
 ROTATION_CHANGE_LOGS_ONLY = True
 SIGNAL_CSV_FILE = "all_signals.csv"
+MARKET_REGIMES = ("bullish", "bearish", "neutral", "crash")
+
+
+def _canonical_dashboard_regime(regime: str) -> str:
+    text = str(regime or "neutral").strip().lower()
+    if text in ("bull", "bullish", "uptrend", "risk_on"):
+        return "bullish"
+    if text in ("bear", "bearish", "downtrend", "risk_off"):
+        return "bearish"
+    if text in ("crash", "panic", "capitulation"):
+        return "crash"
+    return "neutral"
+
+
+def _detect_dashboard_symbol_regime(agent, sym: str, fallback: str = "neutral") -> str:
+    """Best-effort per-symbol regime for shadow analytics."""
+    try:
+        if hasattr(agent, "_build_symbol_profile"):
+            profile = agent._build_symbol_profile(sym)
+            if isinstance(profile, dict):
+                regime = profile.get("symbol_regime")
+                if regime and str(regime).lower() != "unknown":
+                    return _canonical_dashboard_regime(regime)
+    except Exception:
+        pass
+
+    hist = None
+    try:
+        ph = getattr(agent, "_ph", None)
+        if isinstance(ph, dict):
+            hist = list(ph.get(sym) or [])
+        elif hasattr(ph, "get"):
+            hist = list(ph.get(sym) or [])
+    except Exception:
+        hist = None
+
+    try:
+        if hasattr(agent, "_detect_symbol_regime"):
+            regime = agent._detect_symbol_regime(sym, hist)
+            if regime and str(regime).lower() != "unknown":
+                return _canonical_dashboard_regime(regime)
+    except Exception:
+        pass
+
+    if hist is not None and len(hist) >= 61:
+        try:
+            last = float(hist[-1])
+            if last > 0:
+                short_ret = last / max(float(hist[-61]), 1e-12) - 1.0
+                medium_ret = (
+                    last / max(float(hist[-241]), 1e-12) - 1.0
+                    if len(hist) >= 241 else short_ret
+                )
+                long_ret = (
+                    last / max(float(hist[-721]), 1e-12) - 1.0
+                    if len(hist) >= 721 else medium_ret
+                )
+                if medium_ret <= -0.080 or long_ret <= -0.120 or (
+                    short_ret <= -0.045 and medium_ret <= -0.020
+                ):
+                    return "crash"
+                if short_ret >= 0.004 and medium_ret >= 0.010:
+                    return "bullish"
+                if short_ret <= -0.004 and medium_ret <= -0.010:
+                    return "bearish"
+                if medium_ret >= 0.025 and short_ret > -0.002:
+                    return "bullish"
+                if medium_ret <= -0.025 and short_ret < 0.002:
+                    return "bearish"
+                return "neutral"
+        except Exception:
+            pass
+    return _canonical_dashboard_regime(fallback)
 
 FIXED_SYMBOLS = [
     "BTC", "ETH", "SOL", "XRP", "BNB",
@@ -195,7 +262,7 @@ MIN_BALANCE_USD = 1.0
 # ИНИЦИАЛИЗАЦИЯ
 # ══════════════════════════════════════════════════════════════════════════════
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
+script_dir = str(RUNTIME_DIR)
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
@@ -270,6 +337,7 @@ class VirtualPortfolio:
         self.max_drawdown = 0.0
         self._peak = initial_capital
         self.symbol_stats: Dict[str, dict] = {}
+        self.regime_stats: Dict[str, dict] = {}
 
     def reset(self):
         """Сбрасывает shadow-портфель после warmup, оставляя только live-статистику."""
@@ -287,6 +355,36 @@ class VirtualPortfolio:
         self.max_drawdown = 0.0
         self._peak = self.initial_capital
         self.symbol_stats.clear()
+        self.regime_stats.clear()
+
+    def _regime_stats(self, regime: str) -> dict:
+        key = _canonical_dashboard_regime(regime)
+        stats = self.regime_stats.get(key)
+        if stats is None:
+            stats = {
+                'ticks': 0,
+                'position_ticks': 0,
+                'signals': 0,
+                'entries': 0,
+                'closed_trades': 0,
+                'wins': 0,
+                'losses': 0,
+                'pnl': 0.0,
+                'equity_start': 0.0,
+                'equity_end': 0.0,
+            }
+            self.regime_stats[key] = stats
+        return stats
+
+    def _add_regime_pnl(self, regime: str, pnl: float, equity_value: Optional[float] = None):
+        stats = self._regime_stats(regime)
+        if float(stats.get('equity_start', 0.0) or 0.0) == 0.0:
+            stats['equity_start'] = float(
+                self.equity_history[-1] if self.equity_history else self.initial_capital
+            )
+        stats['pnl'] += float(pnl or 0.0)
+        if equity_value is not None:
+            stats['equity_end'] = float(equity_value)
 
     def _sym_stats(self, sym: str) -> dict:
         stats = self.symbol_stats.get(sym)
@@ -305,7 +403,7 @@ class VirtualPortfolio:
         return stats
 
     def execute(self, sym: str, action: int, price: float, bar: int,
-                risk_multiplier: float = 1.0):
+                risk_multiplier: float = 1.0, regime: str = ''):
         """Виртуально исполняет сигнал агента."""
         if action == 0 or price <= 0:
             return
@@ -314,6 +412,9 @@ class VirtualPortfolio:
         sym_stats = self._sym_stats(sym)
         sym_stats['signals'] += 1
         sym_stats['last_bar'] = int(bar)
+        signal_regime = _canonical_dashboard_regime(regime)
+        signal_regime_stats = self._regime_stats(signal_regime)
+        signal_regime_stats['signals'] += 1
 
         # Close actions (3, 8)
         if action in (3, 8) and sym in self.positions:
@@ -321,21 +422,29 @@ class VirtualPortfolio:
             pnl = self._calc_pnl(pos, price)
             fee_cost = abs(pos['qty'] * price * self.fee)
             net_pnl = pnl - fee_cost
+            prev_mark = float(pos.get('last_mark', pos['entry']) or pos['entry'])
+            prev_unrealized = self._calc_pnl(pos, prev_mark)
+            trade_regime = _canonical_dashboard_regime(pos.get('regime') or signal_regime)
             # FIX v8: возвращаем МАРЖУ (не полную нотионал стоимость!)
             # Было: qty * entry = notional = margin * leverage → cash раздувался в leverage раз
             margin = pos['qty'] * pos['entry'] / self.leverage
             self.cash += margin + net_pnl
+            self._add_regime_pnl(trade_regime, pnl - prev_unrealized - fee_cost, self.cash)
             self.total_pnl += net_pnl
             self.close_count += 1
             self.total_trades += 1
+            trade_regime_stats = self._regime_stats(trade_regime)
+            trade_regime_stats['closed_trades'] += 1
             sym_stats['closed_trades'] += 1
             sym_stats['realized_pnl'] += float(net_pnl)
             sym_stats['last_pnl'] = float(net_pnl)
             if net_pnl > 0:
                 self.wins += 1
+                trade_regime_stats['wins'] += 1
                 sym_stats['wins'] += 1
             else:
                 self.losses += 1
+                trade_regime_stats['losses'] += 1
                 sym_stats['losses'] += 1
             self.trades_log.append({
                 'bar': bar, 'sym': sym, 'side': pos['side'],
@@ -369,10 +478,13 @@ class VirtualPortfolio:
 
         fee_cost = qty * price * self.fee
         self.cash -= margin + fee_cost
+        self._add_regime_pnl(signal_regime, -fee_cost, self.cash)
         self.entry_count += 1
+        signal_regime_stats['entries'] += 1
         sym_stats['entries'] += 1
         self.positions[sym] = {
             'side': side, 'qty': qty, 'entry': price, 'bar': bar,
+            'last_mark': price, 'regime': signal_regime,
         }
 
     def _calc_pnl(self, pos: dict, cur_price: float) -> float:
@@ -390,9 +502,30 @@ class VirtualPortfolio:
             eq += self._calc_pnl(pos, p)                      # unrealized PnL
         return eq
 
-    def snapshot(self, prices: dict):
+    def snapshot(self, prices: dict, regime: str = '',
+                 symbol_regimes: Optional[Dict[str, str]] = None):
         eq = self.get_equity(prices)
         self.equity_history.append(eq)
+        symbol_regimes = symbol_regimes or {}
+        seen_regimes = set()
+        for sym, pos in self.positions.items():
+            try:
+                cur_price = float(prices.get(sym, pos['entry']) or pos['entry'])
+                prev_mark = float(pos.get('last_mark', pos['entry']) or pos['entry'])
+            except (TypeError, ValueError):
+                continue
+            cur_pnl = self._calc_pnl(pos, cur_price)
+            prev_pnl = self._calc_pnl(pos, prev_mark)
+            pos['last_mark'] = cur_price
+            pos_regime = _canonical_dashboard_regime(
+                symbol_regimes.get(sym) or pos.get('regime') or regime
+            )
+            if pos_regime not in seen_regimes:
+                stats = self._regime_stats(pos_regime)
+                stats['ticks'] += 1
+                stats['position_ticks'] += 1
+                seen_regimes.add(pos_regime)
+            self._add_regime_pnl(pos_regime, cur_pnl - prev_pnl, eq)
         if eq > self._peak:
             self._peak = eq
         dd = (self._peak - eq) / (self._peak + 1e-9)
@@ -426,6 +559,35 @@ class VirtualPortfolio:
                 'last_bar': int(stats.get('last_bar', 0) or 0),
                 'has_open_position': int(pos is not None),
                 'position_side': str(pos['side']) if pos is not None else '',
+            }
+        return out
+
+    def export_regime_stats(self) -> Dict[str, dict]:
+        out: Dict[str, dict] = {}
+        for regime in MARKET_REGIMES:
+            stats = dict(self.regime_stats.get(regime) or {})
+            ticks = int(stats.get('ticks', 0) or 0)
+            wins = int(stats.get('wins', 0) or 0)
+            losses = int(stats.get('losses', 0) or 0)
+            closed = int(stats.get('closed_trades', 0) or 0)
+            pnl = float(stats.get('pnl', 0.0) or 0.0)
+            out[regime] = {
+                'ticks': ticks,
+                'position_ticks': int(stats.get('position_ticks', 0) or 0),
+                'signals': int(stats.get('signals', 0) or 0),
+                'entries': int(stats.get('entries', 0) or 0),
+                'closed_trades': closed,
+                'wins': wins,
+                'losses': losses,
+                'win_rate': wins / max(closed, 1) * 100.0 if closed else 0.0,
+                'pnl': pnl,
+                'pnl_pct': pnl / max(self.initial_capital, 1e-9) * 100.0,
+                'active_ratio': (
+                    float(stats.get('position_ticks', 0) or 0) / max(ticks, 1)
+                    if ticks else 0.0
+                ),
+                'equity_start': float(stats.get('equity_start', 0.0) or 0.0),
+                'equity_end': float(stats.get('equity_end', 0.0) or 0.0),
             }
         return out
 
@@ -742,12 +904,12 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
                              LiveCrashHunter, LiveRegimePullback,
                              LiveMeanRev, LiveTrendFollow,
                              LiveVolCompress, LiveOIBreakout, CarryFlowAgentV2,
+                             VolBreakoutHunter,
+                             BullRotationAgent, BearReliefFadeAgent,
+                             NeutralRangeScalper, CrashPanicShortAgent,
                              ExternalSignalAgent, ResearchValidatorAgent,
                              RichardDennisTurtle, Bomberman,
-                             PlayerBomberman, PlayerFunding,
-                             NeuroPlayer, PanteonResearch,
-                             PanteonTrendResearch, PanteonMeanRevResearch,
-                             PanteonDefensiveResearch, PanteonConsensusResearch)
+                             PlayerBomberman, PlayerFunding)
         agent_classes = [
             ("V_MomentumScalper",  MomentumScalper),
             ("V_FundingArb",       FundingArb),
@@ -759,18 +921,17 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
             ("V_LiveVolCompress",  LiveVolCompress),
             ("V_LiveOIBreakout",   LiveOIBreakout),
             ("V_CarryFlowAgentV2", CarryFlowAgentV2),
+            ("V_VolBreakoutHunter", VolBreakoutHunter),
+            ("V_BullRotationAgent", BullRotationAgent),
+            ("V_BearReliefFadeAgent", BearReliefFadeAgent),
+            ("V_NeutralRangeScalper", NeutralRangeScalper),
+            ("V_CrashPanicShortAgent", CrashPanicShortAgent),
             ("V_ExternalSignalAgent", ExternalSignalAgent),
             ("V_ResearchValidatorAgent", ResearchValidatorAgent),
             ("V_RichardDennisTurtle", RichardDennisTurtle),
             ("V_Bomberman",        Bomberman),
             ("V_PlayerBomberman",  PlayerBomberman),
             ("V_PlayerFunding",    PlayerFunding),
-            ("V_PanteonResearch", PanteonResearch),
-            ("V_PanteonTrendResearch", PanteonTrendResearch),
-            ("V_PanteonMeanRevResearch", PanteonMeanRevResearch),
-            ("V_PanteonDefensiveResearch", PanteonDefensiveResearch),
-            ("V_PanteonConsensusResearch", PanteonConsensusResearch),
-            ("V_NeuroPlayer",      NeuroPlayer),
         ]
         for name, cls in agent_classes:
             try:
@@ -793,30 +954,25 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
 
     # --- Альтернативный Panteon (для сравнения с самим собой) ---
     try:
-        from panteon import Panteon
-        agent = Panteon()
-        vp = VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE)
-        shadows["V_Panteon_shadow"] = (agent, vp)
+        pass
     except Exception as e:
         log.debug("  Panteon shadow skip: %s", e)
 
     # --- Новый pipeline player для shadow-first сравнения ---
     try:
-        from panteon import PanteonNextResearch
-        agent = PanteonNextResearch()
-        vp = VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE)
-        shadows["V_PanteonNextResearch"] = (agent, vp)
+        pass
     except Exception as e:
         log.debug("  PanteonNextResearch shadow skip: %s", e)
 
     # --- Генетические агенты ---
     try:
-        from crypto_genetics import GeneticsBullishAgent, GeneticsBearishAgent
-        from crypto_agents import _GeneticsAdapter
+        from crypto_genetics import GeneticsBullishAgent, GeneticsBearishAgent, GeneticsNeutralAgent
+        from panteon_agents import make_genetics_panteon_agent
         for name, cls in [("V_GeneticsBullish", GeneticsBullishAgent),
-                          ("V_GeneticsBearish", GeneticsBearishAgent)]:
+                          ("V_GeneticsBearish", GeneticsBearishAgent),
+                          ("V_GeneticsNeutral", GeneticsNeutralAgent)]:
             try:
-                agent = _GeneticsAdapter(cls())
+                agent = make_genetics_panteon_agent(cls)
                 vp = VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE)
                 shadows[name] = (agent, vp)
             except Exception as e:
@@ -831,6 +987,51 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
 # ══════════════════════════════════════════════════════════════════════════════
 # РАСШИРЕННЫЙ SIGNAL-CAPTURING AGENT
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _create_shadow_players(initial_capital: float) -> Dict[str, tuple]:
+    """Return player-level aggregation strategies tracked in shadow mode."""
+    players = OrderedDict()
+    try:
+        from panteon import (
+            NeuroPlayer,
+            Panteon,
+            PanteonConsensusResearch,
+            PanteonDefensiveResearch,
+            PanteonMeanRevResearch,
+            PanteonNextResearch,
+            PanteonResearch,
+            PanteonTrendResearch,
+            PlayerBomberman,
+            PlayerFunding,
+        )
+        specs = [
+            ("V_Panteon_shadow", lambda: Panteon(enable_meta_players=False)),
+            ("V_PlayerFunding", PlayerFunding),
+            ("V_PlayerBomberman", PlayerBomberman),
+            ("V_PanteonResearch", PanteonResearch),
+            ("V_PanteonTrendResearch", PanteonTrendResearch),
+            ("V_PanteonMeanRevResearch", PanteonMeanRevResearch),
+            ("V_PanteonDefensiveResearch", PanteonDefensiveResearch),
+            ("V_PanteonConsensusResearch", PanteonConsensusResearch),
+            ("V_PanteonNextResearch", PanteonNextResearch),
+            ("V_NeuroPlayer", NeuroPlayer),
+        ]
+        for name, factory in specs:
+            try:
+                player = factory()
+                if hasattr(player, 'set_shadow_bootstrap_mode'):
+                    player.set_shadow_bootstrap_mode(True)
+                else:
+                    setattr(player, '_shadow_bootstrap_mode', True)
+                vp = VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE)
+                players[name] = (player, vp)
+            except Exception as exc:
+                log.debug("  Shadow player %s skip: %s", name, exc)
+    except Exception as exc:
+        log.warning("  shadow player import failed: %s", exc)
+    log.info("  Shadow-players created: %d -> %s", len(players), list(players.keys()))
+    return players
+
 
 class EnhancedSignalCapture:
     """
@@ -982,7 +1183,9 @@ _check_futures_api_permission = _exchange_adapter.check_futures_api_permission
 
 def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
                           stats, regime_tracker,
-                          output_dir: str):
+                          output_dir: str,
+                          output_filename: str = 'shadow_agents_dashboard.png',
+                          title: str = "SHADOW AGENTS DASHBOARD - Virtual Trading Leaderboard"):
     """Генерирует PNG-дашборд с прогрессом всех shadow-агентов vs реального."""
     try:
         import matplotlib
@@ -996,6 +1199,9 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
     if not vp_map:
         return
 
+    entity_label = 'players' if 'PLAYER' in str(title or '').upper() else 'agents'
+    entity_label_ru = 'игроков' if entity_label == 'players' else 'агентов'
+
     # Цвета
     BG   = '#0D1117'
     MID  = '#161B22'
@@ -1008,7 +1214,7 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
     GRID = '#21262D'
 
     fig = plt.figure(figsize=(22, 14), facecolor=BG)
-    fig.suptitle("SHADOW AGENTS DASHBOARD — Virtual Trading Leaderboard",
+    fig.suptitle(title,
                  fontsize=14, fontweight='bold', color=WHT, y=0.98)
 
     gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.35, wspace=0.30,
@@ -1136,6 +1342,7 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
     ax_eq = fig.add_subplot(gs[0, :2])
     _style(ax_eq, 'Equity Curves — Shadow Agents vs Real')
 
+    _style(ax_eq, f'Equity Curves — Shadow {entity_label.title()} vs Real')
     for i, (name, vp) in enumerate(ranked):
         eq = _repair_curve_spikes(vp.equity_history)
         if len(eq) < 2:
@@ -1167,10 +1374,13 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
 
     names = [_clean_label(n, max_len=16) for n, _ in ranked]
     pnls = [vp.pnl_pct for _, vp in ranked]
-    colors = [GRN if p > 0 else RED for p in pnls]
+    colors = [GRN if p > 0 else (RED if p < 0 else GRY) for p in pnls]
 
     y_pos = range(len(names))
     ax_bar.barh(y_pos, pnls, color=colors, alpha=0.8, height=0.7)
+    for idx, pnl_val in enumerate(pnls):
+        if abs(float(pnl_val or 0.0)) <= 1e-9:
+            ax_bar.scatter(0, idx, color=GRY, s=18, zorder=4)
     # Линия реального агента
     ax_bar.axvline(real_pnl, color=YLW, lw=2, linestyle='--',
                    label=f'REAL {real_pnl:+.1f}%')
@@ -1243,6 +1453,8 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
         "",
         "── ТОП-3 ──",
     ]
+    if len(lines) >= 5:
+        lines[4] = f"Shadow {entity_label_ru}: {len(vp_map)}"
     for i, (name, vp) in enumerate(ranked[:3]):
         lines.append(f"  {i+1}. {_clean_label(name, max_len=16)}: {vp.pnl_pct:+.1f}% "
                      f"(Sig={vp.signal_count} Cls={vp.close_count})")
@@ -1262,11 +1474,142 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
                     color=clr, va='top', fontfamily='monospace')
 
     # Сохраняем
-    path = os.path.join(output_dir, 'shadow_dashboard.png')
+    path = os.path.join(output_dir, output_filename)
     fig.savefig(path, dpi=130, bbox_inches='tight',
                 facecolor=BG, edgecolor='none')
     plt.close(fig)
     log.debug("  📊 Shadow dashboard → %s", path)
+
+
+def save_shadow_agents_dashboard(vp_map: Dict[str, 'VirtualPortfolio'], stats,
+                                 regime_tracker, output_dir: str):
+    save_shadow_dashboard(
+        vp_map,
+        stats,
+        regime_tracker,
+        output_dir,
+        output_filename='shadow_agents_dashboard.png',
+        title="SHADOW AGENTS DASHBOARD - Virtual Trading Leaderboard",
+    )
+
+
+def save_shadow_player_dashboard(vp_map: Dict[str, 'VirtualPortfolio'], stats,
+                                 regime_tracker, output_dir: str):
+    save_shadow_dashboard(
+        vp_map,
+        stats,
+        regime_tracker,
+        output_dir,
+        output_filename='shadow_player_dashboard.png',
+        title="SHADOW PLAYERS DASHBOARD - Aggregator Strategy Leaderboard",
+    )
+
+
+def save_agent_regime_dashboard(vp_map: Dict[str, 'VirtualPortfolio'], output_dir: str,
+                                output_filename: str = 'agent_regime_dashboard.png',
+                                title: str = 'Agent Efficiency by Market Regime'):
+    """Render regime efficiency heatmap for agents or players."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        return
+
+    if not vp_map:
+        return
+
+    rows = []
+    for name, vp in vp_map.items():
+        per_regime = vp.export_regime_stats()
+        total_abs = sum(abs(float(per_regime[r].get('pnl_pct', 0.0) or 0.0)) for r in MARKET_REGIMES)
+        total_signals = sum(int(per_regime[r].get('signals', 0) or 0) for r in MARKET_REGIMES)
+        if total_abs <= 0.0 and total_signals <= 0:
+            continue
+        rows.append((name, vp, per_regime))
+
+    if not rows:
+        return
+
+    rows.sort(key=lambda item: item[1].pnl_pct, reverse=True)
+    rows = rows[:22]
+    matrix = []
+    annot = []
+    for _name, _vp, per_regime in rows:
+        row = []
+        ann_row = []
+        for regime in MARKET_REGIMES:
+            stats = per_regime.get(regime, {})
+            pnl_pct = float(stats.get('pnl_pct', 0.0) or 0.0)
+            ticks = int(stats.get('ticks', 0) or 0)
+            signals = int(stats.get('signals', 0) or 0)
+            row.append(np.nan if ticks <= 0 and signals <= 0 else pnl_pct)
+            ann_row.append("" if ticks <= 0 and signals <= 0 else f"{pnl_pct:+.2f}%\nS{signals}")
+        matrix.append(row)
+        annot.append(ann_row)
+
+    arr = np.array(matrix, dtype=float)
+    max_abs = np.nanmax(np.abs(arr)) if np.isfinite(arr).any() else 1.0
+    max_abs = max(float(max_abs), 0.5)
+
+    BG = '#0D1117'
+    MID = '#161B22'
+    WHT = '#E6EDF3'
+    GRY = '#8B949E'
+    GRID = '#21262D'
+
+    height = max(7.0, 0.42 * len(rows) + 2.0)
+    fig, ax = plt.subplots(figsize=(11, height), facecolor=BG)
+    ax.set_facecolor(MID)
+    cmap = plt.get_cmap('RdYlGn')
+    try:
+        cmap = cmap.copy()
+        cmap.set_bad('#30363D')
+    except Exception:
+        pass
+    im = ax.imshow(arr, cmap=cmap, vmin=-max_abs, vmax=max_abs, aspect='auto')
+
+    labels = [name.replace('V_', '')[:24] for name, _, _ in rows]
+    ax.set_xticks(range(len(MARKET_REGIMES)))
+    ax.set_xticklabels([r.upper() for r in MARKET_REGIMES], color=WHT, fontsize=9)
+    ax.set_yticks(range(len(labels)))
+    ax.set_yticklabels(labels, color=WHT, fontsize=8)
+    ax.set_title(title, color=WHT, fontsize=13, fontweight='bold', pad=14)
+    ax.tick_params(colors=GRY)
+
+    for i in range(arr.shape[0]):
+        for j in range(arr.shape[1]):
+            if not np.isfinite(arr[i, j]):
+                continue
+            color = '#0D1117' if abs(arr[i, j]) > max_abs * 0.45 else WHT
+            ax.text(j, i, annot[i][j], ha='center', va='center', fontsize=7, color=color)
+
+    for spine in ax.spines.values():
+        spine.set_color(GRID)
+    ax.set_xticks(np.arange(-.5, len(MARKET_REGIMES), 1), minor=True)
+    ax.set_yticks(np.arange(-.5, len(rows), 1), minor=True)
+    ax.grid(which='minor', color=GRID, linestyle='-', linewidth=0.8)
+    ax.tick_params(which='minor', bottom=False, left=False)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.02)
+    cbar.ax.tick_params(colors=GRY, labelsize=8)
+    cbar.set_label('P&L % contribution', color=GRY, fontsize=8)
+
+    path = os.path.join(output_dir, output_filename)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140, bbox_inches='tight', facecolor=BG, edgecolor='none')
+    plt.close(fig)
+    log.debug("  📊 Agent regime dashboard → %s", path)
+
+
+def save_player_regime_dashboard(vp_map: Dict[str, 'VirtualPortfolio'], output_dir: str):
+    save_agent_regime_dashboard(
+        vp_map,
+        output_dir,
+        output_filename='player_regime_dashboard.png',
+        title='Player Efficiency by Market Regime',
+    )
 
 
 if False and EXCHANGE_NAME != "MEXC":
@@ -1306,12 +1649,14 @@ class ComboMonitorThread(threading.Thread):
 
     def __init__(self, client: MexcDirectClient, stats: TradingStats,
                  output_dir: str, shadows: Dict[str, tuple],
-                 agreement: AgreementTracker, regime_tracker: RegimeTracker):
+                 agreement: AgreementTracker, regime_tracker: RegimeTracker,
+                 shadow_players: Optional[Dict[str, tuple]] = None):
         super().__init__(daemon=True, name="combo_monitor")
         self._client = client
         self._stats = stats
         self._output_dir = output_dir
         self._shadows = shadows
+        self._shadow_players = shadow_players or OrderedDict()
         self._agreement = agreement
         self._regime_tracker = regime_tracker
         self._bridge = None
@@ -1319,6 +1664,89 @@ class ComboMonitorThread(threading.Thread):
         self._counter = 0
         self._last_leaderboard = 0
         self._last_dashboard = 0.0
+
+    def _refresh_dashboard_inputs(self):
+        bridge = self._bridge
+        if bridge is not None and hasattr(self._stats, "capture_price_history"):
+            try:
+                self._stats.capture_price_history(getattr(bridge, "_price_hist", None), limit=360)
+            except Exception:
+                pass
+        if bridge is not None and str(getattr(bridge, "mode", "") or "").lower() == "paper":
+            paper_pf = getattr(bridge, "paper_pf", {}) or {}
+            if paper_pf:
+                try:
+                    agent_name = next(iter(getattr(bridge, "agents", {}) or paper_pf))
+                    pf = paper_pf.get(agent_name) or next(iter(paper_pf.values()))
+                    prices = (getattr(bridge, "_price_hist", []) or [{}])[-1] or {}
+                    balance = float(pf.portfolio_value(prices) if prices else (pf.history[-1] if pf.history else pf.initial_capital))
+                    initial = float(getattr(pf, "initial_capital", self._stats.initial_capital) or self._stats.initial_capital)
+                    if initial > 0 and abs(float(self._stats.initial_capital) - initial) > 1e-9:
+                        self._stats.initial_capital = initial
+                    self._stats.current_positions.clear()
+                    for sym, pos in (getattr(pf, "futures", {}) or {}).items():
+                        entry = float(pos.get("entry", 0.0) or 0.0)
+                        qty = float(pos.get("qty", 0.0) or 0.0)
+                        side = str(pos.get("side", "") or "").upper()
+                        price = float(prices.get(sym, entry) or entry)
+                        direction = 1.0 if side == "LONG" else -1.0
+                        pnl = qty * (price - entry) * direction
+                        self._stats.current_positions[sym] = {
+                            "side": side,
+                            "qty": qty,
+                            "entry": entry,
+                            "pnl": pnl,
+                            "type": "paper_futures",
+                        }
+                    self._stats.bonus_info = {
+                        "real_usdt": balance,
+                        "stable_total": balance,
+                        "tradeable_total": balance,
+                        "bonus_tokens": {},
+                        "has_funds": balance >= MIN_BALANCE_USD,
+                    }
+                    self._stats.record_tick(
+                        ts=datetime.now(tz=timezone.utc),
+                        balance=balance,
+                        pnl=balance - initial,
+                        available=balance,
+                        live_bar=self._stats.live_bar_count,
+                    )
+                except Exception as exc:
+                    log.debug("paper dashboard state refresh failed: %s", exc)
+
+        if getattr(self._stats, "sub_agent_pvs", None) is not None:
+            shadow_pvs = {}
+            shadow_initials = {}
+            for name, item in (self._shadows or {}).items():
+                try:
+                    vp = item[1]
+                    hist = list(getattr(vp, "equity_history", []) or [])
+                    value = float(hist[-1] if hist else getattr(vp, "initial_capital", 0.0) or 0.0)
+                    initial = float(getattr(vp, "initial_capital", 0.0) or 0.0)
+                except Exception:
+                    continue
+                label = str(name)
+                if label.startswith("V_"):
+                    label = label[2:]
+                shadow_pvs[label] = round(value, 4)
+                shadow_initials[label] = round(initial, 4)
+            self._stats.sub_agent_pvs = shadow_pvs
+            self._stats.sub_agent_initials = shadow_initials
+
+        funding = getattr(bridge, "funding", None) if bridge is not None else None
+        if funding is None or getattr(self._stats, "funding_history", None) is None:
+            return
+        try:
+            global_funding = funding.get_global()
+            if not global_funding:
+                return
+            avg_rate = float(global_funding.get("avg_funding", 0.0) or 0.0)
+            hist = self._stats.funding_history
+            if not hist or abs(float(hist[-1]) - avg_rate) > 1e-12:
+                hist.append(avg_rate)
+        except Exception:
+            return
 
     def run(self):
         while not self._stop_evt.wait(timeout=STATUS_REFRESH_INTERVAL_SEC):
@@ -1385,15 +1813,23 @@ class ComboMonitorThread(threading.Thread):
             log.debug("Balance refresh: %s", e)
 
         # --- Dashboard ---
+        self._refresh_dashboard_inputs()
         save_summary_json(self._stats, self._output_dir)
 
         # --- Shadow Dashboard ---
         vp_map = {name: tup[1] for name, tup in self._shadows.items()}
+        player_vp_map = {name: tup[1] for name, tup in self._shadow_players.items()}
         try:
-            save_shadow_dashboard(
+            save_shadow_agents_dashboard(
                 vp_map, self._stats, self._regime_tracker,
                 self._output_dir,
             )
+            save_shadow_player_dashboard(
+                player_vp_map, self._stats, self._regime_tracker,
+                self._output_dir,
+            )
+            save_agent_regime_dashboard(vp_map, self._output_dir)
+            save_player_regime_dashboard(player_vp_map, self._output_dir)
         except Exception as e:
             log.debug("Shadow dashboard err: %s", e)
 
@@ -1405,15 +1841,19 @@ class ComboMonitorThread(threading.Thread):
         if now - self._last_leaderboard >= LEADERBOARD_INTERVAL_SEC:
             self._last_leaderboard = now
             vp_map = {name: tup[1] for name, tup in self._shadows.items()}
+            player_vp_map = {name: tup[1] for name, tup in self._shadow_players.items()}
             if not ROTATION_CHANGE_LOGS_ONLY:
                 real_pnl = self._stats.pnl_pct
                 regime = self._regime_tracker.current
                 bar = self._stats.bar_count
                 log_leaderboard(vp_map, real_pnl, regime, bar, self._regime_tracker)
+                if player_vp_map:
+                    log_leaderboard(player_vp_map, real_pnl, regime, bar, self._regime_tracker)
                 log.info(self._agreement.log_matrix())
 
             # Сохраняем leaderboard в JSON
-            self._save_leaderboard_json(vp_map)
+            self._save_leaderboard_json(vp_map, filename="leaderboard_agents.json")
+            self._save_leaderboard_json(player_vp_map, filename="leaderboard_players.json")
 
     def _reconcile_open_pos(self, exchange_positions: list):
         """Синхронизирует _open_pos агента с реальными позициями."""
@@ -1451,11 +1891,13 @@ class ComboMonitorThread(threading.Thread):
         except Exception as e:
             log.debug("  [reconcile] %s", e)
 
-    def _save_leaderboard_json(self, vp_map: Dict[str, VirtualPortfolio]):
+    def _save_leaderboard_json(self, vp_map: Dict[str, VirtualPortfolio],
+                               filename: str = "leaderboard.json"):
         try:
-            data = {}
+            collection_key = "players" if "players" in filename else "agents"
+            entries = {}
             for name, vp in vp_map.items():
-                data[name] = {
+                entries[name] = {
                     'pnl_pct': round(vp.pnl_pct, 4),
                     'equity': round(vp.equity_history[-1], 4) if vp.equity_history else 0,
                     'win_rate': round(vp.win_rate, 2),
@@ -1466,14 +1908,23 @@ class ComboMonitorThread(threading.Thread):
                     'sharpe': round(vp.sharpe(), 4),
                     'max_drawdown_pct': round(vp.max_drawdown * 100, 2),
                     'open_positions': list(vp.positions.keys()),
+                    'per_regime': vp.export_regime_stats(),
                 }
-            data['_real_pnl_pct'] = round(self._stats.pnl_pct, 4)
-            data['_regime'] = self._regime_tracker.current
-            data['_regime_history'] = self._regime_tracker.history[-20:]
-            data['_bar'] = self._stats.bar_count
-            data['_timestamp'] = datetime.now(tz=timezone.utc).isoformat()
+            data = {
+                'metadata': {
+                    'schema': 2,
+                    'collection': collection_key,
+                    'exchange': EXCHANGE_NAME,
+                    'real_pnl_pct': round(self._stats.pnl_pct, 4),
+                    'regime': self._regime_tracker.current,
+                    'regime_history': self._regime_tracker.history[-20:],
+                    'bar': self._stats.bar_count,
+                    'timestamp': datetime.now(tz=timezone.utc).isoformat(),
+                },
+                collection_key: entries,
+            }
 
-            path = os.path.join(self._output_dir, "leaderboard.json")
+            path = os.path.join(self._output_dir, filename)
             _write_json_atomic(path, data, log_context="leaderboard")
         except Exception as exc:
             log.warning("  [leaderboard.json] save failed: %s", exc)
@@ -1510,15 +1961,29 @@ def run_shadow_tick(shadows: Dict[str, tuple], prices: dict, volumes: dict,
             continue
 
         n_active = sum(1 for a in acts.values() if a and a != 0)
+        regime_symbols = set(vp.positions) | set(acts)
+        symbol_regimes = {
+            sym: _detect_dashboard_symbol_regime(agent, sym, regime)
+            for sym in regime_symbols
+            if sym in prices
+        }
 
         for sym, action in acts.items():
             if action == 0 or sym not in prices:
                 continue
 
             price = prices[sym]
+            symbol_regime = symbol_regimes.get(sym, regime)
             risk_map = getattr(agent, '_last_risk_multipliers', {}) or {}
             risk_multiplier = float(risk_map.get(sym, 1.0) or 1.0)
-            vp.execute(sym, action, price, bar, risk_multiplier=risk_multiplier)
+            vp.execute(
+                sym,
+                action,
+                price,
+                bar,
+                risk_multiplier=risk_multiplier,
+                regime=symbol_regime,
+            )
             csv_logger._implicit_risk_multiplier = risk_multiplier
 
             # Direction for agreement
@@ -1535,13 +2000,13 @@ def run_shadow_tick(shadows: Dict[str, tuple], prices: dict, volumes: dict,
                 bar=bar, live_bar=live_bar,
                 agent=name, is_real=False,
                 sym=sym, action=action, price=price,
-                regime=regime, contributors='',
+                regime=symbol_regime, contributors='',
                 pv=pv, n_pos=len(vp.positions),
                 agreement=0,  # рассчитываем после flush
             )
 
         # Snapshot портфеля
-        vp.snapshot(prices)
+        vp.snapshot(prices, regime=regime, symbol_regimes=symbol_regimes)
 
         if n_active > 0:
             log.debug("  [shadow %-22s] tick_signals=%d  signals=%d  entries=%d  closes=%d  "
@@ -1556,7 +2021,7 @@ def run_shadow_tick(shadows: Dict[str, tuple], prices: dict, volumes: dict,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tracker,
-                              real_player=None):
+                              real_player=None, shadow_players=None):
     """
     Monkey-patch bridge._fetch_market и bridge._run_cycle:
       1. _fetch_market — сохраняет volumes в bridge._last_volumes
@@ -1566,19 +2031,69 @@ def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tra
     # --- Патч _fetch_market чтобы сохранять volumes ---
     original_fetch = bridge._fetch_market
 
+    def _publish_agent_perf(prices: dict):
+        perf = _build_shadow_perf_from_shadows(shadows, prices=prices)
+        if real_player is not None and hasattr(real_player, 'set_shadow_perf'):
+            real_player.set_shadow_perf(perf)
+        for shadow_player, _vp in (shadow_players or {}).values():
+            try:
+                if hasattr(shadow_player, 'set_shadow_perf'):
+                    shadow_player.set_shadow_perf(perf)
+            except Exception:
+                pass
+        return perf
+
+    def _publish_player_perf(prices: dict):
+        player_perf = _build_shadow_perf_from_shadows(shadow_players, prices=prices) if shadow_players else {}
+        if real_player is not None and hasattr(real_player, 'set_shadow_player_perf') and shadow_players:
+            real_player.set_shadow_player_perf(player_perf)
+        for shadow_player, _vp in (shadow_players or {}).values():
+            try:
+                if hasattr(shadow_player, 'set_shadow_player_perf') and player_perf:
+                    shadow_player.set_shadow_player_perf(player_perf)
+            except Exception:
+                pass
+        return player_perf
+
     def patched_fetch():
         prices, volumes = original_fetch()
         bridge._last_volumes = volumes
+        if getattr(bridge, '_shadow_prefetch_active', False) and not getattr(bridge, '_shadow_prefetch_done', False) and prices:
+            bar = bridge._bar
+            live_bar = max(0, bar - bridge._warmup_end)
+            month = datetime.utcnow().month
+            regime = regime_tracker.current
+            run_shadow_tick(
+                shadows, prices, volumes,
+                bar, live_bar, month,
+                csv_logger, agreement, regime,
+            )
+            _publish_agent_perf(prices)
+            if shadow_players:
+                run_shadow_tick(
+                    shadow_players, prices, volumes,
+                    bar, live_bar, month,
+                    csv_logger, agreement, regime,
+                )
+                _publish_player_perf(prices)
+            bridge._shadow_prefetch_done = True
         return prices, volumes
 
     bridge._fetch_market = patched_fetch
     bridge._last_volumes = {}
+    bridge._shadow_prefetch_active = False
+    bridge._shadow_prefetch_done = False
 
     # --- Патч _run_cycle ---
     original_run_cycle = bridge._run_cycle
 
     def patched_run_cycle():
-        original_run_cycle()
+        bridge._shadow_prefetch_active = True
+        bridge._shadow_prefetch_done = False
+        try:
+            original_run_cycle()
+        finally:
+            bridge._shadow_prefetch_active = False
 
         prices = bridge._price_hist[-1] if bridge._price_hist else {}
         if not prices:
@@ -1592,11 +2107,20 @@ def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tra
         regime = regime_tracker.current
 
         # Прогоняем shadow-агентов
-        run_shadow_tick(
-            shadows, prices, volumes,
-            bar, live_bar, month,
-            csv_logger, agreement, regime,
-        )
+        if not bridge._shadow_prefetch_done:
+            run_shadow_tick(
+                shadows, prices, volumes,
+                bar, live_bar, month,
+                csv_logger, agreement, regime,
+            )
+            _publish_agent_perf(prices)
+            if shadow_players:
+                run_shadow_tick(
+                    shadow_players, prices, volumes,
+                    bar, live_bar, month,
+                    csv_logger, agreement, regime,
+                )
+                _publish_player_perf(prices)
 
         # Flush agreement tracker
         agreement.flush_tick()
@@ -1604,22 +2128,9 @@ def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tra
         # ═══════════════════════════════════════════════════════════════
         # ADAPTIVE ROTATION: передаём shadow performance в Panteon
         # ═══════════════════════════════════════════════════════════════
-        if real_player is not None and hasattr(real_player, 'set_shadow_perf'):
-            perf = {}
-            for name, (agent, vp) in shadows.items():
-                perf[name] = {
-                    'pnl_pct':      vp.pnl_pct,
-                    'win_rate':     vp.win_rate,
-                    'signals':      vp.signal_count,
-                    'entries':      vp.entry_count,
-                    'closed_trades': vp.close_count,
-                    'total_trades': vp.total_trades,
-                    'sharpe':       vp.sharpe(),
-                    'max_dd':       vp.max_drawdown * 100,
-                    'n_positions':  len(vp.positions),
-                    'per_symbol':   vp.export_symbol_stats(prices),
-                }
-            real_player.set_shadow_perf(perf)
+        _publish_agent_perf(prices)
+        _publish_player_perf(prices)
+        bridge._shadow_prefetch_done = False
 
         # Периодический подробный лог (каждые 60 live баров = ~1 час)
         if (not ROTATION_CHANGE_LOGS_ONLY) and live_bar > 0 and live_bar % 60 == 0:
@@ -1847,6 +2358,7 @@ def _build_shadow_perf_from_shadows(shadows: Dict[str, tuple], prices: Optional[
             'max_dd': vp.max_drawdown * 100,
             'n_positions': len(vp.positions),
             'per_symbol': vp.export_symbol_stats(prices),
+            'per_regime': vp.export_regime_stats(),
         }
     return perf
 
@@ -1880,13 +2392,18 @@ def _log_promotion_gate_summary(summary: Optional[dict], *, forced: bool = False
         log_fn("  [promotion-gate] %s", reason)
 
 
-def _warmup_player_from_history(player, price_hist: list, month: int):
+def _warmup_player_from_history(player, price_hist: list, month: int, volume_hist: list | None = None):
     base_pv = float(getattr(player, "_pv", INITIAL_CAPITAL) or INITIAL_CAPITAL)
     for i, hist_prices in enumerate(price_hist):
+        hist_volumes = {}
+        if isinstance(volume_hist, list) and i < len(volume_hist):
+            candidate = volume_hist[i]
+            if isinstance(candidate, dict):
+                hist_volumes = candidate
         try:
             player.act(
                 prices=hist_prices,
-                volumes={},
+                volumes=hist_volumes,
                 month=month,
                 portfolio_value=base_pv,
                 bar_index=i + 1,
@@ -1938,7 +2455,7 @@ def _create_real_player():
 def main():
     # ── Папка результатов ──────────────────────────────────────────────────
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    out = os.path.join(script_dir, RESULTS_ROOT, session_date)
+    out = os.path.join(str(PROJECT_ROOT), RESULTS_ROOT, session_date)
     os.makedirs(out, exist_ok=True)
     _setup_file_logging(out)
 
@@ -2084,6 +2601,7 @@ def main():
     # ── Shadow-агенты ──────────────────────────────────────────────────────
     log.info("\n  👻 Создаём shadow-агентов (виртуальная торговля)...")
     shadows = _create_shadow_agents(detected_capital)
+    shadow_players = _create_shadow_players(detected_capital)
 
     # ── Bridge ─────────────────────────────────────────────────────────────
     bridge_cls = _resolve_bridge_class(mc)
@@ -2104,15 +2622,32 @@ def main():
         bridge_kwargs.pop("api_passphrase", None)
         bridge = bridge_cls(**bridge_kwargs)
     bridge._stats_ref = stats
+    if TRADING_MODE == "paper" and getattr(bridge, "paper_pf", None):
+        try:
+            paper_pf = next(iter(bridge.paper_pf.values()))
+            paper_capital = float(getattr(paper_pf, "initial_capital", 0.0) or 0.0)
+            if paper_capital > 0 and abs(float(stats.initial_capital) - paper_capital) > 1e-9:
+                stats.initial_capital = paper_capital
+                stats.current_balance = paper_capital
+                stats.equity_curve = [paper_capital]
+                stats.balance_curve = [paper_capital]
+                stats.unrealized_curve = [0.0]
+                stats.total_assets_curve = [paper_capital]
+                stats.pnl_history = [0.0]
+                log.info("  [paper] stats capital synced to virtual portfolio: $%.4f", paper_capital)
+        except Exception as exc:
+            log.debug("paper stats capital sync failed: %s", exc)
 
     # Патчим bridge для shadow-агентов
     # ВАЖНО: патчим ДО warmup, чтобы shadow-агенты тоже прогрелись
     _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tracker,
-                              real_player=raw_player)
+                              real_player=raw_player,
+                              shadow_players=shadow_players)
 
     # ── Monitor ────────────────────────────────────────────────────────────
     monitor = ComboMonitorThread(
         direct_client, stats, out, shadows, agreement, regime_tracker,
+        shadow_players=shadow_players,
     )
     monitor._bridge = bridge
 
@@ -2172,12 +2707,27 @@ def main():
              len(bridge._price_hist))
     _shadow_warmup_start = time.time()
     month = datetime.utcnow().month
+    volume_hist = getattr(bridge, '_volume_hist', None)
     for i, hist_prices in enumerate(bridge._price_hist):
         bar_idx = i + 1
+        hist_volumes = {}
+        if isinstance(volume_hist, list) and i < len(volume_hist):
+            candidate = volume_hist[i]
+            if isinstance(candidate, dict):
+                hist_volumes = candidate
         for name, (agent, vp) in shadows.items():
             try:
                 agent.act(
-                    prices=hist_prices, volumes={},
+                    prices=hist_prices, volumes=hist_volumes,
+                    month=month, portfolio_value=vp.initial_capital,
+                    bar_index=bar_idx,
+                )
+            except Exception:
+                pass
+        for name, (agent, vp) in shadow_players.items():
+            try:
+                agent.act(
+                    prices=hist_prices, volumes=hist_volumes,
                     month=month, portfolio_value=vp.initial_capital,
                     bar_index=bar_idx,
                 )
@@ -2192,9 +2742,10 @@ def main():
 
     warmup_prices = bridge._price_hist[-1] if bridge._price_hist else {}
     warmup_shadow_perf = _build_shadow_perf_from_shadows(shadows, prices=warmup_prices)
+    warmup_shadow_player_perf = _build_shadow_perf_from_shadows(shadow_players, prices=warmup_prices)
     try:
         from promotion_gate import PromotionGateAgent
-        promotion_summary = PromotionGateAgent().evaluate(warmup_shadow_perf)
+        promotion_summary = PromotionGateAgent().evaluate(warmup_shadow_player_perf)
         _log_promotion_gate_summary(promotion_summary)
     except Exception as e:
         log.debug("promotion gate evaluate failed: %s", e)
@@ -2204,6 +2755,19 @@ def main():
             raw_player.set_shadow_perf(warmup_shadow_perf)
         except Exception as e:
             log.debug("warmup shadow perf inject failed: %s", e)
+    if hasattr(raw_player, 'set_shadow_player_perf') and warmup_shadow_player_perf:
+        try:
+            raw_player.set_shadow_player_perf(warmup_shadow_player_perf)
+        except Exception as e:
+            log.debug("warmup shadow player perf inject failed: %s", e)
+    for shadow_player, _vp in (shadow_players or {}).values():
+        try:
+            if hasattr(shadow_player, 'set_shadow_perf') and warmup_shadow_perf:
+                shadow_player.set_shadow_perf(warmup_shadow_perf)
+            if hasattr(shadow_player, 'set_shadow_player_perf') and warmup_shadow_player_perf:
+                shadow_player.set_shadow_player_perf(warmup_shadow_player_perf)
+        except Exception:
+            pass
 
     if selected_player_name == "PanteonNextResearch":
         force_next_live = _env_flag("PANTEON_NEXT_FORCE_LIVE")
@@ -2226,10 +2790,20 @@ def main():
                 replacement.set_memory_namespace(EXCHANGE_NAME)
             if hasattr(replacement, 'enable_real_memory'):
                 replacement.enable_real_memory()
-            _warmup_player_from_history(replacement, bridge._price_hist, month)
+            _warmup_player_from_history(
+                replacement,
+                bridge._price_hist,
+                month,
+                getattr(bridge, '_volume_hist', None),
+            )
             if hasattr(replacement, 'set_shadow_perf') and warmup_shadow_perf:
                 try:
                     replacement.set_shadow_perf(warmup_shadow_perf)
+                except Exception:
+                    pass
+            if hasattr(replacement, 'set_shadow_player_perf') and warmup_shadow_player_perf:
+                try:
+                    replacement.set_shadow_player_perf(warmup_shadow_player_perf)
                 except Exception:
                     pass
             if hasattr(replacement, 'reset_for_live'):
@@ -2247,6 +2821,9 @@ def main():
         _reset_agent_internals(agent, bridge._bar, name)
         # Очищаем виртуальный портфель — warmup P&L не релевантен
         vp.reset()
+    for name, (agent, vp) in shadow_players.items():
+        _reset_agent_internals(agent, bridge._bar, name)
+        vp.reset()
     log.info("  ✅ Shadow-агенты сброшены: %d агентов", len(shadows))
 
     # ── Синхронизация ──────────────────────────────────────────────────────
@@ -2262,6 +2839,21 @@ def main():
             log.info("  💡 Капитал обновлён: $%.4f", detected_capital)
 
         # Инъекция в реального игрока
+        fut = live_snapshot.get('futures', {}) or {}
+        live_balance = float(fut.get('equity', detected_capital) or detected_capital)
+        live_available = float(fut.get('available', live_balance) or live_balance)
+        live_unrealized = float(fut.get('unrealized', 0.0) or 0.0)
+        if hasattr(stats, 'reset_live_baseline'):
+            stats.reset_live_baseline(
+                detected_capital,
+                balance=live_balance,
+                available=live_available,
+                pnl=live_unrealized,
+                live_bar=0,
+                reset_activity=True,
+            )
+        else:
+            stats.initial_capital = detected_capital
         raw_player_ref = getattr(capturing_agent, '_inner', raw_player)
         inject_live_state_into_player(raw_player_ref, live_snapshot, bridge._bar)
         log.info("  ✅ Синхронизация завершена")
@@ -2273,7 +2865,7 @@ def main():
     except Exception as e:
         log.debug("  post-sync monitor refresh failed: %s", e)
 
-    save_dashboard(stats, out, "dashboard_after_warmup.png")
+    save_dashboard(stats, out, "dashboard_latest.png")
     if not monitor.is_alive():
         monitor.start()
 
@@ -2296,7 +2888,7 @@ def main():
 
         # Финальный отчёт
         try:
-            save_dashboard(stats, out, "dashboard_FINAL.png")
+            save_dashboard(stats, out, "dashboard_latest.png")
             save_summary_json(stats, out)
         except Exception:
             pass
@@ -2305,8 +2897,11 @@ def main():
         vp_map = {name: tup[1] for name, tup in shadows.items()}
         try:
             final_shadow_perf = _build_shadow_perf_from_shadows(shadows)
+            final_shadow_player_perf = _build_shadow_perf_from_shadows(shadow_players)
             if hasattr(raw_player, 'set_shadow_perf'):
                 raw_player.set_shadow_perf(final_shadow_perf)
+            if hasattr(raw_player, 'set_shadow_player_perf'):
+                raw_player.set_shadow_player_perf(final_shadow_player_perf)
             if hasattr(raw_player, 'save_memory_snapshot'):
                 raw_player.save_memory_snapshot(force=True, reason="shutdown")
         except Exception as e:
@@ -2314,6 +2909,10 @@ def main():
         if not ROTATION_CHANGE_LOGS_ONLY:
             log_leaderboard(vp_map, stats.pnl_pct, regime_tracker.current,
                             stats.bar_count, regime_tracker)
+            player_vp_map = {name: tup[1] for name, tup in shadow_players.items()}
+            if player_vp_map:
+                log_leaderboard(player_vp_map, stats.pnl_pct, regime_tracker.current,
+                                stats.bar_count, regime_tracker)
             log.info(agreement.log_matrix())
 
         # Финальный JSON
@@ -2328,10 +2927,11 @@ def main():
                 'regime_summary': regime_tracker.summary(),
                 'regime_changes': len(regime_tracker.history),
                 'promotion_gate': promotion_summary,
-                'shadows': {},
+                'shadow_agents': {},
+                'shadow_players': {},
             }
             for name, vp in vp_map.items():
-                final_report['shadows'][name] = {
+                final_report['shadow_agents'][name] = {
                     'pnl_pct': round(vp.pnl_pct, 4),
                     'win_rate': round(vp.win_rate, 2),
                     'signals': vp.signal_count,
@@ -2340,6 +2940,20 @@ def main():
                     'total_trades': vp.total_trades,
                     'sharpe': round(vp.sharpe(), 4),
                     'max_dd_pct': round(vp.max_drawdown * 100, 2),
+                    'per_regime': vp.export_regime_stats(),
+                    'last_trades': vp.trades_log[-10:],
+                }
+            for name, (_, vp) in shadow_players.items():
+                final_report['shadow_players'][name] = {
+                    'pnl_pct': round(vp.pnl_pct, 4),
+                    'win_rate': round(vp.win_rate, 2),
+                    'signals': vp.signal_count,
+                    'entries': vp.entry_count,
+                    'closed_trades': vp.close_count,
+                    'total_trades': vp.total_trades,
+                    'sharpe': round(vp.sharpe(), 4),
+                    'max_dd_pct': round(vp.max_drawdown * 100, 2),
+                    'per_regime': vp.export_regime_stats(),
                     'last_trades': vp.trades_log[-10:],
                 }
             path = os.path.join(out, "final_combo_report.json")
@@ -2353,6 +2967,7 @@ def main():
         log.info("  Сигналов (real):   %d", len(stats.signals))
         log.info("  Сделок (real):     %d", len(stats.trades))
         log.info("  P&L (real):        $%.2f (%.2f%%)", stats.pnl, stats.pnl_pct)
+        log.info("  Shadow-players:    %d", len(shadow_players))
         log.info("  Shadow-агентов:    %d", len(shadows))
         log.info("  Смен режима:       %d", len(regime_tracker.history))
         log.info("  CSV сигналов:      %s", SIGNAL_CSV_FILE)

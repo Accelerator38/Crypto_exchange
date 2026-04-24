@@ -16,6 +16,7 @@ from agent_meta import (
     MemorySnapshotStore,
     PortfolioAllocatorAgent,
     ShadowScoringAgent,
+    ShadowPlayerMetaSelector,
 )
 from agent_safety import (
     DeclineGuard as SharedDeclineGuard,
@@ -23,25 +24,18 @@ from agent_safety import (
     PositionExitGovernor,
     SymbolUniverseGuard,
 )
+from project_paths import MEMORY_DIR, RUNTIME_DIR, add_runtime_paths, project_path
 
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()
 
 log = logging.getLogger("panteon_agents")
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = str(RUNTIME_DIR)
+MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _sanitize_memory_namespace(namespace: Optional[str]) -> str:
@@ -56,17 +50,27 @@ def _memory_paths_for_namespace(namespace: Optional[str]):
     token = _sanitize_memory_namespace(namespace)
     if not token:
         return (
-            os.path.join(SCRIPT_DIR, "Real_Player_Memory.txt"),
-            os.path.join(SCRIPT_DIR, "Real_Player_Memory"),
+            str(MEMORY_DIR / "Real_Player_Memory.txt"),
+            str(MEMORY_DIR / "Real_Player_Memory"),
         )
     return (
-        os.path.join(SCRIPT_DIR, f"Real_Player_Memory_{token}.txt"),
-        os.path.join(SCRIPT_DIR, f"Real_Player_Memory_{token}"),
+        str(MEMORY_DIR / f"Real_Player_Memory_{token}.txt"),
+        str(MEMORY_DIR / f"Real_Player_Memory_{token}"),
     )
+
+
+def _aggregator_memory_path_for_namespace(namespace: Optional[str]) -> str:
+    token = _sanitize_memory_namespace(namespace)
+    if not token:
+        return str(MEMORY_DIR / "Real_Player_Aggregator_Memory.txt")
+    return str(MEMORY_DIR / f"Real_Player_Aggregator_Memory_{token}.txt")
 
 
 _DEFAULT_MEMORY_NAMESPACE = os.getenv("CRYPTO_EXCHANGE") or os.getenv("CRYPTO_EXCHANGE_ID")
 REAL_PLAYER_MEMORY_FILE, LEGACY_REAL_PLAYER_MEMORY_FILE = _memory_paths_for_namespace(
+    _DEFAULT_MEMORY_NAMESPACE
+)
+REAL_PLAYER_AGGREGATOR_MEMORY_FILE = _aggregator_memory_path_for_namespace(
     _DEFAULT_MEMORY_NAMESPACE
 )
 
@@ -122,6 +126,27 @@ def _mom(arr, lb):
     b = lst[-lb-1]
     return (lst[-1]/b - 1) if b > 0 else 0.0
 
+
+def _entry_cooldown_penalty(last_entry, sym, now, cooldown):
+    if cooldown <= 0:
+        return 0.0
+    try:
+        last = int((last_entry or {}).get(sym, -10**9) or -10**9)
+        age = max(0, int(now) - last)
+    except Exception:
+        return 0.0
+    if age >= cooldown:
+        return 0.0
+    return float(cooldown - age) / max(float(cooldown), 1.0)
+
+
+def _take_ranked_entries(candidates, slots):
+    if slots <= 0 or not candidates:
+        return []
+    ranked = sorted(candidates, key=lambda item: (-float(item[0]), str(item[1])))
+    return ranked[:slots]
+
+
 def _regime(h_dict, lb=60):
     """bull/bear/sideways по медиане momentum."""
     moms = []
@@ -169,6 +194,37 @@ class DeclineGuard(SharedDeclineGuard):
         super().__init__(a, period=self.PERIOD, threshold=self.THRESH)
         self._a = a
         self._h = self._history
+
+
+class _Genetics6to9Adapter:
+    _MAP = {0: 0, 1: 2, 2: 3, 3: 5, 4: 7, 5: 8}
+
+    def __init__(self, agent):
+        self._a = agent
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        raw = self._a.act(
+            prices,
+            volumes,
+            month=month,
+            portfolio_value=portfolio_value,
+            bar_index=bar_index,
+        )
+        return {s: self._MAP.get(a, 0) for s, a in (raw or {}).items()}
+
+    def __getattr__(self, item):
+        if item == '_a':
+            raise AttributeError(item)
+        return getattr(self._a, item)
+
+
+def make_genetics_panteon_agent(genetics_cls):
+    from crypto_agents import _GeneticsAdapter
+
+    return _Genetics6to9Adapter(
+        GeneticsSymbolGuard(_GeneticsAdapter(genetics_cls()))
+    )
+
 
 def wrap_existing_agents(agents: OrderedDict) -> OrderedDict:
     patched = OrderedDict()
@@ -349,11 +405,12 @@ class LiveAfterShock:
     Stop/Target: 0.5% / 1.0% (RR=2:1).
     """
     LOOKBACK=45; DROP=0.0035; RSI_N=7; RSI_OS=45
-    STOP=0.005; TARGET=0.010; HOLD=3*60; CHECK_INT=10
+    STOP=0.005; TARGET=0.010; HOLD=3*60; CHECK_INT=10; MAX_POS=4; ENTRY_COOLDOWN=60
 
     def __init__(self):
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}; self.et:Dict[str,int]={}
+        self.last_entry:Dict[str,int]={}
         self.t=0; self._lc=-9999
 
     def _rsi(self, h, n):
@@ -372,18 +429,27 @@ class LiveAfterShock:
         actions={s:0 for s in prices}
         if self.t-self._lc<self.CHECK_INT: return actions
         self._lc=self.t
+        n_long=sum(1 for v in self.pos.values() if v=='long')
+        candidates=[]
         for sym in prices:
             h=self.h[sym]; cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
             if cur=='long':
                 held=self.t-self.et[sym]
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; continue
+                    actions[sym]=3; self.pos[sym]=None; n_long=max(0,n_long-1); continue
                 continue
             if len(h)<self.LOOKBACK+self.RSI_N*3: continue
             lst=list(h); base=lst[-self.LOOKBACK-1]
             drop=(px-base)/base if base>0 else 0
-            if drop<-self.DROP and self._rsi(h,self.RSI_N)<self.RSI_OS:
-                actions[sym]=1; self.pos[sym]='long'; self.ep[sym]=px; self.et[sym]=self.t
+            rsi=self._rsi(h,self.RSI_N)
+            if drop<-self.DROP and rsi<self.RSI_OS:
+                edge=(-drop-self.DROP)*100.0+(self.RSI_OS-rsi)/100.0
+                edge-=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
+                candidates.append((edge,sym,1,'long',px))
+        slots=max(0,self.MAX_POS-n_long)
+        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
+            self.last_entry[sym]=self.t
         return actions
 
 
@@ -394,12 +460,13 @@ class LiveCrashHunter:
     Sideways/Bull: mean-reversion по RSI
     Stop: 1.5% обязательный.
     """
-    CHECK_INT=30; RSI_N=14; RSI_OB=60; RSI_OS=40; MOM_LB=120
+    CHECK_INT=30; RSI_N=14; RSI_OB=60; RSI_OS=40; MOM_LB=120; MAX_POS=4; ENTRY_COOLDOWN=90
     STOP=0.012; TARGET=0.020; HOLD=4*60
 
     def __init__(self):
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}; self.et:Dict[str,int]={}
+        self.last_entry:Dict[str,int]={}
         self.t=0; self._lc=-9999
 
     def _rsi(self, h, n=14):
@@ -419,25 +486,35 @@ class LiveCrashHunter:
         if self.t-self._lc<self.CHECK_INT: return actions
         self._lc=self.t
         regime=_regime(self.h)
+        n_open=sum(1 for v in self.pos.values() if v is not None)
+        candidates=[]
         for sym in prices:
             h=self.h[sym]; cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
             held=self.t-self.et[sym]
             # Стоп + тейк + время
             if cur=='short_fut':
                 if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET) or held>=self.HOLD:
-                    actions[sym]=8; self.pos[sym]=None; continue
+                    actions[sym]=8; self.pos[sym]=None; n_open=max(0,n_open-1); continue
             elif cur=='long':
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; continue
+                    actions[sym]=3; self.pos[sym]=None; n_open=max(0,n_open-1); continue
             if cur is not None: continue
             if len(h)<max(self.MOM_LB,self.RSI_N*3): continue
             rsi=self._rsi(h,self.RSI_N); mom=_mom(h,self.MOM_LB)
+            cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
             if regime in ('bear','crash') and mom < -0.005 and rsi > 45:
-                actions[sym]=6; self.pos[sym]='short_fut'; self.ep[sym]=px; self.et[sym]=self.t
+                edge=(-mom-0.005)*100.0+(rsi-45.0)/100.0-cooldown
+                candidates.append((edge,sym,6,'short_fut',px))
             elif rsi < self.RSI_OS and mom > -0.012 and regime != 'bear':
-                actions[sym]=1; self.pos[sym]='long'; self.ep[sym]=px; self.et[sym]=self.t
+                edge=(self.RSI_OS-rsi)/100.0+max(mom+0.012,0.0)*20.0-cooldown
+                candidates.append((edge,sym,1,'long',px))
             elif rsi>self.RSI_OB and regime in ('bear','sideways'):
-                actions[sym]=6; self.pos[sym]='short_fut'; self.ep[sym]=px; self.et[sym]=self.t
+                edge=(rsi-self.RSI_OB)/100.0+max(-mom,0.0)*20.0-cooldown
+                candidates.append((edge,sym,6,'short_fut',px))
+        slots=max(0,self.MAX_POS-n_open)
+        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
+            self.last_entry[sym]=self.t
         return actions
 
 
@@ -725,11 +802,12 @@ class LiveMeanRev:
     """
     BB_PERIOD=30; BB_STD=1.5; RSI_N=14; RSI_OB=60; RSI_OS=40
     ENTRY_Z=1.2
-    EXIT_Z=0.35; CHECK_INT=10; STOP=0.012; HOLD=3*60
+    EXIT_Z=0.35; CHECK_INT=10; STOP=0.012; HOLD=3*60; MAX_POS=4; ENTRY_COOLDOWN=60
 
     def __init__(self):
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}; self.et:Dict[str,int]={}
+        self.last_entry:Dict[str,int]={}
         self.t=0; self._lc=-9999
 
     def _bb_z(self,h):
@@ -756,6 +834,8 @@ class LiveMeanRev:
         # Mean-rev плохо работает в сильном тренде вверх (только short заблокирован)
         bull_mode = regime=='bull'
         bear_mode = regime=='bear'
+        n_open=sum(1 for v in self.pos.values() if v is not None)
+        candidates=[]
         for sym in prices:
             h=list(self.h[sym]); cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
             if len(h)<self.BB_PERIOD+self.RSI_N*3: continue
@@ -763,15 +843,22 @@ class LiveMeanRev:
             # Выход: возврат к среднему ИЛИ стоп ИЛИ время
             if cur=='long':
                 if z>-self.EXIT_Z or px<=ep*(1-self.STOP) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; continue
+                    actions[sym]=3; self.pos[sym]=None; n_open=max(0,n_open-1); continue
             elif cur=='short':
                 if z<self.EXIT_Z or px>=ep*(1+self.STOP) or held>=self.HOLD:
-                    actions[sym]=8; self.pos[sym]=None; continue
+                    actions[sym]=8; self.pos[sym]=None; n_open=max(0,n_open-1); continue
             if cur is not None: continue
+            cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
             if z<-self.ENTRY_Z and r<self.RSI_OS and not bear_mode:
-                actions[sym]=1; self.pos[sym]='long'; self.ep[sym]=px; self.et[sym]=self.t
+                edge=(-z-self.ENTRY_Z)+(self.RSI_OS-r)/100.0-cooldown
+                candidates.append((edge,sym,1,'long',px))
             elif z>self.ENTRY_Z and r>self.RSI_OB and not bull_mode:
-                actions[sym]=6; self.pos[sym]='short'; self.ep[sym]=px; self.et[sym]=self.t
+                edge=(z-self.ENTRY_Z)+(r-self.RSI_OB)/100.0-cooldown
+                candidates.append((edge,sym,6,'short',px))
+        slots=max(0,self.MAX_POS-n_open)
+        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
+            self.last_entry[sym]=self.t
         return actions
 
 
@@ -782,11 +869,12 @@ class LiveVolCompress:
     Stop 0.5%, Target 1% (RR=2:1), max hold 2ч.
     """
     BB_PERIOD=20; BB_STD=2.; BBW_THRESH=0.015; MIN_BBW=0.003; MOM_N=5; MOM_MIN=0.003
-    STOP=0.005; TARGET=0.010; HOLD=4*60; CHECK_INT=3  # FIX: HOLD увеличен 2h→4h
+    STOP=0.005; TARGET=0.010; HOLD=4*60; CHECK_INT=3; MAX_POS=4; ENTRY_COOLDOWN=45  # FIX: HOLD увеличен 2h→4h
 
     def __init__(self):
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}; self.et:Dict[str,int]={}
+        self.last_entry:Dict[str,int]={}
         self.t=0; self._lc=-9999
 
     def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
@@ -798,6 +886,8 @@ class LiveVolCompress:
         if self.t-self._lc<self.CHECK_INT: return actions
         self._lc=self.t
         regime = _regime(self.h, lb=max(60, self.BB_PERIOD * 2))
+        n_open=sum(1 for v in self.pos.values() if v is not None)
+        candidates=[]
         for sym in prices:
             h=list(self.h[sym]); cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
             if len(h)<self.BB_PERIOD+self.MOM_N+2: continue
@@ -805,20 +895,28 @@ class LiveVolCompress:
             held=self.t-self.et[sym]
             if cur=='long':
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; continue
+                    actions[sym]=3; self.pos[sym]=None; n_open=max(0,n_open-1); continue
                 continue
             if cur=='short':
                 if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET) or held>=self.HOLD:
-                    actions[sym]=8; self.pos[sym]=None; continue
+                    actions[sym]=8; self.pos[sym]=None; n_open=max(0,n_open-1); continue
                 continue
             if mid<1e-9: continue
             bbw=(2*self.BB_STD*sd)/mid
             mom=(h[-1]-h[-self.MOM_N-1])/(h[-self.MOM_N-1]+1e-12)
             if self.MIN_BBW < bbw < self.BBW_THRESH:
+                squeeze=(self.BBW_THRESH-bbw)/max(self.BBW_THRESH-self.MIN_BBW,1e-12)
+                cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
                 if mom>self.MOM_MIN and regime != 'bear':
-                    actions[sym]=1; self.pos[sym]='long'; self.ep[sym]=px; self.et[sym]=self.t
+                    edge=(mom-self.MOM_MIN)*100.0+squeeze*0.25-cooldown
+                    candidates.append((edge,sym,1,'long',px))
                 elif mom<-self.MOM_MIN and regime != 'bull':
-                    actions[sym]=6; self.pos[sym]='short'; self.ep[sym]=px; self.et[sym]=self.t
+                    edge=(-mom-self.MOM_MIN)*100.0+squeeze*0.25-cooldown
+                    candidates.append((edge,sym,6,'short',px))
+        slots=max(0,self.MAX_POS-n_open)
+        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
+            self.last_entry[sym]=self.t
         return actions
 
 
@@ -833,11 +931,13 @@ class FundingArb:
     """
     STRONG=0.0002; CLOSE=0.00005; OI_MIN=100_000; CHECK_INT=15
     BULL_SHORT_BLOCK=0.0004; BEAR_LONG_BLOCK=0.0004
-    RSI_OB=65; RSI_OS=35; STOP=0.01; TARGET=0.02; EMA_F=60; EMA_S=4*60
+    RSI_OB=65; RSI_OS=35; STOP=0.01; TARGET=0.02; EMA_F=60; EMA_S=4*60; MAX_POS=4; ENTRY_COOLDOWN=90
 
     def __init__(self):
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}
+        self.close_action:Dict[str,int]={}
+        self.last_entry:Dict[str,int]={}
         self.t=0; self._lc=-9999
 
     def _rsi(self, h, n=14):
@@ -857,44 +957,60 @@ class FundingArb:
         self._lc=self.t
         has_fd=_FUNDING_FETCHER is not None
         regime = _regime(self.h, lb=max(self.EMA_F, 60))
+        n_open=sum(1 for v in self.pos.values() if v is not None)
+        candidates=[]
         for sym in prices:
             h=self.h[sym]; cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
             # Стоп + тейк
             if cur=='short':
-                if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET): actions[sym]=8; self.pos[sym]=None; continue
+                if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET): actions[sym]=8; self.pos[sym]=None; self.close_action.pop(sym,None); n_open=max(0,n_open-1); continue
             elif cur=='long':
-                if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET): actions[sym]=3; self.pos[sym]=None; continue
+                if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET): actions[sym]=self.close_action.get(sym,8); self.pos[sym]=None; self.close_action.pop(sym,None); n_open=max(0,n_open-1); continue
             if cur is not None: continue
             if has_fd:
                 fd=_get_funding(sym); rate=fd.get("funding_rate"); oi=fd.get("open_interest_usdt",0)
                 if rate is None: continue
                 rate = float(rate)
                 if oi>0 and oi<self.OI_MIN: continue
+                oi_score=min(float(oi or 0.0)/max(float(self.OI_MIN),1.0),5.0)*0.03
+                cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
                 if regime == 'bull':
                     if rate <= -self.STRONG:
-                        actions[sym]=5; self.pos[sym]='long'; self.ep[sym]=px
+                        edge=(-rate-self.STRONG)*10000.0+oi_score-cooldown
+                        candidates.append((edge,sym,5,'long',px,8))
                     elif rate >= self.BULL_SHORT_BLOCK:
                         continue
                 elif regime == 'bear':
                     if rate >= self.STRONG * 0.5:
-                        actions[sym]=7; self.pos[sym]='short'; self.ep[sym]=px
+                        edge=(rate-self.STRONG*0.5)*10000.0+oi_score-cooldown
+                        candidates.append((edge,sym,7,'short',px,8))
                     elif rate <= -self.BEAR_LONG_BLOCK:
                         continue
                 else:
                     if rate>=self.STRONG:
-                        actions[sym]=7; self.pos[sym]='short'; self.ep[sym]=px
+                        edge=(rate-self.STRONG)*10000.0+oi_score-cooldown
+                        candidates.append((edge,sym,7,'short',px,8))
                     elif rate<=-self.STRONG:
-                        actions[sym]=5; self.pos[sym]='long'; self.ep[sym]=px
+                        edge=(-rate-self.STRONG)*10000.0+oi_score-cooldown
+                        candidates.append((edge,sym,5,'long',px,8))
             else:
                 # Запасной вариант: пересечение EMA (momentum, не contrarian)
                 if len(h)<self.EMA_S+1: continue
                 ef=_ema(list(h)[-self.EMA_F*3:],self.EMA_F)
                 es=_ema(list(h)[-self.EMA_S:],  self.EMA_S)
                 r=self._rsi(h)
+                spread=(ef/es-1.0) if es>0 else 0.0
+                cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
                 if ef>es*1.003 and r<self.RSI_OB and regime != 'bear':
-                    actions[sym]=1; self.pos[sym]='long'; self.ep[sym]=px
+                    edge=(spread-0.003)*100.0+(self.RSI_OB-r)/100.0-cooldown
+                    candidates.append((edge,sym,1,'long',px,3))
                 elif ef<es*0.997 and r>self.RSI_OS and regime != 'bull':
-                    actions[sym]=6; self.pos[sym]='short'; self.ep[sym]=px
+                    edge=(-spread-0.003)*100.0+(r-self.RSI_OS)/100.0-cooldown
+                    candidates.append((edge,sym,6,'short',px,8))
+        slots=max(0,self.MAX_POS-n_open)
+        for _,sym,action,side,px,close_action in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px
+            self.close_action[sym]=close_action; self.last_entry[sym]=self.t
         return actions
 
 
@@ -1176,6 +1292,523 @@ class VolBreakoutHunter:
 # ИГРОКИ  (переработаны)
 # ══════════════════════════════════════════════════════════════════
 
+class BullRotationAgent:
+    """
+    Bull-regime relative-strength rotation.
+
+    Trader pattern: in a broad uptrend, capital rotates into the strongest
+    leaders. This agent is long-only and buys strong symbols after a shallow
+    pullback/reclaim, instead of chasing every EMA trend like LiveTrendFollow.
+    """
+    CHECK_INT = 10
+    MARKET_LB = 240
+    REL_LB = 240
+    FAST_EMA = 45
+    SLOW_EMA = 180
+    TURN_LB = 18
+    PULLBACK_LB = 90
+    STOP = 0.014
+    TARGET = 0.034
+    HOLD = 8 * 60
+    MAX_POS = 3
+    MIN_BREADTH = 0.55
+    MIN_REL_STRENGTH = 0.006
+    MIN_PULLBACK = 0.0025
+    MAX_PULLBACK = 0.018
+    MIN_TURN = 0.0006
+    MAX_EXTENSION = 0.018
+    VOL_Z_MIN = -0.25
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _market_stats(self):
+        rets = []
+        for hist in self.h.values():
+            vals = list(hist)
+            if len(vals) < self.MARKET_LB + 1:
+                continue
+            base = vals[-self.MARKET_LB - 1]
+            if base > 0:
+                rets.append(vals[-1] / base - 1.0)
+        if not rets:
+            return 0.0, 0.5
+        return float(np.median(rets)), sum(1 for r in rets if r > 0.0) / len(rets)
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.MARKET_LB, self.REL_LB, self.SLOW_EMA, self.PULLBACK_LB) * 2
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=180)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        regime = _regime(self.h, lb=self.MARKET_LB)
+        market_ret, breadth = self._market_stats()
+        if regime != 'bull' or market_ret <= 0.004 or breadth < self.MIN_BREADTH:
+            manage_only = True
+        else:
+            manage_only = False
+
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < max(self.SLOW_EMA + 1, self.REL_LB + 1, self.PULLBACK_LB + 1):
+                continue
+
+            ef = _ema(h[-self.FAST_EMA * 3:], self.FAST_EMA)
+            es = _ema(h[-self.SLOW_EMA:], self.SLOW_EMA)
+            rel_ret = px / max(h[-self.REL_LB - 1], 1e-12) - 1.0
+            rel_strength = rel_ret - market_ret
+
+            if cur == 'long':
+                if (
+                    px <= ep * (1 - self.STOP)
+                    or px >= ep * (1 + self.TARGET)
+                    or held >= self.HOLD
+                    or ef < es * 1.0002
+                    or rel_strength < -0.002
+                ):
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if manage_only or n_open >= self.MAX_POS:
+                continue
+
+            recent = h[-self.PULLBACK_LB:]
+            high = float(max(recent))
+            low = float(min(recent))
+            pullback = 1.0 - px / max(high, 1e-12)
+            bounce = px / max(low, 1e-12) - 1.0
+            turn = _mom(h, self.TURN_LB)
+            extension = px / max(ef, 1e-12) - 1.0
+            vol_z = _vol_zscore(self.v[sym], window=60)
+
+            if (
+                ef > es * 1.002
+                and rel_strength >= self.MIN_REL_STRENGTH
+                and self.MIN_PULLBACK <= pullback <= self.MAX_PULLBACK
+                and bounce >= self.MIN_TURN
+                and turn >= self.MIN_TURN
+                and extension <= self.MAX_EXTENSION
+                and vol_z >= self.VOL_Z_MIN
+            ):
+                actions[sym] = 5
+                self.pos[sym] = 'long'
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
+class BearReliefFadeAgent:
+    """
+    Bear-regime relief-rally fade.
+
+    Trader pattern: in a bear market, weak rallies into overhead supply are
+    sold. This is not a top-loser momentum short; it waits for a bounce to fail.
+    """
+    CHECK_INT = 10
+    MARKET_LB = 240
+    FAST_EMA = 45
+    SLOW_EMA = 180
+    BOUNCE_LB = 90
+    TURN_LB = 12
+    RSI_N = 14
+    STOP = 0.013
+    TARGET = 0.030
+    HOLD = 6 * 60
+    MAX_POS = 3
+    MIN_BREADTH_DOWN = 0.55
+    MIN_BOUNCE = 0.006
+    MAX_BOUNCE = 0.045
+    MIN_WEAKNESS = 0.003
+    RSI_FADE = 52
+    VOL_Z_MIN = -0.20
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _rsi(self, h, n=14):
+        vals = list(h)
+        if len(vals) < n * 3:
+            return 50.0
+        d = np.diff(vals[-(n * 3):])
+        g = np.where(d > 0, d, 0)
+        l = np.where(d < 0, -d, 0)
+        ag, al = np.mean(g[:n]), np.mean(l[:n])
+        for gi, li in zip(g[n:], l[n:]):
+            ag = (ag * (n - 1) + gi) / n
+            al = (al * (n - 1) + li) / n
+        return float(100 - 100 / (1 + ag / (al + 1e-9)))
+
+    def _market_stats(self):
+        rets = []
+        for hist in self.h.values():
+            vals = list(hist)
+            if len(vals) < self.MARKET_LB + 1:
+                continue
+            base = vals[-self.MARKET_LB - 1]
+            if base > 0:
+                rets.append(vals[-1] / base - 1.0)
+        if not rets:
+            return 0.0, 0.5
+        return float(np.median(rets)), sum(1 for r in rets if r < 0.0) / len(rets)
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.MARKET_LB, self.SLOW_EMA, self.BOUNCE_LB) * 2
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=180)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        regime = _regime(self.h, lb=self.MARKET_LB)
+        market_ret, down_breadth = self._market_stats()
+        manage_only = regime != 'bear' or market_ret >= -0.004 or down_breadth < self.MIN_BREADTH_DOWN
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < max(self.SLOW_EMA + 1, self.MARKET_LB + 1, self.BOUNCE_LB + 1):
+                continue
+
+            ef = _ema(h[-self.FAST_EMA * 3:], self.FAST_EMA)
+            es = _ema(h[-self.SLOW_EMA:], self.SLOW_EMA)
+            rel_ret = px / max(h[-self.MARKET_LB - 1], 1e-12) - 1.0
+            rel_weakness = market_ret - rel_ret
+
+            if cur == 'short':
+                if (
+                    px >= ep * (1 + self.STOP)
+                    or px <= ep * (1 - self.TARGET)
+                    or held >= self.HOLD
+                    or ef > es * 1.001
+                    or rel_weakness < -0.002
+                ):
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if manage_only or n_open >= self.MAX_POS:
+                continue
+
+            recent = h[-self.BOUNCE_LB:]
+            low = float(min(recent))
+            high = float(max(recent))
+            bounce = px / max(low, 1e-12) - 1.0
+            below_high = 1.0 - px / max(high, 1e-12)
+            turn = _mom(h, self.TURN_LB)
+            rsi = self._rsi(h, self.RSI_N)
+            near_fast = abs(px / max(ef, 1e-12) - 1.0) <= 0.012
+            vol_z = _vol_zscore(self.v[sym], window=60)
+
+            if (
+                ef < es * 0.998
+                and rel_weakness >= self.MIN_WEAKNESS
+                and self.MIN_BOUNCE <= bounce <= self.MAX_BOUNCE
+                and below_high >= 0.0015
+                and turn <= -0.0004
+                and rsi >= self.RSI_FADE
+                and near_fast
+                and vol_z >= self.VOL_Z_MIN
+            ):
+                actions[sym] = 7
+                self.pos[sym] = 'short'
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
+class NeutralRangeScalper:
+    """
+    Neutral-regime range-liquidity fade.
+
+    Trader pattern: in a clean sideways market, fade failed tests of the range
+    edges and exit near the middle. It uses channel location and range quality
+    instead of the BB/RSI recipe used by LiveMeanRev.
+    """
+    CHECK_INT = 6
+    RANGE_LB = 180
+    MARKET_LB = 240
+    TURN_LB = 10
+    MIN_WIDTH = 0.007
+    MAX_WIDTH = 0.055
+    EDGE = 0.14
+    STOP = 0.008
+    TARGET = 0.016
+    HOLD = 3 * 60
+    MAX_POS = 3
+    MIN_NOISE = 2.8
+    MAX_MARKET_MOM = 0.006
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.mid: Dict[str, float] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _noise_ratio(self, h):
+        vals = list(h)
+        if len(vals) < self.RANGE_LB + 1:
+            return 0.0
+        arr = np.asarray(vals[-(self.RANGE_LB + 1):], dtype=float)
+        rets = np.diff(arr) / np.maximum(arr[:-1], 1e-12)
+        path = float(np.sum(np.abs(rets)))
+        net = abs(float(arr[-1] / max(arr[0], 1e-12) - 1.0))
+        return path / max(net, 1e-4)
+
+    def _market_mom(self):
+        vals = []
+        for hist in self.h.values():
+            h = list(hist)
+            if len(h) < self.MARKET_LB + 1:
+                continue
+            base = h[-self.MARKET_LB - 1]
+            if base > 0:
+                vals.append(h[-1] / base - 1.0)
+        return float(np.median(vals)) if vals else 0.0
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.RANGE_LB, self.MARKET_LB) * 2
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=180)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+            self.mid.setdefault(s, float(p))
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        regime = _regime(self.h, lb=self.MARKET_LB)
+        market_mom = self._market_mom()
+        allow_entry = regime == 'sideways' and abs(market_mom) <= self.MAX_MARKET_MOM
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < self.RANGE_LB + 2:
+                continue
+
+            window = h[-self.RANGE_LB - 1:-1]
+            lo = float(min(window))
+            hi = float(max(window))
+            width = (hi / max(lo, 1e-12)) - 1.0
+            mid = (hi + lo) / 2.0
+            self.mid[sym] = mid
+
+            if cur == 'long':
+                if px >= mid or px <= ep * (1 - self.STOP) or px >= ep * (1 + self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+            if cur == 'short':
+                if px <= mid or px >= ep * (1 + self.STOP) or px <= ep * (1 - self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if not allow_entry or n_open >= self.MAX_POS:
+                continue
+            if width < self.MIN_WIDTH or width > self.MAX_WIDTH:
+                continue
+
+            loc = (px - lo) / max(hi - lo, 1e-12)
+            turn = _mom(h, self.TURN_LB)
+            noise = self._noise_ratio(self.h[sym])
+            vol_z = _vol_zscore(self.v[sym], window=60)
+            if noise < self.MIN_NOISE:
+                continue
+
+            if loc <= self.EDGE and turn >= 0.00035 and vol_z >= -0.35:
+                actions[sym] = 5
+                self.pos[sym] = 'long'
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+            elif loc >= 1.0 - self.EDGE and turn <= -0.00035 and vol_z >= -0.35:
+                actions[sym] = 7
+                self.pos[sym] = 'short'
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
+class CrashPanicShortAgent:
+    """
+    Crash-regime liquidation cascade short.
+
+    Trader pattern: during broad panic, do not bottom-fish first. Short fresh
+    breakdowns with volume expansion and get out quickly on snap-back risk.
+    """
+    CHECK_INT = 3
+    SHORT_LB = 60
+    MID_LB = 240
+    BREAKDOWN_LB = 45
+    FAST_EMA = 20
+    SLOW_EMA = 90
+    STOP = 0.010
+    TARGET = 0.028
+    HOLD = 90
+    MAX_POS = 3
+    MIN_DOWN_SHARE = 0.65
+    MIN_VOL_RATIO = 1.12
+    MIN_SYMBOL_DROP = -0.006
+    BREAK_MARGIN = 0.0008
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _market_crash(self):
+        short_rets = []
+        mid_rets = []
+        vol_ratios = []
+        for sym, hist in self.h.items():
+            h = list(hist)
+            if len(h) >= self.SHORT_LB + 1:
+                base = h[-self.SHORT_LB - 1]
+                if base > 0:
+                    short_rets.append(h[-1] / base - 1.0)
+            if len(h) >= self.MID_LB + 1:
+                base = h[-self.MID_LB - 1]
+                if base > 0:
+                    mid_rets.append(h[-1] / base - 1.0)
+            vols = list(self.v.get(sym) or [])
+            if len(vols) >= 120:
+                fast = float(np.mean(vols[-20:]))
+                slow = float(np.mean(vols[-120:]))
+                if slow > 1e-9:
+                    vol_ratios.append(fast / slow)
+        if len(short_rets) < 4:
+            return False
+        short_med = float(np.median(short_rets))
+        short_down = sum(1 for r in short_rets if r <= -0.004) / len(short_rets)
+        mid_med = float(np.median(mid_rets)) if mid_rets else short_med
+        mid_down = sum(1 for r in mid_rets if r <= -0.010) / len(mid_rets) if mid_rets else short_down
+        vol_ratio = float(np.median(vol_ratios)) if vol_ratios else 1.0
+        panic_now = short_med <= -0.010 and short_down >= self.MIN_DOWN_SHARE
+        panic_mid = mid_med <= -0.025 and mid_down >= self.MIN_DOWN_SHARE
+        return (panic_now or panic_mid) and vol_ratio >= self.MIN_VOL_RATIO
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.MID_LB, self.SLOW_EMA, self.BREAKDOWN_LB) * 2
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=240)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        crash = self._market_crash()
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < max(self.SLOW_EMA + 1, self.BREAKDOWN_LB + 1, self.SHORT_LB + 1):
+                continue
+
+            ef = _ema(h[-self.FAST_EMA * 3:], self.FAST_EMA)
+            es = _ema(h[-self.SLOW_EMA:], self.SLOW_EMA)
+            snapback = _mom(h, 8) > 0.004
+            if cur == 'short':
+                if (
+                    px >= ep * (1 + self.STOP)
+                    or px <= ep * (1 - self.TARGET)
+                    or held >= self.HOLD
+                    or px > ef * 1.004
+                    or snapback
+                ):
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if not crash or n_open >= self.MAX_POS:
+                continue
+
+            prev = h[-self.BREAKDOWN_LB - 1:-1]
+            recent_low = float(min(prev))
+            symbol_drop = _mom(h, self.SHORT_LB)
+            vol_z = _vol_zscore(self.v[sym], window=60)
+            if (
+                ef < es * 0.997
+                and symbol_drop <= self.MIN_SYMBOL_DROP
+                and px < recent_low * (1 - self.BREAK_MARGIN)
+                and vol_z >= 0.75
+            ):
+                actions[sym] = 7
+                self.pos[sym] = 'short'
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
 class CarryFlowAgentV2:
     """
     Carry/flow агент для shadow-контуров.
@@ -1199,6 +1832,8 @@ class CarryFlowAgentV2:
     RSI_OB = 66
     RSI_OS = 34
     MAX_DATA_AGE_SEC = 20 * 60
+    MAX_POS = 4
+    ENTRY_COOLDOWN = 120
 
     def __init__(self):
         self.h: Dict[str, deque] = {}
@@ -1206,6 +1841,7 @@ class CarryFlowAgentV2:
         self.pos: Dict[str, Optional[str]] = {}
         self.ep: Dict[str, float] = {}
         self.et: Dict[str, int] = {}
+        self.last_entry: Dict[str, int] = {}
         self.t = 0
         self._lc = -9999
 
@@ -1246,6 +1882,8 @@ class CarryFlowAgentV2:
         if self.t - self._lc < self.CHECK_INT:
             return actions
         self._lc = self.t
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+        candidates = []
         for sym in prices:
             h = self.h[sym]
             cur = self.pos[sym]
@@ -1288,6 +1926,7 @@ class CarryFlowAgentV2:
                 ):
                     actions[sym] = 8
                     self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
                 continue
             if cur == 'short':
                 normalized = (
@@ -1305,6 +1944,7 @@ class CarryFlowAgentV2:
                 ):
                     actions[sym] = 8
                     self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
                 continue
 
             if len(h) < self.EMA_SLOW + 5:
@@ -1312,6 +1952,9 @@ class CarryFlowAgentV2:
             es = _ema(list(h)[-self.EMA_SLOW:], self.EMA_SLOW)
             trend_up = ef > es * 1.001 if es > 0 else False
             trend_dn = ef < es * 0.999 if es > 0 else False
+            cooldown = _entry_cooldown_penalty(
+                self.last_entry, sym, self.t, self.ENTRY_COOLDOWN,
+            ) * 0.75
 
             if fd and oi_chg >= self.OI_SPIKE:
                 if (
@@ -1320,33 +1963,45 @@ class CarryFlowAgentV2:
                     and basis >= self.BASIS_ENTRY
                     and (ext >= self.EXTREME_EXT * 0.5 or rsi >= self.RSI_OB)
                 ):
-                    actions[sym] = 7
-                    self.pos[sym] = 'short'
-                    self.ep[sym] = px
-                    self.et[sym] = self.t
+                    edge=(
+                        (rate-self.FUNDING_ENTRY)*10000.0
+                        +(long_ratio-self.CROWD_RATIO)*4.0
+                        +(basis-self.BASIS_ENTRY)*1000.0
+                        +(oi_chg-self.OI_SPIKE)*10.0
+                        +max(ext-self.EXTREME_EXT*0.5,0.0)*100.0
+                        +max(rsi-self.RSI_OB,0.0)/100.0
+                        -cooldown
+                    )
+                    candidates.append((edge,sym,7,'short',px))
                 elif (
                     rate <= -self.FUNDING_ENTRY
                     and short_ratio >= self.CROWD_RATIO
                     and basis <= -self.BASIS_ENTRY
                     and (ext <= -self.EXTREME_EXT * 0.5 or rsi <= self.RSI_OS)
                 ):
-                    actions[sym] = 5
-                    self.pos[sym] = 'long'
-                    self.ep[sym] = px
-                    self.et[sym] = self.t
+                    edge=(
+                        (-rate-self.FUNDING_ENTRY)*10000.0
+                        +(short_ratio-self.CROWD_RATIO)*4.0
+                        +(-basis-self.BASIS_ENTRY)*1000.0
+                        +(oi_chg-self.OI_SPIKE)*10.0
+                        +max(-ext-self.EXTREME_EXT*0.5,0.0)*100.0
+                        +max(self.RSI_OS-rsi,0.0)/100.0
+                        -cooldown
+                    )
+                    candidates.append((edge,sym,5,'long',px))
                 continue
 
             if not fd:
                 if trend_up and ext <= -self.EXTREME_EXT and rsi <= self.RSI_OS:
-                    actions[sym] = 5
-                    self.pos[sym] = 'long'
-                    self.ep[sym] = px
-                    self.et[sym] = self.t
+                    edge=max(-ext-self.EXTREME_EXT,0.0)*100.0+max(self.RSI_OS-rsi,0.0)/100.0-cooldown
+                    candidates.append((edge,sym,5,'long',px))
                 elif trend_dn and ext >= self.EXTREME_EXT and rsi >= self.RSI_OB:
-                    actions[sym] = 7
-                    self.pos[sym] = 'short'
-                    self.ep[sym] = px
-                    self.et[sym] = self.t
+                    edge=max(ext-self.EXTREME_EXT,0.0)*100.0+max(rsi-self.RSI_OB,0.0)/100.0-cooldown
+                    candidates.append((edge,sym,7,'short',px))
+        slots=max(0,self.MAX_POS-n_open)
+        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+            actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
+            self.last_entry[sym]=self.t
         return actions
 
 
@@ -1374,7 +2029,7 @@ class ExternalSignalAgent:
         self.t = 0
 
     def _signal_path(self) -> str:
-        return os.getenv("EXTERNAL_SIGNALS_FILE") or os.path.join(SCRIPT_DIR, "external_signals.json")
+        return os.getenv("EXTERNAL_SIGNALS_FILE") or project_path("state", "external_signals.json")
 
     def _normalize_symbol(self, raw) -> str:
         if raw is None:
@@ -1718,6 +2373,24 @@ class PlayerFunding:
     def __init__(self):
         self._fa=FundingArb(); self._ms=MomentumScalper()
 
+    def reset_for_live(self, bar_index: int = 0):
+        for agent in (self._fa, self._ms):
+            if hasattr(agent, '_lc'):
+                try:
+                    agent._lc = -99999
+                except (AttributeError, TypeError):
+                    pass
+            try:
+                agent.t = bar_index
+            except (AttributeError, TypeError):
+                pass
+            for attr in ('pos', 'ep', 'entry_px', 'et'):
+                state = getattr(agent, attr, None)
+                if not isinstance(state, dict):
+                    continue
+                for key in state:
+                    state[key] = None if attr == 'pos' else 0.0
+
     def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
         kw=dict(prices=prices,volumes=volumes,month=month,
                 portfolio_value=portfolio_value,bar_index=bar_index)
@@ -1761,7 +2434,22 @@ class Panteon:
       - LiveMeanRev, LiveTrendFollow — убыточны в прошлых тестах
     """
     STATE_INT = 2 * 60
-    MAX_POS   = 3     # defensive default: small live accounts degrade quickly above 3 futures legs
+    MAX_POS   = 8
+    ENABLE_META_PLAYERS = True
+    PLAYER_ROTATION_INT = 30
+    PLAYER_SWITCH_COOLDOWN_BARS = 90
+    PLAYER_SWITCH_CONFIRMATIONS = 2
+    PLAYER_SWITCH_MARGIN = 0.45           # FIX: повысили с 0.35 — больше доказательств для смены
+    PLAYER_MIN_SCORE_TO_SWITCH = 0.05     # FIX: повысили с -0.15 — не переключаемся на убыточных
+    PLAYER_HARD_NEGATIVE_SCORE = -1.25
+    SYMBOL_PLAYER_SWITCH_MARGIN = 0.42    # FIX: повысили с 0.28
+    # FIX: гистерезис режима против частых флипов bullish↔neutral
+    # (было ~15-60 сек между переключениями во время warmup).
+    # 12 баров × 1 мин = 12 мин устойчивости перед сменой режима.
+    REGIME_HYSTERESIS_BARS = 12
+    # FIX: порог PnL ниже которого игрок не может быть выбран для реальной
+    # торговли, даже если у него высокая активность.
+    PLAYER_HARD_NEGATIVE_PNL = -1.5
 
     # FIX v7: символы из FUTURES_BLACKLIST — агент не должен их торговать,
     # потому что close_all() молча не работает для них → маржа блокируется навечно
@@ -1771,7 +2459,7 @@ class Panteon:
         "ATLA", "META", "ONT", "HYPE", "BULLA", "STO", "SOLV", "RED",
     })
 
-    def __init__(self):
+    def __init__(self, enable_meta_players: Optional[bool] = None):
         self._ms=MomentumScalper()
         self._lch=LiveCrashHunter()
         self._fa=FundingArb()
@@ -1785,18 +2473,28 @@ class Panteon:
         self._cf=CarryFlowAgentV2()
         self._rv=ResearchValidatorAgent()
         self._vbh=VolBreakoutHunter()
+        self._bra=BullRotationAgent()
+        self._brf=BearReliefFadeAgent()
+        self._nrs=NeutralRangeScalper()
+        self._cps=CrashPanicShortAgent()
+        self._pf=PlayerFunding()
         self._gb = None
         self._gbr = None
+        self._gn = None
         try:
-            from crypto_agents import _GeneticsAdapter
             try:
                 from crypto_genetics import GeneticsBullishAgent
-                self._gb = _GeneticsAdapter(GeneticsBullishAgent())
+                self._gb = make_genetics_panteon_agent(GeneticsBullishAgent)
             except Exception:
                 pass
             try:
                 from crypto_genetics import GeneticsBearishAgent
-                self._gbr = _GeneticsAdapter(GeneticsBearishAgent())
+                self._gbr = make_genetics_panteon_agent(GeneticsBearishAgent)
+            except Exception:
+                pass
+            try:
+                from crypto_genetics import GeneticsNeutralAgent
+                self._gn = make_genetics_panteon_agent(GeneticsNeutralAgent)
             except Exception:
                 pass
         except Exception:
@@ -1817,6 +2515,35 @@ class Panteon:
         )
         self._memory_namespace = _sanitize_memory_namespace(_DEFAULT_MEMORY_NAMESPACE)
         self._portfolio_allocator = PortfolioAllocatorAgent()
+        self._shadow_player_selector = ShadowPlayerMetaSelector(
+            REAL_PLAYER_AGGREGATOR_MEMORY_FILE,
+            save_interval_bars=30,
+        )
+        self._shadow_players_enabled = (
+            bool(self.ENABLE_META_PLAYERS)
+            if enable_meta_players is None
+            else bool(enable_meta_players)
+        )
+        self._shadow_player_pool: OrderedDict[str, object] = OrderedDict()
+        self._shadow_player_perf: Optional[Dict[str, dict]] = None
+        self._last_shadow_player_snapshot: Dict[str, dict] = {}
+        self._shadow_player_regime_memory: Dict[str, Dict[str, dict]] = {}
+        self._shadow_player_symbol_memory: Dict[str, Dict[str, Dict[str, dict]]] = {}
+        self._shadow_player_window_anchor: Dict[str, dict] = {}
+        self._shadow_player_symbol_anchor: Dict[str, Dict[str, dict]] = {}
+        self._selected_shadow_player: str = ""
+        self._selected_symbol_shadow_players: Dict[str, str] = {}
+        self._shadow_player_scores: Dict[str, float] = {}
+        self._shadow_player_challenger: str = ""
+        self._shadow_player_challenger_streak = 0
+        self._last_shadow_player_switch_bar = -99999
+        self._last_shadow_player_rotation = -99999
+        self._last_shadow_player_memory_save_bar = -99999
+        # FIX: гистерезис режима — инициализация
+        self._stable_regime: Optional[str] = None
+        self._pending_regime: Optional[str] = None
+        self._pending_regime_since: int = -99999
+        self._last_regime_switch_bar: int = -99999
 
         # ═══════════════════════════════════════════════════════════════
         # ADAPTIVE ROTATION v7
@@ -1829,6 +2556,10 @@ class Panteon:
         # Активные агенты с весами (обновляются ротацией)
         # Дефолт: FundingArb доминирует (по результатам 35ч live-теста)
         self._active_weights: Dict[str, float] = {
+            'BullRotationAgent':   0.18,
+            'BearReliefFadeAgent': 0.18,
+            'NeutralRangeScalper': 0.18,
+            'CrashPanicShortAgent': 0.18,
             'LiveAfterShock':     0.30,
             'LiveMeanRev':        0.25,
             'LiveCrashHunter':    0.20,
@@ -1857,7 +2588,69 @@ class Panteon:
         }
 
         # Теневая статистика доходности — приходит извне через set_shadow_perf()
+        self._regime_leaders: Dict[str, str] = self._default_regime_leaders()
+        self._regime_leader_scores: Dict[str, float] = {
+            regime: 0.0 for regime in self.REGIME_TOPS
+        }
+        self._last_symbol_regime: Dict[str, str] = {}
         self._shadow_perf: Optional[Dict[str, dict]] = None
+        self._shadow_bootstrap_mode = False
+        self._suppress_info_logs = False
+        if self._shadow_players_enabled:
+            self._init_shadow_player_pool()
+
+    def _init_shadow_player_pool(self):
+        if self._shadow_player_pool:
+            return
+        specs = (
+            ("V_Panteon_shadow", Panteon),
+            ("V_PlayerFunding", globals().get("PlayerFunding")),
+            ("V_PlayerBomberman", globals().get("PlayerBomberman")),
+            ("V_PanteonResearch", globals().get("PanteonResearch")),
+            ("V_PanteonTrendResearch", globals().get("PanteonTrendResearch")),
+            ("V_PanteonMeanRevResearch", globals().get("PanteonMeanRevResearch")),
+            ("V_PanteonDefensiveResearch", globals().get("PanteonDefensiveResearch")),
+            ("V_PanteonConsensusResearch", globals().get("PanteonConsensusResearch")),
+            ("V_NeuroPlayer", globals().get("NeuroPlayer")),
+        )
+        try:
+            from player_next import PanteonNextResearch as _PanteonNextResearch
+            specs = specs + (("V_PanteonNextResearch", _PanteonNextResearch),)
+        except Exception:
+            pass
+        for shadow_name, cls in specs:
+            if cls is None:
+                continue
+            try:
+                player = cls(enable_meta_players=False) if cls is Panteon else cls()
+                if hasattr(player, "set_shadow_bootstrap_mode"):
+                    player.set_shadow_bootstrap_mode(self._shadow_bootstrap_mode)
+                else:
+                    setattr(player, "_shadow_bootstrap_mode", bool(self._shadow_bootstrap_mode))
+                if hasattr(player, "set_shadow_perf") and self._shadow_perf:
+                    player.set_shadow_perf(self._shadow_perf)
+                setattr(player, "_suppress_info_logs", True)
+                self._shadow_player_pool[shadow_name] = player
+            except Exception as exc:
+                log.debug("  [PLAYER meta] %s init skipped: %s", shadow_name, exc)
+        if self._shadow_player_pool and not self._selected_shadow_player:
+            self._selected_shadow_player = next(iter(self._shadow_player_pool))
+
+    def set_shadow_bootstrap_mode(self, enabled: bool = True):
+        enabled_flag = bool(enabled)
+        self._shadow_bootstrap_mode = enabled_flag
+        self._suppress_info_logs = enabled_flag
+        for player in getattr(self, "_shadow_player_pool", {}).values():
+            try:
+                if hasattr(player, "set_shadow_bootstrap_mode"):
+                    player.set_shadow_bootstrap_mode(enabled_flag)
+                else:
+                    setattr(player, "_shadow_bootstrap_mode", enabled_flag)
+            except Exception:
+                pass
+
+    def _quiet_info_logs(self) -> bool:
+        return bool(getattr(self, "_suppress_info_logs", False))
 
     def iter_subagents(self):
         """Единый список sub-agent'ов Panteon для reset/logging/live-sync."""
@@ -1875,8 +2668,14 @@ class Panteon:
             ('_cf', 'CarryFlowAgentV2'),
             ('_rv', 'ResearchValidatorAgent'),
             ('_vbh', 'VolBreakoutHunter'),
+            ('_bra', 'BullRotationAgent'),
+            ('_brf', 'BearReliefFadeAgent'),
+            ('_nrs', 'NeutralRangeScalper'),
+            ('_cps', 'CrashPanicShortAgent'),
+            ('_pf', 'PlayerFunding'),
             ('_gb', 'GeneticsBullish'),
             ('_gbr', 'GeneticsBearish'),
+            ('_gn', 'GeneticsNeutral'),
         ):
             if label in self.LIVE_AGENT_BLOCKLIST:
                 continue
@@ -1896,13 +2695,19 @@ class Panteon:
     # ── Параметры адаптивной ротации ─────────────────────────────────
     ROTATION_INT  = 30
     MIN_AGENTS    = 2
-    MAX_AGENTS    = 3
+    MAX_AGENTS    = 4
     MIN_WEIGHT    = 0.10
     SOFT_MIN_WEIGHT = 0.04
     MAX_WEIGHT    = 0.78
     REGIME_PRIORITY_FLOOR = 0.10
     MEMORY_SCHEMA_VERSION = 6
     USE_REGIME_ONLY_MEMORY = True
+    AGGREGATION_MODE = 'risk_adjusted_top_positive'
+    USE_REGIME_TOP_TRADER = False
+    RISK_ADJUSTED_MIN_AGENTS = 2
+    RISK_ADJUSTED_MAX_AGENTS = 5
+    REGIME_TOPS = ('bullish', 'bearish', 'neutral', 'crash')
+    REGIME_TOP_MIN_POSITION_TICKS = 12
     RESTORE_SAVED_ACTIVE_WEIGHTS = False
     RESTORE_GLOBAL_SUCCESS_MEMORY = False
     CONTEXT_REFRESH_INT = 15
@@ -1932,8 +2737,16 @@ class Panteon:
     MAX_MIXED_SYMBOL_REGIME_AGENTS = 5
     SYMBOL_REGIME_COVERAGE_TOLERANCE = 1.25
     SYMBOL_VOTE_STRENGTH = 0.35
-    OPEN_SINGLE_THRESHOLD = 0.30
-    OPEN_MULTI_THRESHOLD = 0.24
+    OPEN_SINGLE_THRESHOLD = 0.28
+    OPEN_MULTI_THRESHOLD = 0.21
+    MIN_OPEN_SINGLE_THRESHOLD = 0.22
+    MIN_OPEN_MULTI_THRESHOLD = 0.16
+    LOW_UTIL_OPEN_DISCOUNT = 0.06
+    LOW_UTIL_SINGLE_DISCOUNT = 0.05
+    TARGET_MARGIN_UTILIZATION = 0.72
+    MAX_NEW_PER_BAR = 3
+    FULL_SIZE_OPEN_THRESHOLD = 0.42
+    FULL_SIZE_MULTI_THRESHOLD = 0.34
     CLOSE_SINGLE_THRESHOLD = 0.25
     CLOSE_MULTI_THRESHOLD = 0.20
     CLOSE_STRONG_THRESHOLD = 0.32
@@ -1945,7 +2758,7 @@ class Panteon:
     WEAK_LINEUP_OPEN_BONUS = 0.025
     WEAK_LINEUP_CLOSE_BONUS = 0.015
     MIN_MULTI_AGENT_SUPPORT = 2
-    MAX_DISCRETIONARY_CLOSES_PER_BAR = 1
+    MAX_DISCRETIONARY_CLOSES_PER_BAR = 2
     RECENT_SIGNAL_WINDOW = 80
     DOMINANCE_SOFT_SHARE = 0.30
     DOMINANCE_HARD_SHARE = 0.45
@@ -1966,17 +2779,10 @@ class Panteon:
     ROTATION_HARD_LOSS_PCT = -0.35
     ROTATION_HARD_NEGATIVE_SHARPE = -8.0
     ROTATION_MIN_CLOSED_FOR_BLOCK = 4
-    LIVE_AGENT_BLOCKLIST = frozenset({
-        # Multi-run log review: these live sub-agents had persistent negative
-        # contribution or clearly bad latest signals. They remain in shadow
-        # monitoring, but cannot vote in the real ensemble.
-        'MomentumScalper',
-        'LiveRegimePullback',
-        'LiveVolCompress',
-        'RichardDennis',
-    })
+    LIVE_AGENT_BLOCKLIST = frozenset()
     REGIME_STATIC_WEIGHTS = {
         'bullish': {
+            'BullRotationAgent': 0.32,
             'LiveAfterShock': 0.28,
             'LiveMeanRev': 0.24,
             'LiveCrashHunter': 0.18,
@@ -1985,7 +2791,9 @@ class Panteon:
             'LiveTrendFollow': 0.06,
         },
         'neutral': {
+            'NeutralRangeScalper': 0.34,
             'LiveMeanRev': 0.30,
+            'LiveVolCompress': 0.20,
             'LiveAfterShock': 0.22,
             'FundingArb': 0.16,
             'CarryFlowAgentV2': 0.16,
@@ -1993,6 +2801,7 @@ class Panteon:
             'ResearchValidatorAgent': 0.04,
         },
         'bearish': {
+            'BearReliefFadeAgent': 0.32,
             'LiveCrashHunter': 0.30,
             'CarryFlowAgentV2': 0.24,
             'LiveMeanRev': 0.18,
@@ -2003,6 +2812,7 @@ class Panteon:
         'crash': {
             # Start crash as regular bearish. It will diverge through
             # regime_memory after real crash observations are collected.
+            'CrashPanicShortAgent': 0.36,
             'LiveCrashHunter': 0.30,
             'CarryFlowAgentV2': 0.24,
             'LiveMeanRev': 0.18,
@@ -2012,13 +2822,14 @@ class Panteon:
         },
     }
     REGIME_PRIORITY_MAP = {
-        'bullish': ('LiveCrashHunter', 'LiveTrendFollow', 'LiveOIBreakout', 'CarryFlowAgentV2', 'MomentumScalper', 'LiveRegimePullback', 'RichardDennis', 'FundingArb'),
-        'bearish': ('CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'LiveCrashHunter', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
-        'neutral': ('CarryFlowAgentV2', 'FundingArb', 'LiveCrashHunter', 'LiveOIBreakout', 'MomentumScalper', 'LiveRegimePullback', 'RichardDennis'),
-        'crash': ('CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'LiveCrashHunter', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
+        'bullish': ('BullRotationAgent', 'LiveRegimePullback', 'LiveTrendFollow', 'LiveOIBreakout', 'CarryFlowAgentV2', 'MomentumScalper', 'LiveCrashHunter', 'RichardDennis', 'FundingArb'),
+        'bearish': ('BearReliefFadeAgent', 'LiveCrashHunter', 'CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
+        'neutral': ('NeutralRangeScalper', 'FundingArb', 'CarryFlowAgentV2', 'LiveMeanRev', 'LiveVolCompress', 'LiveCrashHunter', 'LiveOIBreakout', 'MomentumScalper', 'LiveRegimePullback', 'RichardDennis'),
+        'crash': ('CrashPanicShortAgent', 'LiveCrashHunter', 'CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
     }
     REGIME_SCORE_BONUS = {
         'bullish': {
+            'BullRotationAgent': 0.24,
             'LiveCrashHunter': 0.16,
             'LiveTrendFollow': 0.12,
             'LiveOIBreakout': 0.11,
@@ -2029,11 +2840,15 @@ class Panteon:
             'LiveRegimePullback': 0.12,
             'RichardDennis': 0.08,
             'FundingArb': 0.04,
+            'BearReliefFadeAgent': -0.10,
+            'NeutralRangeScalper': -0.04,
+            'CrashPanicShortAgent': -0.14,
             'LiveVolCompress': -0.16,
             'LiveMeanRev': -0.08,
             'LiveAfterShock': -0.08,
         },
         'bearish': {
+            'BearReliefFadeAgent': 0.24,
             'CarryFlowAgentV2': 0.14,
             'LiveTrendFollow': 0.11,
             'LiveOIBreakout': 0.10,
@@ -2042,9 +2857,14 @@ class Panteon:
             'FundingArb': 0.12,
             'RichardDennis': 0.10,
             'MomentumScalper': 0.06,
+            'CrashPanicShortAgent': 0.06,
+            'BullRotationAgent': -0.12,
+            'NeutralRangeScalper': -0.04,
+            'LiveVolCompress': -0.08,
             'LiveAfterShock': -0.06,
         },
         'neutral': {
+            'NeutralRangeScalper': 0.24,
             'CarryFlowAgentV2': 0.13,
             'LiveOIBreakout': 0.08,
             'ResearchValidatorAgent': 0.05,
@@ -2054,11 +2874,15 @@ class Panteon:
             'MomentumScalper': 0.10,
             'LiveRegimePullback': 0.08,
             'RichardDennis': 0.04,
+            'BullRotationAgent': -0.04,
+            'BearReliefFadeAgent': -0.04,
+            'CrashPanicShortAgent': -0.14,
             'LiveMeanRev': -0.06,
             'LiveAfterShock': -0.06,
-            'LiveVolCompress': -0.10,
+            'LiveVolCompress': 0.10,
         },
         'crash': {
+            'CrashPanicShortAgent': 0.30,
             'CarryFlowAgentV2': 0.14,
             'LiveTrendFollow': 0.11,
             'LiveOIBreakout': 0.10,
@@ -2067,6 +2891,10 @@ class Panteon:
             'FundingArb': 0.12,
             'RichardDennis': 0.10,
             'MomentumScalper': 0.06,
+            'BearReliefFadeAgent': 0.06,
+            'BullRotationAgent': -0.16,
+            'NeutralRangeScalper': -0.12,
+            'LiveVolCompress': -0.10,
             'LiveAfterShock': -0.06,
         },
     }
@@ -3077,9 +3905,15 @@ class Panteon:
         'V_RichardDennisTurtle': 'RichardDennis',
         'V_GeneticsBullish': 'GeneticsBullish',
         'V_GeneticsBearish': 'GeneticsBearish',
+        'V_GeneticsNeutral': 'GeneticsNeutral',
         # Shadow candidate: новый агент (volatility breakout). Живые веса
         # получит через promotion_gate после набора достаточной статистики.
         'V_VolBreakoutHunter': 'VolBreakoutHunter',
+        'V_BullRotationAgent': 'BullRotationAgent',
+        'V_BearReliefFadeAgent': 'BearReliefFadeAgent',
+        'V_NeutralRangeScalper': 'NeutralRangeScalper',
+        'V_CrashPanicShortAgent': 'CrashPanicShortAgent',
+        'V_PlayerFunding': 'PlayerFunding',
     }
 
     def _normalize_weights(
@@ -3225,6 +4059,132 @@ class Panteon:
         perf = self._shadow_perf.get(shadow_name)
         return perf if isinstance(perf, dict) else {}
 
+    def _default_regime_leaders(self) -> Dict[str, str]:
+        leaders: Dict[str, str] = {}
+        for regime in self.REGIME_TOPS:
+            for label in self.REGIME_PRIORITY_MAP.get(regime, ()):
+                if label in self._agent_pool and label not in self.LIVE_AGENT_BLOCKLIST:
+                    leaders[regime] = label
+                    break
+        fallback_labels = list(self._active_weights) + list(self._agent_pool)
+        for regime in self.REGIME_TOPS:
+            if regime in leaders:
+                continue
+            for label in fallback_labels:
+                if label in self._agent_pool and label not in self.LIVE_AGENT_BLOCKLIST:
+                    leaders[regime] = label
+                    break
+        return leaders
+
+    def _symbol_execution_regime(self, sym: str, fallback: Optional[str] = None) -> str:
+        regime = self._detect_symbol_regime(sym, list(self._ph.get(sym) or []))
+        if regime == 'unknown':
+            regime = self._canonical_market_regime(fallback or self._r or 'neutral')
+        return self._canonical_symbol_regime(regime)
+
+    def _regime_shadow_score(self, label: str, perf: dict, regime: str) -> Optional[float]:
+        per_regime = perf.get('per_regime') if isinstance(perf, dict) else None
+        stats = (per_regime or {}).get(regime) if isinstance(per_regime, dict) else None
+        if not isinstance(stats, dict):
+            return None
+
+        signals = int(stats.get('signals', 0) or 0)
+        entries = int(stats.get('entries', 0) or 0)
+        closed = int(stats.get('closed_trades', 0) or 0)
+        pos_ticks = int(stats.get('position_ticks', 0) or 0)
+        if signals <= 0 and entries <= 0 and closed <= 0 and pos_ticks < self.REGIME_TOP_MIN_POSITION_TICKS:
+            return None
+
+        pnl = float(stats.get('pnl_pct', 0.0) or 0.0)
+        win_rate = float(stats.get('win_rate', 0.0) or 0.0)
+        score = pnl
+        if closed >= 2:
+            score += (win_rate - 50.0) * 0.004
+        elif entries > 0:
+            score -= 0.05
+        score += min(closed, 8) * 0.006
+        return float(score)
+
+    def _fallback_regime_leader(self, regime: str) -> Optional[str]:
+        ranked = []
+        for shadow_name, perf in (self._shadow_perf or {}).items():
+            label = self.SHADOW_MAP.get(shadow_name)
+            if not label or label not in self._agent_pool or label in self.LIVE_AGENT_BLOCKLIST:
+                continue
+            if self._agent_currently_blocked(label, perf):
+                continue
+            pnl = float((perf or {}).get('pnl_pct', 0.0) or 0.0)
+            sharpe = float((perf or {}).get('sharpe', 0.0) or 0.0)
+            entries = int((perf or {}).get('entries', 0) or 0)
+            closed = int((perf or {}).get('closed_trades', (perf or {}).get('total_trades', 0)) or 0)
+            if entries <= 0 and closed <= 0:
+                continue
+            ranked.append((pnl + sharpe * 0.08 + min(closed, 8) * 0.03, label))
+        if ranked:
+            ranked.sort(reverse=True)
+            return ranked[0][1]
+
+        current = self._regime_leaders.get(regime)
+        if current in self._agent_pool and current not in self.LIVE_AGENT_BLOCKLIST:
+            return current
+
+        defaults = self._default_regime_leaders()
+        return defaults.get(regime)
+
+    def _update_regime_leaders(self, logger=None) -> bool:
+        if not isinstance(self._shadow_perf, dict) or not self._shadow_perf:
+            return False
+
+        old = dict(getattr(self, '_regime_leaders', {}) or {})
+        leaders = dict(old or self._default_regime_leaders())
+        scores = dict(getattr(self, '_regime_leader_scores', {}) or {})
+
+        for regime in self.REGIME_TOPS:
+            ranked = []
+            for shadow_name, perf in self._shadow_perf.items():
+                label = self.SHADOW_MAP.get(shadow_name)
+                if not label or label not in self._agent_pool or label in self.LIVE_AGENT_BLOCKLIST:
+                    continue
+                score = self._regime_shadow_score(label, perf, regime)
+                if score is None:
+                    continue
+                if score <= 0.0 and self._agent_currently_blocked(label, perf):
+                    continue
+                stats = ((perf.get('per_regime') or {}).get(regime) or {})
+                pnl = float(stats.get('pnl_pct', 0.0) or 0.0)
+                ranked.append((score, pnl, label))
+
+            if ranked:
+                ranked.sort(reverse=True)
+                scores[regime] = float(ranked[0][0])
+                leaders[regime] = ranked[0][2]
+            else:
+                fallback = self._fallback_regime_leader(regime)
+                if fallback:
+                    leaders[regime] = fallback
+                    scores.setdefault(regime, 0.0)
+
+        changed = leaders != old
+        self._regime_leaders = leaders
+        self._regime_leader_scores = scores
+
+        unique = OrderedDict()
+        for regime in self.REGIME_TOPS:
+            label = leaders.get(regime)
+            if label and label in self._agent_pool:
+                unique.setdefault(label, 1.0)
+        if unique:
+            equal_weight = 1.0 / len(unique)
+            self._active_weights = {label: equal_weight for label in unique}
+
+        if changed and logger is not None:
+            leader_msg = ", ".join(
+                f"{regime}={leaders.get(regime, '-')}"
+                for regime in self.REGIME_TOPS
+            )
+            logger.info("  [REAL regime-top] leaders: %s", leader_msg)
+        return changed
+
     def _agent_recent_signal_share(self, label: str) -> float:
         recent = getattr(self, '_recent_real_signal_agents', None)
         if not recent:
@@ -3253,6 +4213,66 @@ class Panteon:
         )
         if cleaned:
             self._recent_real_signal_agents.append(cleaned)
+
+    def _set_agent_position_state(
+        self,
+        agent,
+        sym: str,
+        side: Optional[str],
+        entry: float = 0.0,
+        bar_index: int = 0,
+        _depth: int = 0,
+    ) -> None:
+        if agent is None or _depth > 5:
+            return
+        try:
+            pos_dict = getattr(agent, 'pos', None)
+            if isinstance(pos_dict, dict):
+                pos_dict[sym] = side
+        except Exception:
+            pass
+        for attr_name in ('ep', 'entry_px'):
+            try:
+                entry_dict = getattr(agent, attr_name, None)
+                if isinstance(entry_dict, dict):
+                    entry_dict[sym] = float(entry or 0.0) if side else 0.0
+            except Exception:
+                pass
+        try:
+            et_dict = getattr(agent, 'et', None)
+            if isinstance(et_dict, dict):
+                et_dict[sym] = int(bar_index or 0) if side else 0
+        except Exception:
+            pass
+        for wrap_attr in ('_inner', '_a', '_agent', 'agent', '_fa', '_ms', '_b1', '_b2'):
+            try:
+                inner = getattr(agent, wrap_attr, None)
+                if inner is not None and inner is not agent:
+                    self._set_agent_position_state(
+                        inner, sym, side, entry=entry,
+                        bar_index=bar_index, _depth=_depth + 1,
+                    )
+            except Exception:
+                pass
+
+    def _sync_subagents_to_real_positions(self, prices: dict, bar_index: int) -> None:
+        real_positions = dict(getattr(self, '_open_pos', {}) or {})
+        symbols = set(prices or {}) | set(real_positions)
+        for _, _label, agent in self.iter_subagents():
+            pos_dict = getattr(agent, 'pos', None)
+            if isinstance(pos_dict, dict):
+                symbols.update(pos_dict.keys())
+            for sym in list(symbols):
+                info = real_positions.get(sym)
+                if info:
+                    side = str(info.get('side') or 'long').lower()
+                    entry = float(info.get('entry') or prices.get(sym, 0.0) or 0.0)
+                    opened_bar = int(info.get('bar', bar_index) or bar_index)
+                    self._set_agent_position_state(
+                        agent, sym, side, entry=entry, bar_index=opened_bar,
+                    )
+                else:
+                    self._set_agent_position_state(agent, sym, None)
 
     def _agent_currently_blocked(self, label: str, perf: Optional[dict] = None) -> bool:
         if label in self.LIVE_AGENT_BLOCKLIST:
@@ -3369,6 +4389,121 @@ class Panteon:
 
         return float(open_extra), float(close_extra)
 
+    def _account_margin_utilization(self, portfolio_value=None) -> Optional[float]:
+        try:
+            equity = float(getattr(self, '_last_account_equity', 0.0) or portfolio_value or 0.0)
+            available = getattr(self, '_last_available_margin', None)
+            if available is None or equity <= 0:
+                return None
+            available = max(float(available or 0.0), 0.0)
+        except (TypeError, ValueError):
+            return None
+        used = max(equity - available, 0.0)
+        return float(np.clip(used / max(equity, 1e-9), 0.0, 1.0))
+
+    def _turnover_pressure(self, portfolio_value=None, n_open: int = 0) -> float:
+        target = float(getattr(self, 'TARGET_MARGIN_UTILIZATION', 0.72) or 0.72)
+        util = self._account_margin_utilization(portfolio_value)
+        if util is not None:
+            return float(np.clip((target - util) / max(target, 1e-9), 0.0, 1.0))
+        target_open = max(1.0, float(self.MAX_POS) * target)
+        return float(np.clip((target_open - float(n_open)) / target_open, 0.0, 1.0))
+
+    def _open_thresholds_for_turnover(
+        self,
+        open_extra: float,
+        turnover_pressure: float,
+    ) -> tuple[float, float, float]:
+        pressure = float(np.clip(turnover_pressure, 0.0, 1.0))
+        discount = float(getattr(self, 'LOW_UTIL_OPEN_DISCOUNT', 0.0) or 0.0) * pressure
+        single_discount = float(getattr(self, 'LOW_UTIL_SINGLE_DISCOUNT', 0.0) or 0.0) * pressure
+        open_single = max(
+            float(getattr(self, 'MIN_OPEN_SINGLE_THRESHOLD', 0.0) or 0.0),
+            min(float(self.MAX_WEIGHT), float(self.OPEN_SINGLE_THRESHOLD) + float(open_extra) - discount),
+        )
+        open_multi = max(
+            float(getattr(self, 'MIN_OPEN_MULTI_THRESHOLD', 0.0) or 0.0),
+            min(float(self.MAX_WEIGHT), float(self.OPEN_MULTI_THRESHOLD) + float(open_extra) * 0.75 - discount * 0.85),
+        )
+        single_strong = min(
+            float(self.MAX_WEIGHT),
+            max(float(self.SINGLE_AGENT_STRONG_THRESHOLD) - single_discount, open_single),
+        )
+        return float(open_single), float(open_multi), float(single_strong)
+
+    def _shadow_bootstrap_seed_weight(self, label: str) -> float:
+        if not getattr(self, "_shadow_bootstrap_mode", False):
+            return 0.0
+        try:
+            seed = float((getattr(self, "_active_weights", {}) or {}).get(label, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        return seed if seed > 0.0 else 0.0
+
+    def _single_agent_thresholds_for_label(
+        self,
+        label: str,
+        open_single_threshold: float,
+        single_strong_threshold: float,
+    ) -> tuple[float, float]:
+        open_single = float(open_single_threshold or 0.0)
+        single_strong = float(single_strong_threshold or open_single)
+        seed = self._shadow_bootstrap_seed_weight(label)
+        if seed <= 0.0:
+            return open_single, single_strong
+        floor = float(getattr(self, "MIN_OPEN_SINGLE_THRESHOLD", 0.0) or 0.0)
+        bootstrap_open = max(floor, min(open_single, seed))
+        bootstrap_strong = max(bootstrap_open, min(single_strong, seed))
+        return float(bootstrap_open), float(bootstrap_strong)
+
+    def _max_new_positions_for_bar(
+        self,
+        portfolio_value=None,
+        n_open: int = 0,
+        candidate_count: int = 0,
+    ) -> int:
+        free_slots = max(int(self.MAX_POS) - int(n_open), 0)
+        if free_slots <= 0 or candidate_count <= 0:
+            return 0
+
+        pressure = self._turnover_pressure(portfolio_value, n_open)
+        desired = 1
+        try:
+            equity = float(getattr(self, '_last_account_equity', 0.0) or portfolio_value or 0.0)
+            available = float(getattr(self, '_last_available_margin', 0.0) or 0.0)
+            free_ratio = available / max(equity, 1e-9) if equity > 0 else 0.0
+        except (TypeError, ValueError):
+            free_ratio = 0.0
+
+        max_new = max(1, int(getattr(self, 'MAX_NEW_PER_BAR', 1) or 1))
+        if pressure >= 0.65 or free_ratio >= 0.60:
+            desired = max_new
+        elif pressure >= 0.30 or free_ratio >= 0.35:
+            desired = min(2, max_new)
+        if n_open == 0 and candidate_count >= 2:
+            desired = max(desired, min(2, max_new))
+        return int(min(desired, free_slots, candidate_count))
+
+    def _full_size_open_action(
+        self,
+        base_action: int,
+        score: float,
+        support_n: int,
+        turnover_pressure: float,
+    ) -> int:
+        if base_action not in (4, 6):
+            return int(base_action)
+        pressure = float(np.clip(turnover_pressure, 0.0, 1.0))
+        single_threshold = float(getattr(self, 'FULL_SIZE_OPEN_THRESHOLD', 0.42) or 0.42) - 0.04 * pressure
+        multi_threshold = float(getattr(self, 'FULL_SIZE_MULTI_THRESHOLD', 0.34) or 0.34) - 0.04 * pressure
+        if support_n >= self.MIN_MULTI_AGENT_SUPPORT:
+            full_size = float(score) >= max(multi_threshold, self.OPEN_MULTI_THRESHOLD)
+        else:
+            full_size = float(score) >= max(single_threshold, self.OPEN_SINGLE_THRESHOLD)
+        if not full_size:
+            return int(base_action)
+        return 5 if base_action == 4 else 7
+
     def _single_agent_open_allowed(
         self,
         label: str,
@@ -3381,10 +4516,19 @@ class Panteon:
             if min_open_threshold is not None
             else float(self.OPEN_SINGLE_THRESHOLD)
         )
-        strong_threshold = min(
-            float(self.MAX_WEIGHT),
-            max(float(self.SINGLE_AGENT_STRONG_THRESHOLD), base_open_threshold),
-        )
+        if min_open_threshold is not None:
+            strong_threshold = min(
+                float(self.MAX_WEIGHT),
+                max(
+                    base_open_threshold,
+                    float(getattr(self, 'MIN_OPEN_SINGLE_THRESHOLD', 0.0) or 0.0),
+                ),
+            )
+        else:
+            strong_threshold = min(
+                float(self.MAX_WEIGHT),
+                max(float(self.SINGLE_AGENT_STRONG_THRESHOLD), base_open_threshold),
+            )
         if not perf:
             return float(agreement_weight or 0.0) >= strong_threshold
 
@@ -3394,6 +4538,7 @@ class Panteon:
         closed = int(perf.get('closed_trades', perf.get('total_trades', 0)) or 0)
         entries = int(perf.get('entries', 0) or 0)
         agreement_weight = float(agreement_weight or 0.0)
+        bootstrap_seed = self._shadow_bootstrap_seed_weight(label)
 
         if self._agent_currently_blocked(label, perf):
             return False
@@ -3403,6 +4548,11 @@ class Panteon:
                 strong_threshold,
                 min(float(self.MAX_WEIGHT), float(self.UNPROVEN_SINGLE_THRESHOLD)),
             )
+            if bootstrap_seed > 0.0:
+                required = max(
+                    float(getattr(self, 'MIN_OPEN_SINGLE_THRESHOLD', 0.0) or 0.0),
+                    min(required, max(strong_threshold, bootstrap_seed)),
+                )
             if (
                 entries >= self.UNPROVEN_SINGLE_MIN_ENTRIES
                 and pnl >= self.UNPROVEN_SINGLE_MIN_PNL_PCT
@@ -3524,6 +4674,8 @@ class Panteon:
 
     def enable_real_memory(self, load_existing: bool = True):
         self._memory_store.enable(self, load_existing=load_existing)
+        if self._shadow_players_enabled and load_existing:
+            self._shadow_player_selector.load_snapshot(self, logger=log)
 
     def set_memory_namespace(self, namespace: Optional[str], load_existing: bool = False):
         clean = _sanitize_memory_namespace(namespace)
@@ -3536,9 +4688,16 @@ class Panteon:
             legacy_file,
             save_interval_bars=30,
         )
+        self._shadow_player_selector = ShadowPlayerMetaSelector(
+            _aggregator_memory_path_for_namespace(clean),
+            save_interval_bars=30,
+        )
         self._last_memory_save_bar = -99999
+        self._last_shadow_player_memory_save_bar = -99999
         if self._memory_enabled and load_existing:
             self._memory_store.load_snapshot(self, logger=log)
+            if self._shadow_players_enabled:
+                self._shadow_player_selector.load_snapshot(self, logger=log)
 
     def _load_memory_snapshot(self):
         self._memory_store.load_snapshot(self, logger=log)
@@ -3546,6 +4705,183 @@ class Panteon:
     def set_shadow_perf(self, perf: Dict[str, dict]):
         """Вызывается из COMBO_TRADE для передачи shadow performance."""
         self._shadow_scoring.set_shadow_perf(self, perf)
+        for player in getattr(self, "_shadow_player_pool", {}).values():
+            try:
+                if hasattr(player, "set_shadow_perf"):
+                    player.set_shadow_perf(perf)
+            except Exception:
+                pass
+
+    def set_shadow_player_perf(self, perf: Dict[str, dict]):
+        self._shadow_player_selector.set_shadow_player_perf(self, perf)
+
+    def _rotate_shadow_players(self, prices: Optional[dict] = None):
+        if not self._shadow_players_enabled:
+            return
+        self._shadow_player_selector.select(
+            self,
+            context=self._current_context,
+            prices=prices or {},
+            logger=log,
+        )
+
+    def _shadow_player_static_prior(self, name: str, regime: str) -> float:
+        name = str(name or "")
+        regime = self._canonical_market_regime(regime)
+        priors = {
+            "bullish": {
+                "V_PanteonTrendResearch": 0.22,
+                "V_PanteonResearch": 0.12,
+                "V_PanteonNextResearch": 0.08,
+                "V_PanteonConsensusResearch": 0.06,
+                "V_Panteon_shadow": 0.04,
+                "V_PanteonDefensiveResearch": -0.05,
+            },
+            "bearish": {
+                "V_PanteonDefensiveResearch": 0.18,
+                "V_PanteonMeanRevResearch": 0.10,
+                "V_PanteonConsensusResearch": 0.08,
+                "V_PanteonNextResearch": 0.06,
+                "V_PanteonResearch": 0.05,
+                "V_PanteonTrendResearch": -0.06,
+            },
+            "neutral": {
+                "V_PanteonMeanRevResearch": 0.18,
+                "V_PanteonConsensusResearch": 0.12,
+                "V_PanteonResearch": 0.08,
+                "V_PanteonNextResearch": 0.06,
+                "V_Panteon_shadow": 0.04,
+            },
+            "crash": {
+                "V_PanteonDefensiveResearch": 0.24,
+                "V_PanteonConsensusResearch": 0.10,
+                "V_PanteonNextResearch": 0.06,
+                "V_PanteonMeanRevResearch": 0.05,
+                "V_PanteonTrendResearch": -0.14,
+            },
+        }
+        return float(priors.get(regime, {}).get(name, 0.0))
+
+    def _sync_shadow_player_state(self, player, portfolio_value=None):
+        try:
+            player._open_pos = {
+                str(sym): dict(info or {})
+                for sym, info in (getattr(self, "_open_pos", {}) or {}).items()
+            }
+        except Exception:
+            pass
+        for attr in ("_last_account_equity", "_last_available_margin"):
+            if hasattr(self, attr):
+                try:
+                    setattr(player, attr, getattr(self, attr))
+                except Exception:
+                    pass
+        if portfolio_value is not None:
+            try:
+                player._last_account_equity = float(portfolio_value)
+            except Exception:
+                pass
+        try:
+            player._shadow_perf = self._shadow_perf
+            player._last_shadow_snapshot = self._last_shadow_snapshot
+        except Exception:
+            pass
+
+    def _shadow_player_signal_confidence(self, player_name: str, sym: str = "") -> float:
+        score = float((getattr(self, "_shadow_player_scores", {}) or {}).get(player_name, 0.0) or 0.0)
+        perf = (getattr(self, "_shadow_player_perf", {}) or {}).get(player_name, {}) or {}
+        closed = int(perf.get("closed_trades", perf.get("total_trades", 0)) or 0) if isinstance(perf, dict) else 0
+        sample = min(max(closed, 0) / 8.0, 1.0)
+        conf = 0.35 + max(score, -1.0) * 0.14 + sample * 0.18
+        if sym and player_name == (getattr(self, "_selected_symbol_shadow_players", {}) or {}).get(sym):
+            conf += 0.06
+        return float(np.clip(conf, 0.20, 1.0))
+
+    def _shadow_player_risk_multiplier(self, player_name: str, action: int, confidence: float) -> float:
+        if action not in (1, 2, 4, 5, 6, 7):
+            return 1.0
+        score = float((getattr(self, "_shadow_player_scores", {}) or {}).get(player_name, 0.0) or 0.0)
+        perf = (getattr(self, "_shadow_player_perf", {}) or {}).get(player_name, {}) or {}
+        max_dd = abs(float(perf.get("max_dd", 0.0) or 0.0)) if isinstance(perf, dict) else 0.0
+        mult = 0.78 + float(confidence) * 0.34 + max(score, 0.0) * 0.05 - max_dd * 0.018
+        return float(min(self.RISK_MULTIPLIER_MAX, max(self.RISK_MULTIPLIER_MIN, mult)))
+
+    def _act_via_shadow_players(self, prices, volumes, month=None,
+                                portfolio_value=None, bar_index=None,
+                                regime: str = "neutral") -> dict:
+        if not self._shadow_player_pool:
+            return {s: 0 for s in prices}
+
+        selected = self._selected_shadow_player
+        if selected not in self._shadow_player_pool:
+            selected = next(iter(self._shadow_player_pool))
+            self._selected_shadow_player = selected
+
+        kw = dict(volumes=volumes, month=month, portfolio_value=portfolio_value, bar_index=bar_index)
+        player_actions: Dict[str, dict] = {}
+        for name, player in self._shadow_player_pool.items():
+            try:
+                self._sync_shadow_player_state(player, portfolio_value=portfolio_value)
+                player_actions[name] = player.act(prices, **kw) or {}
+            except Exception as exc:
+                log.debug("  [PLAYER meta/%s] act error: %s", name, exc)
+                player_actions[name] = {}
+
+        out = {s: 0 for s in prices}
+        source_for_symbol = {}
+        symbol_leaders = getattr(self, "_selected_symbol_shadow_players", {}) or {}
+        for sym in prices:
+            leader = symbol_leaders.get(sym) or selected
+            action = (player_actions.get(leader) or {}).get(sym, 0)
+            source = leader
+            if not action and leader != selected:
+                action = (player_actions.get(selected) or {}).get(sym, 0)
+                source = selected if action else leader
+            if action:
+                out[sym] = action
+                source_for_symbol[sym] = source
+
+        self._position_safety.apply_exit_actions(
+            self._open_pos,
+            prices,
+            int(self._t or 0),
+            out,
+            stop_loss_pct=self.SL_PCT,
+            take_profit_pct=self.TP_PCT,
+            trail_pct=self.TRAIL_PCT,
+            stale_bars=self.STALE_BARS,
+            logger=log,
+        )
+        for sym in list(out.keys()):
+            if sym in self._BLACKLIST and out[sym] != 0:
+                out[sym] = 0
+                source_for_symbol.pop(sym, None)
+        self._position_safety.sync_positions(self._open_pos, out, prices, int(self._t or 0))
+
+        self._last_contributors = {}
+        self._last_agreement_scores = {}
+        self._last_risk_multipliers = {}
+        if not hasattr(self, "_sub_signal_counts"):
+            self._sub_signal_counts = {}
+        for sym, action in out.items():
+            if action == 0:
+                continue
+            source = source_for_symbol.get(sym) or selected
+            confidence = self._shadow_player_signal_confidence(source, sym)
+            clean_name = source.replace("V_", "")
+            self._last_contributors[sym] = clean_name
+            self._last_agreement_scores[sym] = confidence
+            self._last_risk_multipliers[sym] = self._shadow_player_risk_multiplier(
+                source, action, confidence,
+            )
+            self._sub_signal_counts[clean_name] = self._sub_signal_counts.get(clean_name, 0) + 1
+
+        self._last_regime = regime
+        if any(a != 0 for a in out.values()):
+            self._shadow_player_selector.save_snapshot(
+                self, reason="player-signal", logger=log,
+            )
+        return out
 
     def _score_shadow_candidate(self, label: str, perf: dict) -> float:
         return self._shadow_scoring.score_shadow_candidate(self, label, perf)
@@ -3561,9 +4897,21 @@ class Panteon:
 
     def save_memory_snapshot(self, force: bool = False, reason: str = ""):
         self._memory_store.save_snapshot(self, force=force, reason=reason, logger=log)
+        if self._shadow_players_enabled:
+            self._shadow_player_selector.save_snapshot(
+                self, force=force, reason=reason, logger=log,
+            )
 
     def _rotate_agents(self):
-        self._portfolio_allocator.rotate(self, logger=log)
+        logger = None if self._quiet_info_logs() else log
+        if self.USE_REGIME_TOP_TRADER:
+            self._update_regime_leaders(logger=logger)
+            self._update_context_memory(self._current_context)
+            self._update_symbol_memory()
+            self._last_rotation = int(getattr(self, "_t", getattr(self, "_last_rotation", 0)) or 0)
+            self.save_memory_snapshot(force=True, reason="rotation")
+            return
+        self._portfolio_allocator.rotate(self, logger=logger)
 
     def reset_for_live(self, bar_index: int = 0):
         """
@@ -3577,7 +4925,14 @@ class Panteon:
           - self._open_pos (трекер Panteon)
           - self._r (режим — пересчитается)
         """
+        quiet_logs = self._quiet_info_logs()
         for attr_name, label, agent in self.iter_subagents():
+            reset = getattr(agent, 'reset_for_live', None)
+            if callable(reset):
+                try:
+                    reset(bar_index)
+                except Exception:
+                    pass
             # Таймер: немедленный первый check
             if hasattr(agent, '_lc'):
                 try: agent._lc = -99999
@@ -3590,7 +4945,7 @@ class Panteon:
                 n_held = sum(1 for v in pos_d.values() if v is not None)
                 for k in pos_d:
                     pos_d[k] = None
-                if n_held:
+                if n_held and not quiet_logs:
                     log.info("    [reset] %s: %d warmup-позиций очищено", label, n_held)
         # Цены входа
             for ep_attr in ('ep', 'entry_px'):
@@ -3608,21 +4963,46 @@ class Panteon:
         self._open_pos.clear()
         self._r = None
         self._lr = 0
+        self._last_rotation = -99999
+        self._last_shadow_player_rotation = -99999
         self._shadow_window_anchor = {}
         self._shadow_symbol_anchor = {}
         self._current_context = {}
         self._last_context_bar = -99999
+        self._shadow_player_challenger = ""
+        self._shadow_player_challenger_streak = 0
+        self._shadow_player_scores = {}
+        self._selected_symbol_shadow_players = {}
+        # FIX: сбрасываем выбор лидера и счётчик кулдауна, чтобы первая
+        # live-ротация выбрала лучшего игрока по свежим warmup-метрикам.
+        # Иначе стейл _selected_shadow_player из warmup (например,
+        # V_PlayerFunding с пиковой активностью) может править первые
+        # live-бары до истечения PLAYER_SWITCH_COOLDOWN_BARS.
+        self._selected_shadow_player = ""
+        self._last_shadow_player_switch_bar = -99999
+        self._last_regime_switch_bar = -99999
+        self._pending_regime = None
+        self._pending_regime_since = -99999
         if hasattr(self, '_sub_signal_counts'):
             self._sub_signal_counts.clear()
         if hasattr(self, '_recent_real_signal_agents'):
             self._recent_real_signal_agents.clear()
         if hasattr(self, '_last_risk_multipliers'):
             self._last_risk_multipliers.clear()
-        log.info("  ✅ Panteon.reset_for_live(): все sub-agents сброшены (bar=%d)", bar_index)
+        for name, player in getattr(self, "_shadow_player_pool", {}).items():
+            reset = getattr(player, "reset_for_live", None)
+            if callable(reset):
+                try:
+                    reset(bar_index)
+                except Exception as exc:
+                    log.debug("    [reset/player] %s failed: %s", name, exc)
+        if not quiet_logs:
+            log.info("  ✅ Panteon.reset_for_live(): все sub-agents сброшены (bar=%d)", bar_index)
 
     def act(self,prices,volumes,month=None,portfolio_value=None,bar_index=None):
         self._t = bar_index if bar_index is not None else getattr(self,'_t',0)+1
         t = self._t
+        prev_regime = self._canonical_market_regime(self._r) if self._r is not None else None
         # Обновляем историю цен
         for s,p in prices.items():
             self._ph.setdefault(s, deque(maxlen=5760)).append(float(p))
@@ -3639,44 +5019,127 @@ class Panteon:
             self._current_context = self._build_market_context(month=month)
             self._last_context_bar = t
 
-        regime=self._canonical_market_regime(self._r or 'neutral')
+        raw_regime = self._canonical_market_regime(self._r or 'neutral')
+        # FIX: гистерезис режима. _detect_regime_fast часто скачет bullish↔neutral
+        # по коротким окнам, что каждые 30-60 сек форсировало ротацию игроков и
+        # агентов (тысячи CLOSE-сообщений в warmup). Новая логика:
+        #   1. Мгновенно применяем новый режим только при переходе в/из crash
+        #      (crash — это защитная мера, её нельзя откладывать).
+        #   2. Остальные флипы требуют REGIME_HYSTERESIS_BARS устойчивости.
+        hysteresis = int(getattr(self, "REGIME_HYSTERESIS_BARS", 12) or 0)
+        effective_prev = self._canonical_market_regime(
+            getattr(self, "_stable_regime", None) or prev_regime or raw_regime
+        )
+        stable_regime = getattr(self, "_stable_regime", None)
+        if stable_regime is None:
+            stable_regime = raw_regime
+            self._stable_regime = stable_regime
+        if hysteresis <= 0 or raw_regime == "crash" or stable_regime == "crash":
+            new_stable = raw_regime
+        else:
+            pending = getattr(self, "_pending_regime", None)
+            pending_since = int(getattr(self, "_pending_regime_since", -99999) or -99999)
+            if raw_regime == stable_regime:
+                new_stable = stable_regime
+                self._pending_regime = None
+                self._pending_regime_since = -99999
+            else:
+                if pending != raw_regime:
+                    self._pending_regime = raw_regime
+                    self._pending_regime_since = t
+                    new_stable = stable_regime
+                elif t - pending_since >= hysteresis:
+                    new_stable = raw_regime
+                    self._pending_regime = None
+                    self._pending_regime_since = -99999
+                else:
+                    new_stable = stable_regime
+        self._stable_regime = new_stable
+        regime = new_stable
+        regime_changed = effective_prev != regime
         kw=dict(volumes=volumes,month=month,portfolio_value=portfolio_value,bar_index=bar_index)
+
+        if self._shadow_players_enabled and self._shadow_player_pool:
+            if regime_changed and not self._quiet_info_logs():
+                log.info("  [PLAYER meta] regime changed %s -> %s; forcing player rotation", effective_prev, regime)
+            if regime_changed or t - self._last_shadow_player_rotation >= self.PLAYER_ROTATION_INT:
+                self._rotate_shadow_players(prices)
+                self._last_shadow_player_rotation = t
+            return self._act_via_shadow_players(
+                prices,
+                volumes,
+                month=month,
+                portfolio_value=portfolio_value,
+                bar_index=bar_index,
+                regime=regime,
+            )
 
         # ═══════════════════════════════════════════════════════════════
         # ADAPTIVE ROTATION: периодически обновляем состав агентов
         # ═══════════════════════════════════════════════════════════════
-        if t - self._last_rotation >= self.ROTATION_INT:
+        if self.USE_REGIME_TOP_TRADER:
+            self._update_regime_leaders(logger=log)
+
+        if regime_changed and not self._quiet_info_logs():
+            log.info("  [Panteon] regime changed %s -> %s; forcing agent rotation", effective_prev, regime)
+        if regime_changed or t - self._last_rotation >= self.ROTATION_INT:
             self._rotate_agents()
             self._last_rotation = t
 
         # Строим acts_list из _active_weights (обновляются ротацией)
         acts_list = []
-        for label, weight in sorted(self._active_weights.items(),
-                                     key=lambda x: x[1], reverse=True):
-            agent = self._agent_pool.get(label)
-            if agent is None:
-                continue
-            if self._agent_currently_blocked(label):
-                continue
-            try:
-                acts = agent.act(prices, **kw)
-            except Exception:
-                acts = {}
-            acts_list.append((label, acts, weight))
+        if self.USE_REGIME_TOP_TRADER:
+            symbol_regimes = {
+                s: self._symbol_execution_regime(s, regime)
+                for s in prices
+            }
+            self._last_symbol_regime = dict(symbol_regimes)
+            agent_actions = {}
+            for label, agent in self._agent_pool.items():
+                if label in self.LIVE_AGENT_BLOCKLIST:
+                    continue
+                try:
+                    acts = agent.act(prices, **kw)
+                except Exception:
+                    acts = {}
+                agent_actions[label] = acts or {}
+
+            for label, acts in agent_actions.items():
+                filtered = {}
+                for s, a in (acts or {}).items():
+                    if not a or s not in prices:
+                        continue
+                    sym_regime = symbol_regimes.get(s) or regime
+                    if self._regime_leaders.get(sym_regime) == label:
+                        filtered[s] = a
+                if filtered:
+                    acts_list.append((label, filtered, 1.0))
+        else:
+            for label, weight in sorted(self._active_weights.items(),
+                                         key=lambda x: x[1], reverse=True):
+                agent = self._agent_pool.get(label)
+                if agent is None:
+                    continue
+                if self._agent_currently_blocked(label):
+                    continue
+                try:
+                    acts = agent.act(prices, **kw)
+                except Exception:
+                    acts = {}
+                acts_list.append((label, acts, weight))
 
         # Взвешенное голосование: собираем голоса и отмечаем, кто их подал
         buy_w={};sell_w={};long_w={};short_w_map={}
         long_support={};short_support={};sell_support={}
-        total_active_weight = max(
+        total_active_weight = 1.0 if self.USE_REGIME_TOP_TRADER else max(
             sum(float(weight) for weight in self._active_weights.values()),
             1e-9,
         )
+        n_open = len(self._open_pos)
+        turnover_pressure = self._turnover_pressure(portfolio_value, n_open)
         open_extra, close_extra = self._execution_threshold_offsets(portfolio_value)
-        open_single_threshold = min(self.MAX_WEIGHT, self.OPEN_SINGLE_THRESHOLD + open_extra)
-        open_multi_threshold = min(self.MAX_WEIGHT, self.OPEN_MULTI_THRESHOLD + open_extra * 0.75)
-        single_strong_threshold = min(
-            self.MAX_WEIGHT,
-            max(self.SINGLE_AGENT_STRONG_THRESHOLD, open_single_threshold),
+        open_single_threshold, open_multi_threshold, single_strong_threshold = (
+            self._open_thresholds_for_turnover(open_extra, turnover_pressure)
         )
         close_single_threshold = min(self.MAX_WEIGHT, self.CLOSE_SINGLE_THRESHOLD + close_extra)
         close_multi_threshold = min(self.MAX_WEIGHT, self.CLOSE_MULTI_THRESHOLD + close_extra * 0.75)
@@ -3689,7 +5152,7 @@ class Panteon:
             if acts is None: continue
             for s, a in acts.items():
                 if a == 0: continue
-                vote_w = self._effective_vote_weight(ag_name, s, w, a)
+                vote_w = 1.0 if self.USE_REGIME_TOP_TRADER else self._effective_vote_weight(ag_name, s, w, a)
                 if a in(1,2):
                     buy_w[s]=buy_w.get(s,0)+vote_w; long_w[s]=long_w.get(s,0)+vote_w
                     long_support.setdefault(s, set()).add(ag_name)
@@ -3709,7 +5172,6 @@ class Panteon:
 
         # FIX v6: строим финальные действия с лимитом на новые позиции за бар
         out={s:0 for s in prices}
-        n_open = len(self._open_pos)
 
         # Шаг 1: CLOSE-сигналы — только для реально известных открытых позиций.
         # Иначе суб-агенты со stale-состоянием спамят close_all по символам,
@@ -3737,9 +5199,6 @@ class Panteon:
             _agreement_scores[s] = min(1.0, close_w / total_active_weight)
 
         # Шаг 2: OPEN-сигналы — сортируем по силе, берём только лучшие
-        # MAX_NEW_PER_BAR: не более 1 новой позиции за бар
-        # $128 аккаунт с $30 free margin → нельзя открывать 2 позиции за раз
-        MAX_NEW_PER_BAR = 1
         open_candidates = []  # [(sym, action, weight, support_n)]
         for s in set(buy_w)|set(short_w_map):
             if out[s] == 8:
@@ -3759,16 +5218,30 @@ class Panteon:
                     )
                 )
                 lead_short = short_labels[0] if short_labels else ''
+                candidate_open_threshold = open_single_threshold
+                candidate_strong_threshold = single_strong_threshold
+                if short_support_n < self.MIN_MULTI_AGENT_SUPPORT:
+                    candidate_open_threshold, candidate_strong_threshold = (
+                        self._single_agent_thresholds_for_label(
+                            lead_short,
+                            open_single_threshold,
+                            single_strong_threshold,
+                        )
+                    )
                 thresh = (
                     open_multi_threshold
                     if short_support_n >= self.MIN_MULTI_AGENT_SUPPORT
-                    else open_single_threshold
+                    else candidate_open_threshold
                 )
                 if sw >= thresh:
                     if short_support_n < self.MIN_MULTI_AGENT_SUPPORT:
-                        if sw < single_strong_threshold:
+                        if sw < candidate_strong_threshold:
                             continue
-                        if lead_short and not self._single_agent_open_allowed(lead_short, sw, open_single_threshold):
+                        if (
+                            lead_short
+                            and not self.USE_REGIME_TOP_TRADER
+                            and not self._single_agent_open_allowed(lead_short, sw, candidate_strong_threshold)
+                        ):
                             continue
                     open_candidates.append((s, 6, sw, short_support_n))
             else:
@@ -3780,38 +5253,62 @@ class Panteon:
                     )
                 )
                 lead_long = long_labels[0] if long_labels else ''
+                candidate_open_threshold = open_single_threshold
+                candidate_strong_threshold = single_strong_threshold
+                if long_support_n < self.MIN_MULTI_AGENT_SUPPORT:
+                    candidate_open_threshold, candidate_strong_threshold = (
+                        self._single_agent_thresholds_for_label(
+                            lead_long,
+                            open_single_threshold,
+                            single_strong_threshold,
+                        )
+                    )
                 thresh = (
                     open_multi_threshold
                     if long_support_n >= self.MIN_MULTI_AGENT_SUPPORT
-                    else open_single_threshold
+                    else candidate_open_threshold
                 )
                 if lw >= thresh:
                     if long_support_n < self.MIN_MULTI_AGENT_SUPPORT:
-                        if lw < single_strong_threshold:
+                        if lw < candidate_strong_threshold:
                             continue
-                        if lead_long and not self._single_agent_open_allowed(lead_long, lw, open_single_threshold):
+                        if (
+                            lead_long
+                            and not self.USE_REGIME_TOP_TRADER
+                            and not self._single_agent_open_allowed(lead_long, lw, candidate_strong_threshold)
+                        ):
                             continue
                     open_candidates.append((s, 4, lw, long_support_n))
 
         # Сортируем по весу (самые сильные сигналы сначала)
         open_candidates.sort(key=lambda x: (x[2], x[3]), reverse=True)
+        max_new_per_bar = self._max_new_positions_for_bar(
+            portfolio_value,
+            n_open=n_open,
+            candidate_count=len(open_candidates),
+        )
 
         n_new = 0
         for s, action, w, _support_n in open_candidates:
-            if n_new >= MAX_NEW_PER_BAR:
+            if n_new >= max_new_per_bar:
                 break
             if n_open >= self.MAX_POS:
                 break
-            out[s] = action
+            out[s] = self._full_size_open_action(action, w, _support_n, turnover_pressure)
             n_open += 1
             n_new += 1
-            _contributors.setdefault(s, {})['(limited)'] = w
+            if not self.USE_REGIME_TOP_TRADER:
+                _contributors.setdefault(s, {})['(limited)'] = w
             _agreement_scores[s] = min(1.0, w / total_active_weight)
 
         # ══════════════════════════════════════════════════════════════════
         # POSITION MANAGER v5: SL + TP + Trailing Stop + Stale Exit
         # Управляет ВСЕМИ позициями включая внешние (инъектированные)
         # ══════════════════════════════════════════════════════════════════
+        # Suppress verbose CLOSE log when this Panteon instance is itself a shadow
+        # player running inside the meta ensemble — otherwise each rotation event
+        # produces N× duplicate warnings (one per shadow player running the same tick).
+        _is_shadow_child = self._quiet_info_logs()
         self._position_safety.apply_exit_actions(
             self._open_pos,
             prices,
@@ -3821,7 +5318,7 @@ class Panteon:
             take_profit_pct=self.TP_PCT,
             trail_pct=self.TRAIL_PCT,
             stale_bars=self.STALE_BARS,
-            logger=log,
+            logger=(None if _is_shadow_child else log),
         )
         self._position_safety.sync_positions(self._open_pos, out, prices, t)
         # Legacy loop intentionally disabled after phase-2 governor extraction.
@@ -3897,6 +5394,8 @@ class Panteon:
             elif a in (3,8) and s in self._open_pos:
                 del self._open_pos[s]; n_open -= 1
 
+        self._sync_subagents_to_real_positions(prices, t)
+
         # Сохраняем метаданные сигналов для SignalCapturingAgent:
         #   _last_contributors  = {sym: "AgentA+AgentB"} — кто голосовал
         #   _sub_signal_counts  = {agent_name: total_signals} — накопленный счётчик
@@ -3916,8 +5415,10 @@ class Panteon:
                 self._last_agreement_scores[s] = float(_agreement_scores.get(s, 0.0))
             else:
                 self._last_agreement_scores[s] = 0.0
-            self._last_risk_multipliers[s] = self._signal_risk_multiplier(
-                s, a, self._last_agreement_scores.get(s, 0.0), voters,
+            self._last_risk_multipliers[s] = (
+                1.0 if self.USE_REGIME_TOP_TRADER else self._signal_risk_multiplier(
+                    s, a, self._last_agreement_scores.get(s, 0.0), voters,
+                )
             )
             if voters:
                 self._record_recent_real_signal(voters)
@@ -3952,6 +5453,7 @@ class PanteonResearch(Panteon):
     shadow candidates by a more robust score than raw P&L alone.
     """
     ROTATION_INT = 60
+    ENABLE_META_PLAYERS = False
     MIN_AGENTS = 3
     MAX_AGENTS = 5
     MIN_WEIGHT = 0.12
@@ -4386,6 +5888,10 @@ def make_panteon_agents() -> OrderedDict:
         # не включается по умолчанию — сначала набирает shadow-метрики,
         # затем promotion_gate решает.
         ('VolBreakoutHunter', VolBreakoutHunter),
+        ('BullRotationAgent', BullRotationAgent),
+        ('BearReliefFadeAgent', BearReliefFadeAgent),
+        ('NeutralRangeScalper', NeutralRangeScalper),
+        ('CrashPanicShortAgent', CrashPanicShortAgent),
     ]:
         try:
             agents[name] = cls()

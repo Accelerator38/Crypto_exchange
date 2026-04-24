@@ -41,18 +41,11 @@ from typing import Dict, List, Optional, Any
 
 import numpy as np
 
+from project_paths import add_runtime_paths
+
 
 def _bootstrap_project_paths():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    add_runtime_paths()
 
 
 _bootstrap_project_paths()
@@ -118,6 +111,29 @@ def _regime_info(regime: str):
 
 def _fmt_pct(v, digits=2):
     return f"{v:+.{digits}f}%"
+
+
+def _resolve_sub_agent_pnl_and_initials(stats, sub_agent_pnl: Optional[Dict[str, float]] = None):
+    sub_pvs = getattr(stats, 'sub_agent_pvs', {}) or {}
+    sub_initials = getattr(stats, 'sub_agent_initials', {}) or {}
+    fallback_base = float(getattr(stats, 'initial_capital', 0.0) or 0.0)
+
+    pnl_data = {}
+    if sub_agent_pnl:
+        for name, value in sub_agent_pnl.items():
+            try:
+                pnl_data[str(name)] = float(value)
+            except Exception:
+                continue
+    else:
+        for name, pv_val in sub_pvs.items():
+            try:
+                pv = float(pv_val)
+            except Exception:
+                continue
+            base = float(sub_initials.get(name, fallback_base) or fallback_base)
+            pnl_data[str(name)] = pv - base
+    return pnl_data, sub_initials
 
 
 def _rolling_max_dd(series):
@@ -654,13 +670,9 @@ def plot_api_trading_dashboard(
                         color=WHT, fontsize=9, fontweight='bold')
 
         # Строим из sub_pvs или sub_agent_pnl
-        pnl_data = {}
-        if sub_agent_pnl:
-            pnl_data = sub_agent_pnl
-        elif sub_pvs:
-            per_start = ic / max(len(sub_pvs), 1)
-            for name, pv_val in sub_pvs.items():
-                pnl_data[name] = pv_val - per_start
+        pnl_data, sub_initials = _resolve_sub_agent_pnl_and_initials(
+            stats, sub_agent_pnl=sub_agent_pnl
+        )
 
         if pnl_data:
             sorted_agents_pnl = sorted(pnl_data.items(),
@@ -719,7 +731,15 @@ def plot_api_trading_dashboard(
             ax_fund.text(0.5, 0.5, "Накопление данных...",
                          ha='center', va='center', color=GRY, fontsize=8,
                          transform=ax_fund.transAxes)
-            ax_fund.text(0.5, 0.3, rlbl, ha='center', va='center',
+            status_text = "Funding: unsupported" if market_regime != 'unknown' else "Funding: waiting"
+            ax_fund.text(0.5, 0.72, status_text,
+                         ha='center', va='center', color=GRY, fontsize=8.5,
+                         transform=ax_fund.transAxes)
+            if abs(float(funding_avg or 0.0)) > 1e-12:
+                ax_fund.text(0.5, 0.54, f"{funding_avg*100:+.4f}%",
+                             ha='center', va='center', color=CYN, fontsize=10,
+                             fontweight='bold', transform=ax_fund.transAxes)
+            ax_fund.text(0.5, 0.16, rlbl, ha='center', va='center',
                          color=rclr, fontsize=16, fontweight='bold',
                          transform=ax_fund.transAxes)
 
@@ -875,11 +895,11 @@ def plot_api_trading_dashboard(
         y0 -= 0.10
         display_agents = sorted(sub_pvs.items(),
                                  key=lambda kv: kv[1], reverse=True) if sub_pvs else []
-        per_start = ic / max(len(display_agents), 1) if display_agents else ic
 
         for ag_name, pv_val in display_agents[:8]:
-            pnl_v = pv_val - per_start
-            pnl_p = pnl_v / per_start * 100 if per_start > 0 else 0
+            base = float(sub_initials.get(ag_name, ic) or 0.0)
+            pnl_v = float(pnl_data.get(ag_name, float(pv_val) - base))
+            pnl_p = pnl_v / base * 100 if base > 0 else 0
             vc    = GRN if pnl_v >= 0 else RED
             n_tr  = sub_agent_trades.get(ag_name, []) if sub_agent_trades else []
             short = ag_name.replace('STP_', '')
@@ -1370,12 +1390,7 @@ def inject_enhanced_dashboards(bridge, players_dict=None) -> None:
                     stats = getattr(wrapper, '_stats', None)
                     break
         if stats is not None:
-            sub_pnl = {}
-            sub_pvs = getattr(stats, 'sub_agent_pvs', {})
-            if sub_pvs:
-                ic      = stats.initial_capital
-                per_ag  = ic / max(len(sub_pvs), 1)
-                sub_pnl = {k: v - per_ag for k, v in sub_pvs.items()}
+            sub_pnl, _ = _resolve_sub_agent_pnl_and_initials(stats)
             plot_api_trading_dashboard(
                 stats=stats,
                 output_dir=bridge.output_dir,

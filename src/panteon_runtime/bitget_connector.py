@@ -10,12 +10,11 @@ import time
 from datetime import datetime
 from typing import Dict, List
 
+from project_paths import PROJECT_ROOT, add_runtime_paths
+
 
 def _bootstrap_venv_packages():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_site = os.path.join(base_dir, ".venv", "Lib", "site-packages")
-    if os.path.isdir(venv_site) and venv_site not in sys.path:
-        sys.path.insert(0, venv_site)
+    add_runtime_paths()
 
 
 _bootstrap_venv_packages()
@@ -624,7 +623,13 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         self._bar = 0
         self._warmup_end = 0
         self._price_hist: List[dict] = []
+        self._volume_hist: List[dict] = []
         self._direct_client = direct_client
+        self._spot_exchange = _public_client("spot")
+        self._spot_markets_loaded = False
+        self._last_market_prices: Dict[str, float] = {}
+        self._last_market_volumes: Dict[str, float] = {}
+        self._last_market_snapshot_at = 0.0
 
         self.initial_capital = cfg["initial_capital"]
         self.trade_fraction = cfg["trade_fraction"]
@@ -647,7 +652,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
             self.output_dir = output_dir
         else:
             ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            base = os.path.dirname(os.path.abspath(__file__))
+            base = str(PROJECT_ROOT)
             self.output_dir = os.path.join(base, "Results", "BITGET", ts)
         os.makedirs(self.output_dir, exist_ok=True)
         log.info("📁 Результаты: %s", self.output_dir)
@@ -768,6 +773,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         for i, (prices, volumes) in enumerate(zip(prices_bars, volumes_bars)):
             self._bar += 1
             self._price_hist.append(dict(prices))
+            self._volume_hist.append(dict(volumes))
             is_active = i >= active_start
             for agent_name, agent in self.agents.items():
                 pv = (
@@ -800,6 +806,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
     def _fetch_market(self) -> tuple:
         prices = {}
         volumes = {}
+        spot_batch_failed = False
         # Получаем blacklist один раз на цикл: если символ помечен как "мёртвый" —
         # не тратим на него запросы.
         bad_symbols = (
@@ -809,10 +816,14 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
 
         # ── SPOT-тикеры батчем (дешевле чем по одному) ──
         try:
-            exchange = _public_client("spot")
-            exchange.load_markets()
-            spot_tickers = exchange.fetch_tickers(
-                [f"{sym}/USDT" for sym in active_symbols]
+            exchange = self._spot_exchange
+            if not self._spot_markets_loaded:
+                exchange.load_markets()
+                self._spot_markets_loaded = True
+            spot_tickers = (
+                exchange.fetch_tickers([f"{sym}/USDT" for sym in active_symbols])
+                if active_symbols
+                else {}
             )
             for sym in active_symbols:
                 ticker = spot_tickers.get(f"{sym}/USDT", {}) or {}
@@ -826,7 +837,10 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
                     prices[sym] = last
                     volumes[sym] = quote_vol / last if last > 0 else 0.0
         except Exception as e:
+            spot_batch_failed = True
             log.error("Ошибка цен Bitget (spot batch): %s", e)
+            self._spot_exchange = _public_client("spot")
+            self._spot_markets_loaded = False
 
         # ── FUTURES-тикеры по одному (нужны для live_futures) ──
         # Раньше одна BadSymbol ронял весь цикл. Теперь каждый символ
@@ -848,6 +862,13 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
                     # здесь ловим сеть, таймауты, rate-limits и пр.
                     log.debug("[bitget] ticker %s failed: %s — skip this cycle", sym, e)
 
+        if spot_batch_failed and self._last_market_volumes:
+            for sym in list(prices):
+                if sym not in volumes:
+                    cached_volume = float(self._last_market_volumes.get(sym, 0.0) or 0.0)
+                    if cached_volume > 0.0:
+                        volumes[sym] = cached_volume
+
         if self.liquidity_min_adv > 0:
             prices = {
                 s: p
@@ -855,6 +876,22 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
                 if volumes.get(s, 0) * p >= self.liquidity_min_adv
             }
             volumes = {s: v for s, v in volumes.items() if s in prices}
+        if prices:
+            self._last_market_prices = dict(prices)
+            self._last_market_volumes = dict(volumes)
+            self._last_market_snapshot_at = time.time()
+        elif self._last_market_prices:
+            cache_age = max(0.0, time.time() - float(self._last_market_snapshot_at or 0.0))
+            reason = "spot batch failure" if spot_batch_failed else "empty market fetch"
+            prices = dict(self._last_market_prices)
+            volumes = dict(self._last_market_volumes)
+            log.warning(
+                "[bitget] market fetch returned 0 symbols (%s) -> reuse cached snapshot "
+                "(age=%.1fs, symbols=%d)",
+                reason,
+                cache_age,
+                len(prices),
+            )
         return prices, volumes
 
 

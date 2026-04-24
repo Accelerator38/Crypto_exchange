@@ -9,15 +9,15 @@ from typing import List, Tuple, Dict, Optional
 
 def _bootstrap_project_paths():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = base_dir
-    if not os.path.isdir(os.path.join(project_root, "Retrodate_cryptotrade")):
-        project_root = os.path.dirname(base_dir)
-    for extra_dir in (
-        os.path.join(project_root, "Retrodate_cryptotrade"),
-        os.path.join(project_root, "Genetics_DL_Agents"),
-    ):
-        if os.path.isdir(extra_dir) and extra_dir not in sys.path:
-            sys.path.insert(0, extra_dir)
+    project_root = os.path.dirname(base_dir)
+    search_roots = (base_dir, project_root, os.path.dirname(project_root))
+    for root in search_roots:
+        for extra_dir in (
+            os.path.join(root, "Retrodate_cryptotrade"),
+            os.path.join(root, "Genetics_DL_Agents"),
+        ):
+            if os.path.isdir(extra_dir) and extra_dir not in sys.path:
+                sys.path.insert(0, extra_dir)
 
 
 _bootstrap_project_paths()
@@ -48,6 +48,18 @@ print = _safe_print
 # 1. Переменную окружения _GENETICS_WORKER (устанавливается перед p.start())
 # 2. Имя процесса (spawn-воркеры называются не '__main__' / 'MainProcess')
 # Функция (не константа) — проверяется в момент print, а не при импорте.
+_LOG_ONCE_KEYS = set()
+
+
+def _print_once(key: str, *args, **kwargs) -> bool:
+    """Print a startup/info line only once per process for the given key."""
+    if key in _LOG_ONCE_KEYS:
+        return False
+    _LOG_ONCE_KEYS.add(key)
+    print(*args, **kwargs)
+    return True
+
+
 def _is_worker() -> bool:
     if os.environ.get('_GENETICS_WORKER') == '1':
         return True
@@ -5847,8 +5859,11 @@ class _RegimeGeneticsAgent(GeneticsAgent):
                 _gen  = int(_meta.get('gen', 0))
                 _fit  = float(_meta.get('fitness', 0.0))
                 _mpos = int(_meta.get('max_pos', TRAIN_MAX_POS))
-                print(f"  [{type(self).__name__}] regime={self._REGIME_LABEL}  "
-                      f"gen={_gen}  fitness={_fit:+.4f}  max_pos={_mpos}")
+                _print_once(
+                    f"regime-agent-meta:{type(self).__name__}:{self._REGIME_LABEL}",
+                    f"  [{type(self).__name__}] regime={self._REGIME_LABEL}  "
+                    f"gen={_gen}  fitness={_fit:+.4f}  max_pos={_mpos}"
+                )
                 if _mpos != self.MAX_POS:
                     self.MAX_POS = _mpos
         except Exception:

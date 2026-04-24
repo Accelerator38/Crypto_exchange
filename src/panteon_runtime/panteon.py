@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from panteon_agents import (
+    BearReliefFadeAgent,
     Bomberman,
+    BullRotationAgent,
     CarryFlowAgentV2,
+    CrashPanicShortAgent,
     ExternalSignalAgent,
     FundingArb,
     LiveAfterShock,
@@ -13,6 +16,7 @@ from panteon_agents import (
     LiveTrendFollow,
     LiveVolCompress,
     MomentumScalper,
+    NeutralRangeScalper,
     NeuroPlayer,
     Panteon,
     PanteonConsensusResearch,
@@ -24,12 +28,16 @@ from panteon_agents import (
     PlayerFunding,
     ResearchValidatorAgent,
     RichardDennisTurtle,
+    VolBreakoutHunter,
 )
 from player_next import PanteonNextResearch
 
 __all__ = [
+    "BearReliefFadeAgent",
     "Bomberman",
+    "BullRotationAgent",
     "CarryFlowAgentV2",
+    "CrashPanicShortAgent",
     "ExternalSignalAgent",
     "FundingArb",
     "LiveAfterShock",
@@ -40,6 +48,7 @@ __all__ = [
     "LiveTrendFollow",
     "LiveVolCompress",
     "MomentumScalper",
+    "NeutralRangeScalper",
     "NeuroPlayer",
     "Panteon",
     "PanteonConsensusResearch",
@@ -52,4 +61,5 @@ __all__ = [
     "PlayerFunding",
     "ResearchValidatorAgent",
     "RichardDennisTurtle",
+    "VolBreakoutHunter",
 ]

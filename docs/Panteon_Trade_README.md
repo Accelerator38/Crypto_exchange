@@ -4,15 +4,17 @@
 
 ## Актуальная структура
 
-- `Panteon_Trade.py` в корне — live-торговля и внутренний shadow-контур.
+- `src/panteon_runtime/Panteon_Trade.py` — live-торговля и внутренний shadow-контур.
 - `API_COMBO_TRADE.py` — тонкий generic-entrypoint, который запускает `Panteon_Trade`.
 - `Start_MEXC.py` и `Start_BITGET.py` — биржеспецифичные launchers.
+- `src/panteon_runtime/` — основной runtime-код, коннекторы, агенты и adapters.
 - `Retrodate_cryptotrade/crypto_exchange.py` — расчёты на исторических данных.
 - `Genetics_DL_Agents/crypto_genetics.py` и `Genetics_DL_Agents/run_genetics.py` — обучение genetics-агентов.
 
 Связанные данные и артефакты:
 
 - `Results/<EXCHANGE>/...` — live/API результаты по конкретной бирже.
+- `state/memory/` — память реальных игроков и агрегаторов.
 - `Retrodate_cryptotrade/CriptoData/` — исторические CSV и рыночные события.
 - `Genetics_DL_Agents/Agents/` и `Genetics_DL_Agents/results/` — геномы, логи и результаты обучения.
 
