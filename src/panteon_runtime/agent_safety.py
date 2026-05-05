@@ -352,6 +352,38 @@ class PositionExitGovernor:
             side = str(info.get("side", "long") or "long")
             bar_opened = int(info.get("bar", 0) or 0)
             peak = float(info.get("peak", entry) or entry)
+            def _float_override(key: str, default: float) -> float:
+                val = info.get(key, None)
+                if val is None:
+                    return float(default)
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return float(default)
+
+            def _int_override(key: str, default: int) -> int:
+                val = info.get(key, None)
+                if val is None:
+                    return int(default)
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    return int(default)
+
+            pos_stop_loss_pct = _float_override("tight_sl_pct", float(stop_loss_pct))
+            pos_take_profit_pct = _float_override("take_profit_pct", float(take_profit_pct))
+            pos_trail_pct = _float_override("trail_pct", float(trail_pct))
+            pos_stale_bars = _int_override("stale_bars", int(stale_bars))
+            pos_stale_move_threshold = _float_override(
+                "stale_move_threshold",
+                self.stale_move_threshold,
+            )
+            source = str(info.get("source") or info.get("position_source") or "")
+            suppress_stale_until_bar = int(info.get("suppress_stale_until_bar", -1) or -1)
+            stale_allowed = not (
+                source == "recovered_after_snapshot_gap"
+                and current_bar <= suppress_stale_until_bar
+            )
 
             if entry == 0 and cur > 0:
                 info["entry"] = cur
@@ -379,20 +411,25 @@ class PositionExitGovernor:
                 peak_move = 1.0 - peak / entry if entry > 0 else 0.0
 
             close_reason = None
-            if move < -float(stop_loss_pct):
+            if move < -pos_stop_loss_pct:
                 close_reason = f"SL({move * 100:+.1f}%)"
-            elif move > float(take_profit_pct):
+            elif move > pos_take_profit_pct:
                 close_reason = f"TP({move * 100:+.1f}%)"
-            elif move > self.trail_activation and retreat > float(trail_pct):
+            elif move > self.trail_activation and retreat > pos_trail_pct:
                 close_reason = (
                     f"TRAIL(peak_move={peak_move * 100:+.1f}% now={move * 100:+.1f}%)"
                 )
-            elif current_bar - bar_opened > int(stale_bars) and abs(move) < self.stale_move_threshold:
+            elif (
+                stale_allowed
+                and current_bar - bar_opened > pos_stale_bars
+                and abs(move) < pos_stale_move_threshold
+            ):
                 close_reason = f"STALE({current_bar - bar_opened}bars, move={move * 100:+.1f}%)"
 
             if close_reason:
                 if logger is not None:
-                    logger.warning(
+                    log_fn = logger.info if close_reason.startswith(("SL", "TP", "TRAIL", "STALE")) else logger.warning
+                    log_fn(
                         "  [PositionGovernor] CLOSE %s %s entry=%.4f cur=%.4f %s",
                         sym, side.upper(), entry, cur, close_reason,
                     )
@@ -404,10 +441,26 @@ class PositionExitGovernor:
         for sym, action in actions.items():
             if action in (1, 2, 4, 5) and sym not in position_book:
                 px = prices.get(sym, 0)
-                position_book[sym] = {"entry": px, "side": "long", "bar": current_bar, "peak": px}
+                position_book[sym] = {
+                    "entry": px,
+                    "side": "long",
+                    "bar": current_bar,
+                    "peak": px,
+                    "source": "pending_order",
+                    "position_source": "pending_order",
+                    "pending_order": True,
+                }
             elif action in (6, 7) and sym not in position_book:
                 px = prices.get(sym, 0)
-                position_book[sym] = {"entry": px, "side": "short", "bar": current_bar, "peak": px}
+                position_book[sym] = {
+                    "entry": px,
+                    "side": "short",
+                    "bar": current_bar,
+                    "peak": px,
+                    "source": "pending_order",
+                    "position_source": "pending_order",
+                    "pending_order": True,
+                }
             elif action in (3, 8) and sym in position_book:
                 position_book.pop(sym, None)
 

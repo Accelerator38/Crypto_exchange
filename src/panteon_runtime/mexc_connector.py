@@ -83,6 +83,13 @@ def _parse_settings(cfg: dict) -> dict:
     def gb(k, d):
         v = g(k, str(d)).lower().strip()
         return v in ("on","true","yes","1")
+    exchange_id = str(os.getenv("CRYPTO_EXCHANGE", "") or "").strip().lower()
+    def gf_exchange(k, d):
+        if exchange_id:
+            for key in (f"{exchange_id}_{k}", f"{k}_{exchange_id}"):
+                if g(key, None) is not None:
+                    return gf(key, d)
+        return gf(k, d)
 
     # Обновляем глобальные настройки
     import mexc_connector as _self_mc
@@ -102,9 +109,9 @@ def _parse_settings(cfg: dict) -> dict:
         # Позволяет задать paper_capital = 125 в settings.txt, не меняя
         # initial_capital = 1_000_000 (для симуляции crypto_exchange.py)
         "paper_capital":     gf("paper_capital",     gf("initial_capital", 10_000.0)),
-        "trade_fraction":    gf("trade_fraction",     0.10),
+        "trade_fraction":    gf_exchange("trade_fraction", 0.10),
         "leverage":          gf("leverage",           3.0),
-        "liquidity_min_adv": gf("liquidity_min_adv",  0.0),
+        "liquidity_min_adv": gf_exchange("liquidity_min_adv", 0.0),
         "spot_fee":          gf("spot_fee",            0.001),
         "futures_fee":       gf("futures_fee",         0.0002),
         "slippage":          gf("slippage",            0.0001),
@@ -996,6 +1003,7 @@ class MexcFuturesClient:
             res  = _r.json()
             code = res.get("code", -1)
             success = (code == 200 or res.get("data") is not None)
+            order_id = None
             if success:
                 order_id = res.get("data")
                 # Обновляем кэш плечей при успешном ордере
@@ -1010,6 +1018,9 @@ class MexcFuturesClient:
                 _log_fn("  ❌ order FAIL: %s side=%d → code=%s %s",
                         contract, side, code,
                         res.get("message") or res.get("msg", ""))
+                log.error("  [MEXC] order failed payload: http_status=%s code=%s msg=%s body=%s",
+                          getattr(_r, "status_code", None), code,
+                          res.get("message") or res.get("msg", ""), res)
                 if code == 2021:
                     # code=2021: leverage inconsistent → узнать актуальное и retry
                     log.warning("  [leverage] code=2021 на %s → сброс кэша плеча", symbol)
@@ -1022,6 +1033,10 @@ class MexcFuturesClient:
                 "success": success,
                 "data": res.get("data"),
                 "code": code,
+                "order_id": order_id if success else None,
+                "msg": res.get("message") or res.get("msg", ""),
+                "http_status": getattr(_r, "status_code", None),
+                "body": res,
                 "contracts": vol,
                 "contractSize": contract_size,
                 "amount": base_amount,
@@ -1044,6 +1059,7 @@ class MexcFuturesClient:
             res = self._req("POST", "/api/v1/private/order/submit", body)
             code = res.get("code", -1)
             success = (code == 200 or res.get("success") is True)
+            order_id = None
             if success:
                 order_id = res.get("data")
                 self._insufficient_symbol_until.pop(symbol, None)
@@ -1055,6 +1071,8 @@ class MexcFuturesClient:
                 _log_fn = log.info if code == 2005 else log.error
                 _log_fn("  ❌ order FAIL: %s side=%d vol=%d → code=%s  %s",
                          contract, side, vol, code, msg_text)
+                log.error("  [MEXC] order failed payload: http_status=%s code=%s msg=%s body=%s",
+                          res.get("http_status") or res.get("status"), code, msg_text, res)
                 if code in (2005, 2018):
                     self._insufficient_symbol_until[symbol] = time.time() + 180
                 if code in (2011, 2013, 2019, 429, 400):
@@ -1063,6 +1081,10 @@ class MexcFuturesClient:
                 "success": success,
                 "data": res.get("data"),
                 "code": code,
+                "order_id": order_id if success else None,
+                "msg": res.get("message") or res.get("msg", ""),
+                "http_status": res.get("http_status") or res.get("status"),
+                "body": res,
                 "contracts": vol,
                 "contractSize": contract_size,
                 "amount": base_amount,
@@ -1070,7 +1092,34 @@ class MexcFuturesClient:
             }
         except requests.HTTPError as e:
             log.error("  ❌ order HTTP error: %s side=%d → %s", contract, side, e)
-            return {"success": False, "data": None, "error": str(e)}
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None)
+            try:
+                body_text = getattr(resp, "text", None) if resp is not None else None
+            except Exception:
+                body_text = None
+            body_json = {}
+            if body_text:
+                try:
+                    parsed = json.loads(body_text)
+                    if isinstance(parsed, dict):
+                        body_json = parsed
+                except Exception:
+                    body_json = {}
+            code = body_json.get("code", status if status is not None else -1)
+            msg = body_json.get("message") or body_json.get("msg") or str(e)
+            log.error("  [MEXC] order failed payload: http_status=%s code=%s msg=%s body=%s",
+                      status, code, msg, body_text)
+            return {
+                "success": False,
+                "data": None,
+                "error": str(e),
+                "code": code,
+                "msg": msg,
+                "http_status": status,
+                "body": body_json or body_text,
+                "order_id": None,
+            }
 
     def close_all(self, symbol: str) -> None:
         contract = self._contract_name(symbol)
@@ -1897,6 +1946,8 @@ class AgentMexcBridge:
         self._warmup_end = 0
         self._price_hist : List[dict] = []
         self._volume_hist: List[dict] = []
+        self._last_data_error_at = 0.0
+        self._last_data_error_reason = ""
         # FIX v4: direct_client (MexcDirectClient, SHA256) как резервный источник
         # баланса если MexcFuturesClient.account_assets() вернул 0.
         self._direct_client = direct_client
@@ -2041,6 +2092,17 @@ class AgentMexcBridge:
             self.poll_interval, self.initial_capital,
             self.spot_fee, self.futures_fee, self.slippage,
         )
+
+    def _mark_data_error(self, reason: str) -> None:
+        self._last_data_error_at = time.time()
+        self._last_data_error_reason = str(reason or "data_error")
+
+    def recent_data_error(self, max_age_sec: float = 120.0) -> str:
+        if self._last_data_error_at <= 0:
+            return ""
+        if time.time() - float(self._last_data_error_at) <= float(max_age_sec or 120.0):
+            return self._last_data_error_reason or "data_error"
+        return ""
 
     # ── Прогрев ───────────────────────────────────────────────────────────────
 
@@ -2252,6 +2314,7 @@ class AgentMexcBridge:
 
     def _fetch_market(self) -> tuple:
         prices, volumes = {}, {}
+        spot_price_error = False
         # FIX v9.1: retry до 3 раз при сетевых ошибках (ConnectTimeout, NameResolutionError)
         for _attempt in range(3):
             try:
@@ -2273,16 +2336,23 @@ class AgentMexcBridge:
                     _time.sleep(5)
                 else:
                     log.error("Ошибка цен: %s", e)
+                    spot_price_error = True
 
-        if self.mode=="demo_futures" and self.futures_client:
+        if self.mode in ("demo_futures", "live_futures") and self.futures_client:
             for sym in self.symbols:
-                try: prices[sym] = self.futures_client.ticker_price(f"{sym}_USDT")
-                except: pass
+                try:
+                    fut_price = self.futures_client.ticker_price(f"{sym}_USDT")
+                    if fut_price > 0:
+                        prices[sym] = fut_price
+                except Exception:
+                    pass
 
         if self.liquidity_min_adv > 0:
             prices  = {s:p for s,p in prices.items()
                        if volumes.get(s,0)*p >= self.liquidity_min_adv}
             volumes = {s:v for s,v in volumes.items() if s in prices}
+        if spot_price_error:
+            self._mark_data_error("price_error")
 
         return prices, volumes
 
@@ -2400,6 +2470,28 @@ class AgentMexcBridge:
 
             side, frac = side_map.get(action, (None, None))
             if side is None: return
+            if (
+                getattr(self, "exchange_name", "").upper() == "BITGET"
+                and self.mode == "live_futures"
+                and action in (4, 5, 6, 7)
+            ):
+                _stats_for_risk = getattr(self, '_stats_ref', None)
+                real_pnl_pct = float(getattr(_stats_for_risk, "pnl_pct", 0.0) or 0.0)
+                max_neg_positions = int(getattr(self, "max_live_positions_negative_pnl", 3) or 3)
+                try:
+                    open_syms = self.futures_client._get_open_position_symbols()
+                except Exception:
+                    open_syms = set()
+                if real_pnl_pct < 0.0 and sym not in open_syms and len(open_syms) >= max_neg_positions:
+                    log.info(
+                        "  [%s] BITGET risk cap: pnl=%.2f%% open=%d/%d -> skip %s",
+                        agent,
+                        real_pnl_pct,
+                        len(open_syms),
+                        max_neg_positions,
+                        sym,
+                    )
+                    return
 
             # ── FIX v7: Position sizing from FREE MARGIN, not total PV ─────────
             # Проблема: pv=$127, free=$30, но 5 позиций уже открыты.
@@ -2469,13 +2561,36 @@ class AgentMexcBridge:
             res = self.futures_client.place_order(sym, side, vol, self.leverage)
             # Записываем результат ордера в статистику (для дашборда)
             _stats = getattr(self, '_stats_ref', None)
+            order_id = res.get("order_id") or res.get("orderId")
+            exchange_ok = res.get("success", False) and not res.get("skip", False)
+            confirmed_ok = bool(exchange_ok and order_id)
             if _stats is not None:
-                ok = res.get("success", False) and not res.get("skip", False)
-                _stats.record_order(sym, ok, res.get("code", 0))
-                if ok:
+                _stats.record_order(
+                    sym,
+                    confirmed_ok,
+                    res.get("code", 0),
+                    order_id=order_id,
+                    order_result=res,
+                    position_source="panteon_order" if confirmed_ok else "pending_order",
+                )
+                if confirmed_ok:
                     trade_qty = float(res.get("amount", vol) or vol)
+                    fee_est = float(trade_qty) * float(price) * float(fee_rate)
                     _stats.record_trade(sym, "LONG" if side == 1 else "SHORT",
-                                        trade_qty, price, 0.0)
+                                        trade_qty, price, fee_est, 0.0)
+            if not confirmed_ok:
+                if exchange_ok:
+                    log.error("  [%s] order status unknown: %s %s success without order_id -> pending removed",
+                              agent, sym, res)
+                for _agent_obj in getattr(self, "agents", {}).values():
+                    _candidate = getattr(_agent_obj, "_inner", _agent_obj)
+                    if hasattr(_candidate, "_inner"):
+                        _candidate = getattr(_candidate, "_inner", _candidate)
+                    book = getattr(_candidate, "_open_pos", None)
+                    if isinstance(book, dict):
+                        rec = book.get(sym) or {}
+                        if rec.get("pending_order") or rec.get("source") == "pending_order":
+                            book.pop(sym, None)
             return
 
         if action in (4,5,6,7,8):

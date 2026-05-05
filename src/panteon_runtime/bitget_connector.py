@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import json
+import re
 import sys
 import time
 from datetime import datetime
@@ -44,6 +46,30 @@ ACTION_NAMES = mexc.ACTION_NAMES
 MIN_ORDER_USDT = mexc.MIN_ORDER_USDT
 TOP_N_SYMBOLS = mexc.TOP_N_SYMBOLS
 WARMUP_BARS = mexc.WARMUP_BARS
+_BITGET_SETTINGS_RAW = _load_settings()
+
+
+def _bitget_setting_float(name: str, default: float) -> float:
+    for key in (f"bitget_{name}", f"{name}_bitget", name):
+        if key in _BITGET_SETTINGS_RAW:
+            try:
+                return float(_BITGET_SETTINGS_RAW[key])
+            except (TypeError, ValueError):
+                return float(default)
+    return float(default)
+
+
+def _bitget_setting_int(name: str, default: int) -> int:
+    return int(_bitget_setting_float(name, default))
+
+
+def _bitget_setting_symbols(name: str) -> set[str]:
+    raw = _BITGET_SETTINGS_RAW.get(f"bitget_{name}") or _BITGET_SETTINGS_RAW.get(f"{name}_bitget") or ""
+    return {s.strip().upper() for s in str(raw).split(",") if s.strip()}
+
+
+BITGET_SYMBOL_BLOCKLIST = frozenset(_bitget_setting_symbols("symbol_blocklist"))
+BITGET_MAX_LIVE_POSITIONS_NEGATIVE_PNL = _bitget_setting_int("max_live_positions_negative_pnl", 3)
 
 API_KEY = os.getenv("BITGET_API_KEY", "")
 API_SECRET = os.getenv("BITGET_SECRET_KEY", "")
@@ -252,7 +278,7 @@ class BitgetSpotClient:
 
 
 class BitgetFuturesClient:
-    _FUTURES_BLACKLIST = frozenset()
+    _FUTURES_BLACKLIST = BITGET_SYMBOL_BLOCKLIST
     _POSITION_MODE_CACHE_TTL = 60.0
 
     def __init__(self, api_key: str, api_secret: str, api_passphrase: str, testnet: bool = False):
@@ -267,10 +293,23 @@ class BitgetFuturesClient:
         self._open_positions_checked_at = 0.0
         self._close_skip_until: dict[str, float] = {}
         self._close_rate_limited_until = 0.0
+        self._last_data_error_at = 0.0
+        self._last_data_error_reason = ""
         # Runtime-блэклист: символы которые вернули BadSymbol/NotFound.
         # Попавший сюда символ исключается из всех последующих запросов
         # до рестарта бота. Это защищает от делистнутых контрактов.
         self._bad_symbols: set[str] = set()
+
+    def _mark_data_error(self, reason: str) -> None:
+        self._last_data_error_at = time.time()
+        self._last_data_error_reason = str(reason or "data_error")
+
+    def recent_data_error(self, max_age_sec: float = 120.0) -> str:
+        if self._last_data_error_at <= 0:
+            return ""
+        if time.time() - float(self._last_data_error_at) <= float(max_age_sec or 120.0):
+            return self._last_data_error_reason or "data_error"
+        return ""
 
     def _market_symbol(self, base_sym: str) -> str:
         return f"{base_sym}/USDT:USDT"
@@ -350,6 +389,7 @@ class BitgetFuturesClient:
             self._open_position_symbols = open_symbols
             self._open_positions_checked_at = now
         except Exception as e:
+            self._mark_data_error("positions_fetch_failed")
             log.debug("BITGET positions snapshot failed: %s", e)
         return set(self._open_position_symbols)
 
@@ -418,6 +458,7 @@ class BitgetFuturesClient:
             return pos_mode
         except Exception as e:
             fallback = cached or "one_way_mode"
+            self._mark_data_error("position_mode_fetch_failed")
             log.warning(
                 "  [BITGET] position mode fetch failed for %s: %s (fallback=%s)",
                 symbol,
@@ -450,6 +491,91 @@ class BitgetFuturesClient:
             self._build_open_order_params(position_mode),
         )
 
+    @staticmethod
+    def _exchange_error_payload(exc: Exception) -> dict:
+        raw = str(exc)
+        payload = {
+            "http_status": getattr(exc, "http_status", None) or getattr(exc, "status_code", None),
+            "code": getattr(exc, "code", None),
+            "msg": raw,
+            "body": getattr(exc, "body", None) or getattr(exc, "response", None),
+            "type": type(exc).__name__,
+        }
+        if payload["body"] is not None and not isinstance(payload["body"], str):
+            payload["body"] = str(payload["body"])
+        for candidate in reversed(re.findall(r"\{.*?\}", raw)):
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                payload["body"] = parsed
+                payload["code"] = parsed.get("code", payload["code"])
+                payload["msg"] = parsed.get("msg") or parsed.get("message") or payload["msg"]
+                break
+        if payload["code"] is None:
+            payload["code"] = -1
+        return payload
+
+    def _is_safe_transient_order_error(self, exc: Exception) -> bool:
+        payload = self._exchange_error_payload(exc)
+        text = f"{payload.get('code')} {payload.get('msg')} {payload.get('body')}".lower()
+        status = payload.get("http_status")
+        if status == 429:
+            return True
+        safe_markers = (
+            "too many requests",
+            "rate limit",
+            "request frequency",
+        )
+        unsafe_unknowns = (
+            "timeout",
+            "timed out",
+            "network",
+            "connection reset",
+            "connection aborted",
+            "service unavailable",
+            "system busy",
+            "temporarily unavailable",
+            "unknown",
+        )
+        return any(marker in text for marker in safe_markers) and not any(marker in text for marker in unsafe_unknowns)
+
+    def _submit_open_order_safely(self, market_symbol: str, side: int, amount: float, position_mode: str) -> dict:
+        last_exc = None
+        for attempt in range(2):
+            try:
+                return self._submit_open_order(market_symbol, side, amount, position_mode)
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0 and self._is_safe_transient_order_error(exc):
+                    payload = self._exchange_error_payload(exc)
+                    log.warning(
+                        "  [BITGET] transient order error, safe retry 1x: status=%s code=%s msg=%s",
+                        payload.get("http_status"),
+                        payload.get("code"),
+                        payload.get("msg"),
+                    )
+                    time.sleep(1.0)
+                    continue
+                raise
+        raise last_exc
+
+    # FIX A4: BITGET min notional = 5 USDT. Без этой проверки бот регулярно
+    # ловит {"code":"45110","msg":"less than the minimum amount 5 USDT"} —
+    # 26 раз в сессии 2026-04-25_15-24. Каждое такое событие = бот «думает»
+    # что открыл позицию и обновляет внутренний _open_pos, а на бирже её нет
+    # → потом этот символ «зависает» в leaderboard как открытый.
+    BITGET_MIN_NOTIONAL_USDT = 5.10  # +0.10 запас
+
+    def _last_price_quick(self, market_symbol: str) -> float:
+        """Быстрая (best-effort) котировка для проверки notional."""
+        try:
+            ticker = self.exchange.fetch_ticker(market_symbol)
+            return float(ticker.get("last", 0.0) or 0.0)
+        except Exception:
+            return 0.0
+
     def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
         if self.is_symbol_on_margin_cooldown(symbol):
             return {
@@ -467,6 +593,49 @@ class BitgetFuturesClient:
         amount = float(vol) * amount_step
         if amount <= 0:
             return {"success": False, "data": None, "code": -1, "msg": "amount <= 0"}
+        # FIX A4: проверяем notional до отправки и при необходимости докручиваем
+        # объём до минимального. Если докрутка > 2× (значит сигнал просил
+        # очень мало) — пропускаем, чтобы не открывать позицию сильно крупнее
+        # запрошенной.
+        try:
+            last_px = self._last_price_quick(market_symbol)
+            if last_px > 0:
+                notional = amount * last_px
+                min_notional = float(self.BITGET_MIN_NOTIONAL_USDT)
+                if notional < min_notional:
+                    needed_amount = min_notional / last_px
+                    # подтягиваем к шагу
+                    if amount_step > 0:
+                        steps = int((needed_amount / amount_step) + 0.999999)
+                        adj_amount = steps * amount_step
+                    else:
+                        adj_amount = needed_amount
+                    if adj_amount <= 0:
+                        return {
+                            "success": False, "data": None, "code": 45110,
+                            "skip": True,
+                            "msg": f"min-notional skip {symbol}: notional=${notional:.2f}<{min_notional:.2f}",
+                        }
+                    if adj_amount > amount * 2.0:
+                        # Слишком большая корректировка — отказываемся, чтобы
+                        # не нарушить sizing, который рассчитал игрок.
+                        return {
+                            "success": False, "data": None, "code": 45110,
+                            "skip": True,
+                            "msg": (
+                                f"min-notional skip {symbol}: "
+                                f"req=${notional:.2f}, would-need ${adj_amount*last_px:.2f} "
+                                f"(>2× upscale)"
+                            ),
+                        }
+                    log.info(
+                        "  [BITGET] %s notional %.2f < %.2f USDT → bumping vol %s → %.4f",
+                        symbol, notional, min_notional, vol, adj_amount,
+                    )
+                    amount = adj_amount
+                    vol = max(int(adj_amount / max(amount_step, 1e-9) + 0.5), 1)
+        except Exception as exc:
+            log.debug("  [BITGET] min-notional check failed for %s: %s", symbol, exc)
         side_name = "LONG" if side == 1 else "SHORT"
         try:
             try:
@@ -494,7 +663,7 @@ class BitgetFuturesClient:
                 position_mode = modes_to_try.pop(0)
                 attempted_modes.append(position_mode)
                 try:
-                    order = self._submit_open_order(
+                    order = self._submit_open_order_safely(
                         market_symbol,
                         side,
                         amount,
@@ -550,7 +719,8 @@ class BitgetFuturesClient:
             }
         except Exception as e:
             msg = str(e)
-            code = -1
+            err_payload = self._exchange_error_payload(e)
+            code = err_payload.get("code", -1)
             if "insufficient" in msg.lower() or "margin" in msg.lower():
                 code = 2005
                 self._insufficient_symbol_until[symbol] = time.time() + 180
@@ -565,7 +735,24 @@ class BitgetFuturesClient:
                 code,
                 msg,
             )
-            return {"success": False, "data": None, "code": code, "msg": msg, "amount": amount}
+            log.error(
+                "  [BITGET] order failed payload: http_status=%s code=%s msg=%s body=%s type=%s",
+                err_payload.get("http_status"),
+                code,
+                err_payload.get("msg"),
+                err_payload.get("body"),
+                err_payload.get("type"),
+            )
+            return {
+                "success": False,
+                "data": None,
+                "code": code,
+                "msg": err_payload.get("msg", msg),
+                "http_status": err_payload.get("http_status"),
+                "body": err_payload.get("body"),
+                "error_type": err_payload.get("type"),
+                "amount": amount,
+            }
 
     def close_all(self, symbol: str):
         now = time.time()
@@ -630,18 +817,21 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         self._last_market_prices: Dict[str, float] = {}
         self._last_market_volumes: Dict[str, float] = {}
         self._last_market_snapshot_at = 0.0
+        self._last_data_error_at = 0.0
+        self._last_data_error_reason = ""
 
         self.initial_capital = cfg["initial_capital"]
-        self.trade_fraction = cfg["trade_fraction"]
+        self.trade_fraction = _bitget_setting_float("trade_fraction", cfg["trade_fraction"])
         self.leverage = cfg["leverage"]
         self.poll_interval = cfg["poll_interval"]
-        self.liquidity_min_adv = cfg["liquidity_min_adv"]
+        self.liquidity_min_adv = _bitget_setting_float("liquidity_min_adv", cfg["liquidity_min_adv"])
         self.spot_fee = cfg["spot_fee"]
         self.futures_fee = cfg["futures_fee"]
         self.slippage = cfg["slippage"]
         self._tf_kline = cfg.get("tf_kline", "1m")
         self._cfg_bar = cfg.get("bar", 60)
         self.funding = None
+        self.max_live_positions_negative_pnl = BITGET_MAX_LIVE_POSITIONS_NEGATIVE_PNL
 
         if cfg["symbols"]:
             self.symbols = cfg["symbols"]
@@ -838,6 +1028,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
                     volumes[sym] = quote_vol / last if last > 0 else 0.0
         except Exception as e:
             spot_batch_failed = True
+            self._mark_data_error("price_error")
             log.error("Ошибка цен Bitget (spot batch): %s", e)
             self._spot_exchange = _public_client("spot")
             self._spot_markets_loaded = False
@@ -862,6 +1053,16 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
                     # здесь ловим сеть, таймауты, rate-limits и пр.
                     log.debug("[bitget] ticker %s failed: %s — skip this cycle", sym, e)
 
+            for sym in active_symbols:
+                if sym in self.futures_client._bad_symbols:
+                    continue
+                try:
+                    fut_price = self.futures_client.ticker_price(sym)
+                    if fut_price > 0:
+                        prices[sym] = fut_price
+                except Exception as e:
+                    log.debug("[bitget] futures ticker override %s failed: %s", sym, e)
+
         if spot_batch_failed and self._last_market_volumes:
             for sym in list(prices):
                 if sym not in volumes:
@@ -881,6 +1082,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
             self._last_market_volumes = dict(volumes)
             self._last_market_snapshot_at = time.time()
         elif self._last_market_prices:
+            self._mark_data_error("price_error")
             cache_age = max(0.0, time.time() - float(self._last_market_snapshot_at or 0.0))
             reason = "spot batch failure" if spot_batch_failed else "empty market fetch"
             prices = dict(self._last_market_prices)

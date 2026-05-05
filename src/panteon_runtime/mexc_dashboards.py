@@ -1,4 +1,4 @@
-"""
+﻿"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  mexc_dashboards.py  —  Расширенные дашборды для MEXC trading suite        ║
 ║                                                                              ║
@@ -83,7 +83,9 @@ AGENT_PALETTE = [
 
 REGIME_COLORS = {
     'bull':     ('#27ae60', '#0a2010', '[BULL]'),
+    'bullish':  ('#27ae60', '#0a2010', '[BULL]'),
     'bear':     ('#e74c3c', '#200a0a', '[BEAR]'),
+    'bearish':  ('#e74c3c', '#200a0a', '[BEAR]'),
     'sideways': ('#f39c12', '#1a1500', '[SIDE]'),
     'neutral':  ('#f39c12', '#1a1500', '[NEUTRAL]'),
     'crash':    ('#c0392b', '#300000', '[CRASH]'),
@@ -106,7 +108,45 @@ def _style_ax(ax, title="", fs=9, xlab="", ylab=""):
 
 
 def _regime_info(regime: str):
-    return REGIME_COLORS.get(regime.lower(), REGIME_COLORS['unknown'])
+    return REGIME_COLORS.get(str(regime or 'unknown').lower(), REGIME_COLORS['unknown'])
+
+
+def _funding_value(value) -> Optional[float]:
+    if isinstance(value, dict):
+        for key in (
+            'avg_funding', 'funding_rate', 'fundingRate', 'rate',
+            'lastFundingRate', 'currentFundingRate',
+        ):
+            if key in value:
+                value = value.get(key)
+                break
+        else:
+            return None
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if not np.isfinite(out):
+        return None
+    if abs(out) > 1.0:
+        out /= 100.0
+    return out
+
+
+def _clean_funding_history(history, current: float = 0.0) -> List[float]:
+    cleaned = []
+    try:
+        iterable = list(history or [])
+    except Exception:
+        iterable = []
+    for item in iterable:
+        value = _funding_value(item)
+        if value is not None:
+            cleaned.append(value)
+    current_value = _funding_value(current)
+    if current_value is not None and (not cleaned or abs(cleaned[-1] - current_value) > 1e-12):
+        cleaned.append(current_value)
+    return cleaned
 
 
 def _fmt_pct(v, digits=2):
@@ -442,7 +482,8 @@ def plot_api_trading_dashboard(
     funding_history: Optional[List[float]] = None,
     sub_agent_pnl: Optional[Dict[str, float]] = None,  # {agent_name: pnl_usdt}
     sub_agent_trades: Optional[Dict[str, List[dict]]] = None,
-    filename: str = "api_trading_enhanced.png",
+    filename: str = "api_trading.png",
+    status_map: Optional[Dict[str, str]] = None,  # FIX 2026-05-04: agent_name → 'live'|'quarantine'|'shadow_only'|'purgatory'
 ) -> None:
     """
     Расширенный дашборд для реальной торговли Panteon:
@@ -477,7 +518,12 @@ def plot_api_trading_dashboard(
         order_hist  = getattr(stats, 'order_history', [])
         live_bars   = getattr(stats, 'live_bar_count', 0)
         sub_pvs     = getattr(stats, 'sub_agent_pvs', {})
-        fund_hist   = funding_history or getattr(stats, 'funding_history', [])
+        fund_hist   = _clean_funding_history(
+            funding_history or getattr(stats, 'funding_history', []),
+            funding_avg,
+        )
+        if fund_hist:
+            funding_avg = fund_hist[-1]
         uptime      = getattr(stats, 'uptime_str', '?')
 
         fig = plt.figure(figsize=(24, 18), facecolor=DARK)
@@ -611,6 +657,17 @@ def plot_api_trading_dashboard(
         # Дополнительно: спот (если есть)
         spot_val     = getattr(stats, 'spot_total', 0.0)
         total_assets = cur_bal + spot_val
+        data_health = getattr(stats, 'data_health', {}) or {}
+        snapshot_age = data_health.get('snapshot_age_sec')
+        try:
+            snapshot_age_val = None if snapshot_age is None else float(snapshot_age)
+        except Exception:
+            snapshot_age_val = None
+        snapshot_age_txt = "n/a" if snapshot_age_val is None else f"{snapshot_age_val:.0f}s"
+        api_errors_10m = int(data_health.get('api_errors_10m', 0) or 0)
+        reconcile_add = int(data_health.get('reconcile_add', 0) or 0)
+        reconcile_remove = int(data_health.get('reconcile_remove', 0) or 0)
+        failed_orders = int(data_health.get('failed_orders', getattr(stats, 'orders_fail', 0)) or 0)
 
         status_rows = [
             ("Статус",      "🟢 LIVE" if live_bars > 0 else "🟡 WARMUP",
@@ -618,13 +675,9 @@ def plot_api_trading_dashboard(
             ("Баланс",      f"${cur_bal:.4f}",      CYN),
             ("Капитал",     f"${cur_realized:.4f}",  WHT),
             ("Live баров",  str(live_bars),           WHT),
-            ("Сигналов",    str(len(signals)),        PUR),
-            ("Сделок",      str(len(trades)),         GRN if trades else GRY),
             ("Позиций",     str(len(positions)),      CYN if positions else GRY),
             ("Ордеров ок",  str(getattr(stats, 'orders_ok', 0)),
              GRN if getattr(stats, 'orders_ok', 0) > 0 else GRY),
-            ("Ошибок API",  str(getattr(stats, 'orders_fail', 0)),
-             RED if getattr(stats, 'orders_fail', 0) > 0 else GRY),
             ("API Futures", "ДА" if has_perm else "НЕТ",
              GRN if has_perm else RED),
         ]
@@ -638,27 +691,42 @@ def plot_api_trading_dashboard(
                        transform=ax_st.transAxes)
             y0 -= 0.082
 
+        y0 -= 0.015
+        ax_st.text(0.5, y0, "─── Data health ───", ha='center', color=GRY,
+                   fontsize=7, transform=ax_st.transAxes, va='top')
+        y0 -= 0.06
+        health_rows = [
+            ("Snapshot age", snapshot_age_txt, RED if snapshot_age_val and snapshot_age_val > 180 else WHT),
+            ("API err 10m", str(api_errors_10m), RED if api_errors_10m else GRY),
+            ("Reconcile +", str(reconcile_add), CYN if reconcile_add else GRY),
+            ("Reconcile -", str(reconcile_remove), RED if reconcile_remove else GRY),
+            ("Failed orders", str(failed_orders), RED if failed_orders else GRY),
+        ]
+        for lbl, val, vc in health_rows:
+            ax_st.text(0.05, y0, lbl + ':', color=GRY, fontsize=6.6,
+                       transform=ax_st.transAxes, va='top')
+            ax_st.text(0.95, y0, val, color=vc, fontsize=6.6, fontweight='bold',
+                       transform=ax_st.transAxes, va='top', ha='right')
+            y0 -= 0.052
+
         # ── Блок «Все активы» внизу статус-панели ───────────────────────────
         y0 -= 0.02
         ax_st.text(0.5, y0, "─── Все активы ───", ha='center', color=GRY,
-                   fontsize=7, transform=ax_st.transAxes, va='top')
-        y0 -= 0.07
+                   fontsize=6.6, transform=ax_st.transAxes, va='top')
+        y0 -= 0.048
 
         assets_rows = [
             ("Equity (фьюч)", f"${cur_bal:.4f}",    CYN),
             ("  unrealPnL",   f"{cur_unreal:+.4f}",
              GRN if cur_unreal >= 0 else RED),
-            ("  Свободно",    f"${cur_avail:.4f}",   WHT),
-            ("  Залог",       f"${cur_bal - cur_avail - cur_unreal:.4f}", GRY),
-            ("Спот",          f"${spot_val:.4f}",    WHT if spot_val > 0 else GRY),
             ("ИТОГО",         f"${total_assets:.4f}", GRN if total_assets >= ic else RED),
         ]
         for lbl, val, vc in assets_rows:
-            ax_st.text(0.05, y0, lbl + ':', color=GRY, fontsize=7,
+            ax_st.text(0.05, y0, lbl + ':', color=GRY, fontsize=6.5,
                        transform=ax_st.transAxes, va='top')
-            ax_st.text(0.95, y0, val, color=vc, fontsize=7, fontweight='bold',
+            ax_st.text(0.95, y0, val, color=vc, fontsize=6.5, fontweight='bold',
                        transform=ax_st.transAxes, va='top', ha='right')
-            y0 -= 0.072
+            y0 -= 0.048
 
         # ── ROW 1 left [0:2]: Sub-agent PnL waterfall ───────────────────────
         ax_ag = fig.add_subplot(layout[1, :2])
@@ -666,7 +734,12 @@ def plot_api_trading_dashboard(
         for sp in ax_ag.spines.values(): sp.set_color(GRID)
         ax_ag.tick_params(colors=GRY, labelsize=7)
         ax_ag.grid(True, color=GRID, lw=0.4, alpha=0.5, axis='x')
-        ax_ag.set_title("Вклад суб-агентов в P&L (virtual PV)",
+        # FIX 2026-05-05: заголовок отражает РЕАЛЬНУЮ атрибуцию по сделкам
+        # Пантеона, не виртуальный shadow PnL. См. Panteon_Trade.
+        # _compute_real_attribution() — атрибутируется тому делегату,
+        # который инициировал OPEN-сигнал. Сумма ≈ real PnL Пантеона
+        # (с поправкой на fees/slippage/funding).
+        ax_ag.set_title("Реальный вклад делегатов в P&L Пантеона (по сделкам)",
                         color=WHT, fontsize=9, fontweight='bold')
 
         # Строим из sub_pvs или sub_agent_pnl
@@ -677,14 +750,46 @@ def plot_api_trading_dashboard(
         if pnl_data:
             sorted_agents_pnl = sorted(pnl_data.items(),
                                         key=lambda kv: kv[1], reverse=True)
-            names_a  = [k.replace('STP_', '') for k, _ in sorted_agents_pnl]
+            # FIX 2026-05-04 (carantine consistency): подгружаем status_map (если
+            # передан) и красим карантинных серым (GRY) с пометкой [Q] вместо
+            # зелёного/красного. Без этого api_trading.png противоречил
+            # shadow_agents_dashboard.png — там карантинные серые, а здесь нет.
+            _status_map = status_map or getattr(stats, 'status_map', None) or {}
+            quarantine_states = {'quarantine', 'shadow_only', 'purgatory'}
+            def _is_quarantined(name: str) -> bool:
+                # Пробуем несколько вариантов ключа: с префиксом V_, без него,
+                # с STP_ и без — потому что разные части системы хранят имена по-разному.
+                base = str(name or '').replace('STP_', '')
+                for key in (base, f"V_{base}", f"STP_{base}", base.upper()):
+                    st = str(_status_map.get(key, '') or '').lower()
+                    if st in quarantine_states:
+                        return True
+                return False
+            names_a_raw = [k.replace('STP_', '') for k, _ in sorted_agents_pnl]
+            quarantined_flags = [_is_quarantined(n) for n in names_a_raw]
+            names_a  = [
+                (n + ' [Q]' if q else n)
+                for n, q in zip(names_a_raw, quarantined_flags)
+            ]
             values_a = [v for _, v in sorted_agents_pnl]
-            colors_a = [GRN if v >= 0 else RED for v in values_a]
+            colors_a = [
+                GRY if q else (GRN if v >= 0 else RED)
+                for v, q in zip(values_a, quarantined_flags)
+            ]
             y_pos    = np.arange(len(names_a))
             bars     = ax_ag.barh(y_pos, values_a, color=colors_a,
                                    alpha=0.85, height=0.65)
+            for bar, q in zip(bars, quarantined_flags):
+                if q:
+                    bar.set_alpha(0.45)
             ax_ag.set_yticks(y_pos)
             ax_ag.set_yticklabels(names_a, color=WHT, fontsize=8)
+            try:
+                for tick_lbl, q in zip(ax_ag.get_yticklabels(), quarantined_flags):
+                    if q:
+                        tick_lbl.set_color(GRY)
+            except Exception:
+                pass
             ax_ag.axvline(0, color=WHT, lw=0.8, alpha=0.5)
             ax_ag.set_xlabel('P&L USDT', color=GRY, fontsize=8)
             for bar_i, (bar, val) in enumerate(zip(bars, values_a)):
@@ -705,18 +810,21 @@ def plot_api_trading_dashboard(
         ax_fund = fig.add_subplot(layout[1, 2])
         _style_ax(ax_fund, "Funding rate + тип рынка")
 
-        if len(fund_hist) > 1:
+        if fund_hist:
             fvals = [f * 100 for f in fund_hist[-80:]]
             fcols = [GRN if v < 0 else RED for v in fvals]
             # Отрицательный funding = шорты платят лонгам = bullish bias
             ax_fund.bar(range(len(fvals)), fvals, color=fcols,
                         width=0.8, alpha=0.82)
+            if len(fvals) == 1:
+                ax_fund.set_xticks([0])
+                ax_fund.set_xticklabels(["now"], color=GRY, fontsize=7)
             ax_fund.axhline(0, color=WHT, lw=0.6, alpha=0.4)
             ax_fund.set_ylabel('%', color=GRY, fontsize=7)
 
             # Режим как цветная полоса
             ax_fund.fill_betweenx(
-                [min(fvals) * 1.1, max(fvals) * 1.1],
+                [min(fvals + [0.0]) * 1.1, max(fvals + [0.0]) * 1.1],
                 0, len(fvals),
                 color=rclr, alpha=0.06,
             )
@@ -988,10 +1096,10 @@ def plot_api_trading_dashboard(
                     facecolor=fig.get_facecolor())
         fig.clf()
         plt.close(fig)
-        log.info("  [api_trading_enhanced] → %s", out)
+        log.info("  [api_trading] → %s", out)
 
     except Exception as e:
-        log.warning("  [api_trading_enhanced] failed: %s\n%s",
+        log.warning("  [api_trading] failed: %s\n%s",
                     e, traceback.format_exc())
 
 
@@ -1192,12 +1300,16 @@ def plot_master_player_dashboard(
         ax_fund = fig.add_subplot(layout[1, 2])
         _style_ax(ax_fund, "Funding rate + режим рынка")
 
-        fund_h = funding_history or []
-        if len(fund_h) > 1:
+        fund_h = _clean_funding_history(funding_history or [], funding_avg)
+        if fund_h:
+            funding_avg = fund_h[-1]
             fvals = [f * 100 for f in fund_h[-80:]]
             fcols = [GRN if v < 0 else RED for v in fvals]
             ax_fund.bar(range(len(fvals)), fvals, color=fcols,
                         width=0.8, alpha=0.82)
+            if len(fvals) == 1:
+                ax_fund.set_xticks([0])
+                ax_fund.set_xticklabels(["now"], color=GRY, fontsize=7)
             ax_fund.axhline(0, color=WHT, lw=0.6, alpha=0.4)
             ax_fund.set_ylabel('%', color=GRY, fontsize=7)
         else:
@@ -1416,4 +1528,3 @@ def inject_enhanced_dashboards(bridge, players_dict=None) -> None:
     except Exception as e:
         log.warning("  [inject_enhanced_dashboards] failed: %s\n%s",
                     e, traceback.format_exc())
-

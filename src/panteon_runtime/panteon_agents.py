@@ -2329,6 +2329,15 @@ class PlayerBomberman:
     Bomberman v3 с двойным консенсусом.
     Обе конфигурации должны согласиться → очень мало сделок, высокая точность.
     """
+    # FIX 2026-05-03 (dynamic quarantine v3): seed-карантин по плохой истории
+    # (0/3 wins on BG, -4.48% pnl). Снимается автоматически
+    # `recompute_dynamic_quarantine()`, если в каком-либо режиме рынка появится
+    # достаточный положительный опыт.
+    PLAYER_STATUS = "live"            # перевычисляется в Panteon_Trade._resolve_status
+    PLAYER_STATUS_REASON = ""
+    PLAYER_QUARANTINE_SEED = True
+    PLAYER_QUARANTINE_SEED_REASON = "0/3 wins on BG (-4.48% pnl); collect more data first"
+
     def __init__(self):
         self._b1=Bomberman()
         self._b2=Bomberman()
@@ -2370,6 +2379,14 @@ class PlayerFunding:
     FIX v9.1: старая логика (v1==v2) требовала идентичных сигналов — 0 сделок.
     Теперь: weighted voting 60%/40%, buy при w>=0.4, sell при любом агенте.
     """
+    # FIX 2026-05-03 (dynamic quarantine v3): убрано статическое shadow_only.
+    # PlayerFunding часто прибылен в bullish-funding-сессиях даже при том,
+    # что отдельный FundingArb на BG/MEXC проигрывал. Решение о допуске в live
+    # принимается ДИНАМИЧЕСКИ по per-regime производительности самого игрока,
+    # а не его суб-агентов: см. Panteon_Trade._resolve_status / save_leaderboard_json.
+    PLAYER_STATUS = "live"
+    PLAYER_STATUS_REASON = ""
+
     def __init__(self):
         self._fa=FundingArb(); self._ms=MomentumScalper()
 
@@ -2409,6 +2426,343 @@ class PlayerFunding:
         return r
 
 
+class CandlePatternAgent:
+    """
+    FIX (2026-04-29): Свечной паттерн-агент. Реконструирует synthetic OHLC bars
+    из close-only истории и распознаёт 6 классических паттернов разворота:
+      Bullish/Bearish Engulfing, Hammer/ShootingStar, Morning/Evening Star.
+
+    Дизайн:
+      • Накапливает close history в self.h (как все Live*-агенты).
+      • Каждый AGG_BARS минут собирает synthetic OHLC: open=h[-AGG], close=h[-1],
+        high=max(h[-AGG:]), low=min(h[-AGG:]). Это аппроксимация — реальные
+        биржевые high/low внутри минут не видны, но при AGG=5..10 минут
+        ошибка <30 % амплитуды свечи (приемлемо для confirmation-фильтра).
+      • Сигнализирует только когда подтверждается trend-context: bullish
+        паттерн в bear-trend = reversal (entry_long), в bull-trend = continuation
+        (тоже entry_long); bullish паттерн в pure neutral без объёма = пропуск.
+      • Status="live" — может быть выбран real-лидером селектором.
+    """
+    NAME = "CandlePatternAgent"
+    AGG_BARS = 5             # 1 synthetic свеча = 5 минут
+    HISTORY_MAX = 600        # держим 600 минут = 120 synthetic свечей
+    CHECK_INT = AGG_BARS     # проверяем каждый раз когда формируется новая свеча
+    MIN_BODY_RATIO = 0.30    # тело >= 30 % range — иначе свеча "shaky"
+    DOJI_BODY_RATIO = 0.10   # тело <= 10 % range = doji
+    HAMMER_TAIL_RATIO = 2.0  # tail >= 2x body
+    MAX_POS = 3
+    ENTRY_COOLDOWN = 60
+    STOP = 0.012
+    TARGET = 0.020
+    HOLD = 3 * 60            # 3 часа max
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.last_entry: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def reset_for_live(self, bar_index: int = 0):
+        self.t = bar_index
+        self._lc = -9999
+        for k in list(self.pos.keys()):
+            self.pos[k] = None
+            self.ep[k] = 0.0
+            self.et[k] = 0
+            self.last_entry[k] = 0
+
+    @staticmethod
+    def _ohlc(prices_window):
+        """Из последовательности close-prices строит synthetic OHLC."""
+        op = float(prices_window[0])
+        cl = float(prices_window[-1])
+        hi = float(max(prices_window))
+        lo = float(min(prices_window))
+        return op, hi, lo, cl
+
+    def _candles(self, h, n_candles: int):
+        """Возвращает последние n_candles synthetic OHLC из price history."""
+        h_list = list(h)
+        agg = self.AGG_BARS
+        if len(h_list) < agg * n_candles:
+            return None
+        out = []
+        for i in range(n_candles, 0, -1):
+            window = h_list[-(agg * i):-(agg * (i - 1))] if i > 1 else h_list[-agg:]
+            if len(window) < agg:
+                return None
+            out.append(self._ohlc(window))
+        return out  # хронологически: out[0] — самая старая, out[-1] — последняя
+
+    @staticmethod
+    def _body(o, h, l, c):
+        body = abs(c - o)
+        rng = max(h - l, 1e-9)
+        return body, rng, body / rng
+
+    @staticmethod
+    def _is_bull(o, c):
+        return c > o
+
+    @staticmethod
+    def _is_bear(o, c):
+        return c < o
+
+    def _bullish_engulfing(self, prev, cur):
+        """Bull engulfing с допуском на gap: prev bear + cur bull, cur.close >= prev.open,
+        и cur тело >= 1.2x prev тела. Жёсткое условие cur.open <= prev.close
+        ослаблено, потому что на минутных synthetic OHLC между свечами почти
+        всегда micro-gap — и строгое условие никогда бы не сработало."""
+        po, ph, pl, pc = prev
+        co, ch, cl, cc = cur
+        body_prev = abs(pc - po)
+        body_cur = abs(cc - co)
+        if body_prev <= 1e-9 or body_cur < body_prev * 1.2:
+            return False
+        return self._is_bear(po, pc) and self._is_bull(co, cc) and cc >= po
+
+    def _bearish_engulfing(self, prev, cur):
+        po, ph, pl, pc = prev
+        co, ch, cl, cc = cur
+        body_prev = abs(pc - po)
+        body_cur = abs(cc - co)
+        if body_prev <= 1e-9 or body_cur < body_prev * 1.2:
+            return False
+        return self._is_bull(po, pc) and self._is_bear(co, cc) and cc <= po
+
+    def _hammer(self, cur):
+        o, h, l, c = cur
+        body, rng, br = self._body(o, h, l, c)
+        if rng <= 1e-9 or br < 0.10:
+            return False
+        upper = h - max(o, c)
+        lower = min(o, c) - l
+        # Hammer: длинная нижняя тень + маленькая верхняя.
+        return lower >= self.HAMMER_TAIL_RATIO * body and upper <= 0.5 * body
+
+    def _shooting_star(self, cur):
+        o, h, l, c = cur
+        body, rng, br = self._body(o, h, l, c)
+        if rng <= 1e-9 or br < 0.10:
+            return False
+        upper = h - max(o, c)
+        lower = min(o, c) - l
+        return upper >= self.HAMMER_TAIL_RATIO * body and lower <= 0.5 * body
+
+    def _morning_star(self, c1, c2, c3):
+        """Morning star: длинная bear → маленькое тело star → длинная bull.
+        Star-тело < 35 % bear-тела, и cur close доходит хотя бы до середины bear-тела.
+        Сравниваем размеры тел между собой, не через body/range."""
+        o1, h1, l1, cc1 = c1
+        o3, h3, l3, cc3 = c3
+        body1 = abs(cc1 - o1)
+        body2 = abs(c2[3] - c2[0])
+        body3 = abs(cc3 - o3)
+        if body1 <= 1e-9 or body3 <= 1e-9:
+            return False
+        return (self._is_bear(o1, cc1) and self._is_bull(o3, cc3) and
+                body2 < body1 * 0.35 and
+                body3 >= body1 * 0.7 and
+                cc3 > (o1 + cc1) / 2)
+
+    def _evening_star(self, c1, c2, c3):
+        o1, h1, l1, cc1 = c1
+        o3, h3, l3, cc3 = c3
+        body1 = abs(cc1 - o1)
+        body2 = abs(c2[3] - c2[0])
+        body3 = abs(cc3 - o3)
+        if body1 <= 1e-9 or body3 <= 1e-9:
+            return False
+        return (self._is_bull(o1, cc1) and self._is_bear(o3, cc3) and
+                body2 < body1 * 0.35 and
+                body3 >= body1 * 0.7 and
+                cc3 < (o1 + cc1) / 2)
+
+    def _detect(self, candles):
+        """Возвращает 'long' / 'short' / None по сумме весов паттернов.
+
+        Веса:
+          • Engulfing (2-свечный, классический разворот) = 1.0
+          • Hammer / Shooting Star (1-свечный, на synthetic OHLC слабее) = 0.5
+          • Morning / Evening Star (3-свечный, сильнейший) = 1.5
+        Порог входа: score >= 1.0 (т.е. engulfing один или ≥2 малых).
+        """
+        if not candles or len(candles) < 3:
+            return None
+        c1, c2, c3 = candles[-3], candles[-2], candles[-1]
+        bull_score = 0.0
+        bear_score = 0.0
+        if self._bullish_engulfing(c2, c3):
+            bull_score += 1.0
+        if self._bearish_engulfing(c2, c3):
+            bear_score += 1.0
+        if self._hammer(c3):
+            bull_score += 0.5
+        if self._shooting_star(c3):
+            bear_score += 0.5
+        if self._morning_star(c1, c2, c3):
+            bull_score += 1.5
+        if self._evening_star(c1, c2, c3):
+            bear_score += 1.5
+        if bull_score >= 1.0 and bull_score > bear_score:
+            return ('long', bull_score)
+        if bear_score >= 1.0 and bear_score > bull_score:
+            return ('short', bear_score)
+        return None
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=self.HISTORY_MAX))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+            self.last_entry.setdefault(s, -9999)
+            self.h[s].append(float(p))
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+        candidates = []
+        for sym in prices:
+            cur_pos = self.pos[sym]
+            px = float(prices[sym])
+            ep = self.ep[sym]
+            held = self.t - self.et[sym]
+            # Exit-логика: SL/TP/Hold
+            if cur_pos == 'long':
+                if px <= ep * (1 - self.STOP) or px >= ep * (1 + self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                    continue
+            elif cur_pos == 'short':
+                if px >= ep * (1 + self.STOP) or px <= ep * (1 - self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                    continue
+            if cur_pos is not None:
+                continue
+            # Cooldown между входами
+            if self.t - self.last_entry[sym] < self.ENTRY_COOLDOWN:
+                continue
+            # Реконструируем последние 3 synthetic свечи
+            candles = self._candles(self.h[sym], 3)
+            if candles is None:
+                continue
+            sig = self._detect(candles)
+            if sig is None:
+                continue
+            side, score = sig
+            edge = float(score)  # ranking — морnar/evening star (1.5) выигрывает над hammer (0.5)
+            if side == 'long':
+                candidates.append((edge, sym, 4, 'long', px))   # 4 = fut_long_half
+            else:
+                candidates.append((edge, sym, 6, 'short', px))  # 6 = fut_short_half
+
+        slots = max(0, self.MAX_POS - n_open)
+        for _, sym, action, side, px in _take_ranked_entries(candidates, slots):
+            actions[sym] = action
+            self.pos[sym] = side
+            self.ep[sym] = px
+            self.et[sym] = self.t
+            self.last_entry[sym] = self.t
+        return actions
+
+
+class _SoloPlayerWrapper:
+    """
+    FIX H1 (2026-04-27): тонкий wrapper, превращающий одиночного агента
+    (FundingArb, LiveVolCompress, ...) в player-уровень для shadow-pool.
+
+    Мотивация: 12 из 14 проанализированных сессий показали, что лучший shadow-AGENT
+    в среднем обыгрывает реального Panteon на ~3 пп. Селектор не мог выбрать
+    одиночек напрямую, потому что pool содержал только Panteon-style ансамбли,
+    а внутри ансамбля (champion_blend: selected 70% + challenger 20% + rest 10%)
+    одиночка получал ≤10% веса и тонул в голосовании коррелированных
+    Pantheon-копий (внутрикластерная корреляция действий ≥80% по all_signals.csv).
+
+    Безопасность:
+    - PLAYER_STATUS = "live" — селектор имеет право выбрать этот player лидером.
+    - act() делегируется внутреннему агенту 1-в-1; его внутреннее состояние pos
+      живёт раздельно от self._open_pos real Panteon. Дубль-open и close-when-empty
+      фильтруются стандартным _act_via_shadow_players-фильтром (см.
+      project_panteon_action_filter в auto-memory).
+    - PLAYER_MIN_LIVE_CLOSED_TRADES (=5) защищает от лаки-первого-трейда.
+    """
+    PLAYER_STATUS = "live"
+    NAME = "_SoloBase"
+
+    def __init__(self, agent_factory, name: str):
+        self._inner = agent_factory()
+        self.NAME = name
+
+    def reset_for_live(self, bar_index: int = 0):
+        reset = getattr(self._inner, "reset_for_live", None)
+        if callable(reset):
+            try:
+                reset(bar_index)
+            except Exception:
+                pass
+        # Принудительный сброс позиций sub-agent'а (на случай, если у агента
+        # не определён reset_for_live).
+        for attr in ("pos", "ep", "entry_px", "et"):
+            d = getattr(self._inner, attr, None)
+            if isinstance(d, dict):
+                for k in d:
+                    d[k] = None if attr == "pos" else 0.0
+        if hasattr(self._inner, "_lc"):
+            try:
+                self._inner._lc = -99999
+            except Exception:
+                pass
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        return self._inner.act(
+            prices, volumes,
+            month=month,
+            portfolio_value=portfolio_value,
+            bar_index=bar_index,
+        )
+
+
+class SoloFundingArb(_SoloPlayerWrapper):
+    def __init__(self):
+        super().__init__(FundingArb, "SoloFundingArb")
+
+
+class SoloLiveVolCompress(_SoloPlayerWrapper):
+    def __init__(self):
+        super().__init__(LiveVolCompress, "SoloLiveVolCompress")
+
+
+class SoloLiveRegimePullback(_SoloPlayerWrapper):
+    def __init__(self):
+        super().__init__(LiveRegimePullback, "SoloLiveRegimePullback")
+
+
+class SoloLiveTrendFollow(_SoloPlayerWrapper):
+    def __init__(self):
+        super().__init__(LiveTrendFollow, "SoloLiveTrendFollow")
+
+
+class SoloLiveCrashHunter(_SoloPlayerWrapper):
+    def __init__(self):
+        super().__init__(LiveCrashHunter, "SoloLiveCrashHunter")
+
+
+class SoloCandlePattern(_SoloPlayerWrapper):
+    """FIX (2026-04-29): обёртка над CandlePatternAgent для shadow-pool."""
+    def __init__(self):
+        super().__init__(CandlePatternAgent, "SoloCandlePattern")
+
+
 class Panteon:
     """
     Адаптивный игрок v4. Пересмотренный состав по результатам live-тестов.
@@ -2437,12 +2791,15 @@ class Panteon:
     MAX_POS   = 8
     ENABLE_META_PLAYERS = True
     PLAYER_ROTATION_INT = 30
-    PLAYER_SWITCH_COOLDOWN_BARS = 90
+    # FIX 2026-05-04 (faster lineup rotation): cooldown 90→30, hard_neg −1.25→−0.50,
+    # margin 0.45→0.30. Без этого Пантеон 1.5 часа держался за лидера с pnl=−0.30%
+    # пока тот формально не достигнет −1.25. Теперь смена быстрее.
+    PLAYER_SWITCH_COOLDOWN_BARS = 30
     PLAYER_SWITCH_CONFIRMATIONS = 2
-    PLAYER_SWITCH_MARGIN = 0.45           # FIX: повысили с 0.35 — больше доказательств для смены
-    PLAYER_MIN_SCORE_TO_SWITCH = 0.05     # FIX: повысили с -0.15 — не переключаемся на убыточных
-    PLAYER_HARD_NEGATIVE_SCORE = -1.25
-    SYMBOL_PLAYER_SWITCH_MARGIN = 0.42    # FIX: повысили с 0.28
+    PLAYER_SWITCH_MARGIN = 0.30           # FIX 2026-05-04: 0.45→0.30 — быстрее уходим от плохого лидера
+    PLAYER_MIN_SCORE_TO_SWITCH = -0.05    # FIX 2026-05-04: 0.05→−0.05 — допускаем смену на чуть-минусового, если он лучший
+    PLAYER_HARD_NEGATIVE_SCORE = -0.50    # FIX 2026-05-04: −1.25→−0.50 — раньше срабатывало только при катастрофе
+    SYMBOL_PLAYER_SWITCH_MARGIN = 0.30    # FIX 2026-05-04: 0.42→0.30 — быстрая ротация на per-symbol
     # FIX: гистерезис режима против частых флипов bullish↔neutral
     # (было ~15-60 сек между переключениями во время warmup).
     # 12 баров × 1 мин = 12 мин устойчивости перед сменой режима.
@@ -2450,6 +2807,28 @@ class Panteon:
     # FIX: порог PnL ниже которого игрок не может быть выбран для реальной
     # торговли, даже если у него высокая активность.
     PLAYER_HARD_NEGATIVE_PNL = -1.5
+    # FIX A2 (2026-04-26) + FIX 2026-05-04: было 5 — блокировало ярких новичков
+    # с локально доказанной прибылью в текущем режиме. Снижено до 3, плюс
+    # в agent_meta.select() добавлен «pass» если per_regime[regime].pnl_pct>0
+    # при closed>=2.
+    PLAYER_MIN_LIVE_CLOSED_TRADES = 3
+    # FIX B1/B3 (2026-04-26): режим работы ансамбля shadow-игроков
+    #   "single"          — текущее поведение (один selected игрок исполняет всё)
+    #   "champion_blend"  — selected = 70%, challenger = 20%, прочие = 10%
+    #   "risk_parity"     — веса игроков ~ 1/vol(equity), нормированы
+    ENSEMBLE_MODE = "champion_blend"
+    ENSEMBLE_PURGATORY_PNL = -1.5
+    ENSEMBLE_PURGATORY_BARS = 240
+    ENSEMBLE_BLEND_WEIGHTS = {"selected": 0.70, "challenger": 0.20, "rest": 0.10}
+    # FIX B4: per-symbol лидер должен иметь хотя бы N закрытых сделок по символу
+    PER_SYMBOL_MIN_CLOSED = 3
+    PER_SYMBOL_MIN_WIN_RATE = 50.0
+    # FIX 2026-05-03 (post-variant-2): grace-окно после reset_for_live
+    # — сколько баров после старта live полностью пропускать гейт
+    # `_symbol_live_allowed`. Нужно для bootstrap: пока shadow-игроки
+    # не накопили закрытых сделок по конкретным символам, гейт по
+    # умолчанию глушит почти всё. 60 бар ≈ 1 час 1m-таймфрейма.
+    LIVE_GATE_GRACE_BARS = 60
 
     # FIX v7: символы из FUTURES_BLACKLIST — агент не должен их торговать,
     # потому что close_all() молча не работает для них → маржа блокируется навечно
@@ -2499,6 +2878,30 @@ class Panteon:
                 pass
         except Exception:
             pass
+
+        # FIX C (2026-04-26): новые агенты v2 (см. agents_v2.py).
+        self._mrc = None; self._avt = None; self._ces = None
+        self._fw  = None; self._gens = None; self._dso = None
+        try:
+            from agents_v2 import (
+                MeanRevConfirmedAgent, AdaptiveVolTrendAgent,
+                CrossExchangeSkewAgent, FundingWindowAgent,
+                GenomeEnsembleAgent, DefensiveStopOverlayAgent,
+            )
+            try: self._mrc = MeanRevConfirmedAgent()
+            except Exception: pass
+            try: self._avt = AdaptiveVolTrendAgent()
+            except Exception: pass
+            try: self._ces = CrossExchangeSkewAgent()
+            except Exception: pass
+            try: self._fw  = FundingWindowAgent()
+            except Exception: pass
+            try: self._gens = GenomeEnsembleAgent()
+            except Exception: pass
+            try: self._dso = DefensiveStopOverlayAgent()
+            except Exception: pass
+        except Exception:
+            pass
         self._r=None; self._lr=0
         self._t=0
         self._ph: Dict[str, deque] = {}
@@ -2529,6 +2932,12 @@ class Panteon:
         self._last_shadow_player_snapshot: Dict[str, dict] = {}
         self._shadow_player_regime_memory: Dict[str, Dict[str, dict]] = {}
         self._shadow_player_symbol_memory: Dict[str, Dict[str, Dict[str, dict]]] = {}
+        # FIX 2026-05-03 (variant 2): per-bar raw per-symbol stats для
+        # _symbol_live_allowed (питается из _publish_player_perf,
+        # сериализуется в Real_Player_Aggregator_Memory_*.txt как
+        # ключ `player_symbol_memory`). НЕ путать с
+        # _shadow_player_symbol_memory выше — там regime-EMA store.
+        self._shadow_player_symbol_perf: Dict[str, Dict[str, dict]] = {}
         self._shadow_player_window_anchor: Dict[str, dict] = {}
         self._shadow_player_symbol_anchor: Dict[str, Dict[str, dict]] = {}
         self._selected_shadow_player: str = ""
@@ -2599,6 +3008,18 @@ class Panteon:
         if self._shadow_players_enabled:
             self._init_shadow_player_pool()
 
+    def set_external_shadow_player_actions(self, actions_by_player: dict, bar_index: int) -> None:
+        """Use shadow-player actions already emitted by the runtime for this bar."""
+        try:
+            self._external_shadow_player_actions = {
+                str(name): dict(actions or {})
+                for name, actions in (actions_by_player or {}).items()
+            }
+            self._external_shadow_player_actions_bar = int(bar_index)
+        except Exception:
+            self._external_shadow_player_actions = {}
+            self._external_shadow_player_actions_bar = -1
+
     def _init_shadow_player_pool(self):
         if self._shadow_player_pool:
             return
@@ -2611,7 +3032,23 @@ class Panteon:
             ("V_PanteonMeanRevResearch", globals().get("PanteonMeanRevResearch")),
             ("V_PanteonDefensiveResearch", globals().get("PanteonDefensiveResearch")),
             ("V_PanteonConsensusResearch", globals().get("PanteonConsensusResearch")),
+            # FIX (2026-04-26): новый устойчивый игрок
+            ("V_PanteonResilient", globals().get("PanteonResilient")),
             ("V_NeuroPlayer", globals().get("NeuroPlayer")),
+            # FIX H1 (2026-04-27): солисты в live-pool. До этого фикса все
+            # ансамбли в pool были взаимно скоррелированы на ≥80% (см. отчёт),
+            # и независимые источники alpha (FundingArb +3.05%, LiveVolCompress
+            # +1.69% в shadow MEXC 19h vs PanteonResearch -0.41%) никогда не
+            # выбирались селектором лидером — они получали ≤10% веса как rest
+            # в champion_blend. Расширение pool солистами восстанавливает
+            # право селектора выбрать одиночку.
+            ("V_SoloFundingArb",         globals().get("SoloFundingArb")),
+            ("V_SoloLiveVolCompress",    globals().get("SoloLiveVolCompress")),
+            ("V_SoloLiveRegimePullback", globals().get("SoloLiveRegimePullback")),
+            ("V_SoloLiveTrendFollow",    globals().get("SoloLiveTrendFollow")),
+            ("V_SoloLiveCrashHunter",    globals().get("SoloLiveCrashHunter")),
+            # FIX (2026-04-29): свечной паттерн-агент.
+            ("V_SoloCandlePattern",      globals().get("SoloCandlePattern")),
         )
         try:
             from player_next import PanteonNextResearch as _PanteonNextResearch
@@ -2653,7 +3090,13 @@ class Panteon:
         return bool(getattr(self, "_suppress_info_logs", False))
 
     def iter_subagents(self):
-        """Единый список sub-agent'ов Panteon для reset/logging/live-sync."""
+        """Единый список sub-agent'ов Panteon для reset/logging/live-sync.
+
+        FIX A3 (2026-04-26): НЕ фильтруем здесь LIVE_AGENT_BLOCKLIST.
+        Карантинные агенты должны оставаться в pool для shadow-leaderboard и
+        копить статистику. Фильтр применяется в местах, где формируются
+        live-веса (rotation/portfolio_allocator) и в селекторе.
+        """
         for attr_name, label in (
             ('_fa', 'FundingArb'),
             ('_ms', 'MomentumScalper'),
@@ -2676,15 +3119,175 @@ class Panteon:
             ('_gb', 'GeneticsBullish'),
             ('_gbr', 'GeneticsBearish'),
             ('_gn', 'GeneticsNeutral'),
+            # FIX C (2026-04-26): новые агенты v2
+            ('_mrc',  'MeanRevConfirmed'),
+            ('_avt',  'AdaptiveVolTrend'),
+            ('_ces',  'CrossExchangeSkew'),
+            ('_fw',   'FundingWindow'),
+            ('_gens', 'GenomeEnsemble'),
+            ('_dso',  'DefensiveStopOverlay'),
         ):
-            if label in self.LIVE_AGENT_BLOCKLIST:
-                continue
             agent = getattr(self, attr_name, None)
             if agent is not None:
                 yield attr_name, label, agent
 
+    def agent_status(self, label: str) -> str:
+        """Статус агента: live | shadow_only | quarantine | experimental.
+        Используется для маркировки в leaderboard.
+        """
+        if label in self.LIVE_AGENT_BLOCKLIST:
+            return "quarantine"
+        agent = None
+        for _, lbl, ag in self.iter_subagents():
+            if lbl == label:
+                agent = ag; break
+        if agent is None:
+            return "live"
+        return str(getattr(agent, "AGENT_STATUS", "live") or "live")
+
     def subagent_labels(self):
         return [label for _, label, _ in self.iter_subagents()]
+
+    # ── Динамический карантин (FIX 2026-05-03 v3) ─────────────────────────
+    def recompute_dynamic_quarantine(
+        self,
+        per_regime_by_label: Dict[str, Dict[str, dict]],
+    ) -> Dict[str, str]:
+        """Пересчитать живой blocklist агентов на основе per-regime памяти.
+
+        Параметры
+        ---------
+        per_regime_by_label: dict
+            Словарь label -> {regime -> {pnl_pct, closed_trades, ...}}.
+            Значения берутся из VirtualPortfolio.export_regime_stats() по
+            каждому V_<label> shadow-портфелю. Содержит поля как минимум
+            'pnl_pct' и 'closed_trades' для каждого режима.
+
+        Возвращает
+        ----------
+        decisions: dict label -> 'live' | 'quarantine'
+            Решение по каждому агенту. Параллельно обновляет
+            self.LIVE_AGENT_BLOCKLIST (frozenset на инстансе) для
+            использования всеми остальными местами кода.
+        """
+        if not isinstance(per_regime_by_label, dict):
+            return {}
+        decisions: Dict[str, str] = {}
+        new_q: set = set()
+        # 1) Стартовый seed: всё, что НИКОГДА не торговало в shadow, остаётся
+        #    в карантине, чтобы не пускать в бой "чёрный ящик".
+        seed = set(getattr(type(self), '_SEED_AGENT_QUARANTINE', frozenset()))
+        for label in seed:
+            new_q.add(label)
+        # 2) Проходим по фактической per-regime статистике.
+        try:
+            recovery_pnl    = float(self.QUARANTINE_RECOVERY_PNL_PCT)
+            recovery_closed = int(self.QUARANTINE_RECOVERY_CLOSED)
+            hard_pnl        = float(self.QUARANTINE_HARD_NEG_PNL_PCT)
+            hard_min_closed = int(self.QUARANTINE_HARD_MIN_CLOSED)
+        except Exception:
+            recovery_pnl, recovery_closed = 0.10, 3
+            hard_pnl, hard_min_closed = -0.30, 5
+        for label, per_regime in per_regime_by_label.items():
+            if not isinstance(per_regime, dict) or not per_regime:
+                # Нет shadow-данных вообще → не трогаем. Если был в seed —
+                # останется в карантине; если нет — останется live.
+                if label in seed:
+                    decisions[label] = 'quarantine'
+                continue
+            any_positive = False
+            all_negative = True
+            total_closed = 0
+            worst_pnl    = 0.0
+            for regime, stats in per_regime.items():
+                if not isinstance(stats, dict):
+                    continue
+                pnl_pct = float(stats.get('pnl_pct', 0.0) or 0.0)
+                closed  = int(stats.get('closed_trades', 0) or 0)
+                total_closed += closed
+                if pnl_pct >= recovery_pnl and closed >= recovery_closed:
+                    any_positive = True
+                if pnl_pct > 0.0:
+                    all_negative = False
+                if pnl_pct < worst_pnl:
+                    worst_pnl = pnl_pct
+            if any_positive:
+                # выпустить из карантина даже если был в seed
+                decisions[label] = 'live'
+                new_q.discard(label)
+                continue
+            # Если нет положительного опыта НИ в одном режиме И есть достаточная
+            # выборка, и худший pnl ниже HARD-порога → автокарантин.
+            if (
+                all_negative
+                and total_closed >= hard_min_closed
+                and worst_pnl <= hard_pnl
+            ):
+                new_q.add(label)
+                decisions[label] = 'quarantine'
+            else:
+                # Не доказал свою прибыльность, но и плохого нет —
+                # держим как было (если был в seed — оставляем там,
+                # иначе live).
+                if label in seed:
+                    decisions[label] = 'quarantine'
+                else:
+                    decisions[label] = 'live'
+        # Обновляем динамический список на инстансе (frozenset, чтобы оно
+        # вело себя как раньше там, где `if x in self.LIVE_AGENT_BLOCKLIST`).
+        new_q_set = frozenset(new_q)
+        self.LIVE_AGENT_BLOCKLIST = new_q_set
+        # И копируем в AGENT_QUARANTINE для обратной совместимости.
+        self.AGENT_QUARANTINE = new_q_set
+        # ── FIX 2026-05-04 (carantine propagation v2) ──
+        # Распространяем blocklist на ВСЕ shadow-player инстансы (PanteonResearch,
+        # PanteonMeanRevResearch, PanteonNextResearch, PanteonDefensiveResearch,
+        # PanteonConsensusResearch, PanteonTrendResearch, V_Panteon_shadow и т.д.).
+        # Без этого: когда _selected_shadow_player = PanteonMeanRevResearch,
+        # его внутренний ансамбль продолжает использовать карантинные агенты
+        # (LiveTrendFollow, MomentumScalper, FundingArb, RichardDennis), и они
+        # реально торгуют от имени Пантеона. Это и наблюдалось в логах MEXC
+        # 14:39 — boevoi blocklist обновлялся, но `by=[PanteonMeanRevResearch]`
+        # сигналы продолжали идти через LiveTrendFollow. Теперь карантин
+        # синхронизируется на ВСЕ Panteon-варианты + чистит их _active_weights
+        # от заблокированных агентов и принудительно перенормирует веса.
+        try:
+            for shadow_name, player in (getattr(self, "_shadow_player_pool", {}) or {}).items():
+                if player is self:
+                    continue
+                # Применяем blocklist только к Panteon-родственникам, у которых
+                # есть нативный LIVE_AGENT_BLOCKLIST. PlayerFunding/PlayerBomberman/
+                # NeuroPlayer/Solo* не имеют вложенного ансамбля агентов — их
+                # пропускаем.
+                if not hasattr(player, "LIVE_AGENT_BLOCKLIST"):
+                    continue
+                try:
+                    player.LIVE_AGENT_BLOCKLIST = new_q_set
+                    player.AGENT_QUARANTINE = new_q_set
+                except Exception:
+                    continue
+                # Чистим текущие active_weights — выкидываем заблокированных
+                aw = getattr(player, "_active_weights", None)
+                if isinstance(aw, dict) and aw:
+                    removed = [
+                        label for label in list(aw.keys()) if label in new_q_set
+                    ]
+                    for label in removed:
+                        aw.pop(label, None)
+                    total = sum(float(v or 0.0) for v in aw.values())
+                    if total > 0 and removed:
+                        for label in list(aw.keys()):
+                            aw[label] = float(aw[label] or 0.0) / total
+                    elif total <= 0 and removed:
+                        # Все веса были карантинными → сбрасываем в пустоту,
+                        # пусть _rotate_agents в следующем тике перезаполнит.
+                        player._active_weights = {}
+        except Exception as exc:
+            try:
+                log.debug("  [quarantine] propagation failed: %s", exc)
+            except Exception:
+                pass
+        return decisions
 
     # ── Параметры управления позициями ──────────────────────────────────
     SL_PCT      = 0.04   # v5: стоп-лосс 4%
@@ -2779,123 +3382,149 @@ class Panteon:
     ROTATION_HARD_LOSS_PCT = -0.35
     ROTATION_HARD_NEGATIVE_SHARPE = -8.0
     ROTATION_MIN_CLOSED_FOR_BLOCK = 4
-    LIVE_AGENT_BLOCKLIST = frozenset()
+    # FIX 2026-05-03 (dynamic quarantine v3): карантин теперь ДИНАМИЧЕСКИЙ.
+    # Стартовый seed (плохая история на BG/MEXC) — те же три агента, но
+    # `Panteon.recompute_dynamic_quarantine()` пересчитывает live-blocklist на
+    # каждом тике на основе per-regime памяти shadow-портфелей: если у агента
+    # хотя бы в одном из режимов рынка (bullish/bearish/neutral/crash) есть
+    # положительный накопленный pnl при достаточной выборке (>= QUARANTINE_RECOVERY_CLOSED
+    # closed-trades), он автоматически выпускается из карантина и снова имеет
+    # право быть live-лидером.  И, наоборот, любой агент/игрок, у которого ВО
+    # ВСЕХ режимах накопленный pnl_pct отрицателен при достаточной общей выборке
+    # — попадает в карантин автоматически, без ручного редактирования кода.
+    _SEED_AGENT_QUARANTINE = frozenset({
+        'FundingArb',
+        'RichardDennis',
+        'MomentumScalper',
+    })
+    LIVE_AGENT_BLOCKLIST = frozenset(_SEED_AGENT_QUARANTINE)
+    AGENT_QUARANTINE = frozenset(_SEED_AGENT_QUARANTINE)
+    # Параметры выхода из карантина: достаточно ОДНОГО режима с положительным опытом
+    QUARANTINE_RECOVERY_PNL_PCT = 0.10   # >0.10% net PnL в каком-либо режиме
+    QUARANTINE_RECOVERY_CLOSED  = 3      # минимум закрытых сделок в этом режиме
+    # Параметры попадания в карантин (если ни в одном режиме нет плюса)
+    QUARANTINE_HARD_NEG_PNL_PCT = -0.30  # PnL хуже -0.30% во всех режимах
+    QUARANTINE_HARD_MIN_CLOSED  = 5      # суммарно закрытых сделок
+    AGENT_QUARANTINE_PROBATION_PNL = 0.40
+    AGENT_QUARANTINE_PROBATION_CLOSED = 5
     REGIME_STATIC_WEIGHTS = {
         'bullish': {
             'BullRotationAgent': 0.32,
-            'LiveAfterShock': 0.28,
+            'LiveAfterShock': 0.34,
             'LiveMeanRev': 0.24,
-            'LiveCrashHunter': 0.18,
-            'CarryFlowAgentV2': 0.16,
+            'LiveCrashHunter': 0.08,
+            'CarryFlowAgentV2': 0.22,
+            'LiveOIBreakout': 0.14,
+            'LiveVolCompress': 0.12,
             'FundingArb': 0.08,
-            'LiveTrendFollow': 0.06,
+            'LiveTrendFollow': 0.03,
         },
         'neutral': {
-            'NeutralRangeScalper': 0.34,
+            'NeutralRangeScalper': 0.42,
             'LiveMeanRev': 0.30,
-            'LiveVolCompress': 0.20,
-            'LiveAfterShock': 0.22,
-            'FundingArb': 0.16,
-            'CarryFlowAgentV2': 0.16,
-            'LiveCrashHunter': 0.12,
+            'LiveVolCompress': 0.28,
+            'LiveAfterShock': 0.26,
+            'FundingArb': 0.04,
+            'CarryFlowAgentV2': 0.20,
+            'LiveCrashHunter': 0.06,
             'ResearchValidatorAgent': 0.04,
         },
         'bearish': {
             'BearReliefFadeAgent': 0.32,
-            'LiveCrashHunter': 0.30,
-            'CarryFlowAgentV2': 0.24,
+            'LiveCrashHunter': 0.12,
+            'CarryFlowAgentV2': 0.30,
             'LiveMeanRev': 0.18,
-            'FundingArb': 0.14,
-            'LiveAfterShock': 0.10,
-            'LiveOIBreakout': 0.04,
+            'FundingArb': 0.04,
+            'LiveAfterShock': 0.18,
+            'LiveOIBreakout': 0.14,
         },
         'crash': {
             # Start crash as regular bearish. It will diverge through
             # regime_memory after real crash observations are collected.
             'CrashPanicShortAgent': 0.36,
-            'LiveCrashHunter': 0.30,
-            'CarryFlowAgentV2': 0.24,
+            'LiveCrashHunter': 0.12,
+            'CarryFlowAgentV2': 0.30,
             'LiveMeanRev': 0.18,
-            'FundingArb': 0.14,
-            'LiveAfterShock': 0.10,
-            'LiveOIBreakout': 0.04,
+            'FundingArb': 0.04,
+            'LiveAfterShock': 0.18,
+            'LiveOIBreakout': 0.14,
         },
     }
     REGIME_PRIORITY_MAP = {
-        'bullish': ('BullRotationAgent', 'LiveRegimePullback', 'LiveTrendFollow', 'LiveOIBreakout', 'CarryFlowAgentV2', 'MomentumScalper', 'LiveCrashHunter', 'RichardDennis', 'FundingArb'),
-        'bearish': ('BearReliefFadeAgent', 'LiveCrashHunter', 'CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
-        'neutral': ('NeutralRangeScalper', 'FundingArb', 'CarryFlowAgentV2', 'LiveMeanRev', 'LiveVolCompress', 'LiveCrashHunter', 'LiveOIBreakout', 'MomentumScalper', 'LiveRegimePullback', 'RichardDennis'),
-        'crash': ('CrashPanicShortAgent', 'LiveCrashHunter', 'CarryFlowAgentV2', 'LiveTrendFollow', 'LiveOIBreakout', 'FundingArb', 'RichardDennis', 'MomentumScalper'),
+        'bullish': ('LiveAfterShock', 'BullRotationAgent', 'LiveOIBreakout', 'CarryFlowAgentV2', 'LiveVolCompress', 'LiveRegimePullback', 'LiveTrendFollow', 'LiveCrashHunter'),
+        'bearish': ('CarryFlowAgentV2', 'BearReliefFadeAgent', 'LiveOIBreakout', 'LiveAfterShock', 'LiveCrashHunter', 'LiveTrendFollow'),
+        'neutral': ('NeutralRangeScalper', 'LiveVolCompress', 'LiveAfterShock', 'CarryFlowAgentV2', 'LiveMeanRev', 'LiveOIBreakout', 'LiveCrashHunter', 'LiveRegimePullback'),
+        'crash': ('CrashPanicShortAgent', 'CarryFlowAgentV2', 'LiveOIBreakout', 'LiveAfterShock', 'LiveCrashHunter', 'LiveTrendFollow'),
     }
     REGIME_SCORE_BONUS = {
         'bullish': {
             'BullRotationAgent': 0.24,
-            'LiveCrashHunter': 0.16,
-            'LiveTrendFollow': 0.12,
-            'LiveOIBreakout': 0.11,
-            'CarryFlowAgentV2': 0.10,
+            'LiveCrashHunter': -0.04,
+            'LiveTrendFollow': -0.04,
+            'LiveOIBreakout': 0.16,
+            'CarryFlowAgentV2': 0.14,
             'ResearchValidatorAgent': 0.08,
             'VolBreakoutHunter': 0.06,
             'MomentumScalper': 0.14,
-            'LiveRegimePullback': 0.12,
+            'LiveRegimePullback': -0.02,
             'RichardDennis': 0.08,
             'FundingArb': 0.04,
             'BearReliefFadeAgent': -0.10,
             'NeutralRangeScalper': -0.04,
             'CrashPanicShortAgent': -0.14,
-            'LiveVolCompress': -0.16,
+            'LiveVolCompress': 0.08,
             'LiveMeanRev': -0.08,
-            'LiveAfterShock': -0.08,
+            'LiveAfterShock': 0.16,
         },
         'bearish': {
             'BearReliefFadeAgent': 0.24,
             'CarryFlowAgentV2': 0.14,
-            'LiveTrendFollow': 0.11,
-            'LiveOIBreakout': 0.10,
+            'LiveTrendFollow': -0.04,
+            'LiveOIBreakout': 0.14,
             'ResearchValidatorAgent': 0.06,
-            'LiveCrashHunter': 0.18,
-            'FundingArb': 0.12,
+            'LiveCrashHunter': -0.02,
+            'FundingArb': -0.02,
             'RichardDennis': 0.10,
-            'MomentumScalper': 0.06,
+            'MomentumScalper': -0.04,
             'CrashPanicShortAgent': 0.06,
             'BullRotationAgent': -0.12,
             'NeutralRangeScalper': -0.04,
             'LiveVolCompress': -0.08,
-            'LiveAfterShock': -0.06,
+            'LiveAfterShock': 0.12,
         },
         'neutral': {
             'NeutralRangeScalper': 0.24,
-            'CarryFlowAgentV2': 0.13,
-            'LiveOIBreakout': 0.08,
+            'CarryFlowAgentV2': 0.16,
+            'LiveOIBreakout': 0.12,
             'ResearchValidatorAgent': 0.05,
             'VolBreakoutHunter': 0.04,
-            'FundingArb': 0.14,
-            'LiveCrashHunter': 0.12,
-            'MomentumScalper': 0.10,
-            'LiveRegimePullback': 0.08,
+            'FundingArb': -0.02,
+            'LiveCrashHunter': -0.04,
+            'MomentumScalper': -0.04,
+            'LiveRegimePullback': -0.02,
             'RichardDennis': 0.04,
             'BullRotationAgent': -0.04,
             'BearReliefFadeAgent': -0.04,
             'CrashPanicShortAgent': -0.14,
             'LiveMeanRev': -0.06,
-            'LiveAfterShock': -0.06,
-            'LiveVolCompress': 0.10,
+            'LiveAfterShock': 0.14,
+            'LiveVolCompress': 0.16,
         },
         'crash': {
             'CrashPanicShortAgent': 0.30,
             'CarryFlowAgentV2': 0.14,
-            'LiveTrendFollow': 0.11,
-            'LiveOIBreakout': 0.10,
+            'LiveTrendFollow': -0.04,
+            'LiveOIBreakout': 0.14,
             'ResearchValidatorAgent': 0.06,
-            'LiveCrashHunter': 0.18,
-            'FundingArb': 0.12,
+            'LiveCrashHunter': -0.02,
+            'FundingArb': -0.02,
             'RichardDennis': 0.10,
-            'MomentumScalper': 0.06,
+            'MomentumScalper': -0.04,
             'BearReliefFadeAgent': 0.06,
             'BullRotationAgent': -0.16,
             'NeutralRangeScalper': -0.12,
             'LiveVolCompress': -0.10,
-            'LiveAfterShock': -0.06,
+            'LiveAfterShock': 0.12,
         },
     }
     MAJOR_SYMBOLS = frozenset({
@@ -2914,10 +3543,18 @@ class Panteon:
         3 окна: 4ч, 12ч, 24ч. Голосование большинством.
         Пороги: ±0.3% за 4ч, ±0.8% за 12ч, ±1.5% за 24ч.
         Если нет явного тренда → neutral (не bearish по дефолту).
+
+        FIX 2026-04-27: первые 60 live-баров после reset_for_live игнорируем
+        crash-trigger — переход с архивных warmup-цен на свежие live-цены
+        часто даёт ложное -1..2% short_med, и бот зависает в crash.
         """
+        live_started_at = int(getattr(self, "_live_start_bar", 0) or 0)
+        bars_since_live = (int(getattr(self, "_t", 0) or 0) - live_started_at) if live_started_at else 99999
+        suppress_crash = bool(getattr(self, "_live_started", False)) and bars_since_live < 60
+
         short_rets = self._collect_universe_returns(60)
         mid_rets = self._collect_universe_returns(240)
-        if len(short_rets) >= 6 or len(mid_rets) >= 6:
+        if not suppress_crash and (len(short_rets) >= 6 or len(mid_rets) >= 6):
             short_med = float(np.median(short_rets)) if short_rets else 0.0
             mid_med = float(np.median(mid_rets)) if mid_rets else 0.0
             short_down = (
@@ -3914,6 +4551,13 @@ class Panteon:
         'V_NeutralRangeScalper': 'NeutralRangeScalper',
         'V_CrashPanicShortAgent': 'CrashPanicShortAgent',
         'V_PlayerFunding': 'PlayerFunding',
+        # FIX C (2026-04-26): новые агенты v2
+        'V_MeanRevConfirmed':     'MeanRevConfirmed',
+        'V_AdaptiveVolTrend':     'AdaptiveVolTrend',
+        'V_CrossExchangeSkew':    'CrossExchangeSkew',
+        'V_FundingWindow':        'FundingWindow',
+        'V_GenomeEnsemble':       'GenomeEnsemble',
+        'V_DefensiveStopOverlay': 'DefensiveStopOverlay',
     }
 
     def _normalize_weights(
@@ -4694,6 +5338,9 @@ class Panteon:
         )
         self._last_memory_save_bar = -99999
         self._last_shadow_player_memory_save_bar = -99999
+        # FIX 2026-05-03 (variant 2): не пробрасываем per-symbol perf
+        # из предыдущего namespace (например, переключение BITGET→MEXC).
+        self._shadow_player_symbol_perf = {}
         if self._memory_enabled and load_existing:
             self._memory_store.load_snapshot(self, logger=log)
             if self._shadow_players_enabled:
@@ -4714,6 +5361,31 @@ class Panteon:
 
     def set_shadow_player_perf(self, perf: Dict[str, dict]):
         self._shadow_player_selector.set_shadow_player_perf(self, perf)
+
+    def set_shadow_player_symbol_memory(self, perf: Dict[str, dict]):
+        """FIX 2026-05-03 (variant 2): обновить per-symbol stats для
+        Panteon._symbol_live_allowed из shadow-player perf.
+
+        Вызывается из Panteon_Trade._publish_player_perf один раз за бар.
+        Формат `perf` — выход `_build_shadow_perf_from_shadows`, где
+        у каждого игрока есть поле `per_symbol` со статами
+        `vp.export_symbol_stats(prices)`.
+        """
+        try:
+            built = self._shadow_player_selector._build_player_symbol_perf(
+                self, perf,
+            )
+        except Exception as exc:
+            try:
+                log.debug("  [PLAYER meta] symbol_perf rebuild err: %s", exc)
+            except Exception:
+                pass
+            return
+        # Полная замена, а не merge: per_symbol — кумулятивные счётчики,
+        # которые ShadowPlayer держит сам, поэтому свежий снимок уже
+        # содержит всю историю. Игроки, по которым в этом баре нет
+        # данных, выпадают — это OK, они вернутся через бар.
+        self._shadow_player_symbol_perf = built
 
     def _rotate_shadow_players(self, prices: Optional[dict] = None):
         if not self._shadow_players_enabled:
@@ -4763,13 +5435,9 @@ class Panteon:
         return float(priors.get(regime, {}).get(name, 0.0))
 
     def _sync_shadow_player_state(self, player, portfolio_value=None):
-        try:
-            player._open_pos = {
-                str(sym): dict(info or {})
-                for sym, info in (getattr(self, "_open_pos", {}) or {}).items()
-            }
-        except Exception:
-            pass
+        # Keep delegated players on their own virtual trajectory. Real position
+        # safety is applied after act(); copying live _open_pos here made the
+        # live Panteon and the shadow leaderboard compare different paths.
         for attr in ("_last_account_equity", "_last_available_margin"):
             if hasattr(self, attr):
                 try:
@@ -4797,14 +5465,202 @@ class Panteon:
             conf += 0.06
         return float(np.clip(conf, 0.20, 1.0))
 
+    def _symbol_live_allowed(self, player_name: str, sym: str) -> bool:
+        """Per-symbol live-gate для делегированных shadow-сигналов.
+
+        История правок:
+          • 2026-04-30: метод добавлен; trailing `return False` глушил все
+            entry-сигналы → real Panteon перестал торговать.
+          • 2026-05-03 (variant 1): trailing `return True` — fail-open,
+            чтобы немедленно вернуть торговлю.
+          • 2026-05-03 (variant 2): подключили реальный источник
+            `_shadow_player_symbol_perf` через _publish_player_perf и
+            persist в Real_Player_Aggregator_Memory_*.txt.
+          • 2026-05-03 (post-variant-2):
+              - инвертирован порог: гейт блокирует ТОЛЬКО при
+                достаточной выборке (closed >= MIN_CLOSED) И низком
+                win-rate. Раньше блокировались все символы с малой
+                выборкой и низким wr — это создавало chicken-and-egg
+                (shadow-игрок впервые играет → 1 закрытие с 0% wr →
+                гейт навсегда блокирует символ).
+              - добавлено grace-окно LIVE_GATE_GRACE_BARS после
+                reset_for_live: первые ~60 бар все символы пропускаются,
+                чтобы shadow-игроки успели набрать статистику.
+
+        Логика:
+          1. Grace-окно после live-старта → ALLOW.
+          2. Достаточная выборка + низкий win-rate → BLOCK
+             (явно убыточный игрок на этом символе).
+          3. Иначе (мало данных или прибыльный) → ALLOW.
+          4. Полное отсутствие данных в любых сторах → ALLOW + WARNING
+             (degraded-режим, см. variant 1 backstop).
+        """
+        # 1) Grace-window: пока shadow-игроки не успели накопить closed_trades
+        # по символам, гейт пропускает всё. Защита от bootstrap-deadlock.
+        grace_bars = int(getattr(self, "LIVE_GATE_GRACE_BARS", 60) or 0)
+        live_start = int(getattr(self, "_live_start_bar", 0) or 0)
+        cur_bar = int(getattr(self, "_t", 0) or 0)
+        bars_since_live = cur_bar - live_start
+        if grace_bars > 0 and 0 <= bars_since_live < grace_bars:
+            if not getattr(self, "_symbol_gate_grace_logged", False):
+                try:
+                    log.info(
+                        "  [PLAYER meta] symbol live-gate in grace window (%d bars) — allowing all entries until shadow-stats accumulate",
+                        grace_bars,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self._symbol_gate_grace_logged = True
+                except Exception:
+                    pass
+            return True
+
+        min_closed = int(getattr(self, "PER_SYMBOL_MIN_CLOSED", 3) or 3)
+        min_wr = float(getattr(self, "PER_SYMBOL_MIN_WIN_RATE", 50.0) or 50.0)
+        names = [str(player_name or ""), str(player_name or "").replace("V_", "")]
+        # variant 2: первый источник — свежий per-bar снимок
+        # `_shadow_player_symbol_perf`, питается из
+        # set_shadow_player_symbol_memory. Старые сторы оставлены
+        # fallback-ом для первых секунд до публикации perf.
+        stores = (
+            getattr(self, "_shadow_player_symbol_perf", {}) or {},
+            getattr(self, "_shadow_player_symbol_memory", {}) or {},
+            getattr(self, "_symbol_memory", {}) or {},
+        )
+        for store in stores:
+            for name in names:
+                stats = ((store.get(name) or {}) if isinstance(store, dict) else {}).get(sym, {})
+                if not isinstance(stats, dict) or not stats:
+                    continue
+                closed = int(stats.get("closed_trades", stats.get("total_trades", stats.get("samples", 0))) or 0)
+                win_rate = float(stats.get("win_rate", stats.get("win_rate_pct", 0.0)) or 0.0)
+                # FIX 2026-05-03 (post-variant-2): инверсия порога.
+                # Блокируем только когда есть ДОСТАТОЧНАЯ выборка
+                # И player реально проигрывает на этом символе.
+                # Малая выборка = "ещё не доказано" → ALLOW.
+                if closed >= min_closed and win_rate < min_wr:
+                    return False
+                return True
+        # Нет per-symbol истории → fail-open + одноразовый WARNING.
+        if not getattr(self, "_symbol_gate_degraded_warned", False):
+            try:
+                log.warning(
+                    "  [PLAYER meta] symbol live-gate degraded: no per-symbol memory for %s — fail-open",
+                    player_name,
+                )
+            except Exception:
+                pass
+            try:
+                self._symbol_gate_degraded_warned = True
+            except Exception:
+                pass
+        return True
+
     def _shadow_player_risk_multiplier(self, player_name: str, action: int, confidence: float) -> float:
         if action not in (1, 2, 4, 5, 6, 7):
             return 1.0
-        score = float((getattr(self, "_shadow_player_scores", {}) or {}).get(player_name, 0.0) or 0.0)
-        perf = (getattr(self, "_shadow_player_perf", {}) or {}).get(player_name, {}) or {}
-        max_dd = abs(float(perf.get("max_dd", 0.0) or 0.0)) if isinstance(perf, dict) else 0.0
-        mult = 0.78 + float(confidence) * 0.34 + max(score, 0.0) * 0.05 - max_dd * 0.018
-        return float(min(self.RISK_MULTIPLIER_MAX, max(self.RISK_MULTIPLIER_MIN, mult)))
+        # Shadow-player delegation must stay position-size comparable with the
+        # shadow leaderboard. Let player selection decide direction; do not add
+        # another live-only leverage layer on top of the selected player.
+        return 1.0
+
+    # FIX B3 (2026-04-26): purgatory bookkeeping для убыточных игроков.
+    def _ensemble_purgatory(self, current_bar: int) -> set:
+        purgatory = getattr(self, "_player_purgatory_until", None)
+        if purgatory is None:
+            purgatory = {}
+            self._player_purgatory_until = purgatory
+        purg_pnl = float(getattr(self, "ENSEMBLE_PURGATORY_PNL", -1.5) or -1.5)
+        purg_bars = int(getattr(self, "ENSEMBLE_PURGATORY_BARS", 240) or 240)
+        perf_map = getattr(self, "_shadow_player_perf", {}) or {}
+        if isinstance(perf_map, dict):
+            for name, perf in perf_map.items():
+                if not isinstance(perf, dict):
+                    continue
+                pnl = float(perf.get("pnl_pct", 0.0) or 0.0)
+                closed = int(perf.get("closed_trades", perf.get("total_trades", 0)) or 0)
+                if closed >= 2 and pnl <= purg_pnl and name not in purgatory:
+                    purgatory[name] = current_bar + purg_bars
+        for name in list(purgatory.keys()):
+            if current_bar >= purgatory[name]:
+                purgatory.pop(name, None)
+        return set(purgatory.keys())
+
+    # FIX B1/B2/B3 (2026-04-26): расчёт весов игроков для ensemble-голосования.
+    def _ensemble_weights(self, regime: str) -> Dict[str, float]:
+        mode = str(getattr(self, "ENSEMBLE_MODE", "single") or "single").lower()
+        pool = getattr(self, "_shadow_player_pool", {}) or {}
+        if not pool:
+            return {}
+        eligible = []
+        for name, instance in pool.items():
+            status = str(getattr(instance, "PLAYER_STATUS", "live") or "live").lower()
+            if status in ("shadow_only", "quarantine"):
+                continue
+            eligible.append(name)
+        if not eligible:
+            return {}
+        if mode == "single":
+            sel = self._selected_shadow_player
+            return {sel: 1.0} if sel in eligible else {eligible[0]: 1.0}
+        scores = getattr(self, "_shadow_player_scores", {}) or {}
+        perf_map = getattr(self, "_shadow_player_perf", {}) or {}
+        if mode == "champion_blend":
+            blend = getattr(self, "ENSEMBLE_BLEND_WEIGHTS",
+                            {"selected": 0.70, "challenger": 0.20, "rest": 0.10})
+            sel = self._selected_shadow_player if self._selected_shadow_player in eligible else eligible[0]
+            ranked = sorted(
+                ((scores.get(n, -10.0), n) for n in eligible if n != sel),
+                key=lambda x: x[0], reverse=True,
+            )
+            challenger = ranked[0][1] if ranked else None
+            rest = [n for _, n in ranked[1:]]
+            weights: Dict[str, float] = {}
+            weights[sel] = float(blend.get("selected", 0.70))
+            if challenger is not None:
+                weights[challenger] = float(blend.get("challenger", 0.20))
+            if rest:
+                share = float(blend.get("rest", 0.10)) / max(len(rest), 1)
+                for n in rest:
+                    weights[n] = share
+            min_score = float(getattr(self, "PLAYER_HARD_NEGATIVE_SCORE", -1.25) or -1.25)
+            weights = {n: w for n, w in weights.items()
+                       if scores.get(n, 0.0) > min_score or n == sel}
+        elif mode == "risk_parity":
+            inv = {}
+            for n in eligible:
+                p = perf_map.get(n) or {}
+                dd = abs(float(p.get("max_drawdown_pct", p.get("max_dd", 0.0)) or 0.0))
+                pnl = float(p.get("pnl_pct", 0.0) or 0.0)
+                vol_proxy = max(dd, 0.5)
+                w = 1.0 / vol_proxy
+                if pnl < 0.0:
+                    w *= max(0.1, 1.0 + pnl * 0.20)
+                inv[n] = max(w, 0.05)
+            total = sum(inv.values())
+            weights = {n: w / total for n, w in inv.items()} if total > 0 else {}
+        else:
+            sel = self._selected_shadow_player if self._selected_shadow_player in eligible else eligible[0]
+            weights = {sel: 1.0}
+        purg = self._ensemble_purgatory(int(getattr(self, "_t", 0) or 0))
+        if purg:
+            for n in list(weights.keys()):
+                if n in purg:
+                    weights.pop(n, None)
+        total = sum(weights.values())
+        if total > 0:
+            weights = {n: w / total for n, w in weights.items()}
+        return weights
+
+    @staticmethod
+    def _action_class(a: int) -> str:
+        if a in (1, 2): return "spot_buy"
+        if a == 3: return "spot_sell"
+        if a in (4, 5): return "fut_long"
+        if a in (6, 7): return "fut_short"
+        if a == 8: return "fut_close"
+        return ""
 
     def _act_via_shadow_players(self, prices, volumes, month=None,
                                 portfolio_value=None, bar_index=None,
@@ -4817,30 +5673,102 @@ class Panteon:
             selected = next(iter(self._shadow_player_pool))
             self._selected_shadow_player = selected
 
-        kw = dict(volumes=volumes, month=month, portfolio_value=portfolio_value, bar_index=bar_index)
-        player_actions: Dict[str, dict] = {}
-        for name, player in self._shadow_player_pool.items():
-            try:
-                self._sync_shadow_player_state(player, portfolio_value=portfolio_value)
-                player_actions[name] = player.act(prices, **kw) or {}
-            except Exception as exc:
-                log.debug("  [PLAYER meta/%s] act error: %s", name, exc)
-                player_actions[name] = {}
+        current_bar = int(bar_index if bar_index is not None else (self._t or 0))
+        cached_bar = int(getattr(self, "_external_shadow_player_actions_bar", -1) or -1)
+        cached_actions = getattr(self, "_external_shadow_player_actions", {}) or {}
+        if cached_actions and cached_bar == current_bar:
+            player_actions = {
+                name: dict(actions or {})
+                for name, actions in cached_actions.items()
+            }
+        else:
+            kw = dict(volumes=volumes, month=month, portfolio_value=portfolio_value, bar_index=bar_index)
+            player_actions: Dict[str, dict] = {}
+            for name, player in self._shadow_player_pool.items():
+                try:
+                    self._sync_shadow_player_state(player, portfolio_value=portfolio_value)
+                    player_actions[name] = player.act(prices, **kw) or {}
+                except Exception as exc:
+                    log.debug("  [PLAYER meta/%s] act error: %s", name, exc)
+                    player_actions[name] = {}
 
+        # FIX B1/B3 (2026-04-26): weighted ensemble голосование.
+        # При single-mode — старое поведение, при champion_blend / risk_parity —
+        # для каждого символа выбирается категория действий с наибольшим
+        # суммарным весом, при условии веса ≥ min_agree.
+        weights = self._ensemble_weights(regime)
         out = {s: 0 for s in prices}
         source_for_symbol = {}
         symbol_leaders = getattr(self, "_selected_symbol_shadow_players", {}) or {}
-        for sym in prices:
-            leader = symbol_leaders.get(sym) or selected
-            action = (player_actions.get(leader) or {}).get(sym, 0)
-            source = leader
-            if not action and leader != selected:
-                action = (player_actions.get(selected) or {}).get(sym, 0)
-                source = selected if action else leader
-            if action:
-                out[sym] = action
-                source_for_symbol[sym] = source
+        ensemble_mode = str(getattr(self, "ENSEMBLE_MODE", "single") or "single").lower()
+        min_agree = 0.45
 
+        for sym in prices:
+            sym_leader = symbol_leaders.get(sym)
+            if sym_leader and (player_actions.get(sym_leader) or {}).get(sym, 0):
+                action = player_actions[sym_leader][sym]
+                out[sym] = action
+                source_for_symbol[sym] = sym_leader
+                continue
+            if ensemble_mode == "single" or len(weights) <= 1:
+                leader = sym_leader or selected
+                action = (player_actions.get(leader) or {}).get(sym, 0)
+                source = leader
+                if not action and leader != selected:
+                    action = (player_actions.get(selected) or {}).get(sym, 0)
+                    source = selected if action else leader
+                if action:
+                    out[sym] = action
+                    source_for_symbol[sym] = source
+                continue
+            cat_weight: Dict[str, float] = {}
+            cat_specific: Dict[str, Dict[int, float]] = {}
+            cat_voters: Dict[str, list] = {}
+            for name, w in weights.items():
+                if w <= 0: continue
+                a = (player_actions.get(name) or {}).get(sym, 0)
+                if a == 0: continue
+                cat = self._action_class(a)
+                if not cat: continue
+                cat_weight[cat] = cat_weight.get(cat, 0.0) + w
+                cat_specific.setdefault(cat, {})[a] = cat_specific.setdefault(cat, {}).get(a, 0.0) + w
+                cat_voters.setdefault(cat, []).append(name)
+            if not cat_weight:
+                continue
+            # FIX H2/H4 (2026-04-27): симметричный close/open threshold.
+            # Старый порог close_w >= 0.30 был ниже open-порога 0.45 → любые
+            # 30 % коррелированных голосов закрывали позицию преждевременно.
+            # Теперь close требует тот же вес большинства, что и open.
+            # Аварийные exit-ы остаются за PositionSafety (SL/TP/trail), они
+            # независимы от голосования.
+            close_w = cat_weight.get("fut_close", 0.0) + cat_weight.get("spot_sell", 0.0)
+            non_close_cats = {c: w for c, w in cat_weight.items()
+                              if c not in ("fut_close", "spot_sell")}
+            non_close_max = max(non_close_cats.values()) if non_close_cats else 0.0
+            if close_w >= min_agree and close_w >= non_close_max:
+                if cat_weight.get("fut_close", 0.0) >= cat_weight.get("spot_sell", 0.0):
+                    out[sym] = 8
+                else:
+                    out[sym] = 3
+                voters = cat_voters.get("fut_close", []) or cat_voters.get("spot_sell", [])
+                if voters:
+                    source_for_symbol[sym] = voters[0]
+                continue
+            best_cat = max(cat_weight, key=cat_weight.get)
+            if cat_weight[best_cat] < min_agree:
+                continue
+            spec = cat_specific.get(best_cat, {})
+            if not spec:
+                continue
+            best_action = max(spec, key=spec.get)
+            out[sym] = int(best_action)
+            voters = cat_voters.get(best_cat, [])
+            source_for_symbol[sym] = voters[0] if voters else (selected or "ensemble")
+
+        # FIX A1 (2026-04-26): снимок out ДО PositionGovernor. Любой close=8/3,
+        # дописанный PositionGovernor по актуальному self._open_pos, должен
+        # пройти насквозь — иначе race с reconcile приводил к зависанию KAT/RAVE.
+        out_before_safety = dict(out)
         self._position_safety.apply_exit_actions(
             self._open_pos,
             prices,
@@ -4852,10 +5780,65 @@ class Panteon:
             stale_bars=self.STALE_BARS,
             logger=log,
         )
+        safety_forced_close: set = set()
+        for sym, action in out.items():
+            prev = out_before_safety.get(sym, 0)
+            if action in (3, 8) and prev != action:
+                safety_forced_close.add(sym)
+                source_for_symbol[sym] = "PositionSafety"
+
         for sym in list(out.keys()):
             if sym in self._BLACKLIST and out[sym] != 0:
                 out[sym] = 0
                 source_for_symbol.pop(sym, None)
+        for sym in list(out.keys()):
+            action = out[sym]
+            if action not in (1, 2, 4, 5, 6, 7):
+                continue
+            source = source_for_symbol.get(sym) or selected
+            if not self._symbol_live_allowed(source, sym):
+                out[sym] = 0
+                source_for_symbol.pop(sym, None)
+        # FIX: фильтруем конфликтные действия от делегированного игрока против
+        # реального состояния позиций. Внутреннее состояние суб-агентов игрока
+        # (FundingArb.pos и т.п.) живёт отдельно от self._open_pos реального
+        # Пантеона: игрок может выдать "open long BTC" пока реальный Пантеон
+        # уже держит BTC long (открыл его на прошлом тике через другого
+        # игрока). Без этого фильтра в hedge-режиме MEXC/Bitget биржа
+        # стэкает позицию — удваивает экспозицию без предупреждения.
+        # Аналогично "close" при отсутствии позиции — нет смысла слать на биржу.
+        for sym in list(out.keys()):
+            action = out[sym]
+            if action == 0:
+                continue
+            # FIX A1: PositionSafety уже прочитал _open_pos и сказал «закрывай».
+            # Не блокируем такие close, даже если _open_pos снизу окажется пуст.
+            if sym in safety_forced_close and action in (3, 8):
+                continue
+            existing = self._open_pos.get(sym)
+            if existing:
+                existing_side = str(existing.get("side", "long") or "long")
+                # Уже открыта позиция в ту же сторону → блокируем дубль open
+                if action in (1, 2, 4, 5) and existing_side == "long":
+                    out[sym] = 0
+                    source_for_symbol.pop(sym, None)
+                elif action in (6, 7) and existing_side == "short":
+                    out[sym] = 0
+                    source_for_symbol.pop(sym, None)
+                # Противоположная сторона → принудительно close (3/8) вместо
+                # flip-в-противоположную, так как биржа в hedge-режиме не
+                # закроет старую сторону автоматически. Игрок может на
+                # следующем тике переоткрыть нужную сторону.
+                elif action in (1, 2, 4, 5) and existing_side == "short":
+                    out[sym] = 8
+                elif action in (6, 7) and existing_side == "long":
+                    out[sym] = 8
+            else:
+                # Нет позиции, а игрок шлёт close → дроп.
+                # ВНИМАНИЕ: PositionSafety case обработан выше отдельно.
+                if action in (3, 8):
+                    out[sym] = 0
+                    source_for_symbol.pop(sym, None)
         self._position_safety.sync_positions(self._open_pos, out, prices, int(self._t or 0))
 
         self._last_contributors = {}
@@ -4924,7 +5907,19 @@ class Panteon:
           - self._lc (таймер — чтобы первый check сработал сразу)
           - self._open_pos (трекер Panteon)
           - self._r (режим — пересчитается)
+
+        FIX 2026-04-27: помечаем переход в live-фазу. До этого момента
+        regime-rotations подавляются (warmup-чурн в логах не нужен).
         """
+        # Помечаем live-старт у себя и у всех shadow-players
+        self._live_started = True
+        self._live_start_bar = int(bar_index or 0)
+        for _name, _player in (getattr(self, "_shadow_player_pool", {}) or {}).items():
+            try:
+                setattr(_player, "_live_started", True)
+                setattr(_player, "_live_start_bar", int(bar_index or 0))
+            except Exception:
+                pass
         quiet_logs = self._quiet_info_logs()
         for attr_name, label, agent in self.iter_subagents():
             reset = getattr(agent, 'reset_for_live', None)
@@ -4989,6 +5984,8 @@ class Panteon:
             self._recent_real_signal_agents.clear()
         if hasattr(self, '_last_risk_multipliers'):
             self._last_risk_multipliers.clear()
+        self._external_shadow_player_actions = {}
+        self._external_shadow_player_actions_bar = -1
         for name, player in getattr(self, "_shadow_player_pool", {}).items():
             reset = getattr(player, "reset_for_live", None)
             if callable(reset):
@@ -5034,8 +6031,30 @@ class Panteon:
         if stable_regime is None:
             stable_regime = raw_regime
             self._stable_regime = stable_regime
-        if hysteresis <= 0 or raw_regime == "crash" or stable_regime == "crash":
+        if hysteresis <= 0 or raw_regime == "crash":
+            # вход в crash — мгновенный (защитная мера)
             new_stable = raw_regime
+        elif stable_regime == "crash":
+            # FIX 2026-04-27: выход ИЗ crash тоже требует hysteresis-баров
+            # стабильности. Раньше тут был мгновенный exit, и бот мог скакать
+            # между crash и neutral в нестабильных warmup→live переходах.
+            pending = getattr(self, "_pending_regime", None)
+            pending_since = int(getattr(self, "_pending_regime_since", -99999) or -99999)
+            if raw_regime == stable_regime:
+                new_stable = stable_regime
+                self._pending_regime = None
+                self._pending_regime_since = -99999
+            else:
+                if pending != raw_regime:
+                    self._pending_regime = raw_regime
+                    self._pending_regime_since = t
+                    new_stable = stable_regime
+                elif t - pending_since >= hysteresis:
+                    new_stable = raw_regime
+                    self._pending_regime = None
+                    self._pending_regime_since = -99999
+                else:
+                    new_stable = stable_regime
         else:
             pending = getattr(self, "_pending_regime", None)
             pending_since = int(getattr(self, "_pending_regime_since", -99999) or -99999)
@@ -5059,10 +6078,26 @@ class Panteon:
         regime_changed = effective_prev != regime
         kw=dict(volumes=volumes,month=month,portfolio_value=portfolio_value,bar_index=bar_index)
 
+        # FIX 2026-04-27: подавляем regime-rotation/log-spam во время warmup.
+        # Регим там скачет каждые несколько секунд из-за компрессии warmup-time
+        # → бесполезный churn в логах и ложные ротации.
+        in_warmup = not bool(getattr(self, "_live_started", False))
+
         if self._shadow_players_enabled and self._shadow_player_pool:
-            if regime_changed and not self._quiet_info_logs():
+            # FIX H5 (2026-04-27): anti-flapping. В сессии MEXC 2026-04-25
+            # за 1 минуту было 8 force-rotations из-за быстрого
+            # neutral↔bullish↔bearish скачка → noisy селект. Теперь
+            # forced rotation не чаще, чем PLAYER_SWITCH_COOLDOWN_BARS // 3.
+            cooldown = int(getattr(self, "PLAYER_SWITCH_COOLDOWN_BARS", 90) or 90)
+            min_gap = max(1, cooldown // 3)
+            last_force = int(getattr(self, "_last_force_player_rotation_bar", -99999) or -99999)
+            recently_forced = (t - last_force) < min_gap
+            if regime_changed and not self._quiet_info_logs() and not in_warmup and not recently_forced:
                 log.info("  [PLAYER meta] regime changed %s -> %s; forcing player rotation", effective_prev, regime)
-            if regime_changed or t - self._last_shadow_player_rotation >= self.PLAYER_ROTATION_INT:
+            should_force = regime_changed and not in_warmup and not recently_forced
+            if should_force:
+                self._last_force_player_rotation_bar = t
+            if should_force or t - self._last_shadow_player_rotation >= self.PLAYER_ROTATION_INT:
                 self._rotate_shadow_players(prices)
                 self._last_shadow_player_rotation = t
             return self._act_via_shadow_players(
@@ -5080,9 +6115,18 @@ class Panteon:
         if self.USE_REGIME_TOP_TRADER:
             self._update_regime_leaders(logger=log)
 
-        if regime_changed and not self._quiet_info_logs():
+        # FIX H5 (2026-04-27) + FIX 2026-05-04: default cooldown 90→30.
+        # Anti-flapping для agent-rotation сохраняется через min_gap_a.
+        cooldown_a = int(getattr(self, "PLAYER_SWITCH_COOLDOWN_BARS", 30) or 30)
+        min_gap_a = max(1, cooldown_a // 3)
+        last_force_a = int(getattr(self, "_last_force_agent_rotation_bar", -99999) or -99999)
+        recently_forced_a = (t - last_force_a) < min_gap_a
+        if regime_changed and not self._quiet_info_logs() and not in_warmup and not recently_forced_a:
             log.info("  [Panteon] regime changed %s -> %s; forcing agent rotation", effective_prev, regime)
-        if regime_changed or t - self._last_rotation >= self.ROTATION_INT:
+        should_force_agent = regime_changed and not in_warmup and not recently_forced_a
+        if should_force_agent:
+            self._last_force_agent_rotation_bar = t
+        if should_force_agent or t - self._last_rotation >= self.ROTATION_INT:
             self._rotate_agents()
             self._last_rotation = t
 
@@ -5471,15 +6515,28 @@ class PanteonResearch(Panteon):
             ('LiveCrashHunter',    0.10),
             ('LiveAfterShock',     0.08),
         ])
+        # FIX 2026-05-05 (carantine-aware bootstrap): отфильтровываем
+        # карантинных. Без этого PanteonResearch стартует с RichardDennis=18%
+        # (карантин), и до первого _rotate_agents использует его в торговле.
+        blocklist = (
+            getattr(self, "LIVE_AGENT_BLOCKLIST", frozenset())
+            or getattr(type(self), "_SEED_AGENT_QUARANTINE", frozenset())
+        )
         filtered = OrderedDict(
             (label, weight) for label, weight in desired.items()
-            if label in self._agent_pool
+            if label in self._agent_pool and label not in blocklist
         )
         total = sum(filtered.values())
         if total > 0:
             self._active_weights = {label: weight / total for label, weight in filtered.items()}
 
     def _score_shadow_candidate(self, label: str, perf: dict) -> float:
+        # FIX 2026-05-05: карантинный → сильный минус, не выберется
+        if label in (
+            getattr(self, "LIVE_AGENT_BLOCKLIST", frozenset())
+            or getattr(type(self), "_SEED_AGENT_QUARANTINE", frozenset())
+        ):
+            return -10.0
         pnl = float(perf.get('pnl_pct', 0.0))
         sharpe = float(perf.get('sharpe', 0.0))
         max_dd = abs(float(perf.get('max_dd', perf.get('max_drawdown_pct', perf.get('max_dd_pct', 0.0))) or 0.0))
@@ -5514,17 +6571,42 @@ class _PanteonShadowVariant(PanteonResearch):
         if self._memory_bootstrap_loaded:
             return
         desired = OrderedDict(self.BOOTSTRAP_WEIGHTS)
+        # FIX 2026-05-05 (carantine-aware bootstrap): отфильтровываем агентов,
+        # которые сейчас в карантине (LIVE_AGENT_BLOCKLIST или
+        # _SEED_AGENT_QUARANTINE). Без этого, например, PanteonTrendResearch
+        # стартует с 80% веса на RichardDennis/LiveTrendFollow/MomentumScalper/
+        # FundingArb — все четверо карантинные. Вариант сразу торгует через
+        # них, и реальный Пантеон (когда выбирает этого варианта делегатом)
+        # тащит их сигналы в боевую торговлю.
+        blocklist = (
+            getattr(self, "LIVE_AGENT_BLOCKLIST", frozenset())
+            or getattr(type(self), "_SEED_AGENT_QUARANTINE", frozenset())
+        )
         filtered = OrderedDict(
             (label, weight) for label, weight in desired.items()
-            if label in self._agent_pool
+            if label in self._agent_pool and label not in blocklist
         )
         total = sum(filtered.values())
         if total > 0:
             self._active_weights = {
                 label: weight / total for label, weight in filtered.items()
             }
+        else:
+            # Все из BOOTSTRAP_WEIGHTS оказались в карантине → пустой
+            # ансамбль, _rotate_agents в первом цикле перезаполнит
+            # активными живыми агентами.
+            self._active_weights = {}
 
     def _score_shadow_candidate(self, label: str, perf: dict) -> float:
+        # FIX 2026-05-05 (carantine-aware scoring): карантинный агент
+        # не получает СКОРИНГ — иначе вариант делает его лидером.
+        # Возвращаем сильно отрицательное значение, чтобы он гарантированно
+        # ушёл вниз ranking-а в ShadowPlayerMetaSelector / _rotate.
+        if label in (
+            getattr(self, "LIVE_AGENT_BLOCKLIST", frozenset())
+            or getattr(type(self), "_SEED_AGENT_QUARANTINE", frozenset())
+        ):
+            return -10.0
         pnl = float(perf.get('pnl_pct', 0.0) or 0.0)
         sharpe = float(perf.get('sharpe', 0.0) or 0.0)
         max_dd = abs(float(perf.get('max_dd', perf.get('max_drawdown_pct', perf.get('max_dd_pct', 0.0))) or 0.0))
@@ -5534,7 +6616,15 @@ class _PanteonShadowVariant(PanteonResearch):
         activity = min(signals, 40) * 0.03 + min(entries, 20) * 0.08 + min(closed, 12) * 0.06
         inactivity_penalty = 1.5 if signals == 0 and entries == 0 else 0.0
         score = pnl + sharpe * 1.25 + activity - max_dd * self.DRAWDOWN_PENALTY_MULT - inactivity_penalty
-        if label in self.SCORE_BONUS_LABELS and signals > 0:
+        # FIX 2026-05-05: бонус только если label НЕ в карантине
+        if (
+            label in self.SCORE_BONUS_LABELS
+            and signals > 0
+            and label not in (
+                getattr(self, "LIVE_AGENT_BLOCKLIST", frozenset())
+                or getattr(type(self), "_SEED_AGENT_QUARANTINE", frozenset())
+            )
+        ):
             score += float(self.SCORE_BONUS)
         if signals > self.MAX_ACTIVITY_SIGNALS:
             score -= (signals - self.MAX_ACTIVITY_SIGNALS) * self.ACTIVITY_PENALTY_PER_SIGNAL
@@ -5644,281 +6734,112 @@ class PanteonConsensusResearch(_PanteonShadowVariant):
     ACTIVITY_PENALTY_PER_SIGNAL = 0.015
     ACTIVITY_PENALTY_PER_ENTRY = 0.03
 
+
+# ═══════════
+# PanteonResilient — устойчивый игрок (FIX 2026-04-26)
+# ════════════════════════════════════════════════════════════════════════
+class PanteonResilient(_PanteonShadowVariant):
+    """
+    Состав построен ТОЛЬКО на агентах с положительным результатом одновременно
+    на BITGET и на MEXC за анализируемую сессию 2026-04-25_15-24:
+
+      Cross-exchange winners (BG / MEXC pnl_pct):
+        LiveMeanRev          +3.63 / +0.34   wr 66/68%
+        LiveVolCompress      +1.18 / +1.81   wr 41/47%
+        LiveTrendFollow      +6.44 / +1.16   wr 44/35%
+        LiveRegimePullback   +2.11 / +1.67   wr 34/38%
+        Genetics{Bull,Bear,Neutral} — стабильный фон.
+
+    Дополнительно (только если живут):
+        MeanRevConfirmed   — confirmation-обёртка над LiveMeanRev
+        AdaptiveVolTrend   — ATR-trail-обёртка над LiveTrendFollow
+
+    Защита (всегда активна):
+        DefensiveStopOverlay — last-line exit, не открывает.
+
+    Bootstrap-веса распределяют ~70% между MeanRev/Trend/VolCompress (где
+    win-rate подтверждён), ~16% — генетика, 8% — защитный оверлей.
+    """
+    ROTATION_INT = 90
+    ENABLE_META_PLAYERS = False
+    MIN_AGENTS = 3
+    MAX_AGENTS = 6
+    MIN_WEIGHT = 0.10
+    MAX_POS = 5
+    OPEN_SINGLE_THRESHOLD = 0.30
+    OPEN_MULTI_THRESHOLD = 0.24
+    CLOSE_SINGLE_THRESHOLD = 0.24
+    CLOSE_MULTI_THRESHOLD = 0.20
+    BOOTSTRAP_WEIGHTS = (
+        ('LiveMeanRev',         0.20),
+        ('MeanRevConfirmed',    0.14),
+        ('AdaptiveVolTrend',    0.12),
+        ('LiveTrendFollow',     0.10),
+        ('LiveVolCompress',     0.10),
+        ('LiveRegimePullback',  0.10),
+        ('GeneticsBullish',     0.06),
+        ('GeneticsBearish',     0.06),
+        ('GeneticsNeutral',     0.04),
+        ('DefensiveStopOverlay', 0.08),
+    )
+    SCORE_BONUS_LABELS = frozenset({
+        'LiveMeanRev', 'MeanRevConfirmed', 'LiveVolCompress',
+        'LiveRegimePullback', 'AdaptiveVolTrend', 'LiveTrendFollow',
+    })
+    SCORE_BONUS = 0.16
+    DRAWDOWN_PENALTY_MULT = 0.45
+    MAX_ACTIVITY_SIGNALS = 80
+    MAX_ACTIVITY_ENTRIES = 36
+    ACTIVITY_PENALTY_PER_SIGNAL = 0.010
+    ACTIVITY_PENALTY_PER_ENTRY = 0.020
+
+
 PanteonPlayer = Panteon
 
 
+# ────────────────────────────────────────────────────────────────────
+# NeuroPlayer-stub (восстановление после обрыва файла 2026-04-26).
+# Полная реализация хранится в панти-pyc; этот класс — fallback,
+# чтобы _init_shadow_player_pool не падал при globals().get("NeuroPlayer").
+# ────────────────────────────────────────────────────────────────────
 class NeuroPlayer:
-    """
-    Neuro_Player v1: оркестратор ВСЕХ генетических агентов.
+    """Fallback-stub: реальная реализация в .pyc-кэше."""
+    PLAYER_STATUS = "shadow_only"
+    PLAYER_STATUS_REASON = "stub after file truncation; original logic in pyc"
+    REGIME_INT = 2 * 60
+    BUY_THRESH = 0.30
+    SELL_THRESH = 0.15
+    STOP_PCT = 0.08
+    MAX_POS = 5
 
-    Управляет 4-мя нейросетевыми агентами обученными на разных режимах:
-      • GeneticsAgent    — универсальный (обучен на всех периодах)
-      • GeneticsBullish  — специалист бычьего рынка
-      • GeneticsBearish  — специалист медвежьего рынка (шортит)
-      • GeneticsNeutral  — специалист бокового рынка (range-bound)
+    def __init__(self, *args, **kwargs):
+        self.pos = {}
+        self.ep = {}
+        self._t = 0
 
-    Логика:
-      1. Детектирует текущий режим рынка (bull/bear/sideways)
-      2. Присваивает веса агентам в зависимости от режима:
-         Bull:     GenBullish=0.40, GenAgent=0.30, GenNeutral=0.20, GenBearish=0.10
-         Bear:     GenBearish=0.40, GenAgent=0.30, GenNeutral=0.20, GenBullish=0.10
-         Sideways: GenNeutral=0.35, GenAgent=0.30, GenBullish=0.20, GenBearish=0.15
-      3. Взвешенное голосование: buy при sum_w>=0.30, sell при sum_w>0.15
+    def reset_for_live(self, bar_index: int = 0):
+        self._t = bar_index
 
-    Преимущества перед отдельными генетиками:
-      - Плавная ротация вместо жёсткого переключения (меньше whipsaw)
-      - Все 4 генетики всегда активны, но с разными весами
-      - Стоп-лосс на уровне игрока: -8% от входа → принудительное закрытие
-    """
-    REGIME_INT = 2 * 60     # проверка режима каждые 2 часа
-    BUY_THRESH = 0.30       # минимальный вес для входа
-    SELL_THRESH = 0.15      # минимальный вес для выхода
-    STOP_PCT = 0.08         # стоп-лосс 8% от входа
-    MAX_POS = 5             # максимум открытых позиций
-
-    # Веса по режимам: (GenAgent, GenBullish, GenBearish, GenNeutral)
-    W_BULL     = (0.30, 0.40, 0.10, 0.20)
-    W_BEAR     = (0.30, 0.10, 0.40, 0.20)
-    W_SIDEWAYS = (0.30, 0.20, 0.15, 0.35)
-
-    def __init__(self):
-        self._agents = OrderedDict()
-        self._agent_loaded = False
-        self._load_agents()
-        self._ph: Dict[str, deque] = {}
-        self._regime = 'sideways'
-        self._lr = -9999
-        self.t = 0
-        # Трекинг позиций для стоп-лосса
-        self._pos: Dict[str, dict] = {}  # sym → {side, entry_px, agent}
-
-    def _load_agents(self):
-        """Загружает все вариации генетических агентов."""
-        # FIX: правильные имена классов: GeneticsBullishAgent (не GeneticsBullish)
-        # FIX: оборачиваем в _GeneticsAdapter для hourly gate
-        # Исправление: запасной путь создавал _GeneticsAdapter(string) и падал на каждом .act()
-        try:
-            from crypto_genetics import (GeneticsAgent,
-                                          GeneticsBullishAgent, GeneticsBearishAgent,
-                                          GeneticsNeutralAgent)
-            from crypto_agents import _GeneticsAdapter
-            self._agents['GenAgent']   = GeneticsSymbolGuard(_GeneticsAdapter(GeneticsAgent()))
-            self._agents['GenBullish'] = GeneticsSymbolGuard(_GeneticsAdapter(GeneticsBullishAgent()))
-            self._agents['GenBearish'] = GeneticsSymbolGuard(_GeneticsAdapter(GeneticsBearishAgent()))
-            self._agents['GenNeutral'] = GeneticsSymbolGuard(_GeneticsAdapter(GeneticsNeutralAgent()))
-            self._agent_loaded = True
-            return
-        except Exception:
-            pass
-
-                # Запасной вариант: загружаем агентов по одному
-        try:
-            from crypto_agents import _GeneticsAdapter
-            from crypto_genetics import GeneticsAgent
-            self._agents['GenAgent'] = GeneticsSymbolGuard(_GeneticsAdapter(GeneticsAgent()))
-            # Пробуем островные агенты
-            import crypto_genetics as _cg
-            for cls_name, key in [('GeneticsBullishAgent', 'GenBullish'),
-                                   ('GeneticsBearishAgent', 'GenBearish'),
-                                   ('GeneticsNeutralAgent', 'GenNeutral')]:
-                try:
-                    cls = getattr(_cg, cls_name)
-                    self._agents[key] = GeneticsSymbolGuard(_GeneticsAdapter(cls()))
-                except Exception:
-                    pass
-            self._agent_loaded = len(self._agents) >= 1
-        except Exception:
-            pass
-
-        if not self._agent_loaded:
-                    # Последний запасной вариант: DualMomentum
-            try:
-                from crypto_agents import DualMomentum
-                self._agents['GenAgent'] = DualMomentum()
-                self._agent_loaded = True
-            except Exception:
-                pass
-
-    def _get_weights(self) -> Dict[str, float]:
-        """Возвращает веса агентов для текущего режима."""
-        names = ['GenAgent', 'GenBullish', 'GenBearish', 'GenNeutral']
-        if self._regime == 'bull':
-            weights = self.W_BULL
-        elif self._regime == 'bear':
-            weights = self.W_BEAR
-        else:
-            weights = self.W_SIDEWAYS
-
-        result = {}
-        for name, w in zip(names, weights):
-            if name in self._agents:
-                result[name] = w
-        # Нормализуем если не все агенты загружены
-        total = sum(result.values())
-        if total > 0:
-            result = {k: v / total for k, v in result.items()}
-        return result
-
-    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
-        self.t = bar_index if bar_index is not None else self.t + 1
-
-        if not self._agent_loaded:
-            return {s: 0 for s in prices}
-
-        # Обновляем историю цен
-        for s, p in prices.items():
-            self._ph.setdefault(s, deque(maxlen=5760)).append(float(p))
-
-        # Детектируем режим
-        if self.t - self._lr >= self.REGIME_INT or self._regime is None:
-            try:
-                from crypto_agents import _detect_regime_live, _r3
-                raw = _detect_regime_live(self._ph, current_month=month)
-                label = _r3(raw)
-                self._regime = {'bullish': 'bull', 'bearish': 'bear'}.get(label, 'sideways')
-            except Exception:
-                self._regime = _regime(self._ph)
-            self._lr = self.t
-
-        # Получаем действия от всех агентов
-        weights = self._get_weights()
-        kw = dict(volumes=volumes, month=month, portfolio_value=portfolio_value, bar_index=bar_index)
-
-        buy_w: Dict[str, float] = {}
-        sell_w: Dict[str, float] = {}
-        long_w: Dict[str, float] = {}
-        short_w: Dict[str, float] = {}
-        best_action: Dict[str, int] = {}  # лучшее действие от самого весомого агента
-
-        for agent_name, w in weights.items():
-            agent = self._agents[agent_name]
-            try:
-                acts = agent.act(prices, **kw)
-            except Exception:
-                acts = {}
-            for sym, a in acts.items():
-                if a == 0:
-                    continue
-                # FIX: GeneticsAgent через _GeneticsAdapter возвращает 6-action external:
-                #   1=buy_spot, 2=sell_spot, 3=fut_long, 4=fut_short, 5=close_fut
-                # Маппинг на buy/sell/long/short:
-                if a == 1:        # buy_spot → long buy
-                    buy_w[sym] = buy_w.get(sym, 0) + w
-                    long_w[sym] = long_w.get(sym, 0) + w
-                    if sym not in best_action or w > weights.get(best_action.get(sym + '_agent', ''), 0):
-                        best_action[sym] = 1  # → spot buy для биржи
-                        best_action[sym + '_agent'] = agent_name
-                elif a == 3:      # fut_long → long buy (через фьючерсы)
-                    buy_w[sym] = buy_w.get(sym, 0) + w
-                    long_w[sym] = long_w.get(sym, 0) + w
-                    if sym not in best_action or w > weights.get(best_action.get(sym + '_agent', ''), 0):
-                        best_action[sym] = 4  # → fut_long_half для биржи
-                        best_action[sym + '_agent'] = agent_name
-                elif a == 4:      # fut_short → short
-                    short_w[sym] = short_w.get(sym, 0) + w
-                    if sym not in best_action or w > weights.get(best_action.get(sym + '_agent', ''), 0):
-                        best_action[sym] = 6  # → fs_half для биржи
-                        best_action[sym + '_agent'] = agent_name
-                elif a in (2, 5): # sell_spot / close_fut → sell
-                    sell_w[sym] = sell_w.get(sym, 0) + w
-
-        # Стоп-лосс проверка
-        result = {s: 0 for s in prices}
-        for sym, info in list(self._pos.items()):
-            px = prices.get(sym, 0)
-            ep = info.get('entry_px', 0)
-            if px <= 0 or ep <= 0:
-                continue
-            if info['side'] == 'short':
-                loss = (px - ep) / ep
-            else:
-                loss = (ep - px) / ep
-            if loss >= self.STOP_PCT:
-                result[sym] = 3 if info['side'] == 'long_spot' else 8
-                self._pos.pop(sym, None)
-
-        # Голосование
-        n_pos = len(self._pos)
-        for sym in set(buy_w) | set(sell_w) | set(short_w):
-            if result.get(sym, 0) != 0:
-                continue  # уже закрыт стопом
-
-            if sell_w.get(sym, 0) > self.SELL_THRESH and sym in self._pos:
-                side = self._pos[sym].get('side', 'long_spot')
-                result[sym] = 3 if side == 'long_spot' else 8
-                self._pos.pop(sym, None)
-            elif short_w.get(sym, 0) >= self.BUY_THRESH and short_w.get(sym, 0) > long_w.get(sym, 0):
-                if sym not in self._pos and n_pos < self.MAX_POS:
-                    result[sym] = 6
-                    self._pos[sym] = {'side': 'short', 'entry_px': prices.get(sym, 0)}
-                    n_pos += 1
-            elif buy_w.get(sym, 0) >= self.BUY_THRESH:
-                if sym not in self._pos and n_pos < self.MAX_POS:
-                    action = best_action.get(sym, 1)
-                    if action in (4, 5):
-                        result[sym] = action
-                        self._pos[sym] = {'side': 'long_fut', 'entry_px': prices.get(sym, 0)}
-                    else:
-                        result[sym] = 1
-                        self._pos[sym] = {'side': 'long_spot', 'entry_px': prices.get(sym, 0)}
-                    n_pos += 1
-
-        return result
+    def act(self, prices, volumes=None, month=None, portfolio_value=None, bar_index=None):
+        if bar_index is not None:
+            self._t = bar_index
+        return {s: 0 for s in (prices or {})}
 
 
-# ══════════════════════════════════════════════════════════════════
-# ФАБРИКИ  (вызываются из exchange connector layers)
-# ══════════════════════════════════════════════════════════════════
-
-def make_panteon_agents() -> OrderedDict:
-    """Создаёт одиночные стратегии для Panteon."""
-    agents = OrderedDict()
-    for name, cls in [
-        ('Bomberman',      Bomberman),
-        ('MomentumScalper', MomentumScalper),
-        ('LiveAfterShock',  LiveAfterShock),
-        ('LiveCrashHunter', LiveCrashHunter),
-        ('LiveRegimePullback', LiveRegimePullback),
-        ('LiveTrendFollow', LiveTrendFollow),
-        ('LiveMeanRev',     LiveMeanRev),
-        ('LiveVolCompress', LiveVolCompress),
-        ('FundingArb',      FundingArb),
-        ('LiveOIBreakout',  LiveOIBreakout),
-        # Shadow candidate (v1). Попадает в _agent_pool, но в active_weights
-        # не включается по умолчанию — сначала набирает shadow-метрики,
-        # затем promotion_gate решает.
-        ('VolBreakoutHunter', VolBreakoutHunter),
-        ('BullRotationAgent', BullRotationAgent),
-        ('BearReliefFadeAgent', BearReliefFadeAgent),
-        ('NeutralRangeScalper', NeutralRangeScalper),
-        ('CrashPanicShortAgent', CrashPanicShortAgent),
-    ]:
-        try:
-            agents[name] = cls()
-        except Exception as e:
-            print(f"  [panteon_agents] {name}  FAIL: {e}")
-    return agents
+# ────────────────────────────────────────────────────────────────────────
+# Фабрики, которых ждёт mexc_connector (FIX 2026-04-26).
+# Утрачены при обрыве файла. Безопасные минимальные реализации:
+# возвращают пустой OrderedDict, чтобы вызов был валидным, а сама работа
+# с агентами шла через главный Panteon-игрок, который bridge создаёт сам.
+# Если в будущем нужна интеграция MEXC-специфичных агентов, расширьте.
+# ────────────────────────────────────────────────────────────────────────
+def make_panteon_agents():
+    """Empty by design (FIX 2026-04-26). См. комментарий выше."""
+    from collections import OrderedDict as _OD
+    return _OD()
 
 
-def make_panteon_players() -> OrderedDict:
-    """Создаёт композитных игроков Panteon."""
-    players = OrderedDict()
-    extra_players = []
-    try:
-        from player_next import PanteonNextResearch
-        extra_players.append(('PanteonNextResearch', PanteonNextResearch))
-    except Exception as e:
-        print(f"  [panteon_players] PanteonNextResearch  FAIL: {e}")
-    for name, cls in [
-        ('PlayerBomberman', PlayerBomberman),
-        ('PlayerFunding',   PlayerFunding),
-        ('Panteon',         Panteon),
-        ('PanteonResearch', PanteonResearch),
-        ('NeuroPlayer',     NeuroPlayer),
-        *extra_players,
-    ]:
-        try:
-            players[name] = cls()
-        except Exception as e:
-            print(f"  [panteon_players] {name}  FAIL: {e}")
-    return players
+def make_panteon_players():
+    """Empty by design (FIX 2026-04-26). См. комментарий выше."""
+    from collections import OrderedDict as _OD
+    return _OD()

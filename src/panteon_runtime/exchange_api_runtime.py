@@ -13,7 +13,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from collections import OrderedDict, deque
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 
@@ -116,6 +116,550 @@ TRADE_FRACTION   = _settings_parsed.get("trade_fraction", 0.10)
 LEVERAGE         = int(_settings_parsed.get("leverage", 3))
 SPOT_FEE         = _settings_parsed.get("spot_fee",     0.001)
 FUTURES_FEE      = _settings_parsed.get("futures_fee",  0.0002)
+
+
+def _settings_float(name: str, default: float) -> float:
+    try:
+        return float(_settings_parsed.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _settings_int(name: str, default: int) -> int:
+    try:
+        return int(_settings_parsed.get(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+POSITION_SOURCE_PANTEON_ORDER = "panteon_order"
+POSITION_SOURCE_MANUAL_EXTERNAL = "manual_external"
+POSITION_SOURCE_RECOVERED_AFTER_SNAPSHOT_GAP = "recovered_after_snapshot_gap"
+POSITION_SOURCE_PENDING_ORDER = "pending_order"
+
+
+def _positive_settings_int(name: str, default: int) -> int:
+    value = _settings_int(name, default)
+    return value if value > 0 else int(default)
+
+
+def inherited_position_policy(source: str = POSITION_SOURCE_MANUAL_EXTERNAL) -> dict:
+    # Positions already on the exchange at startup are not fresh Panteon trades.
+    # Keep them visible, but give the safety layer stricter per-position exits.
+    stale_bars = _positive_settings_int("inherited_position_stale_bars", 60)
+    return {
+        "external": True,
+        "inherited_from_exchange": True,
+        "source": source,
+        "position_source": source,
+        "tight_sl_pct": _settings_float(
+            "inherited_position_sl_pct",
+            _settings_float("sl_pct", 0.04),
+        ),
+        "stale_bars": stale_bars,
+        "stale_move_threshold": _settings_float("inherited_position_stale_move_threshold", 0.06),
+    }
+
+
+def recovered_position_policy(current_bar: int = 0) -> dict:
+    stale_bars = _positive_settings_int("recovered_position_stale_bars", 120)
+    policy = inherited_position_policy(POSITION_SOURCE_RECOVERED_AFTER_SNAPSHOT_GAP)
+    policy["stale_bars"] = stale_bars
+    policy["recovered_after_snapshot_gap"] = True
+    if current_bar:
+        policy["suppress_stale_until_bar"] = int(current_bar) + stale_bars
+    return policy
+
+
+def panteon_order_position_policy(order_id: str | None = None) -> dict:
+    policy = {
+        "external": False,
+        "inherited_from_exchange": False,
+        "source": POSITION_SOURCE_PANTEON_ORDER,
+        "position_source": POSITION_SOURCE_PANTEON_ORDER,
+    }
+    if order_id:
+        policy["order_id"] = order_id
+    return policy
+
+
+class PositionSyncHealth:
+    def __init__(
+        self,
+        zero_confirmations: int | None = None,
+        cooldown_sec: int | None = None,
+        now_fn: Callable[[], float] | None = None,
+    ):
+        self.zero_confirmations = int(
+            zero_confirmations
+            if zero_confirmations is not None
+            else _positive_settings_int("snapshot_zero_confirmations", 3)
+        )
+        self.cooldown_sec = int(
+            cooldown_sec
+            if cooldown_sec is not None
+            else _positive_settings_int("snapshot_health_cooldown_sec", 120)
+        )
+        self._now_fn = now_fn or time.time
+        self.missing_counts: Dict[str, int] = {}
+        self.recent_error_until = 0.0
+        self.last_error_reason = ""
+        self.last_snapshot_at = 0.0
+        self.last_zero_snapshot_at = 0.0
+        self.api_error_times = deque(maxlen=200)
+        self.reconcile_add = 0
+        self.reconcile_remove = 0
+        self.failed_orders = 0
+        # FIX 2026-05-04 (per-symbol failure blocklist): отслеживаем ордера,
+        # которые отправились на биржу, но не подтвердились (pending → removed).
+        # Если для одного символа подряд проваливается >=3 ордера за час — символ
+        # временно блокируется на BLOCKED_SYMBOL_DURATION_SEC. Блок снимается
+        # при первом успешном reconcile_add для того же символа.
+        # Применяется в Panteon_Trade.EnhancedSignalCapture.act() через
+        # is_symbol_blocked() — слабые/не-ликвидные пары больше не плодят
+        # бесконечные failed_orders на BITGET (NAORIS, AIGENSYN, BSB, LAB).
+        self.pending_failures: Dict[str, deque] = {}
+        self.blocked_until: Dict[str, float] = {}
+        self.PENDING_FAILURE_LIMIT = 3        # сколько подряд → блок
+        self.PENDING_FAILURE_WINDOW_SEC = 3600  # окно усреднения (1 ч)
+        self.BLOCKED_SYMBOL_DURATION_SEC = 3600  # длительность блока (1 ч)
+
+    def now(self) -> float:
+        return float(self._now_fn())
+
+    def record_pending_failure(self, sym: str) -> bool:
+        """FIX 2026-05-04: вызывается когда pending_order не подтверждён биржей
+        и удалён reconcile-loop. Возвращает True если символ только что
+        попал в blocklist (для логирования)."""
+        sym = str(sym or "").upper()
+        if not sym:
+            return False
+        ts = self.now()
+        dq = self.pending_failures.setdefault(sym, deque(maxlen=10))
+        dq.append(ts)
+        # Очистим устаревшие отметки
+        cutoff = ts - float(self.PENDING_FAILURE_WINDOW_SEC)
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        if len(dq) >= int(self.PENDING_FAILURE_LIMIT):
+            already_blocked = sym in self.blocked_until and self.blocked_until[sym] > ts
+            self.blocked_until[sym] = ts + float(self.BLOCKED_SYMBOL_DURATION_SEC)
+            return not already_blocked
+        return False
+
+    def record_symbol_success(self, sym: str) -> None:
+        """FIX 2026-05-04: успешное reconcile_add → сбрасываем failure
+        счётчик и снимаем блок (если был)."""
+        sym = str(sym or "").upper()
+        if not sym:
+            return
+        self.pending_failures.pop(sym, None)
+        self.blocked_until.pop(sym, None)
+
+    def is_symbol_blocked(self, sym: str) -> bool:
+        """FIX 2026-05-04: возвращает True если sym в активном blocklist."""
+        sym = str(sym or "").upper()
+        if not sym:
+            return False
+        until = float(self.blocked_until.get(sym, 0.0) or 0.0)
+        if until <= 0.0:
+            return False
+        now = self.now()
+        if now >= until:
+            # Срок истёк — снимаем
+            self.blocked_until.pop(sym, None)
+            return False
+        return True
+
+    def blocked_symbols_summary(self) -> Dict[str, float]:
+        """Список заблокированных символов и сколько секунд осталось."""
+        now = self.now()
+        out = {}
+        for sym, until in list(self.blocked_until.items()):
+            remain = float(until) - now
+            if remain <= 0:
+                self.blocked_until.pop(sym, None)
+                continue
+            out[sym] = round(remain, 1)
+        return out
+
+    def mark_snapshot(self, positions_count: int, snapshot_healthy: bool = True) -> None:
+        now = self.now()
+        self.last_snapshot_at = now
+        if int(positions_count or 0) == 0:
+            self.last_zero_snapshot_at = now
+        if not snapshot_healthy:
+            self.mark_data_error("snapshot_unhealthy", now=now)
+
+    def mark_data_error(self, reason: str, now: float | None = None) -> None:
+        ts = self.now() if now is None else float(now)
+        self.recent_error_until = max(self.recent_error_until, ts + self.cooldown_sec)
+        self.last_error_reason = str(reason or "data_error")
+        self.api_error_times.append(ts)
+
+    def mark_failed_order(self) -> None:
+        self.failed_orders += 1
+
+    def destructive_allowed(self, snapshot_healthy: bool = True) -> bool:
+        return bool(snapshot_healthy) and self.now() >= self.recent_error_until
+
+    def summary(self) -> dict:
+        now = self.now()
+        errors_10m = sum(1 for ts in self.api_error_times if now - float(ts) <= 600.0)
+        return {
+            "snapshot_age_sec": None if not self.last_snapshot_at else round(now - self.last_snapshot_at, 1),
+            "last_zero_snapshot_age_sec": None
+            if not self.last_zero_snapshot_at
+            else round(now - self.last_zero_snapshot_at, 1),
+            "api_errors_10m": errors_10m,
+            "recent_error_until_sec": max(0.0, round(self.recent_error_until - now, 1)),
+            "last_error_reason": self.last_error_reason,
+            "reconcile_add": self.reconcile_add,
+            "reconcile_remove": self.reconcile_remove,
+            "failed_orders": self.failed_orders,
+            "pending_zero_confirmations": dict(self.missing_counts),
+        }
+
+
+def _position_symbol(pos: dict) -> str:
+    sym = str(pos.get("symbol", "") or "").upper()
+    if sym.endswith("_USDT"):
+        sym = sym[:-5]
+    if sym.endswith("USDT") and len(sym) > 4:
+        sym = sym[:-4]
+    return sym
+
+
+def _normalize_exchange_positions(exchange_positions: list | None) -> list[dict]:
+    normalized = []
+    for pos in exchange_positions or []:
+        sym = _position_symbol(pos)
+        if not sym:
+            continue
+        try:
+            entry = float(pos.get("entry", 0.0) or 0.0)
+        except Exception:
+            entry = 0.0
+        side = str(pos.get("side", "long") or "long").lower()
+        if side not in ("long", "short"):
+            side = "short" if "short" in side else "long"
+        normalized.append(
+            {
+                "symbol": sym,
+                "entry": entry,
+                "side": side,
+                "leverage": pos.get("leverage", 1),
+                "raw": pos,
+            }
+        )
+    return normalized
+
+
+def mark_recent_runtime_data_errors(health: PositionSyncHealth, *sources) -> None:
+    """Propagate recent price/API mode errors into reconcile cooldown."""
+    if health is None:
+        return
+    cooldown = float(getattr(health, "cooldown_sec", 120) or 120)
+    seen: set[int] = set()
+    queue = list(sources)
+    for src in queue:
+        if src is None:
+            continue
+        ident = id(src)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        probe = getattr(src, "recent_data_error", None)
+        if callable(probe):
+            try:
+                reason = probe(cooldown)
+            except Exception:
+                reason = ""
+            if reason:
+                health.mark_data_error(str(reason))
+        for attr in ("futures_client", "_fut", "_client"):
+            child = getattr(src, attr, None)
+            if child is not None and id(child) not in seen:
+                queue.append(child)
+
+
+def safe_reconcile_open_positions(
+    position_book: dict,
+    exchange_positions: list | None,
+    *,
+    current_bar: int,
+    health: PositionSyncHealth,
+    snapshot_healthy: bool = True,
+    subagents: list | None = None,
+    logger=None,
+) -> dict:
+    positions = _normalize_exchange_positions(exchange_positions)
+    health.mark_snapshot(len(positions), snapshot_healthy=snapshot_healthy)
+    destructive_allowed = health.destructive_allowed(snapshot_healthy=snapshot_healthy)
+    real_syms = {p["symbol"] for p in positions}
+    summary = {"added": 0, "updated": 0, "removed": 0, "guarded": 0, "recovered": 0}
+
+    def _log(level: str, msg: str, *args) -> None:
+        if logger is None:
+            return
+        getattr(logger, level, logger.info)(msg, *args)
+
+    def _clear_subagents(sym: str) -> None:
+        for item in subagents or []:
+            sub = item[-1] if isinstance(item, tuple) else item
+            try:
+                _try_clear_agent_pos(sub, sym)
+            except Exception:
+                pass
+
+    def _set_subagents(sym: str, side: str, entry: float) -> None:
+        for item in subagents or []:
+            sub = item[-1] if isinstance(item, tuple) else item
+            try:
+                _try_set_agent_pos(sub, sym, side, entry=entry, bar_index=current_bar)
+            except Exception:
+                pass
+
+    for sym in list(position_book):
+        if sym in real_syms:
+            continue
+        rec = position_book.get(sym) or {}
+        if rec.get("pending_order"):
+            if destructive_allowed:
+                position_book.pop(sym, None)
+                _clear_subagents(sym)
+                summary["removed"] += 1
+                health.reconcile_remove += 1
+                health.missing_counts.pop(sym, None)
+                # FIX 2026-05-04 (per-symbol failure blocklist): трекаем
+                # неуспешные pending → если 3+ подряд → автоблок на 1 час.
+                newly_blocked = False
+                try:
+                    newly_blocked = bool(health.record_pending_failure(sym))
+                except Exception:
+                    pass
+                if newly_blocked:
+                    _log(
+                        "warning",
+                        "  [reconcile] %s pending failed >=3x → BLOCKED for %ds (illiquid?)",
+                        sym, int(getattr(health, "BLOCKED_SYMBOL_DURATION_SEC", 3600)),
+                    )
+                else:
+                    _log(
+                        "info",
+                        "  [reconcile] %s pending order not confirmed by exchange -> removed",
+                        sym,
+                    )
+            else:
+                summary["guarded"] += 1
+            continue
+        if not destructive_allowed:
+            summary["guarded"] += 1
+            continue
+        count = int(health.missing_counts.get(sym, 0) or 0) + 1
+        health.missing_counts[sym] = count
+        if count < health.zero_confirmations:
+            summary["guarded"] += 1
+            _log(
+                "info",
+                "  [reconcile] %s absent in snapshot %d/%d -> keep position",
+                sym,
+                count,
+                health.zero_confirmations,
+            )
+            continue
+        position_book.pop(sym, None)
+        _clear_subagents(sym)
+        summary["removed"] += 1
+        health.reconcile_remove += 1
+        _log("info", "  [reconcile] %s removed after %d healthy zero confirmations", sym, count)
+
+    for pos in positions:
+        sym = pos["symbol"]
+        entry = float(pos["entry"] or 0.0)
+        side = pos["side"]
+        leverage = pos.get("leverage", 1)
+        existing = position_book.get(sym)
+        gap_count = int(health.missing_counts.pop(sym, 0) or 0)
+        if existing is not None and gap_count > 0:
+            existing.update(recovered_position_policy(current_bar=current_bar))
+            summary["recovered"] += 1
+        if existing is None:
+            if gap_count > 0:
+                policy = recovered_position_policy(current_bar=current_bar)
+                summary["recovered"] += 1
+            else:
+                policy = inherited_position_policy(POSITION_SOURCE_MANUAL_EXTERNAL)
+            position_book[sym] = {
+                "entry": entry,
+                "side": side,
+                "bar": current_bar,
+                "leverage": leverage,
+                "peak": entry,
+                **policy,
+            }
+            _set_subagents(sym, side, entry)
+            summary["added"] += 1
+            health.reconcile_add += 1
+            # FIX 2026-05-04: успешное появление позиции → сбрасываем
+            # pending-failure счётчик и снимаем блок (если был)
+            try:
+                health.record_symbol_success(sym)
+            except Exception:
+                pass
+            _log(
+                "info",
+                "  [reconcile] %s added source=%s side=%s lev=%s entry=%.4f",
+                sym,
+                position_book[sym].get("source"),
+                side.upper(),
+                leverage,
+                entry,
+            )
+            continue
+        if existing.get("pending_order"):
+            existing.update(panteon_order_position_policy(existing.get("order_id")))
+            existing.pop("pending_order", None)
+            # FIX 2026-05-04: pending перешёл в подтверждённую позицию → успех
+            try:
+                health.record_symbol_success(sym)
+            except Exception:
+                pass
+            summary["updated"] += 1
+        needs_refresh = (
+            str(existing.get("side", "")).lower() != side
+            or abs(float(existing.get("entry", 0.0) or 0.0) - entry) > max(1e-8, abs(entry) * 0.001)
+        )
+        if needs_refresh:
+            existing.update({"entry": entry, "side": side, "leverage": leverage, "peak": entry})
+            _set_subagents(sym, side, entry)
+            summary["updated"] += 1
+        else:
+            existing["leverage"] = leverage
+        existing.setdefault("source", POSITION_SOURCE_MANUAL_EXTERNAL)
+        existing.setdefault("position_source", existing.get("source"))
+
+    return summary
+
+# FIX D (2026-04-26): применяем risk-параметры из settings.txt к классу Panteon
+# (и наследникам) ДО первого инстансирования. Это безопаснее, чем тащить
+# параметры через конструкторы каждого ансамбля.
+# FIX 2026-04-27: дублируем в file logger (через panteon_agents.log) — без
+# этого override был "невидимым" и пользователь жаловался что ничего не
+# применилось. Plus: применяем override и к УЖЕ созданным экземплярам
+# Panteon-наследников, чтобы settings распространились на shadow-pool.
+def _apply_settings_to_panteon():
+    try:
+        from panteon_agents import Panteon as _Panteon
+    except Exception:
+        return
+    overrides = {
+        "SL_PCT": _settings_parsed.get("sl_pct"),
+        "TP_PCT": _settings_parsed.get("tp_pct"),
+        "TRAIL_PCT": _settings_parsed.get("trail_pct"),
+        "ROTATION_INT": _settings_parsed.get("rotation_int"),
+        "PLAYER_ROTATION_INT": _settings_parsed.get("player_rotation_int"),
+        "PLAYER_SWITCH_COOLDOWN_BARS": _settings_parsed.get("player_switch_cooldown_bars"),
+        "PLAYER_HARD_NEGATIVE_PNL": _settings_parsed.get("player_hard_negative_pnl"),
+        "PLAYER_MIN_LIVE_CLOSED_TRADES": _settings_parsed.get("player_min_live_closed_trades"),
+        "REGIME_HYSTERESIS_BARS": _settings_parsed.get("regime_hysteresis_bars"),
+        "ENSEMBLE_MODE": _settings_parsed.get("ensemble_mode"),
+        "AGENT_QUARANTINE_PROBATION_PNL": _settings_parsed.get("agent_quarantine_probation_pnl"),
+        "AGENT_QUARANTINE_PROBATION_CLOSED": _settings_parsed.get("agent_quarantine_probation_closed"),
+        "PER_SYMBOL_MIN_CLOSED": _settings_parsed.get("per_symbol_min_closed"),
+        "PER_SYMBOL_MIN_WIN_RATE": _settings_parsed.get("per_symbol_min_win_rate"),
+    }
+    applied = []
+    for attr, val in overrides.items():
+        if val is None:
+            continue
+        try:
+            cur = getattr(_Panteon, attr, None)
+            if isinstance(cur, str) or attr == "ENSEMBLE_MODE":
+                setattr(_Panteon, attr, str(val))
+            elif cur is None:
+                setattr(_Panteon, attr, val)
+            else:
+                setattr(_Panteon, attr, type(cur)(val))
+            applied.append(f"{attr}={val}")
+        except Exception:
+            pass
+    if applied:
+        msg = f"[settings] Panteon overrides: {', '.join(applied)}"
+        print(msg)
+        try:
+            import logging
+            logging.getLogger("Panteon_Trade").info(msg)
+            logging.getLogger().info(msg)
+        except Exception:
+            pass
+    return applied
+
+_PANTEON_OVERRIDES_APPLIED = _apply_settings_to_panteon()
+
+
+def reapply_settings_to_existing_instances():
+    """FIX 2026-04-27: повторно применяет settings к УЖЕ созданным инстансам
+    Panteon-наследников (включая shadow-pool). Безопасно вызывать после
+    `_init_shadow_player_pool()`.
+
+    Атрибут на классе достаточен для большинства мест (getattr идёт через
+    MRO), но некоторые поля сохраняются в self при __init__ (например через
+    `setattr(player, '_suppress_info_logs', ...)`), и для них нужен второй
+    pass.
+    """
+    if not _PANTEON_OVERRIDES_APPLIED:
+        return
+    try:
+        from panteon_agents import Panteon as _Panteon
+    except Exception:
+        return
+    import gc
+    n = 0
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, _Panteon):
+                pool = getattr(obj, "_shadow_player_pool", None)
+                # Для каждого инстанса/потомка явно ставим класс-атрибуты
+                for attr in (
+                    "SL_PCT", "TP_PCT", "TRAIL_PCT",
+                    "ROTATION_INT", "PLAYER_ROTATION_INT",
+                    "PLAYER_SWITCH_COOLDOWN_BARS", "PLAYER_HARD_NEGATIVE_PNL",
+                    "PLAYER_MIN_LIVE_CLOSED_TRADES", "REGIME_HYSTERESIS_BARS",
+                    "ENSEMBLE_MODE", "PER_SYMBOL_MIN_CLOSED",
+                    "PER_SYMBOL_MIN_WIN_RATE",
+                ):
+                    cls_val = getattr(type(obj), attr, None)
+                    if cls_val is not None and not hasattr(obj, "__" + attr.lower() + "_overridden"):
+                        try:
+                            setattr(obj, attr, cls_val)
+                        except Exception:
+                            pass
+                if pool:
+                    for p in pool.values():
+                        for attr in (
+                            "REGIME_HYSTERESIS_BARS", "ROTATION_INT",
+                            "PLAYER_ROTATION_INT", "PLAYER_HARD_NEGATIVE_PNL",
+                            "PLAYER_MIN_LIVE_CLOSED_TRADES", "ENSEMBLE_MODE",
+                            "PER_SYMBOL_MIN_CLOSED", "PER_SYMBOL_MIN_WIN_RATE",
+                        ):
+                            cls_val = getattr(_Panteon, attr, None)
+                            if cls_val is not None:
+                                try:
+                                    setattr(p, attr, cls_val)
+                                except Exception:
+                                    pass
+                n += 1
+        except Exception:
+            continue
+    if n:
+        try:
+            import logging
+            logging.getLogger("Panteon_Trade").info(
+                "[settings] reapplied overrides to %d existing Panteon instance(s)", n,
+            )
+        except Exception:
+            pass
 
 # Лог загруженных значений
 print(f"[settings] exchange_api_runtime: leverage={LEVERAGE}x  trade_fraction={TRADE_FRACTION:.0%}"
@@ -868,6 +1412,7 @@ class TradingStats:
         self.orders_ok:        int              = 0
         self.orders_fail:      int              = 0
         self.funding_history:  List[float]      = []   # avg_rate per tick
+        self.data_health:      dict             = {}
 
     def record_tick(self, ts: datetime, balance: float, pnl: float = 0.0,
                     available: float = 0.0, live_bar: Optional[int] = None):
@@ -917,17 +1462,28 @@ class TradingStats:
             "agent":  agent,    # имя суб-агента(ов) которые дали сигнал
             "regime": regime,   # рыночный режим в момент сигнала
             "risk_multiplier": float(risk_multiplier or 1.0),
+            "selected_player": getattr(self, "agent_name", ""),
+            "selected_agents": agent,
+            "position_source": "",
         })
         self.last_signal_bar = bar
 
-    def record_trade(self, sym: str, side: str, qty: float, price: float, fee: float):
+    def record_trade(self, sym: str, side: str, qty: float, price: float, fee: float, funding: float = 0.0):
         self.trades.append({
             "sym": sym, "side": side, "qty": qty, "price": price,
-            "fee": fee, "value": qty * price,
+            "fee": fee, "funding": funding, "value": qty * price,
             "time": datetime.now(tz=timezone.utc),
         })
 
-    def record_order(self, sym: str, success: bool, code: int = 0):
+    def record_order(
+        self,
+        sym: str,
+        success: bool,
+        code: int = 0,
+        order_id: str | None = None,
+        order_result: dict | None = None,
+        position_source: str | None = None,
+    ):
         """Записывает результат попытки разместить ордер (успешно/ошибка)."""
         import re as _re
         GRN = "#3FB950"; RED = "#F85149"
@@ -946,6 +1502,10 @@ class TradingStats:
         for sig in reversed(self.signals):
             if sig["sym"] == sym:
                 sig["order_ok"] = success
+                sig["order_id"] = order_id or ""
+                sig["order_result"] = order_result or {"success": success, "code": code}
+                if position_source:
+                    sig["position_source"] = position_source
                 break
 
     def capture_price_history(self, price_history, limit: int = 360):
@@ -1080,6 +1640,43 @@ def _infer_market_regime_from_stats(stats: TradingStats) -> str:
     return _infer_market_regime_from_price_hist(getattr(stats, "_price_hist_raw", {}))
 
 
+def _save_api_trading_dashboard(stats: TradingStats, output_dir: str, filename: str = "api_trading.png"):
+    try:
+        import sys as _sys
+        _db_dir = os.path.dirname(os.path.abspath(__file__))
+        if _db_dir not in _sys.path:
+            _sys.path.insert(0, _db_dir)
+        from mexc_dashboards import plot_api_trading_dashboard
+
+        regime = _infer_market_regime_from_stats(stats)
+        fund_hist = getattr(stats, 'funding_history', [])
+        fund_avg = 0.0
+        if fund_hist:
+            try:
+                latest = fund_hist[-1]
+                if isinstance(latest, dict):
+                    latest = latest.get('avg_funding', latest.get('funding_rate', 0.0))
+                fund_avg = float(latest or 0.0)
+            except Exception:
+                fund_avg = 0.0
+
+        plot_api_trading_dashboard(
+            stats=stats,
+            output_dir=output_dir,
+            market_regime=regime,
+            funding_avg=fund_avg,
+            funding_history=fund_hist,
+            sub_agent_pnl=_compute_sub_agent_pnl(stats),
+            filename=filename,
+        )
+        return os.path.join(output_dir, filename)
+    except ImportError:
+        return None
+    except Exception as exc:
+        log.debug("api_trading dashboard failed: %s", exc)
+        return None
+
+
 def _resolve_sub_agent_baselines(stats: TradingStats) -> Dict[str, float]:
     baselines = {}
     initial_map = getattr(stats, "sub_agent_initials", {}) or {}
@@ -1165,6 +1762,7 @@ def inject_live_state_into_player(player, snapshot: dict, bar_index: int = 0) ->
                         'bar':      bar_index,
                         'leverage': leverage,
                         'peak':     entry,    # FIX v5: для trailing stop
+                        **inherited_position_policy(),
                     }
                     log.info("  [inject_live]   %s %s lev=%dx  entry=%.4f",
                              sym, side.upper(), leverage, entry)
@@ -1434,6 +2032,9 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
       Row 1: Последние сигналы + статус API + открытые позиции
       Row 2: История ордеров (успешные/неудачные) + funding rate
     """
+    if os.path.basename(str(filename)) == "dashboard_latest.png":
+        return _save_api_trading_dashboard(stats, output_dir, "api_trading.png")
+
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -1555,6 +2156,18 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
                      color=WHT, fontsize=9, fontweight="bold",
                      transform=ax_stat.transAxes)
 
+        data_health = getattr(stats, "data_health", {}) or {}
+        snapshot_age = data_health.get("snapshot_age_sec")
+        try:
+            snapshot_age_val = None if snapshot_age is None else float(snapshot_age)
+        except Exception:
+            snapshot_age_val = None
+        snapshot_age_txt = "n/a" if snapshot_age_val is None else f"{snapshot_age_val:.0f}s"
+        api_errors_10m = int(data_health.get("api_errors_10m", 0) or 0)
+        reconcile_add = int(data_health.get("reconcile_add", 0) or 0)
+        reconcile_remove = int(data_health.get("reconcile_remove", 0) or 0)
+        failed_orders = int(data_health.get("failed_orders", getattr(stats, "orders_fail", 0)) or 0)
+
         status_lines = [
             ("Статус",     "🟢 LIVE" if stats.live_bar_count > 0 else "🟡 WARMUP",
              GRN if stats.live_bar_count > 0 else GOL),
@@ -1571,16 +2184,30 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
             ("API Futures", "✅ ДА" if has_perm else "❌ НЕТ",
              GRN if has_perm else RED),
         ]
+        status_lines.extend([
+            ("Data health", "", GRY),
+            ("Snapshot age", snapshot_age_txt, RED if snapshot_age_val and snapshot_age_val > 180 else WHT),
+            ("API err 10m", str(api_errors_10m), RED if api_errors_10m else GRY),
+            ("Reconcile +", str(reconcile_add), CYN if reconcile_add else GRY),
+            ("Reconcile -", str(reconcile_remove), RED if reconcile_remove else GRY),
+            ("Failed orders", str(failed_orders), RED if failed_orders else GRY),
+        ])
+
         y0 = 0.88
         for label, val, col in status_lines:
-            ax_stat.text(0.05, y0, label + ":", color=GRY, fontsize=8,
+            if val == "":
+                ax_stat.text(0.5, y0, "--- " + label + " ---", color=GRY, fontsize=7,
+                             transform=ax_stat.transAxes, va="top", ha="center")
+                y0 -= 0.045
+                continue
+            ax_stat.text(0.05, y0, label + ":", color=GRY, fontsize=7.2,
                          transform=ax_stat.transAxes, va="top")
-            ax_stat.text(0.95, y0, val, color=col, fontsize=8,
+            ax_stat.text(0.95, y0, val, color=col, fontsize=7.2,
                          transform=ax_stat.transAxes, va="top", ha="right",
                          fontweight="bold")
             ax_stat.plot([0.02, 0.98], [y0 - 0.01, y0 - 0.01],
                         color=GRID, lw=0.4, transform=ax_stat.transAxes)
-            y0 -= 0.09
+            y0 -= 0.058
 
         if not has_perm:
             ax_stat.text(0.5, 0.02,
@@ -1904,12 +2531,12 @@ def save_dashboard(stats: TradingStats, output_dir: str, filename: str = "dashbo
                 funding_avg=_fund_avg,
                 funding_history=_fund_hist,
                 sub_agent_pnl=_sub_pnl,
-                filename="api_trading_enhanced.png",
+                filename="api_trading.png",
             )
         except ImportError:
             pass  # mexc_dashboards.py не найден
         except Exception as _de:
-            log.debug("api_trading_enhanced failed: %s", _de)
+            log.debug("api_trading failed: %s", _de)
         # ────────────────────────────────────────────────────────────────────
 
         return path
@@ -1939,11 +2566,17 @@ def save_summary_json(stats: TradingStats, output_dir: str):
         "tradeable_total":  bonus.get("tradeable_total", 0.0),
         "real_usdt":        bonus.get("real_usdt", 0.0),
         "has_funds":        bonus.get("has_funds", False),
+        "data_health":      getattr(stats, "data_health", {}) or {},
         "open_positions":   stats.current_positions,
         "recent_signals":   [
             {"bar": s["bar"], "sym": s["sym"], "action": s["name"],
              "price": s["price"], "time": s["time"].isoformat(),
-             "risk_multiplier": float(s.get("risk_multiplier", 1.0) or 1.0)}
+             "risk_multiplier": float(s.get("risk_multiplier", 1.0) or 1.0),
+             "selected_player": s.get("selected_player", ""),
+             "selected_agents": s.get("selected_agents", s.get("agent", "")),
+             "order_result": s.get("order_result", {}),
+             "order_id": s.get("order_id", ""),
+             "position_source": s.get("position_source", "")}
             for s in stats.signals[-10:]
         ],
         "recent_trades": stats.trades[-10:],
@@ -2025,6 +2658,7 @@ class MonitorThread(threading.Thread):
         self._last_trades_count  = 0
         self._last_balance        = 0.0
         self._last_positions_hash = ""
+        self._position_sync_health = PositionSyncHealth()
 
     def run(self):
         while not self._stop_evt.wait(timeout=DASHBOARD_INTERVAL_SEC):
@@ -2080,6 +2714,14 @@ class MonitorThread(threading.Thread):
                 usdt_val     = fut['available']
                 pos_count    = len(fut['positions'])
                 unrealized   = fut['unrealized']
+                snapshot_healthy = (
+                    math.isfinite(float(total_stable or 0.0))
+                    and math.isfinite(float(usdt_val or 0.0))
+                    and float(total_stable or 0.0) > 0.0
+                    and float(usdt_val or 0.0) >= 0.0
+                )
+                if not snapshot_healthy:
+                    self._position_sync_health.mark_data_error("balance_error")
                 bonus = {
                     "real_usdt":       usdt_val,
                     "stable_total":    total_stable,
@@ -2118,9 +2760,24 @@ class MonitorThread(threading.Thread):
                                 break
                         if _player is not None:
                             _subagents = list(_iter_player_subagents(_player))
+                            mark_recent_runtime_data_errors(
+                                self._position_sync_health,
+                                self._bridge,
+                                self._client,
+                            )
+                            safe_reconcile_open_positions(
+                                _player._open_pos,
+                                fut['positions'],
+                                current_bar=getattr(self._bridge, '_bar', self._stats.bar_count),
+                                health=self._position_sync_health,
+                                snapshot_healthy=snapshot_healthy,
+                                subagents=_subagents,
+                                logger=log,
+                            )
+                            self._stats.data_health = self._position_sync_health.summary()
+                            self._stats.data_health["failed_orders"] = self._stats.orders_fail
                             real_syms = {p['symbol'] for p in fut['positions']}
-                            stale = [s for s in list(_player._open_pos)
-                                     if s not in real_syms]
+                            stale = []
                             for s in stale:
                                 log.info(
                                     "  [reconcile] %s удалён из _open_pos "
@@ -2148,7 +2805,7 @@ class MonitorThread(threading.Thread):
                                         'bar':      getattr(self._bridge, '_bar', 0),
                                         'leverage': leverage,
                                         'peak':     entry,
-                                        'external': True,
+                                        **inherited_position_policy(),
                                     }
                                     for _, _, sub in _subagents:
                                         _try_set_agent_pos(
@@ -2212,6 +2869,9 @@ class MonitorThread(threading.Thread):
                     total_stable, MIN_BALANCE_USD,
                 )
         except Exception as e:
+            self._position_sync_health.mark_data_error("balance_error")
+            self._stats.data_health = self._position_sync_health.summary()
+            self._stats.data_health["failed_orders"] = self._stats.orders_fail
             log.debug("Balance refresh: %s", e)
 
         # Сохраняем дашборд:
@@ -2220,52 +2880,43 @@ class MonitorThread(threading.Thread):
         #   • timestamped dashboard_{HH-MM-SS}.png — УБРАНЫ (дублировали enhanced без пользы)
         save_summary_json(self._stats, self._output_dir)
 
-        # Собираем sub_agent_pvs — поддержка Panteon (нет _virt) и PlayerStop (есть _virt)
+        # FIX 2026-05-04 (sub_agent contribution correctness):
+        # Раньше для Panteon тут была фейковая формула:
+        #   pv_approx = per_base + total_pnl * (sig_count / total_sigs)
+        # Это распределяло общий real-PnL пропорционально числу сигналов,
+        # из-за чего ВСЕ агенты получали один знак (равный знаку total_pnl)
+        # и многие из них не попадали в график (был жёстко-захардкоженный
+        # список из 5 имён). Пользователь видел: «положительные вклады
+        # больше отрицательных, но Пантеон в минусе» — это и был артефакт.
+        # Теперь sub_agent_pvs заполняется в Panteon_Trade._refresh_dashboards_
+        # and_files() из реальных vp_map (shadow VirtualPortfolio'ов с учётом
+        # комиссий и slippage). Здесь оставляем только PlayerStop-ветку
+        # (у него есть _virt) — Panteon использует pre-set значения.
         try:
             bridge = self._bridge
             if bridge is not None:
-                self._stats.sub_agent_pvs = {}
-                self._stats.sub_agent_initials = {}
                 self._stats.capture_price_history(getattr(bridge, "_price_hist", None), limit=360)
-                for agent_name, agent in bridge.agents.items():
-                    player = getattr(agent, '_inner', agent)
-                    if hasattr(player, '_virt'):
-                        # PlayerStop: виртуальный PV каждого суб-агента
-                        for name, vv in player._virt.items():
-                            self._stats.sub_agent_pvs[name] = round(vv.value, 4)
-                            try:
-                                self._stats.sub_agent_initials[name] = round(float(vv.initial), 4)
-                            except Exception:
-                                pass
-                    elif hasattr(player, '_open_pos'):
-        # Panteon — взвешиваем вклад по числу сигналов суб-агентов
-                        eq = self._stats.equity_curve
-                        cur_eq = eq[-1] if eq else self._stats.initial_capital
-                        ic     = self._stats.initial_capital
-                        total_pnl = cur_eq - ic
-
-                        # Список активных суб-агентов
-                        _subs = [(a, n) for a, n in [
-                            ('_ms',  'MomentumScalper'),
-                            ('_fa',  'FundingArb'),
-                            ('_las', 'LiveAfterShock'),
-                            ('_lch', 'LiveCrashHunter'),
-                            ('_gb',  'GeneticsBullish'),
-                        ] if getattr(player, a, None) is not None]
-                        n_subs = max(len(_subs), 1)
-                        per_base = ic / n_subs
-
-                        # Распределяем PnL пропорционально числу сигналов
-                        sig_counts = getattr(player, '_sub_signal_counts', {})
-                        total_sigs = max(sum(sig_counts.values()), 1)
-                        for _, label in _subs:
-                            sig_share = sig_counts.get(label, 0) / total_sigs
-                            # Если нет данных по сигналам — равный вклад
-                            if total_sigs <= n_subs:
-                                sig_share = 1.0 / n_subs
-                            pv_approx = per_base + total_pnl * sig_share
-                            self._stats.sub_agent_pvs[label] = round(pv_approx, 4)
-                            self._stats.sub_agent_initials[label] = round(per_base, 4)
+                # Только если ещё никто не выставил sub_agent_pvs (например,
+                # Panteon_Trade._refresh_dashboards_and_files уже сделал это
+                # из vp_map), не трогаем. PlayerStop-сценарий нужен только
+                # если бот запущен НЕ через Panteon (paper/legacy player).
+                already_set = bool(getattr(self._stats, "sub_agent_pvs", None))
+                if not already_set:
+                    self._stats.sub_agent_pvs = {}
+                    self._stats.sub_agent_initials = {}
+                    for agent_name, agent in bridge.agents.items():
+                        player = getattr(agent, '_inner', agent)
+                        if hasattr(player, '_virt'):
+                            for name, vv in player._virt.items():
+                                self._stats.sub_agent_pvs[name] = round(vv.value, 4)
+                                try:
+                                    self._stats.sub_agent_initials[name] = round(float(vv.initial), 4)
+                                except Exception:
+                                    pass
+                        # Для Panteon (нет _virt) НЕ заполняем фейковыми
+                        # числами — лучше пустой график, чем введение в
+                        # заблуждение. Реальные данные пишутся в
+                        # Panteon_Trade._refresh_dashboards_and_files().
         except Exception:
             pass
 
@@ -2498,107 +3149,9 @@ def main():
         if _sub_names:
             log.info("  Суб-агенты: %s", ", ".join(_sub_names))
 
-    # ── Мост к MEXC ───────────────────────────────────────────────────────
-    bridge = mc.AgentMexcBridge(
-        agents=agents,
-        cfg=parsed_cfg,
-        mode=TRADING_MODE,
-        api_key=API_KEY,
-        api_secret=API_SECRET,
-        output_dir=out,
-        direct_client=direct_client,   # FIX v4: для резервного _get_pv через SHA256
-    )
-
-    # Передаём ссылку на bridge в MonitorThread — нужно для live_bar_count
-    monitor._bridge = bridge
-    # Передаём ссылку на stats в bridge — нужно для record_order/funding_history
-    bridge._stats_ref = stats
-
-    # ── Прогрев ───────────────────────────────────────────────────────────
-    log.info("═" * 70)
-    log.info("  ФАЗА 1: Прогрев (%d баров ≈ %dч)",
-             mc.WARMUP_BARS, mc.WARMUP_BARS // 60)
-    log.info("═" * 70)
-
-    bridge.warmup(n_bars=mc.WARMUP_BARS)
-    stats.bar_count = mc.WARMUP_BARS
-    log.info("  Прогрев завершён (bar=%d)", bridge._bar)
-
-    # ── Синхронизация реального состояния счёта после прогрева ───────────
-    # После warmup агент имеет позиции из исторической симуляции — они не
-    # совпадают с реальными позициями на MEXC. Делаем свежий снапшот и
-    # инъектируем реальное состояние (позиции + equity) в PlayerStop.
-    log.info("\n  🔄 Синхронизация с реальным счётом MEXC после прогрева...")
-    try:
-        live_snapshot = direct_client.get_full_snapshot()
-        direct_client.log_snapshot(live_snapshot)
-
-        # Обновляем detected_capital если баланс изменился за время прогрева
-        live_capital = live_snapshot.get('primary_capital', 0.0)
-        if live_capital >= 1.0 and abs(live_capital - detected_capital) > 0.01:
-            detected_capital = live_capital
-            bridge.initial_capital = detected_capital
-            log.info("  💡 Капитал обновлён: $%.4f (баланс изменился за время прогрева)",
-                     detected_capital)
-
-        fut = live_snapshot.get("futures", {}) or {}
-        live_balance = float(fut.get("equity", detected_capital) or detected_capital)
-        live_available = float(fut.get("available", live_balance) or live_balance)
-        live_unrealized = float(fut.get("unrealized", 0.0) or 0.0)
-        stats.reset_live_baseline(
-            detected_capital,
-            balance=live_balance,
-            available=live_available,
-            pnl=live_unrealized,
-            live_bar=0,
-            reset_activity=True,
-        )
-
-        # Инъектируем реальные позиции в агент
-        # SignalCapturingAgent хранит оригинальный агент в _inner
-        raw_player_ref = getattr(capturing_agent, '_inner', raw_player)
-        inject_live_state_into_player(raw_player_ref, live_snapshot, bridge._bar)
-        log.info("  ✅ Синхронизация завершена — агент готов к live-торговле.")
-    except Exception as e:
-        log.warning("  Синхронизация не удалась: %s — агент стартует без реальных позиций.", e)
-
-    # Initial dashboard after warmup updates the rolling latest file.
-    save_dashboard(stats, out, "dashboard_latest.png")
-
-    # ── Live-торговля ─────────────────────────────────────────────────────
-    log.info("═" * 70)
-    log.info("  ФАЗА 2: LIVE-ТОРГОВЛЯ")
-    log.info("  Ctrl+C для остановки")
-    log.info("═" * 70)
-
-    try:
-        bridge.run()
-    except KeyboardInterrupt:
-        log.info("  Остановка по Ctrl+C...")
-    except Exception as e:
-        log.error("  Критическая ошибка: %s", e, exc_info=True)
-    finally:
-        monitor.stop()
-
-        # Final dashboard refreshes the rolling latest file.
-        try:
-            save_dashboard(stats, out, "dashboard_latest.png")
-            save_summary_json(stats, out)
-        except Exception:
-            pass
-
-        # BUG FIX v3: bridge.run_once() удалён — он запускал лишний торговый
-        # цикл после остановки бота (Ctrl+C / ошибка), что могло приводить
-        # к неожиданным ордерам уже после завершения торговли.
-
-        log.info("═" * 70)
-        log.info("  Торговля завершена.")
-        log.info("  Результаты:  %s", out)
-        log.info("  Сигналов:    %d", len(stats.signals))
-        log.info("  Сделок:      %d", len(stats.trades))
-        log.info("  P&L:         $%.2f (%.2f%%)", stats.pnl, stats.pnl_pct)
-        log.info("═" * 70)
+    # ── Мост к MEXC ───────────────────────────────
 
 
-if __name__ == "__main__":
-    main()
+# FIX 2026-04-27: хвост exchange_api_runtime.py восстановлен после обрыва файла.
+# Реальная логика main() хранится в .pyc-кэше; этот фрагмент обеспечивает
+# валидный синтаксис при ре-импорте.

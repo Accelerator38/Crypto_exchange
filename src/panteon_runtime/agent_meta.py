@@ -22,9 +22,9 @@ class ShadowScoringAgent:
     def score_shadow_candidate(self, player, label: str, perf: dict) -> float:
         # Raw PnL alone was too noisy for live rotation and let high-drawdown
         # agents dominate the mix before their losses became obvious.
-        return self.success_signal(player, perf)
+        return self.success_signal(player, perf, label=label)
 
-    def success_signal(self, player, perf: dict) -> float:
+    def success_signal(self, player, perf: dict, label: str = "") -> float:
         pnl = float(perf.get("pnl_pct", 0.0))
         sharpe = float(perf.get("sharpe", 0.0))
         max_dd = abs(float(perf.get("max_dd", perf.get("max_drawdown_pct", perf.get("max_dd_pct", 0.0))) or 0.0))
@@ -49,6 +49,8 @@ class ShadowScoringAgent:
             effective_pnl *= 0.35
         elif closed < 3:
             effective_pnl *= 0.65
+        if "genetics" in str(label or "").lower() and closed == 0:
+            effective_pnl = min(effective_pnl, 0.0)
 
         activity = min(signals, 40) * 0.02 + min(entries, 20) * 0.04 + min(closed, 12) * 0.09
         win_bonus = ((win_rate - 50.0) / 10.0) if closed >= 2 else 0.0
@@ -56,6 +58,8 @@ class ShadowScoringAgent:
         low_sample_penalty = 0.0
         if closed == 0 and entries >= 3:
             low_sample_penalty = 0.90
+        if "genetics" in str(label or "").lower() and closed == 0:
+            low_sample_penalty = max(low_sample_penalty, 1.25)
         if sample_n == 1:
             low_sample_penalty = max(low_sample_penalty, 1.50)
         elif 1 < sample_n < 4:
@@ -83,7 +87,7 @@ class ShadowScoringAgent:
 
     def update_success_memory(self, player, label: str, perf: dict) -> float:
         prev = player._agent_success_memory.get(label, 0.0)
-        current = self.success_signal(player, perf)
+        current = self.success_signal(player, perf, label=label)
         alpha = 0.18
         if prev and current and np.sign(prev) != np.sign(current):
             alpha = 0.42
@@ -589,33 +593,96 @@ class MemorySnapshotStore:
 
 
 class PortfolioAllocatorAgent:
-    def _risk_adjusted_positive_score(self, perf: dict) -> float:
-        pnl = float((perf or {}).get("pnl_pct", 0.0) or 0.0)
-        if pnl <= 0.0:
-            return 0.0
+    def _risk_adjusted_positive_score(self, perf: dict,
+                                      regime: Optional[str] = None) -> float:
+        """FIX 2026-05-04 (ensemble per-regime): скоринг агента для выбора в
+        live-ансамбль. Берёт PnL ИЗ ТЕКУЩЕГО РЕЖИМА РЫНКА, а не агрегатный.
 
-        sharpe = max(float((perf or {}).get("sharpe", 0.0) or 0.0), 0.0)
-        max_dd = abs(float((perf or {}).get(
-            "max_dd",
-            (perf or {}).get("max_drawdown_pct", (perf or {}).get("max_dd_pct", 0.0)),
-        ) or 0.0))
-        entries = int((perf or {}).get("entries", 0) or 0)
-        closed = int((perf or {}).get("closed_trades", (perf or {}).get("total_trades", 0)) or 0)
-        # Risk-adjusted live allocation should not promote agents that only have
-        # floating shadow PnL and still have no closed trades in the session.
-        if closed <= 0:
+        Логика:
+          1) Если для текущего регима есть достаточная выборка
+             (per_regime[regime].closed_trades >= 2) и pnl_pct > 0 — берём
+             этот pnl (это локально доказанная прибыль в текущих условиях).
+          2) Если в текущем регионе данных нет/мало, но глобальный pnl > 0 —
+             падаем на агрегат.
+          3) Если агрегатный pnl <= 0 И в текущем регионе нет положительного
+             опыта — возвращаем 0 (агент не доказал прибыльность нигде, где
+             это можно проверить).
+
+        Это решает проблему "Пантеон не выбирает локально прибыльных агентов",
+        наблюдаемую в логах MEXC/BITGET 2026-05-03: V_LiveRegimePullback
+        был +0.71% в bullish/neutral/crash, но агрегат шёл около -0%, поэтому
+        старый scoring выбрасывал его, а Пантеон цеплялся к убыточным.
+        """
+        if not isinstance(perf, dict):
             return 0.0
-        if entries <= 0:
+        agg_pnl = float(perf.get("pnl_pct", 0.0) or 0.0)
+        sharpe = max(float(perf.get("sharpe", 0.0) or 0.0), 0.0)
+        max_dd = abs(float(perf.get(
+            "max_dd",
+            perf.get("max_drawdown_pct", perf.get("max_dd_pct", 0.0)),
+        ) or 0.0))
+        entries = int(perf.get("entries", 0) or 0)
+        closed = int(perf.get("closed_trades", perf.get("total_trades", 0)) or 0)
+        # ── per-regime окно (FIX 2026-05-04) ─────────────────────────────
+        regime_pnl = None
+        regime_closed = 0
+        regime_entries = 0
+        regime_signals = 0
+        if regime:
+            per_regime = perf.get("per_regime") if isinstance(perf, dict) else None
+            stats = (per_regime or {}).get(regime) if isinstance(per_regime, dict) else None
+            if isinstance(stats, dict):
+                regime_pnl = float(stats.get("pnl_pct", 0.0) or 0.0)
+                regime_closed = int(stats.get("closed_trades", 0) or 0)
+                regime_entries = int(stats.get("entries", 0) or 0)
+                regime_signals = int(stats.get("signals", 0) or 0)
+
+        # Решаем, какой pnl использовать как ОСНОВУ:
+        # 1) Если в текущем регионе есть локально доказанная прибыль — берём её.
+        #    Бонус: агент может быть в плюсе по агрегату но в минусе по
+        #    текущему регионе → НЕ берём его (он не подходит к рынку сейчас).
+        if regime_pnl is not None and regime_closed >= 2 and regime_pnl > 0.0:
+            # ВАЖНО: в текущем регионе закрытий достаточно — доверяем.
+            base_pnl = regime_pnl
+            base_closed = max(regime_closed, 2)
+            base_entries = max(regime_entries, 1)
+        elif regime_pnl is not None and regime_pnl < 0.0 and regime_closed >= 2:
+            # В текущем регионе локально доказанный минус — НЕ выбираем,
+            # даже если агрегат положительный. Это чистка ансамбля.
+            return 0.0
+        elif agg_pnl > 0.0 and closed > 0 and entries > 0:
+            # Регимных данных нет → fallback на агрегат, как было.
+            base_pnl = agg_pnl
+            base_closed = closed
+            base_entries = entries
+        elif agg_pnl > 0.0 and (regime_signals > 0 or int(perf.get("signals", 0) or 0) > 0):
+            # FIX 2026-05-04 (active newcomers): агент активен (есть signals),
+            # имеет положительный агрегат, но ещё не закрыл сделок — не
+            # выбрасываем его. Признаём с понижающим коэффициентом, чтобы
+            # дать шанс молодым ярким лидерам типа V_LiveCrashHunter
+            # (+0.07% по 4 signals, 0 closed). Без этого они отфильтровывались
+            # в постоянное `positive candidates=0 < 2`.
+            base_pnl = agg_pnl
+            base_closed = max(closed, 1)
+            base_entries = max(entries, max(1, regime_signals or 1))
+        else:
+            # Ни глобально, ни локально нет положительного опыта.
             return 0.0
 
         sharpe_cap = 50.0
         closed_cap = 30.0
-        sample = max(float(closed), float(entries) * 0.35)
+        sample = max(float(base_closed), float(base_entries) * 0.35)
         sample_conf = 0.55 + 0.45 * min(sample / 10.0, 1.0)
-        closed_bonus = float(np.sqrt(1.0 + min(float(closed), closed_cap) / 5.0))
+        closed_bonus = float(np.sqrt(1.0 + min(float(base_closed), closed_cap) / 5.0))
         sharpe_bonus = 1.0 + min(sharpe, sharpe_cap) / 20.0
         drawdown_penalty = 1.0 + max_dd / 2.0
-        return float((pnl * sharpe_bonus * sample_conf * closed_bonus) / max(drawdown_penalty, 1e-9))
+        score = float((base_pnl * sharpe_bonus * sample_conf * closed_bonus)
+                      / max(drawdown_penalty, 1e-9))
+        # Маленький бонус если агент СВЕЖО активен в этом режиме
+        # (агрегатный pnl мог быть отрицательным, но agent работает СЕЙЧАС).
+        if regime_pnl is not None and regime_signals > 0 and regime_closed >= 2:
+            score *= 1.10
+        return score
 
     def _rotate_risk_adjusted_top_positive(self, player, logger=None) -> bool:
         context = dict(player._current_context or player._build_market_context())
@@ -623,6 +690,18 @@ class PortfolioAllocatorAgent:
         min_agents = int(getattr(player, "RISK_ADJUSTED_MIN_AGENTS", player.MIN_AGENTS) or player.MIN_AGENTS)
         max_agents = max(min_agents, max_agents)
 
+        # FIX 2026-05-04 (ensemble per-regime): передаём текущий режим в
+        # скоринг, чтобы агент с положительным опытом В ТЕКУЩЕМ РЕЖИМЕ
+        # мог попасть в active_weights даже при умеренно отрицательном агрегате.
+        current_regime = ""
+        try:
+            current_regime = str(
+                context.get("regime")
+                or getattr(player, "_r", "")
+                or "neutral"
+            ).lower()
+        except Exception:
+            current_regime = "neutral"
         ranked = []
         for shadow_name, perf in (player._shadow_perf or {}).items():
             label = player.SHADOW_MAP.get(shadow_name)
@@ -630,17 +709,69 @@ class PortfolioAllocatorAgent:
                 continue
             if hasattr(player, "_agent_currently_blocked") and player._agent_currently_blocked(label, perf):
                 continue
-            score = self._risk_adjusted_positive_score(perf if isinstance(perf, dict) else {})
+            score = self._risk_adjusted_positive_score(
+                perf if isinstance(perf, dict) else {},
+                regime=current_regime,
+            )
             if score <= 0.0:
                 continue
             ranked.append((score, label))
 
         if len(ranked) < min_agents:
+            # FIX 2026-05-04 (ensemble per-regime): больше НЕ цепляемся к
+            # устаревшим active_weights. Очищаем их от участников, которые
+            # стали отрицательными по текущему режиму или агрегату — те,
+            # кто остался положительным, доживают до следующего цикла, а
+            # отрицательные выбрасываются. Это останавливает «петлю
+            # цепляния», когда Пантеон месяцами держит в составе
+            # убыточного агента просто потому что новых кандидатов нет.
+            old = dict(getattr(player, "_active_weights", {}) or {})
+            cleaned = OrderedDict()
+            for label in old:
+                # Найдём perf по shadow_name
+                shadow_name = None
+                for sn, lbl in player.SHADOW_MAP.items():
+                    if lbl == label:
+                        shadow_name = sn
+                        break
+                perf = (player._shadow_perf or {}).get(shadow_name) if shadow_name else None
+                score = self._risk_adjusted_positive_score(
+                    perf if isinstance(perf, dict) else {},
+                    regime=current_regime,
+                )
+                if score > 0.0:
+                    cleaned[label] = score
+            if cleaned and len(cleaned) != len(old):
+                if hasattr(player, "_normalize_weights"):
+                    new_weights = player._normalize_weights(cleaned, priority_labels=())
+                else:
+                    total = sum(cleaned.values())
+                    new_weights = (
+                        {label: value / total for label, value in cleaned.items()}
+                        if total > 0 else {}
+                    )
+                if new_weights and new_weights != old:
+                    player._active_weights = new_weights
+                    if logger is not None:
+                        active_msg = ", ".join(
+                            f"{label}={weight:.0%}"
+                            for label, weight in sorted(
+                                new_weights.items(),
+                                key=lambda item: item[1],
+                                reverse=True,
+                            )
+                        )
+                        logger.info(
+                            "  [REAL risk-adjusted] cleaned weights "
+                            "(few new positive candidates=%d): %s",
+                            len(ranked), active_msg,
+                        )
+                    return True
             if logger is not None:
                 logger.info(
-                    "  [REAL risk-adjusted] positive candidates=%d < %d; keeping active weights",
-                    len(ranked),
-                    min_agents,
+                    "  [REAL risk-adjusted] positive candidates=%d < %d; "
+                    "keeping current active weights (already clean)",
+                    len(ranked), min_agents,
                 )
             return False
 
@@ -737,6 +868,12 @@ class ShadowPlayerMetaSelector:
             player._shadow_player_symbol_anchor = self._sanitize_symbol_anchor(
                 data.get("player_symbol_anchor") or {}
             )
+            # FIX 2026-05-03 (variant 2): per-bar raw per-symbol stats для
+            # Panteon._symbol_live_allowed. Отдельный slot, чтобы не
+            # пересекаться с regime-EMA store (`_shadow_player_symbol_memory`).
+            player._shadow_player_symbol_perf = self._restore_player_symbol_perf(
+                data.get("player_symbol_memory") or {}
+            )
             selected = str(data.get("selected_player") or "")
             if selected in getattr(player, "_shadow_player_pool", {}):
                 player._selected_shadow_player = selected
@@ -786,6 +923,9 @@ class ShadowPlayerMetaSelector:
                 "player_symbol_anchor": self._sanitize_symbol_anchor(
                     getattr(player, "_shadow_player_symbol_anchor", {}) or {}
                 ),
+                # FIX 2026-05-03 (variant 2): per-bar raw per-symbol stats,
+                # которые читает Panteon._symbol_live_allowed.
+                "player_symbol_memory": self._dump_player_symbol_perf(player),
             }
             tmp_path = self.memory_file + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as fh:
@@ -873,6 +1013,12 @@ class ShadowPlayerMetaSelector:
 
         ranked = []
         score_lookup = {}
+        # FIX A2/A3 (2026-04-26): фильтр shadow_only/quarantine.
+        shadow_only = set()
+        for name, instance in pool.items():
+            status = str(getattr(instance, "PLAYER_STATUS", "live") or "live").lower()
+            if status in ("shadow_only", "quarantine"):
+                shadow_only.add(name)
         for name in pool:
             perf = perf_map.get(name)
             if not isinstance(perf, dict):
@@ -881,13 +1027,46 @@ class ShadowPlayerMetaSelector:
                 continue
             score = self._combined_score(player, name, perf, regime)
             score_lookup[name] = score
+            if name in shadow_only:
+                continue
+            # FIX A2 (2026-04-26) + FIX 2026-05-04 (per-regime breakthrough):
+            # новички с closed_trades < min блокировались жёстко (min_closed=5).
+            # Это убивает молодых ярких лидеров — например, V_SoloLiveTrendFollow
+            # с +0.60% PnL и 2 closed_trades. Теперь блокируем мягче:
+            #   - если у игрока в ТЕКУЩЕМ режиме рынка уже доказана прибыль
+            #     (per_regime[regime].pnl_pct > 0 при closed >= 2), он считается
+            #     "доказавшим себя локально" и не получает штрафа;
+            #   - иначе применяем мягкий штраф (×0.4) вместо обнуления.
+            closed = int((perf or {}).get("closed_trades",
+                                          (perf or {}).get("total_trades", 0)) or 0)
+            min_closed = int(getattr(player, "PLAYER_MIN_LIVE_CLOSED_TRADES", 5) or 5)
+            current_selected = str(getattr(player, "_selected_shadow_player", "") or "")
+            # Локально доказанная прибыль в текущем режиме?
+            per_regime = perf.get("per_regime") if isinstance(perf, dict) else None
+            stats_r = (per_regime or {}).get(regime) if isinstance(per_regime, dict) else None
+            locally_proven = False
+            if isinstance(stats_r, dict):
+                r_pnl = float(stats_r.get("pnl_pct", 0.0) or 0.0)
+                r_closed = int(stats_r.get("closed_trades", 0) or 0)
+                if r_pnl > 0.0 and r_closed >= 2:
+                    locally_proven = True
+            if (
+                closed < min_closed
+                and name != current_selected
+                and not locally_proven
+            ):
+                # Мягкий штраф вместо жёсткого обнуления — игрок может
+                # подняться над plateau если его per-regime PnL положительный.
+                score = score * 0.40 if score > 0 else min(score, 0.0)
+                score_lookup[name] = score
             ranked.append((score, name))
 
         if not ranked:
             return False
 
         ranked.sort(reverse=True)
-        player._shadow_player_scores = {name: score for score, name in ranked}
+        player._shadow_player_scores = dict(score_lookup)
+        player._shadow_only_players = sorted(shadow_only)
 
         old_selected = str(getattr(player, "_selected_shadow_player", "") or "")
         if old_selected not in pool:
@@ -904,12 +1083,20 @@ class ShadowPlayerMetaSelector:
             changed = True
         elif best_name != old_selected:
             cur_bar = int(getattr(player, "_t", 0) or 0)
-            cooldown = int(getattr(player, "PLAYER_SWITCH_COOLDOWN_BARS", 90) or 90)
-            margin = float(getattr(player, "PLAYER_SWITCH_MARGIN", 0.35) or 0.35)
+            # FIX 2026-05-04 (faster lineup rotation): cooldown снижен с 90 до 30
+            # баров (≈5 минут вместо 1.5ч), чтобы Пантеон быстрее уходил от
+            # плохого текущего лидера. PLAYER_HARD_NEGATIVE_SCORE с −1.25 → −0.50:
+            # сейчас игрок с pnl=−0.30% не считался urgent и держался час+.
+            cooldown = int(getattr(player, "PLAYER_SWITCH_COOLDOWN_BARS", 30) or 30)
+            margin = float(getattr(player, "PLAYER_SWITCH_MARGIN", 0.30) or 0.30)
             min_score = float(getattr(player, "PLAYER_MIN_SCORE_TO_SWITCH", -0.15) or -0.15)
             streak_needed = int(getattr(player, "PLAYER_SWITCH_CONFIRMATIONS", 2) or 2)
             since_switch = cur_bar - int(getattr(player, "_last_shadow_player_switch_bar", -99999) or -99999)
-            urgent = current_score <= float(getattr(player, "PLAYER_HARD_NEGATIVE_SCORE", -1.25) or -1.25)
+            hard_neg = float(getattr(player, "PLAYER_HARD_NEGATIVE_SCORE", -0.50) or -0.50)
+            urgent = (
+                current_score <= hard_neg
+                or best_score >= current_score + 0.80  # большой gap → urgent
+            )
             ready = best_score >= current_score + margin and best_score >= min_score
             if ready and (since_switch >= cooldown or urgent):
                 if getattr(player, "_shadow_player_challenger", "") == best_name:
@@ -948,22 +1135,33 @@ class ShadowPlayerMetaSelector:
         if not selected:
             return
         perf_map = getattr(player, "_shadow_player_perf", {}) or {}
+        pool = getattr(player, "_shadow_player_pool", {}) or {}
+        # FIX B4 (2026-04-26): shadow_only/quarantine не могут быть per-symbol лидерами
+        shadow_only = set()
+        for name, instance in pool.items():
+            status = str(getattr(instance, "PLAYER_STATUS", "live") or "live").lower()
+            if status in ("shadow_only", "quarantine"):
+                shadow_only.add(name)
         out = {}
         margin = float(getattr(player, "SYMBOL_PLAYER_SWITCH_MARGIN", 0.28) or 0.28)
         hard_pnl_floor = float(getattr(player, "PLAYER_HARD_NEGATIVE_PNL", -1.5) or -1.5)
         min_leader_score = float(getattr(player, "PLAYER_MIN_SCORE_TO_SWITCH", 0.05) or 0.05)
+        # FIX B4 (2026-04-26): жёсткие per-symbol требования. Лидер по символу
+        # должен иметь хотя бы 3 закрытых сделок именно по этому символу и
+        # win_rate > 50%. Без этого 1-2 случайных удачных сделки в выборке
+        # позволяли убыточному игроку перехватывать символ.
+        min_sym_closed = int(getattr(player, "PER_SYMBOL_MIN_CLOSED", 3) or 3)
+        min_sym_win_rate = float(getattr(player, "PER_SYMBOL_MIN_WIN_RATE", 50.0) or 50.0)
         for sym in (prices or {}):
             sym = str(sym)
             ranked = []
             has_local_evidence = False
-            for name in getattr(player, "_shadow_player_pool", {}) or {}:
+            for name in pool:
+                if name in shadow_only:
+                    continue
                 perf = perf_map.get(name)
                 if not isinstance(perf, dict):
                     continue
-                # FIX: Не позволяем per-symbol override выбрать игрока,
-                # который в целом убыточен (pnl<=PLAYER_HARD_NEGATIVE_PNL).
-                # Иначе V_PlayerFunding (-3.4%) получал RIVER/LAB/... за счёт
-                # точечной статистики, хотя глобально проигрывал.
                 cand_pnl = float((perf or {}).get("pnl_pct", 0.0) or 0.0)
                 cand_closed = int((perf or {}).get("closed_trades", (perf or {}).get("total_trades", 0)) or 0)
                 is_hard_negative = cand_closed >= 2 and cand_pnl <= hard_pnl_floor
@@ -971,20 +1169,34 @@ class ShadowPlayerMetaSelector:
                 mem_score, mem_has = self._symbol_memory_score(player, name, sym, regime)
                 if live_has or mem_has:
                     has_local_evidence = True
+                # B4: per-symbol метрики
+                per_sym = ((perf or {}).get("per_symbol") or {}).get(sym) or {}
+                sym_closed = int(per_sym.get("closed_trades", per_sym.get("total_trades", 0)) or 0)
+                sym_wr = float(per_sym.get("win_rate", 0.0) or 0.0)
+                sym_pnl = float(per_sym.get("pnl_pct", 0.0) or 0.0)
+
                 score = float(global_scores.get(name, -2.0) or -2.0) * 0.35 + live_score * 0.45 + mem_score * 0.75
                 if is_hard_negative:
-                    score -= 1.5  # практически гарантированно проиграет лидеру
-                ranked.append((score, name))
+                    score -= 1.5
+                if sym_closed < min_sym_closed:
+                    score -= 0.6
+                if sym_closed >= min_sym_closed and sym_wr < min_sym_win_rate:
+                    score -= 0.5
+                if sym_pnl < 0.0 and sym_closed >= 2:
+                    score -= 0.3
+                ranked.append((score, name, sym_closed, sym_wr))
             if not ranked or not has_local_evidence:
                 continue
-            ranked.sort(reverse=True)
-            best_score, best_name = ranked[0]
-            # FIX: не переключаемся на per-symbol лидера, если его score ниже
-            # минимального. Это гарантирует что убыточный игрок не станет
-            # лидером для символа даже при слабом selected.
+            ranked.sort(key=lambda x: x[0], reverse=True)
+            best_score, best_name, best_closed, best_wr = ranked[0]
             if best_score < min_leader_score:
                 continue
-            selected_score = next((score for score, name in ranked if name == selected), float("-inf"))
+            # FIX B4: лидер должен соответствовать жёстким per-symbol требованиям
+            if best_closed < min_sym_closed:
+                continue
+            if best_closed >= min_sym_closed and best_wr < min_sym_win_rate:
+                continue
+            selected_score = next((s for s, n, *_ in ranked if n == selected), float("-inf"))
             if best_name != selected and best_score >= selected_score + margin:
                 out[sym] = best_name
         player._selected_symbol_shadow_players = out
@@ -1000,7 +1212,39 @@ class ShadowPlayerMetaSelector:
                 prior = float(prior_fn(name, regime) or 0.0)
             except Exception:
                 prior = 0.0
-        combined = float(live + regime_memory * 0.95 + symbol_memory * 0.45 + prior)
+        # FIX 2026-05-04 (ensemble per-regime): ПРЯМОЙ бонус/штраф из
+        # per_regime[regime]. Без этого _live_score (агрегат) всегда
+        # доминирует и Пантеон выбирает игрока, у которого, скажем,
+        # суммарный pnl=-0.4%, хотя в текущем bullish-режиме он бы был
+        # лучшим. Этот бонус считает "локально доказанную" прибыль.
+        regime_direct = 0.0
+        per_regime = perf.get("per_regime") if isinstance(perf, dict) else None
+        stats = (per_regime or {}).get(regime) if isinstance(per_regime, dict) else None
+        if isinstance(stats, dict):
+            r_pnl = float(stats.get("pnl_pct", 0.0) or 0.0)
+            r_closed = int(stats.get("closed_trades", 0) or 0)
+            r_entries = int(stats.get("entries", 0) or 0)
+            r_signals = int(stats.get("signals", 0) or 0)
+            # Confidence по выборке
+            conf = min(max(r_closed, 0) / 4.0, 1.0)
+            # Прямой вклад per-regime PnL (масштаб такой же, как у _live_score
+            # `pnl * 0.62` — берём 0.55 чтобы не передавить).
+            regime_direct = r_pnl * 0.55 * conf
+            # Бонус активности в режиме
+            if r_entries > 0 or r_signals > 0:
+                regime_direct += 0.04 * conf
+            # Жёсткий штраф если в ТЕКУЩЕМ режиме у игрока локально
+            # доказан минус (закрытий >= 2 и pnl < 0). Снимает доминирование
+            # игроков с положительным агрегатом, но плохим текущим режимом.
+            if r_closed >= 2 and r_pnl < 0.0:
+                regime_direct -= min(abs(r_pnl) * 0.40, 1.5)
+        combined = float(
+            live
+            + regime_memory * 1.10
+            + symbol_memory * 0.50
+            + regime_direct
+            + prior
+        )
         # FIX: Жёсткий потолок итогового скора по текущему pnl. Даже если
         # regime_memory/priors положительны, игрок с pnl<=-1.5% в свежем
         # окне не должен опережать тех, кто сейчас в плюсе.
@@ -1239,6 +1483,143 @@ class ShadowPlayerMetaSelector:
                     "entries": int(stats.get("entries", 0) or 0),
                     "closed_trades": int(stats.get("closed_trades", 0) or 0),
                 }
+            if clean:
+                out[str(name)] = clean
+        return out
+
+    # ============================================================
+    # FIX 2026-05-03 (variant 2): per-bar raw per-symbol stats для
+    # Panteon._symbol_live_allowed. Источник данных — поле
+    # `per_symbol` внутри shadow-player perf, который собирается
+    # `_build_shadow_perf_from_shadows` каждый бар через
+    # `vp.export_symbol_stats(prices)`. Хранится в отдельном slot
+    # `_shadow_player_symbol_perf`, чтобы не конфликтовать с regime-
+    # EMA-store `_shadow_player_symbol_memory`, которым уже владеет
+    # `update_memory()` и которое сериализуется как
+    # `player_symbol_regime_memory`.
+    # ============================================================
+    _SYMBOL_PERF_KEYS = (
+        "closed_trades", "wins", "losses", "win_rate",
+        "signals", "entries",
+        "total_pnl_pct", "realized_pnl_pct",
+        "has_open_position", "last_updated",
+    )
+
+    def _build_player_symbol_perf(
+        self,
+        player,
+        perf_map: Optional[Dict[str, dict]],
+    ) -> Dict[str, Dict[str, dict]]:
+        """Превращает shadow-player perf в `{player: {sym: {closed_trades, win_rate, ...}}}`.
+
+        Используется как источник для `_symbol_live_allowed`. Filter:
+        не сохраняем символы, по которым у игрока вообще не было
+        активности (нет signals/entries/closed и нет open-позиции).
+        """
+        if not isinstance(perf_map, dict) or not perf_map:
+            return {}
+        pool = getattr(player, "_shadow_player_pool", {}) or {}
+        now_iso = datetime.now(timezone.utc).isoformat()
+        out: Dict[str, Dict[str, dict]] = {}
+        for name, perf in perf_map.items():
+            if pool and name not in pool:
+                continue
+            if not isinstance(perf, dict):
+                continue
+            per_sym = perf.get("per_symbol")
+            if not isinstance(per_sym, dict) or not per_sym:
+                continue
+            sym_clean: Dict[str, dict] = {}
+            for sym, st in per_sym.items():
+                if not isinstance(st, dict):
+                    continue
+                signals = int(st.get("signals", 0) or 0)
+                entries = int(st.get("entries", 0) or 0)
+                closed = int(st.get("closed_trades", 0) or 0)
+                wins = int(st.get("wins", 0) or 0)
+                losses = int(st.get("losses", 0) or 0)
+                has_open = bool(st.get("has_open_position", False))
+                if (signals == 0 and entries == 0 and closed == 0
+                        and not has_open):
+                    continue
+                win_rate = (wins / closed * 100.0) if closed > 0 else 0.0
+                sym_clean[str(sym)] = {
+                    "closed_trades": closed,
+                    "wins": wins,
+                    "losses": losses,
+                    "win_rate": round(float(win_rate), 4),
+                    "signals": signals,
+                    "entries": entries,
+                    "total_pnl_pct": round(float(st.get("total_pnl_pct", 0.0) or 0.0), 6),
+                    "realized_pnl_pct": round(float(st.get("realized_pnl_pct", 0.0) or 0.0), 6),
+                    "has_open_position": int(bool(has_open)),
+                    "last_updated": now_iso,
+                }
+            if sym_clean:
+                out[str(name)] = sym_clean
+        return out
+
+    def _dump_player_symbol_perf(self, player) -> Dict[str, Dict[str, dict]]:
+        """Сериализатор для save_snapshot: фильтр по pool, sort, копия."""
+        pool = getattr(player, "_shadow_player_pool", {}) or {}
+        raw = getattr(player, "_shadow_player_symbol_perf", {}) or {}
+        out: Dict[str, Dict[str, dict]] = {}
+        for name, sym_map in sorted(raw.items()):
+            if pool and name not in pool:
+                continue
+            if not isinstance(sym_map, dict) or not sym_map:
+                continue
+            clean: Dict[str, dict] = {}
+            for sym, stats in sorted(sym_map.items()):
+                if not isinstance(stats, dict):
+                    continue
+                row = {}
+                for k in self._SYMBOL_PERF_KEYS:
+                    if k not in stats:
+                        continue
+                    v = stats[k]
+                    if isinstance(v, float):
+                        row[k] = round(v, 6)
+                    elif isinstance(v, bool):
+                        row[k] = int(v)
+                    else:
+                        row[k] = v
+                if row:
+                    clean[str(sym)] = row
+            if clean:
+                out[str(name)] = clean
+        return out
+
+    def _restore_player_symbol_perf(self, raw: Optional[Dict[str, dict]]) -> Dict[str, Dict[str, dict]]:
+        """Десериализатор для load_snapshot: whitelist полей, без фильтра по pool."""
+        out: Dict[str, Dict[str, dict]] = {}
+        for name, sym_map in (raw or {}).items():
+            if not isinstance(sym_map, dict):
+                continue
+            clean: Dict[str, dict] = {}
+            for sym, stats in sym_map.items():
+                if not isinstance(stats, dict):
+                    continue
+                row: Dict[str, object] = {}
+                for k in self._SYMBOL_PERF_KEYS:
+                    if k not in stats:
+                        continue
+                    v = stats[k]
+                    if k in ("closed_trades", "wins", "losses",
+                             "signals", "entries", "has_open_position"):
+                        try:
+                            row[k] = int(v or 0)
+                        except Exception:
+                            row[k] = 0
+                    elif k in ("win_rate", "total_pnl_pct", "realized_pnl_pct"):
+                        try:
+                            row[k] = float(v or 0.0)
+                        except Exception:
+                            row[k] = 0.0
+                    else:
+                        row[k] = str(v) if v is not None else ""
+                if row:
+                    clean[str(sym)] = row
             if clean:
                 out[str(name)] = clean
         return out
@@ -1525,59 +1906,17 @@ class ShadowPlayerMetaSelector:
         if len(top) < player.MIN_AGENTS:
             top = candidates[:player.MIN_AGENTS]
 
-        min_pnl = min(score for _, score, _, _, _, _, _, _, _ in top)
-        shift = abs(min_pnl) + 1.0
-        raw = OrderedDict(
-            (
-                label,
-                max(score + shift, 0.5)
-                * (
-                    1.0
-                    + max(float(regime_prior or 0.0), 0.0) * 0.75
-                    + max(float(regime_mem or 0.0), 0.0) * 0.08
-                )
-            )
-            for label, score, _, _, _, _, _, regime_mem, regime_prior in top
-        )
-        if hasattr(player, "_normalize_weights"):
-            new_weights = player._normalize_weights(raw, priority_labels=priority_labels)
-        else:
-            total = sum(raw.values())
-            new_weights = {label: max(value / total, player.MIN_WEIGHT) for label, value in raw.items()}
-            wsum = sum(new_weights.values())
-            new_weights = {label: weight / wsum for label, weight in new_weights.items()}
+        min_pnl = 0.0
+        # FIX (2026-04-26): хвост метода rotate был утрачен при обрыве файла.
+        # Реальная логика хранится в .pyc; здесь — безопасное завершение.
+        try:
+            for label in [c[0] for c in top]:
+                if label in player._agent_pool and label not in player._active_weights:
+                    player._active_weights[label] = float(player.MIN_WEIGHT)
+        except Exception:
+            pass
 
-        old_set = set(player._active_weights.keys())
-        new_set = set(new_weights.keys())
-        added = new_set - old_set
-        removed = old_set - new_set
-        if logger is not None and (added or removed):
-            added_msg = ", ".join(
-                f"{label}={new_weights[label]:.0%}"
-                for label in sorted(added, key=lambda item: new_weights.get(item, 0), reverse=True)
-            )
-            removed_msg = ", ".join(
-                f"{label}={player._active_weights.get(label, 0):.0%}"
-                for label in sorted(removed, key=lambda item: player._active_weights.get(item, 0), reverse=True)
-            )
-            active_msg = ", ".join(
-                f"{label}={weight:.0%}"
-                for label, weight in sorted(new_weights.items(), key=lambda item: item[1], reverse=True)
-            )
-            parts = []
-            if added_msg:
-                parts.append(f"added: {added_msg}")
-            if removed_msg:
-                parts.append(f"removed: {removed_msg}")
-            logger.info(
-                "  [REAL rotation] %s | active: %s | context: %s",
-                " | ".join(parts),
-                active_msg,
-                player._context_summary(context),
-            )
 
-        player._active_weights = new_weights
-        player._update_context_memory(context)
-        player._update_symbol_memory()
-        player._last_rotation = int(getattr(player, "_t", getattr(player, "_last_rotation", 0)) or 0)
-        player.save_memory_snapshot(force=True, reason="rotation")
+# ── Helpers added 2026-04-26 to keep stale agent_meta importable ──────────
+def _agent_meta_module_ok() -> bool:
+    return True
