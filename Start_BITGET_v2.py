@@ -35,6 +35,31 @@ LAUNCH_MODE = os.getenv("BITGET_TRADING_MODE", "live_futures").strip().lower()
 os.environ["CRYPTO_EXCHANGE"] = "BITGET"
 os.environ["BITGET_TRADING_MODE"] = LAUNCH_MODE
 
+if (
+    LAUNCH_MODE != "paper"
+    and not os.getenv("PANTEON_V2_ALLOW_SYSTEM_PYTHON")
+    and Path(sys.prefix).resolve() == Path(sys.base_prefix).resolve()
+):
+    print(
+        "[START v2] BITGET live launch blocked: run it with a virtualenv Python, "
+        "not the system interpreter. Set PANTEON_V2_ALLOW_SYSTEM_PYTHON=1 to override.",
+        file=sys.stderr,
+    )
+    sys.exit(4)
+
+from panteon_v2.app.single_instance import acquire_single_instance
+
+_INSTANCE_LOCK = acquire_single_instance(
+    "panteon_v2_bitget",
+    lock_dir=PROJECT_ROOT / "state" / "locks",
+)
+if _INSTANCE_LOCK is None:
+    print(
+        "[START v2] BITGET is already running; second live instance blocked.",
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
 required = ("BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_PASSPHRASE")
 missing = [name for name in required if not os.getenv(name)]
 mode_note = (

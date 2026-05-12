@@ -39,6 +39,31 @@ LAUNCH_MODE = os.getenv("MEXC_TRADING_MODE", "live_futures").strip().lower()
 os.environ["CRYPTO_EXCHANGE"] = "MEXC"
 os.environ["MEXC_TRADING_MODE"] = LAUNCH_MODE
 
+if (
+    LAUNCH_MODE != "paper"
+    and not os.getenv("PANTEON_V2_ALLOW_SYSTEM_PYTHON")
+    and Path(sys.prefix).resolve() == Path(sys.base_prefix).resolve()
+):
+    print(
+        "[START v2] MEXC live launch blocked: run it with a virtualenv Python, "
+        "not the system interpreter. Set PANTEON_V2_ALLOW_SYSTEM_PYTHON=1 to override.",
+        file=sys.stderr,
+    )
+    sys.exit(4)
+
+from panteon_v2.app.single_instance import acquire_single_instance
+
+_INSTANCE_LOCK = acquire_single_instance(
+    "panteon_v2_mexc",
+    lock_dir=PROJECT_ROOT / "state" / "locks",
+)
+if _INSTANCE_LOCK is None:
+    print(
+        "[START v2] MEXC is already running; second live instance blocked.",
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
 # Sanity check ключей для live режима
 required = ("MEXC_API_KEY", "MEXC_SECRET_KEY")
 missing = [name for name in required if not os.getenv(name)]
