@@ -9,14 +9,14 @@ production-торговли с `panteon_runtime/` (v1) на `panteon_v2/`.
 
 ## Pre-flight checklist (за 24 часа до cutover)
 
-- [ ] Все 310 unit-тестов v2 проходят: `cd src && python -m panteon_v2.tests.run_all`
+- [ ] Все unit-тесты v2 проходят: `cd src && python -m panteon_v2.tests.run_all`
 - [ ] Phase 7 replay-validation на последних 5 v1-сессиях: `python -m panteon_v2.replay.cli --latest MEXC BITGET`
   - Проверка: Q1, Q2, Q4 PASS на всех сессиях
 - [ ] Phase 8 shadow-run параллельно с боевым v1 минимум 24 часа
 - [ ] AttributionLedger v2 ≈ stats.pnl v1 (расхождение < 1%)
-- [ ] Подготовлены реальные exchange-адаптеры:
-  - [ ] `src/panteon_v2/app/bitget_adapter.py` (по шаблону `exchange_adapter_template.py`)
-  - [ ] `src/panteon_v2/app/mexc_adapter.py`
+- [x] Подготовлены реальные exchange-адаптеры:
+  - [x] `src/panteon_v2/app/bitget_adapter.py` (v1 futures client -> v2 Exchange)
+  - [x] `src/panteon_v2/app/mexc_adapter.py` (v1 futures client -> v2 Exchange)
 - [ ] Карантинный seed-список одобрен (см. `Panteon._SEED_AGENT_QUARANTINE` v1)
 - [ ] Все 5 PlayerProfile-ов одобрены (PRODUCTION_PROFILES в `bootstrap.py`)
 - [ ] Backup persisted state v1: `cp panteon_runtime/state/memory.json /backup/v1_pre_cutover.json`

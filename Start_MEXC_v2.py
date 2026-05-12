@@ -1,8 +1,8 @@
 """Thin entrypoint для запуска Panteon v2 на MEXC.
 
 Drop-in замена для Start_MEXC.py — те же команды, но pipeline через
-panteon_v2/. При отсутствии MEXC API ключей v2 запустится в paper-режиме
-(FakeExchange), не падая.
+panteon_v2/. Для live_futures требуются MEXC API ключи; исполнение идёт
+через реальный v2 adapter поверх v1 futures client.
 
 Использование:
     python Start_MEXC_v2.py

@@ -1,7 +1,8 @@
 """Thin entrypoint для запуска Panteon v2 на Bitget.
 
 Drop-in замена для Start_BITGET.py — те же команды, но pipeline через
-panteon_v2/. При отсутствии Bitget API ключей запустится в paper-режиме.
+panteon_v2/. Для live_futures требуются Bitget API ключи; исполнение идёт
+через реальный v2 adapter поверх v1 futures client.
 
 Использование:
     python Start_BITGET_v2.py

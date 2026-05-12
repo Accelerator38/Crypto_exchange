@@ -45,8 +45,8 @@ log = logging.getLogger(__name__)
 def resolve_exchange(exchange_name: str, *, mode: str) -> Exchange:
     """Реальный Exchange-адаптер или FakeExchange.
 
-    Когда оператор реализует bitget_adapter.py / mexc_adapter.py —
-    они подхватятся автоматически.
+    В live_futures используются bitget_adapter.py / mexc_adapter.py.
+    FakeExchange остаётся только для paper или неподдержанной биржи.
     """
     name = exchange_name.upper()
     if mode == "paper":
