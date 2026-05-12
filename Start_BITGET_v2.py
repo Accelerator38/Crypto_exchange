@@ -70,7 +70,8 @@ from panteon_v2.app.startup import start_production
 
 SNAPSHOT_PATH = str(PROJECT_ROOT / "panteon_v2_state" / "bitget_snapshot.json")
 EVENTS_JSONL  = str(PROJECT_ROOT / "logs" / "v2_bitget_events.jsonl")
-INITIAL_CAPITAL = float(os.getenv("BITGET_INITIAL_CAPITAL", "100.0"))
+_INITIAL_CAPITAL_RAW = os.getenv("BITGET_INITIAL_CAPITAL")
+INITIAL_CAPITAL = float(_INITIAL_CAPITAL_RAW) if _INITIAL_CAPITAL_RAW else None
 
 sys.exit(start_production(
     exchange="BITGET",

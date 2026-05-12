@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from ..execution import Exchange, FakeExchange
+from ..execution import Exchange, FakeExchange, RiskLimitsConfig
 from ..selection import AgentRegistry, PlayerProfile
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
@@ -35,6 +35,77 @@ from .output_writer import OutputWriter, OutputWriterConfig
 
 
 log = logging.getLogger(__name__)
+
+
+def _resolve_initial_capital(
+    *,
+    exchange_adapter: Exchange,
+    mode: str,
+    requested_initial_capital: Optional[float],
+    exchange_name: str,
+) -> float:
+    """Resolve v2 capital base.
+
+    For live modes, absent explicit *_INITIAL_CAPITAL means "use real exchange
+    equity". Paper keeps a deterministic configured/default balance.
+    """
+    if requested_initial_capital is not None:
+        capital = float(requested_initial_capital)
+        if mode != "paper":
+            live_equity = _read_exchange_equity(exchange_adapter)
+            if live_equity is not None:
+                log.info(
+                    "[%s] live account equity=$%.2f; explicit initial_capital=$%.2f kept",
+                    exchange_name,
+                    live_equity,
+                    capital,
+                )
+        return capital
+
+    if mode != "paper":
+        live_equity = _read_exchange_equity(exchange_adapter)
+        if live_equity is not None:
+            log.info(
+                "[%s] live account equity detected: $%.2f — using as v2 capital",
+                exchange_name,
+                live_equity,
+            )
+            return live_equity
+        log.warning(
+            "[%s] live account equity unavailable — falling back to $100.00",
+            exchange_name,
+        )
+
+    return 100.0
+
+
+def _read_exchange_equity(exchange_adapter: Exchange) -> Optional[float]:
+    getter = getattr(exchange_adapter, "get_account_equity", None)
+    if not callable(getter):
+        return None
+    try:
+        equity = float(getter() or 0.0)
+    except Exception:
+        log.debug("exchange equity read failed", exc_info=True)
+        return None
+    return equity if equity > 0 else None
+
+
+def _risk_config_from_trade_fraction(trade_fraction: float) -> RiskLimitsConfig:
+    fraction = float(trade_fraction)
+    if not 0 < fraction <= 1.0:
+        raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
+    return RiskLimitsConfig(capital_fraction=fraction)
+
+
+def _resolve_trade_fraction(exchange_name: str) -> float:
+    try:
+        from .v1_futures_adapter import load_runtime_trade_fraction
+
+        return load_runtime_trade_fraction(default=0.10)
+    except Exception:
+        log.debug("[%s] runtime trade_fraction unavailable", exchange_name, exc_info=True)
+        return 0.10
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -90,7 +161,7 @@ def start_production(
     *,
     exchange:           str,
     mode:               str = "live_futures",
-    initial_capital:    float = 100.0,
+    initial_capital:    Optional[float] = None,
     seed_quarantine:    Sequence[str] = ("FundingArb", "RichardDennis", "MomentumScalper"),
     profiles:           Optional[Sequence[PlayerProfile]] = None,
     polling_session_dir: Optional[str] = None,
@@ -116,10 +187,36 @@ def start_production(
     log.info("=" * 70)
     log.info("Panteon v2 production startup: %s mode=%s", exchange, mode)
     log.info("=" * 70)
+    os.environ["CRYPTO_EXCHANGE"] = exchange.upper()
+    os.environ[f"{exchange.upper()}_TRADING_MODE"] = mode
 
-    # 1. Регистрируем v1-агенты
+    # 1. Exchange adapter + capital base
+    exchange_adapter = resolve_exchange(exchange, mode=mode)
+    resolved_initial_capital = _resolve_initial_capital(
+        exchange_adapter=exchange_adapter,
+        mode=mode,
+        requested_initial_capital=initial_capital,
+        exchange_name=exchange,
+    )
+    trade_fraction = _resolve_trade_fraction(exchange)
+    risk_config = _risk_config_from_trade_fraction(trade_fraction)
+    log.info("[%s] v2 risk capital_fraction=%.2f%%",
+             exchange, risk_config.capital_fraction * 100.0)
+
+    # 2. Регистрируем v1-агенты. Они получают актуальный v2 balance.
     registry = AgentRegistry()
-    registered = register_all_v1_agents(registry, skip_on_error=True)
+    pipeline_holder = {}
+    def _portfolio_value() -> float:
+        pipeline = pipeline_holder.get("pipeline")
+        if pipeline is not None:
+            return float(getattr(pipeline, "current_balance", resolved_initial_capital) or resolved_initial_capital)
+        return resolved_initial_capital
+
+    registered = register_all_v1_agents(
+        registry,
+        portfolio_value_fn=_portfolio_value,
+        skip_on_error=True,
+    )
     log.info("Registered %d v1-agents: %s", len(registered),
              ", ".join(registered[:5]) + ("…" if len(registered) > 5 else ""))
     if not registered:
@@ -128,18 +225,18 @@ def start_production(
         )
         return 2
 
-    # 2. Exchange adapter
-    exchange_adapter = resolve_exchange(exchange, mode=mode)
-
     # 3. ProductionPipeline
     pipeline = build_production_pipeline(
         registry=registry,
         exchange=exchange_adapter,
-        initial_capital=initial_capital,
+        initial_capital=resolved_initial_capital,
         seed_quarantine=seed_quarantine,
         profiles=profiles or PRODUCTION_PROFILES,
+        risk_config=risk_config,
+        perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
     )
+    pipeline_holder["pipeline"] = pipeline
     log.info("Pipeline built: %d profiles, capital=$%.2f",
              len(pipeline.profiles), pipeline.initial_capital)
 

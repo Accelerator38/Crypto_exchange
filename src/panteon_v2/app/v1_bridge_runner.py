@@ -181,6 +181,7 @@ def _create_bridge(
     mode: str = "live_futures",
     *,
     output_dir: Optional[str] = None,
+    initial_capital: Optional[float] = None,
 ) -> Any:
     """Создаёт v1-bridge через exchange_registry.load_exchange_runtime().
 
@@ -197,6 +198,9 @@ def _create_bridge(
 
             runtime = load_exchange_runtime(exchange_name)
             cfg = runtime.parse_settings(runtime.load_settings())
+            if initial_capital is not None and float(initial_capital) > 0:
+                cfg["initial_capital"] = float(initial_capital)
+                cfg["paper_capital"] = float(initial_capital)
             bridge_cls = runtime.resolve_bridge_class()
             api_key = _os.getenv(runtime.api_key_env, "")
             api_secret = _os.getenv(runtime.api_secret_env, "")
@@ -272,6 +276,7 @@ def run_with_v1_bridge(
             exchange_name,
             mode=mode,
             output_dir=(output_writer.output_dir if output_writer else None),
+            initial_capital=pipeline.initial_capital,
         )
     if bridge is None:
         log.error("[%s] cannot start: bridge unavailable", exchange_name)

@@ -38,6 +38,23 @@ from .bootstrap import ProductionPipeline
 log = logging.getLogger(__name__)
 
 
+def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
+    """Best-effort sync of v2 balance from the live exchange adapter."""
+    try:
+        exchange = getattr(pipeline.executor, "_exchange", None)
+        getter = getattr(exchange, "get_account_equity", None)
+        if not callable(getter):
+            return None
+        equity = float(getter() or 0.0)
+        if equity <= 0:
+            return None
+        pipeline.current_balance = equity
+        return equity
+    except Exception:
+        log.debug("live balance sync failed", exc_info=True)
+        return None
+
+
 # ────────────────────────────────────────────────────────────────────
 # StepResult
 # ────────────────────────────────────────────────────────────────────
@@ -172,6 +189,7 @@ def _run_one_bar(
     recompute_every:   int,
 ):
     trace = f"prod-{market.bar}"
+    sync_pipeline_balance(pipeline)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
 
     # 1. Регим

@@ -25,6 +25,18 @@ def load_runtime_leverage(default: int = 2) -> int:
         return int(default)
 
 
+def load_runtime_trade_fraction(default: float = 0.10) -> float:
+    """Best-effort read of the existing v1 trade_fraction setting."""
+    try:
+        from mexc_connector import _load_settings, _parse_settings  # type: ignore
+
+        cfg = _parse_settings(_load_settings())
+        value = float(cfg.get("trade_fraction", default) or default)
+        return value if 0 < value <= 1.0 else float(default)
+    except Exception:
+        return float(default)
+
+
 class V1FuturesExchangeAdapter:
     """Adapter from v1 futures clients to the v2 Exchange protocol.
 
@@ -93,6 +105,38 @@ class V1FuturesExchangeAdapter:
         except Exception:
             pass
         return self._default_min_notional
+
+    def get_account_equity(self) -> float:
+        """Read total USDT futures equity for live sizing/status.
+
+        Existing v1 futures clients expose ``account_assets()`` as
+        {"USDT": equity, "USDT_AVAIL": available_margin}. Prefer total equity;
+        available margin is useful for exchange-side checks, but v2 sizing uses
+        the account value as its balance base.
+        """
+        for source in (self._order_client, self._read_client):
+            if source is None:
+                continue
+            getter = getattr(source, "account_assets", None)
+            if callable(getter):
+                try:
+                    value = self._equity_from_assets(getter())
+                    if value > 0:
+                        return value
+                except Exception:
+                    pass
+
+            snapshot = getattr(source, "get_full_snapshot", None)
+            if callable(snapshot):
+                try:
+                    raw = snapshot()
+                    if isinstance(raw, dict):
+                        value = self._equity_from_assets(raw.get("assets") or raw.get("balances"))
+                        if value > 0:
+                            return value
+                except Exception:
+                    pass
+        return 0.0
 
     def _send_open(
         self,
@@ -401,6 +445,19 @@ class V1FuturesExchangeAdapter:
         if data not in (None, "", [], {}):
             return str(data)
         return ""
+
+    @staticmethod
+    def _equity_from_assets(raw: Any) -> float:
+        if not isinstance(raw, dict):
+            return 0.0
+        for key in ("USDT", "usdt", "equity", "total", "walletBalance", "marginBalance"):
+            try:
+                value = raw.get(key)
+                if value is not None and float(value) > 0:
+                    return float(value)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
 
     @staticmethod
     def _normalize_symbol(sym: str) -> str:

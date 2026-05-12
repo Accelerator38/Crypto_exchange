@@ -89,10 +89,17 @@ class V1BridgeRunnerTests(unittest.TestCase):
     def test_create_bridge_uses_exchange_runtime_bridge_class(self):
         from panteon_v2.app.v1_bridge_runner import _create_bridge
 
-        bridge = _create_bridge("MEXC", mode="live_futures", output_dir="out-dir")
+        bridge = _create_bridge(
+            "MEXC",
+            mode="live_futures",
+            output_dir="out-dir",
+            initial_capital=40.25,
+        )
 
         self.assertIsInstance(bridge, FakeBridge)
         self.assertEqual(bridge.kwargs["agents"], {})
+        self.assertEqual(bridge.kwargs["cfg"]["initial_capital"], 40.25)
+        self.assertEqual(bridge.kwargs["cfg"]["paper_capital"], 40.25)
         self.assertEqual(bridge.kwargs["mode"], "live_futures")
         self.assertEqual(bridge.kwargs["api_key"], "key")
         self.assertEqual(bridge.kwargs["api_secret"], "secret")

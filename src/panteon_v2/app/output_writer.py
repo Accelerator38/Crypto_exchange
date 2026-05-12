@@ -177,8 +177,9 @@ class OutputWriter:
             pass
 
         realized_pnl = self._pipeline.ledger.total_realized_pnl
-        # Обновляем баланс по реализованному PnL
-        self._current_balance = self._initial_capital + realized_pnl
+        current_from_pipeline = float(getattr(self._pipeline, "current_balance", 0.0) or 0.0)
+        # In live mode main_loop keeps current_balance synced from exchange equity.
+        self._current_balance = current_from_pipeline or (self._initial_capital + realized_pnl)
         self._pipeline.current_balance = self._current_balance
 
         pnl_pct = (

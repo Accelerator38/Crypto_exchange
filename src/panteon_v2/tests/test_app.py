@@ -70,6 +70,63 @@ class TestBootstrap(unittest.TestCase):
     def test_production_profiles_present(self):
         self.assertGreaterEqual(len(PRODUCTION_PROFILES), 5)
 
+    def test_live_startup_prefers_exchange_equity_when_capital_not_configured(self):
+        from panteon_v2.app.startup import _resolve_initial_capital
+
+        class LiveExchange(FakeExchange):
+            def get_account_equity(self):
+                return 40.25
+
+        capital = _resolve_initial_capital(
+            exchange_adapter=LiveExchange(name="BITGET"),
+            mode="live_futures",
+            requested_initial_capital=None,
+            exchange_name="BITGET",
+        )
+
+        self.assertEqual(capital, 40.25)
+
+    def test_live_startup_respects_explicit_initial_capital_override(self):
+        from panteon_v2.app.startup import _resolve_initial_capital
+
+        class LiveExchange(FakeExchange):
+            def get_account_equity(self):
+                return 40.25
+
+        capital = _resolve_initial_capital(
+            exchange_adapter=LiveExchange(name="BITGET"),
+            mode="live_futures",
+            requested_initial_capital=77.0,
+            exchange_name="BITGET",
+        )
+
+        self.assertEqual(capital, 77.0)
+
+    def test_sync_pipeline_balance_uses_live_exchange_equity(self):
+        from panteon_v2.app.main_loop import sync_pipeline_balance
+
+        class LiveExchange(FakeExchange):
+            def get_account_equity(self):
+                return 120.5
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+
+        self.assertEqual(sync_pipeline_balance(pipeline), 120.5)
+        self.assertEqual(pipeline.current_balance, 120.5)
+
+    def test_runtime_risk_config_uses_settings_trade_fraction(self):
+        from panteon_v2.app.startup import _risk_config_from_trade_fraction
+
+        cfg = _risk_config_from_trade_fraction(0.035)
+
+        self.assertEqual(cfg.capital_fraction, 0.035)
+
 
 # ════════════════════════════════════════════════════════════════════
 # Main loop

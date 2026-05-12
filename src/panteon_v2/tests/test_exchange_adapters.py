@@ -23,6 +23,7 @@ def _signal(action: Action, *, sym: str = "BTC", price: float = 100.0) -> Signal
 class FakeMexcFuturesClient:
     def __init__(self):
         self.orders = []
+        self.assets = {"USDT": 120.5, "USDT_AVAIL": 118.0}
         self.positions = [
             {
                 "symbol": "BTC_USDT",
@@ -47,6 +48,9 @@ class FakeMexcFuturesClient:
         self.orders.append(("req", method, path))
         return {"data": list(self.positions)}
 
+    def account_assets(self):
+        return dict(self.assets)
+
     def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
         self.orders.append(("place_order", symbol, side, vol, leverage))
         return {
@@ -64,6 +68,7 @@ class FakeBitgetFuturesClient:
 
     def __init__(self):
         self.orders = []
+        self.assets = {"USDT": 40.25, "USDT_AVAIL": 39.0}
         self.positions = [
             {
                 "symbol": "ETH",
@@ -85,6 +90,9 @@ class FakeBitgetFuturesClient:
 
     def get_futures_positions(self):
         return list(self.positions)
+
+    def account_assets(self):
+        return dict(self.assets)
 
     def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
         self.orders.append(("place_order", symbol, side, vol, leverage))
@@ -140,6 +148,14 @@ class TestMexcExchangeAdapter(unittest.TestCase):
         self.assertAlmostEqual(pos.qty, 0.002)
         self.assertEqual(adapter.get_min_notional("BTC"), 5.0)
 
+    def test_reads_mexc_account_equity(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        client = FakeMexcFuturesClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        self.assertAlmostEqual(adapter.get_account_equity(), 120.5)
+
 
 class TestBitgetExchangeAdapter(unittest.TestCase):
     def test_open_long_maps_to_bitget_futures_order(self):
@@ -182,6 +198,14 @@ class TestBitgetExchangeAdapter(unittest.TestCase):
         self.assertEqual(pos.side, "short")
         self.assertAlmostEqual(pos.qty, 0.04)
         self.assertEqual(adapter.get_min_notional("ETH"), 5.10)
+
+    def test_reads_bitget_account_equity(self):
+        from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter
+
+        client = FakeBitgetFuturesClient()
+        adapter = BitgetExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        self.assertAlmostEqual(adapter.get_account_equity(), 40.25)
 
 
 if __name__ == "__main__":

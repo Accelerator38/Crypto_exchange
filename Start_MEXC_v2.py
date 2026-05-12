@@ -78,7 +78,8 @@ from panteon_v2.app.startup import start_production
 # Параметры запуска. Под каждый prod-deploy скорректируйте:
 SNAPSHOT_PATH = str(PROJECT_ROOT / "panteon_v2_state" / "mexc_snapshot.json")
 EVENTS_JSONL  = str(PROJECT_ROOT / "logs" / "v2_mexc_events.jsonl")
-INITIAL_CAPITAL = float(os.getenv("MEXC_INITIAL_CAPITAL", "100.0"))
+_INITIAL_CAPITAL_RAW = os.getenv("MEXC_INITIAL_CAPITAL")
+INITIAL_CAPITAL = float(_INITIAL_CAPITAL_RAW) if _INITIAL_CAPITAL_RAW else None
 
 sys.exit(start_production(
     exchange="MEXC",
