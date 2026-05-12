@@ -30,6 +30,7 @@ from .migration import (
     MigrationReport,
     load_v2_snapshot,
     migrate_from_v1_memory_file,
+    migrate_from_v1_memory_files,
     migrate_v1_regime_memory,
     save_v2_snapshot,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "MigrationReport",
     "load_v2_snapshot",
     "migrate_from_v1_memory_file",
+    "migrate_from_v1_memory_files",
     "migrate_v1_regime_memory",
     "save_v2_snapshot",
     # output_writer

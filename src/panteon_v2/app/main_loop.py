@@ -27,6 +27,7 @@ from ..attribution import (
     LeaderSelected,
     QuarantineRecomputed,
     RegimeDetected,
+    SignalEmitted,
 )
 from ..domain.types import MarketSnapshot, Regime, Signal
 from ..execution import ExecutionResult
@@ -269,6 +270,13 @@ def _run_one_bar(
     signals: List[Signal] = leader.vote(market, signal_id_start=signal_id_counter)
     if signals:
         signal_id_counter = max(s.id for s in signals) + 1
+        for sig in signals:
+            pipeline.event_log.emit(SignalEmitted(
+                bar=market.bar,
+                trace_id=trace,
+                signal=sig,
+            ))
+            pipeline.perf.record_signal(sig)
 
     # 6. Execute
     n_filled = n_rejected = n_blocked = 0

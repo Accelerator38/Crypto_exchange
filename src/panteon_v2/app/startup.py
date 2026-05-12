@@ -21,7 +21,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Union
 
 from ..execution import Exchange, FakeExchange, RiskLimitsConfig
 from ..selection import AgentRegistry, PlayerProfile
@@ -30,7 +30,11 @@ from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import register_all_v1_agents
 from .bootstrap import PRODUCTION_PROFILES, build_production_pipeline
 from .main_loop import main_loop
-from .migration import load_v2_snapshot, migrate_from_v1_memory_file, save_v2_snapshot
+from .migration import (
+    load_v2_snapshot,
+    migrate_from_v1_memory_files,
+    save_v2_snapshot,
+)
 from .output_writer import OutputWriter, OutputWriterConfig
 
 
@@ -108,6 +112,86 @@ def _resolve_trade_fraction(exchange_name: str) -> float:
         return 0.10
 
 
+def _perf_has_state(perf) -> bool:
+    try:
+        return bool((perf.snapshot().get("state") or {}))
+    except Exception:
+        return False
+
+
+def _default_v1_memory_paths(exchange_name: str) -> List[str]:
+    name = exchange_name.upper()
+    repo_root = Path(__file__).resolve().parents[3]
+    memory_dir = repo_root / "state" / "memory"
+    candidates = [
+        memory_dir / f"Real_Player_Memory_{name}.txt",
+        memory_dir / f"Real_Player_Aggregator_Memory_{name}.txt",
+    ]
+    return [str(path) for path in candidates if path.exists()]
+
+
+def _normalize_migration_paths(
+    migrate_from_v1: Optional[Union[str, Sequence[str]]],
+    *,
+    exchange_name: str,
+) -> List[str]:
+    if migrate_from_v1 is None:
+        return _default_v1_memory_paths(exchange_name)
+    if isinstance(migrate_from_v1, (str, os.PathLike)):
+        return [str(migrate_from_v1)]
+    return [str(path) for path in migrate_from_v1]
+
+
+def _load_or_migrate_state(
+    *,
+    perf,
+    snapshot_path: Optional[str],
+    migrate_from_v1: Optional[Union[str, Sequence[str]]],
+    exchange_name: str,
+) -> None:
+    loaded = False
+    if snapshot_path and os.path.exists(snapshot_path):
+        loaded = load_v2_snapshot(perf, snapshot_path)
+        if loaded:
+            if _perf_has_state(perf):
+                log.info("Loaded v2-snapshot from %s", snapshot_path)
+                return
+            log.warning(
+                "Loaded v2-snapshot from %s, but it has no ratings; "
+                "trying v1 memory migration",
+                snapshot_path,
+            )
+
+    paths = _normalize_migration_paths(
+        migrate_from_v1,
+        exchange_name=exchange_name,
+    )
+    if not paths:
+        if not loaded:
+            log.info("[%s] no v1 memory files found for migration", exchange_name)
+        return
+
+    report = migrate_from_v1_memory_files(paths, perf)
+    if report.n_regime_pairs:
+        log.info(
+            "Migrated from v1: %d labels, %d pairs from %d file(s)",
+            report.n_labels,
+            report.n_regime_pairs,
+            len(paths),
+        )
+        if snapshot_path:
+            save_v2_snapshot(perf, snapshot_path)
+            log.info("Saved migrated v2-snapshot -> %s", snapshot_path)
+    else:
+        log.warning(
+            "[%s] v1 memory migration found no ratings in: %s",
+            exchange_name,
+            ", ".join(paths),
+        )
+    for warning in report.warnings[:5]:
+        log.warning("[%s] v1 migration: %s", exchange_name, warning)
+
+
 # ────────────────────────────────────────────────────────────────────
 # Exchange adapter resolution
 # ────────────────────────────────────────────────────────────────────
@@ -166,7 +250,7 @@ def start_production(
     profiles:           Optional[Sequence[PlayerProfile]] = None,
     polling_session_dir: Optional[str] = None,
     snapshot_path:      Optional[str] = None,
-    migrate_from_v1:    Optional[str] = None,
+    migrate_from_v1:    Optional[Union[str, Sequence[str]]] = None,
     jsonl_event_log:    Optional[str] = None,
     max_bars:           Optional[int] = None,
     max_idle_polls:     Optional[int] = None,
@@ -241,13 +325,12 @@ def start_production(
              len(pipeline.profiles), pipeline.initial_capital)
 
     # 4. Загрузка persisted state
-    if snapshot_path and os.path.exists(snapshot_path):
-        if load_v2_snapshot(pipeline.perf, snapshot_path):
-            log.info("Loaded v2-snapshot from %s", snapshot_path)
-    elif migrate_from_v1 and os.path.exists(migrate_from_v1):
-        report = migrate_from_v1_memory_file(migrate_from_v1, pipeline.perf)
-        log.info("Migrated from v1: %d labels, %d pairs",
-                 report.n_labels, report.n_regime_pairs)
+    _load_or_migrate_state(
+        perf=pipeline.perf,
+        snapshot_path=snapshot_path,
+        migrate_from_v1=migrate_from_v1,
+        exchange_name=exchange,
+    )
 
     # 5. OutputWriter — обязательно для видимости работы
     writer = OutputWriter.for_session(pipeline, results_root=results_root)

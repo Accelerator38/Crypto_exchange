@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from panteon_v2.app import (
     OutputWriter,
@@ -202,6 +203,15 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(len(steps), 1)
         self.assertIsNone(steps[0].leader)
 
+    def test_signal_events_emitted_for_generated_signals(self):
+        from panteon_v2.attribution import SignalEmitted
+
+        pipeline, feed = self._setup()
+        main_loop(pipeline, feed, max_bars=1)
+
+        events = list(pipeline.event_log.query(event_types=[SignalEmitted]))
+        self.assertGreaterEqual(len(events), 1)
+
 
 class TestOutputWriter(unittest.TestCase):
     def test_writer_creates_operator_files_before_first_bar(self):
@@ -287,6 +297,105 @@ class TestMigration(unittest.TestCase):
             perf = PerformanceMemory()
             report = migrate_from_v1_memory_file(path, perf)
             self.assertEqual(report.n_labels, 1)
+
+    def test_migrate_player_regime_memory_maps_v1_player_labels(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "v1_player_memory.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"player_regime_memory": {
+                    "neutral": {
+                        "V_PanteonTrendResearch": {
+                            "samples": 11,
+                            "wins": 7,
+                            "losses": 4,
+                            "avg_pnl": 1.25,
+                        },
+                    },
+                }}, f)
+
+            perf = PerformanceMemory()
+            report = migrate_from_v1_memory_file(path, perf)
+
+            self.assertEqual(report.n_labels, 1)
+            self.assertTrue(perf.get("TrendResearch", Regime.NEUTRAL).has_data)
+            self.assertFalse(perf.get("V_PanteonTrendResearch", Regime.NEUTRAL).has_data)
+
+    def test_migrate_keeps_solo_player_labels_separate_from_agents(self):
+        v1 = {"neutral": {
+            "LiveTrendFollow": {
+                "samples": 3,
+                "wins": 2,
+                "losses": 1,
+                "pnl_pct": 3.0,
+            },
+            "V_SoloLiveTrendFollow": {
+                "samples": 8,
+                "wins": 1,
+                "losses": 7,
+                "pnl_pct": -4.0,
+            },
+        }}
+        perf = PerformanceMemory()
+
+        migrate_v1_regime_memory(v1, perf)
+
+        agent = perf.get("LiveTrendFollow", Regime.NEUTRAL)
+        solo_player = perf.get("SoloLiveTrendFollow", Regime.NEUTRAL)
+        self.assertEqual(agent.closed_trades, 3)
+        self.assertAlmostEqual(agent.pnl_pct, 3.0)
+        self.assertEqual(solo_player.closed_trades, 8)
+        self.assertAlmostEqual(solo_player.pnl_pct, -4.0)
+
+    def test_startup_migrates_when_v2_snapshot_is_empty(self):
+        from panteon_v2.app.startup import start_production
+
+        with tempfile.TemporaryDirectory() as td:
+            snapshot_path = os.path.join(td, "mexc_snapshot.json")
+            v1_path = os.path.join(td, "v1_player_memory.json")
+            with open(snapshot_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "trade_fraction": 0.1,
+                    "state": {},
+                    "open": {},
+                    "seen_signal_ids": [],
+                }, f)
+            with open(v1_path, "w", encoding="utf-8") as f:
+                json.dump({"player_regime_memory": {
+                    "neutral": {
+                        "V_PanteonTrendResearch": {
+                            "samples": 9,
+                            "wins": 5,
+                            "losses": 4,
+                            "avg_pnl": 0.75,
+                        },
+                    },
+                }}, f)
+
+            def register_one_agent(registry, **_kwargs):
+                registry.register(FakeAgent("LiveTrendFollow"))
+                return ["LiveTrendFollow"]
+
+            with patch("panteon_v2.app.startup.resolve_exchange",
+                       return_value=FakeExchange(name="MEXC")), \
+                 patch("panteon_v2.app.startup.register_all_v1_agents",
+                       side_effect=register_one_agent), \
+                 patch("panteon_v2.app.startup._resolve_trade_fraction",
+                       return_value=0.1):
+                rc = start_production(
+                    exchange="MEXC",
+                    mode="paper",
+                    snapshot_path=snapshot_path,
+                    migrate_from_v1=v1_path,
+                    use_v1_bridge=False,
+                    max_bars=0,
+                    results_root=td,
+                    sleep_between_polls_sec=0.0,
+                )
+
+            self.assertEqual(rc, 0)
+            with open(snapshot_path, "r", encoding="utf-8") as f:
+                migrated = json.load(f)
+            self.assertIn("TrendResearch|neutral", migrated["state"])
 
     def test_missing_file(self):
         perf = PerformanceMemory()

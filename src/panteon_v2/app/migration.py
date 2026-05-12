@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from ..domain.types import Regime
 from ..memory import PerformanceMemory
@@ -35,6 +35,25 @@ class MigrationReport:
     n_labels:       int
     n_regime_pairs: int
     warnings:       List[str]
+
+
+_V1_PLAYER_LABELS = {
+    "V_Panteon_shadow": "DefaultEnsemble",
+    "V_PanteonTrendResearch": "TrendResearch",
+    "V_PanteonMeanRevResearch": "MeanRevResearch",
+    "V_PanteonDefensiveResearch": "DefensiveResearch",
+    "V_PlayerBomberman": "BombermanStrong",
+}
+
+
+def _normalize_v1_label(label: object) -> str:
+    raw = str(label)
+    mapped = _V1_PLAYER_LABELS.get(raw)
+    if mapped:
+        return mapped
+    if raw.startswith("V_"):
+        return raw[2:]
+    return raw
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -87,7 +106,7 @@ def migrate_v1_regime_memory(
         for label, raw in by_label.items():
             if not isinstance(raw, dict):
                 continue
-            label = str(label).replace("V_", "")
+            label = _normalize_v1_label(label)
             seen_labels.add(label)
             n_pairs += 1
 
@@ -95,6 +114,7 @@ def migrate_v1_regime_memory(
             samples = int(raw.get("samples") or raw.get("closed_trades") or 0)
             wins = int(raw.get("wins") or 0)
             losses = int(raw.get("losses") or 0)
+            samples = max(samples, wins + losses)
             pnl_pct = float(raw.get("pnl_pct") or raw.get("avg_pnl") or 0.0)
 
             key = f"{label}|{regime.label}"
@@ -150,6 +170,8 @@ def migrate_from_v1_memory_file(
         regime_memory = data["_regime_memory"]
     elif "regime_memory" in data:
         regime_memory = data["regime_memory"]
+    elif "player_regime_memory" in data:
+        regime_memory = data["player_regime_memory"]
     elif isinstance(data, dict) and any(
         isinstance(v, dict) for v in data.values()
     ):
@@ -161,6 +183,34 @@ def migrate_from_v1_memory_file(
         )
 
     return migrate_v1_regime_memory(regime_memory, perf, source_path=path)
+
+
+def migrate_from_v1_memory_files(
+    paths: Sequence[str],
+    perf: PerformanceMemory,
+) -> MigrationReport:
+    """Load and merge several v1 memory files into one PerformanceMemory."""
+    warnings: List[str] = []
+    n_pairs = 0
+    source_paths: List[str] = []
+    labels_before = set(perf.all_labels())
+
+    for path in paths:
+        report = migrate_from_v1_memory_file(path, perf)
+        source_paths.append(report.source_path)
+        n_pairs += report.n_regime_pairs
+        warnings.extend(report.warnings)
+
+    labels_after = set(perf.all_labels())
+    n_labels = len(labels_after - labels_before)
+    if n_pairs and n_labels == 0:
+        n_labels = len(labels_after)
+    return MigrationReport(
+        source_path=";".join(source_paths),
+        n_labels=n_labels,
+        n_regime_pairs=n_pairs,
+        warnings=warnings,
+    )
 
 
 # ────────────────────────────────────────────────────────────────────
