@@ -4,16 +4,16 @@
 v1 уже имеет готовый bridge для BITGET/MEXC. Мы НЕ переписываем его, а
 **переиспользуем** через данный модуль:
 
-  • импортируем v1 exchange_api_runtime
-  • создаём bridge через standard API v1 (warmup, потом live)
+  • импортируем v1 exchange_runtime через exchange_registry
+  • создаём bridge и используем только warmup/_fetch_market как market-data feed
+  • НЕ запускаем v1 _run_cycle()/run_once(), чтобы не исполнять v1-ордера
   • на каждом тике v1-bridge вытаскиваем prices/volumes/regime
   • строим MarketSnapshot и передаём в v2 pipeline
-  • v2 принимает решения → v2 TradeExecutor отправляет через v1
-    exchange-клиент (тот же bridge.exchange API)
+  • v2 принимает решения → v2 TradeExecutor отправляет через v2 exchange adapter
 
-Это даёт production-готовый запуск БЕЗ необходимости переписывать
-connector-ы. Когда оператор сделает чистые `bitget_adapter.py` /
-`mexc_adapter.py` — этот файл можно будет удалить.
+Это даёт production-готовый запуск по данным из существующих connector-ов.
+Когда появится чистый v2 market-feed для BITGET/MEXC — этот файл можно будет
+удалить.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def _is_usable_bridge(candidate: Any) -> bool:
     return (
         candidate is not None
         and callable(getattr(candidate, "warmup", None))
-        and callable(getattr(candidate, "run_cycle", None))
+        and callable(getattr(candidate, "_fetch_market", None))
     )
 
 
@@ -68,7 +68,7 @@ class V1BridgeFeed:
       • Каждый последующий next_bar() = один live-тик v1 bridge
 
     bridge должен иметь:
-      bridge.run_cycle()  → запускает 1 итерацию
+      bridge._fetch_market() → возвращает prices/volumes без исполнения v1-ордеров
       bridge._price_hist  → последние цены (list of dict OR dict)
       bridge._bar         → номер текущего бара
       bridge.funding.get_global() → ставки
@@ -98,30 +98,55 @@ class V1BridgeFeed:
             self.warmup()
 
         try:
-            self._bridge.run_cycle()
+            current_bar = int(getattr(self._bridge, "_bar", 0) or 0) + 1
+            setattr(self._bridge, "_bar", current_bar)
+            fetched = self._bridge._fetch_market()
         except Exception:
-            log.exception("[%s] bridge.run_cycle() error", self._exchange)
+            log.exception("[%s] bridge._fetch_market() error", self._exchange)
             return None
 
         bar = int(getattr(self._bridge, "_bar", 0) or 0)
-        # Цены — пытаемся вытащить из _price_hist
         prices: Dict[str, float] = {}
+        volumes: Dict[str, float] = {}
+        if isinstance(fetched, tuple) and len(fetched) >= 2:
+            raw_prices, raw_volumes = fetched[0], fetched[1]
+            if isinstance(raw_prices, dict):
+                prices = {str(k).upper(): float(v) for k, v in raw_prices.items() if v}
+            if isinstance(raw_volumes, dict):
+                volumes = {
+                    str(k).upper(): float(v)
+                    for k, v in raw_volumes.items()
+                    if str(k).upper() in prices
+                }
+
+        # Fallback: цены — пытаемся вытащить из _price_hist
         try:
-            ph = getattr(self._bridge, "_price_hist", None)
-            if isinstance(ph, list) and ph:
-                last = ph[-1]
-                if isinstance(last, dict):
-                    prices = {k: float(v) for k, v in last.items() if v}
-            elif isinstance(ph, dict):
-                # dict[sym → list[float]]; берём последнее значение
-                for sym, series in ph.items():
-                    if series and series[-1]:
-                        prices[sym] = float(series[-1])
+            if not prices:
+                ph = getattr(self._bridge, "_price_hist", None)
+                if isinstance(ph, list) and ph:
+                    last = ph[-1]
+                    if isinstance(last, dict):
+                        prices = {str(k).upper(): float(v) for k, v in last.items() if v}
+                elif isinstance(ph, dict):
+                    # dict[sym → list[float]]; берём последнее значение
+                    for sym, series in ph.items():
+                        if series and series[-1]:
+                            prices[str(sym).upper()] = float(series[-1])
         except Exception:
             log.exception("[%s] failed to extract prices", self._exchange)
 
         if not prices:
             return None
+
+        try:
+            ph = getattr(self._bridge, "_price_hist", None)
+            if isinstance(ph, list):
+                ph.append(dict(prices))
+            vh = getattr(self._bridge, "_volume_hist", None)
+            if isinstance(vh, list):
+                vh.append(dict(volumes))
+        except Exception:
+            log.debug("[%s] failed to append bridge market history", self._exchange)
 
         # Регим — пытаемся из bridge agent
         regime_str = "neutral"
@@ -141,6 +166,7 @@ class V1BridgeFeed:
         return make_market_snapshot(
             bar=bar,
             prices=prices,
+            volumes=volumes,
             regime=regime_str,
         )
 
@@ -150,28 +176,71 @@ class V1BridgeFeed:
 # ────────────────────────────────────────────────────────────────────
 
 
-def _create_bridge(exchange_name: str, mode: str = "live_futures") -> Any:
-    """Создаёт v1-bridge через стандартную v1-фабрику.
+def _create_bridge(
+    exchange_name: str,
+    mode: str = "live_futures",
+    *,
+    output_dir: Optional[str] = None,
+) -> Any:
+    """Создаёт v1-bridge через exchange_registry.load_exchange_runtime().
 
-    Использует exchange_api_runtime.bridge_factory или аналогичный
-    API. Если bridge нельзя создать — возвращает None и логирует
-    предупреждение.
+    Bridge нужен v2 только как источник market-data: warmup + _fetch_market.
+    Если bridge нельзя создать — возвращает None и логирует предупреждение.
     """
     _ensure_v1_paths()
     try:
-        # v1 предоставляет фабрику через _exchange_adapter в Panteon_Trade
-        # или через exchange_registry. Пробуем оба пути.
         import os as _os
-        _os.environ.setdefault("CRYPTO_EXCHANGE", exchange_name.upper())
+        _os.environ["CRYPTO_EXCHANGE"] = exchange_name.upper()
+        _os.environ[f"{exchange_name.upper()}_TRADING_MODE"] = mode
         try:
-            from exchange_registry import build_bridge_for  # type: ignore
-            bridge = build_bridge_for(exchange_name.upper())
+            from exchange_registry import load_exchange_runtime  # type: ignore
+
+            runtime = load_exchange_runtime(exchange_name)
+            cfg = runtime.parse_settings(runtime.load_settings())
+            bridge_cls = runtime.resolve_bridge_class()
+            api_key = _os.getenv(runtime.api_key_env, "")
+            api_secret = _os.getenv(runtime.api_secret_env, "")
+            api_passphrase = _os.getenv(runtime.api_passphrase_env, "")
+            direct_client = None
+            if api_key and api_secret:
+                try:
+                    direct_client = runtime.create_direct_client(
+                        api_key,
+                        api_secret,
+                        api_passphrase,
+                    )
+                except Exception as exc:
+                    log.warning("[%s] direct client unavailable: %s", exchange_name, exc)
+
+            bridge_kwargs = {
+                "agents": {},
+                "cfg": cfg,
+                "mode": mode,
+                "api_key": api_key,
+                "api_secret": api_secret,
+                "output_dir": output_dir,
+                "direct_client": direct_client,
+            }
+            if api_passphrase:
+                bridge_kwargs["api_passphrase"] = api_passphrase
+
+            try:
+                bridge = bridge_cls(**bridge_kwargs)
+            except TypeError:
+                bridge_kwargs.pop("api_passphrase", None)
+                bridge = bridge_cls(**bridge_kwargs)
+
+            try:
+                setattr(bridge, "warmup_bars", int(runtime.warmup_bars or 0))
+            except Exception:
+                pass
+
             if _is_usable_bridge(bridge):
+                log.info("[%s] v1 bridge created through exchange_runtime", exchange_name)
                 return bridge
-            log.warning("[%s] build_bridge_for returned unusable bridge", exchange_name)
+            log.warning("[%s] exchange_runtime returned unusable bridge", exchange_name)
         except (ImportError, AttributeError):
             pass
-        # Fallback: создаём через MexcDirectClient / BitgetDirectClient
         log.warning("[%s] no v1 bridge factory available", exchange_name)
         return None
     except Exception:
@@ -199,11 +268,17 @@ def run_with_v1_bridge(
 ) -> int:
     """Запускает pipeline через v1-bridge."""
     if bridge is None:
-        bridge = _create_bridge(exchange_name, mode=mode)
+        bridge = _create_bridge(
+            exchange_name,
+            mode=mode,
+            output_dir=(output_writer.output_dir if output_writer else None),
+        )
     if bridge is None:
         log.error("[%s] cannot start: bridge unavailable", exchange_name)
         return 2
 
+    log.info("[%s] v1 bridge feed active: market-data only, v1 order cycle disabled",
+             exchange_name)
     feed = V1BridgeFeed(bridge, exchange_name=exchange_name)
     feed.warmup(warmup_bars=warmup_bars)
 
