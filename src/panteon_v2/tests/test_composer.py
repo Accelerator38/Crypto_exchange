@@ -1,0 +1,157 @@
+"""Тесты PlayerComposer + PlayerProfile."""
+
+from __future__ import annotations
+
+import unittest
+
+from panteon_v2.domain.types import Action, Regime
+from panteon_v2.memory import PerformanceMemory, QuarantineManager
+from panteon_v2.selection import (
+    PROFILE_DEFAULT_ENSEMBLE,
+    PROFILE_TREND_RESEARCH,
+    AgentRegistry,
+    AgentSelector,
+    PlayerComposer,
+    PlayerProfile,
+    WeightedConsensus,
+    ThresholdProfile,
+)
+from panteon_v2.tests._helpers import FakeAgent
+from panteon_v2.tests.test_selector import _add_perf
+
+
+class TestPlayerProfile(unittest.TestCase):
+    def test_default_valid(self):
+        # Default profile — valid
+        self.assertEqual(PROFILE_DEFAULT_ENSEMBLE.label, "DefaultEnsemble")
+
+    def test_invalid_max_lt_min(self):
+        with self.assertRaises(ValueError):
+            PlayerProfile(
+                label="X",
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+                max_agents=2, min_agents=5,
+            )
+
+
+class TestPlayerComposer(unittest.TestCase):
+    def setUp(self):
+        self.registry = AgentRegistry()
+        for label in ["LiveTrendFollow", "LiveAfterShock",
+                      "LiveCrashHunter", "LiveOIBreakout",
+                      "FundingArb"]:
+            self.registry.register(FakeAgent(label, {"BTC": Action.FUT_LONG_FULL}))
+        self.perf = PerformanceMemory(trade_fraction=1.0)
+        # Все 5 в плюсе
+        for i, label in enumerate(self.registry.all_labels()):
+            _add_perf(self.perf, label, Regime.BULLISH, 5, 0.5 + i * 0.1,
+                      start_id=1000 + i*100)
+        self.qm = QuarantineManager(seed={"FundingArb"})  # FundingArb в карантине
+        self.selector = AgentSelector(self.registry, self.perf, self.qm)
+        self.composer = PlayerComposer(self.selector)
+
+    def test_compose_basic(self):
+        player = self.composer.compose_from_profile(
+            PROFILE_DEFAULT_ENSEMBLE, Regime.BULLISH,
+        )
+        self.assertIsNotNone(player)
+        # FundingArb в карантине — не должен попасть
+        self.assertNotIn("FundingArb", player.agent_labels)
+
+    def test_compose_respects_min_agents(self):
+        # min_agents=5, but only 4 eligible (FundingArb quarantined)
+        profile = PlayerProfile(
+            label="Strict5",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=5, min_agents=5,
+        )
+        player = self.composer.compose_from_profile(profile, Regime.BULLISH)
+        self.assertIsNone(player, "Should fail min_agents=5 with 4 eligible")
+
+    def test_compose_uses_max_agents_cap(self):
+        profile = PlayerProfile(
+            label="MaxThree",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=3, min_agents=2,
+        )
+        player = self.composer.compose_from_profile(profile, Regime.BULLISH)
+        self.assertIsNotNone(player)
+        self.assertLessEqual(len(player.agent_labels), 3)
+
+    def test_compose_weights_normalized(self):
+        player = self.composer.compose_from_profile(
+            PROFILE_DEFAULT_ENSEMBLE, Regime.BULLISH,
+        )
+        self.assertIsNotNone(player)
+        total = sum(player.weights.values())
+        self.assertAlmostEqual(total, 1.0, places=6)
+
+    def test_bias_increases_weight(self):
+        # Profile с явным bias на LiveTrendFollow
+        profile = PlayerProfile(
+            label="BiasedTrend",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=4, min_agents=2,
+            bias={"LiveTrendFollow": 5.0},  # огромный bias
+        )
+        player = self.composer.compose_from_profile(profile, Regime.BULLISH)
+        if player is None:
+            self.skipTest("Composer не дал игрока")
+        # LiveTrendFollow должен быть с самым большим весом
+        weights_sorted = sorted(player.weights.items(), key=lambda kv: -kv[1])
+        self.assertEqual(weights_sorted[0][0], "LiveTrendFollow")
+
+    def test_compose_with_fallback(self):
+        # Если нет agents с positive scores, нормальный compose даст None,
+        # fallback должен попробовать понизить порог.
+        # Создаём ситуацию: все в минусе
+        registry2 = AgentRegistry()
+        for label in ["A", "B", "C"]:
+            registry2.register(FakeAgent(label))
+        perf2 = PerformanceMemory(trade_fraction=1.0)
+        for label in ["A", "B", "C"]:
+            _add_perf(perf2, label, Regime.NEUTRAL, 5, -1.0)
+        qm2 = QuarantineManager(seed=set())
+        sel2 = AgentSelector(registry2, perf2, qm2)
+        comp2 = PlayerComposer(sel2)
+
+        normal = comp2.compose_from_profile(PROFILE_DEFAULT_ENSEMBLE, Regime.NEUTRAL)
+        # Ожидание: либо None, либо очень мало агентов
+        if normal is None:
+            fb = comp2.compose_from_profile_with_fallback(
+                PROFILE_DEFAULT_ENSEMBLE, Regime.NEUTRAL,
+            )
+            self.assertIsNotNone(fb)
+
+
+class TestComposerCarantineGuarantee(unittest.TestCase):
+    """Property: композер НИКОГДА не возвращает игрока с карантинным агентом."""
+
+    def test_quarantine_propagates_through_composer(self):
+        registry = AgentRegistry()
+        for label in ["A", "B", "C", "D", "BadOne"]:
+            registry.register(FakeAgent(label))
+        perf = PerformanceMemory(trade_fraction=1.0)
+        # BadOne — самый прибыльный, но в карантине
+        _add_perf(perf, "BadOne", Regime.BULLISH, 10, 10.0, start_id=1)
+        for i, label in enumerate(["A", "B", "C", "D"]):
+            _add_perf(perf, label, Regime.BULLISH, 5, 0.5,
+                      start_id=1000 + i * 100)
+        qm = QuarantineManager(seed={"BadOne"})
+        composer = PlayerComposer(AgentSelector(registry, perf, qm))
+
+        for _ in range(5):
+            player = composer.compose_from_profile(
+                PROFILE_DEFAULT_ENSEMBLE, Regime.BULLISH,
+            )
+            if player is not None:
+                self.assertNotIn("BadOne", player.agent_labels,
+                                 "Quarantined must NEVER appear in player.agents")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

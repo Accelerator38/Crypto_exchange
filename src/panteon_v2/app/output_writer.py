@@ -1,0 +1,384 @@
+"""OutputWriter — периодическая запись output на диск.
+
+Заменяет v1 функциональность: status.json + leaderboard_*.json +
+dashboard ASCII + trading.log. Файлы пишутся в той же папке как v1:
+  Results/{EXCHANGE}/{TIMESTAMP}/
+
+Каждые N баров (или N секунд) делается snapshot всего state.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+import html
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from ..dashboards import (
+    DashboardRenderer,
+    TextRenderer,
+    build_attribution_panel,
+    build_leaderboard,
+    build_quarantine_panel,
+    build_regime_heatmap,
+)
+from ..domain.types import Regime
+from .bootstrap import ProductionPipeline
+from .main_loop import StepResult
+
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class OutputWriterConfig:
+    """Конфигурация писателя."""
+
+    output_dir:           str
+    write_every_bars:     int = 1       # каждый bar
+    full_snapshot_every:  int = 30      # leaderboard каждые N баров
+    trading_log_filename: str = "trading.log"
+    status_filename:      str = "status.json"
+    leaderboard_agents:   str = "leaderboard_agents.json"
+    leaderboard_players:  str = "leaderboard_players.json"
+    dashboard_filename:   str = "dashboard.txt"
+    dashboard_html:       str = "dashboard.html"
+    events_jsonl:         str = "events.jsonl"
+
+
+class OutputWriter:
+    """Periodic snapshot writer.
+
+    Использование:
+        writer = OutputWriter(pipeline, OutputWriterConfig(output_dir=...))
+        def on_step(step):
+            writer.write(step)
+        main_loop(pipeline, feed, on_step=on_step)
+    """
+
+    def __init__(self, pipeline: ProductionPipeline, config: OutputWriterConfig):
+        self._pipeline = pipeline
+        self._config = config
+        self._start_time = time.time()
+        self._initial_capital = pipeline.initial_capital
+        self._current_balance = pipeline.initial_capital
+        self._last_step: Optional[StepResult] = None
+        # Создаём output dir
+        Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+        # Открываем trading.log (append)
+        self._log_path = os.path.join(config.output_dir, config.trading_log_filename)
+        with open(self._log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'='*70}\n")
+            f.write(f"Panteon v2 started: {datetime.now(timezone.utc).isoformat()}\n")
+            f.write(f"  exchange: {pipeline.exchange_name}\n")
+            f.write(f"  initial_capital: ${pipeline.initial_capital:.4f}\n")
+            f.write(f"  profiles: {len(pipeline.profiles)}\n")
+            f.write(f"  registered_agents: {len(pipeline.registry)}\n")
+            f.write(f"{'='*70}\n\n")
+        self._write_status(
+            None,
+            run_state="starting",
+            feed_status="initializing",
+            message="waiting for first market bar",
+        )
+        self._write_leaderboards()
+        self._write_dashboard()
+
+    @classmethod
+    def for_session(
+        cls,
+        pipeline: ProductionPipeline,
+        results_root: str = "Results",
+        **kwargs,
+    ) -> "OutputWriter":
+        """Создаёт writer с автоматическим путём Results/{EXCHANGE}/{TS}/.
+
+        Тот же путь как у v1.
+        """
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+        output_dir = os.path.join(
+            results_root, pipeline.exchange_name.upper().replace("-DRYRUN","").replace("-PAPER",""),
+            ts + "_v2",
+        )
+        cfg = OutputWriterConfig(output_dir=output_dir, **kwargs)
+        return cls(pipeline, cfg)
+
+    def write(self, step: StepResult) -> None:
+        """Вызывается после каждого bar (через on_step callback)."""
+        self._last_step = step
+        self._log_step(step)
+
+        # каждый bar — status.json
+        if step.bar % self._config.write_every_bars == 0:
+            self._write_status(step, run_state="running", feed_status="active")
+
+        # реже — leaderboards + dashboard
+        if step.bar % self._config.full_snapshot_every == 0:
+            self._write_leaderboards()
+            self._write_dashboard()
+
+    def write_heartbeat(
+        self,
+        *,
+        run_state: str = "idle",
+        feed_status: str = "waiting",
+        message: str = "",
+    ) -> None:
+        """Update operator-visible files when no market bar has arrived yet."""
+        self._write_status(
+            self._last_step,
+            run_state=run_state,
+            feed_status=feed_status,
+            message=message,
+        )
+
+    def _log_step(self, step: StepResult) -> None:
+        """Append одну строку в trading.log."""
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        parts = [
+            ts,
+            f"bar={step.bar}",
+            f"regime={step.regime.label}",
+            f"leader={step.leader or '-'}",
+            f"signals={step.n_signals}",
+            f"filled={step.n_filled}",
+            f"rejected={step.n_rejected}",
+            f"blocked={step.n_blocked}",
+        ]
+        if step.leader_changed:
+            parts.append("LEADER_CHANGED")
+        if step.error:
+            parts.append(f"ERROR={step.error}")
+        line = "  ".join(parts)
+        try:
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception:
+            log.exception("trading.log write failed")
+
+    def _write_status(
+        self,
+        step: Optional[StepResult],
+        *,
+        run_state: str,
+        feed_status: str,
+        message: str = "",
+    ) -> None:
+        """status.json — аналог v1."""
+        # Реплеим ledger чтобы получить актуальный PnL
+        try:
+            self._pipeline.ledger.replay_from_event_log(self._pipeline.event_log)
+        except Exception:
+            pass
+
+        realized_pnl = self._pipeline.ledger.total_realized_pnl
+        # Обновляем баланс по реализованному PnL
+        self._current_balance = self._initial_capital + realized_pnl
+        self._pipeline.current_balance = self._current_balance
+
+        pnl_pct = (
+            (self._current_balance - self._initial_capital) / self._initial_capital * 100.0
+            if self._initial_capital > 0 else 0.0
+        )
+
+        # Открытые позиции
+        open_positions = {}
+        for sym, pos in self._pipeline.executor._tracker.all_open().items() \
+                if hasattr(self._pipeline.executor, "_tracker") else {}:
+            open_positions[sym] = {
+                "side":  pos.side,
+                "qty":   pos.qty,
+                "entry": pos.entry_price,
+                "by_player": pos.by_player,
+                "by_agent":  pos.by_agent,
+            }
+
+        uptime_sec = time.time() - self._start_time
+        h = int(uptime_sec // 3600)
+        m = int((uptime_sec % 3600) // 60)
+        s = int(uptime_sec % 60)
+        bar = step.bar if step is not None else 0
+        regime = step.regime.label if step is not None else "unknown"
+        n_signals = step.n_signals if step is not None else 0
+        n_filled = step.n_filled if step is not None else 0
+        n_rejected = step.n_rejected if step is not None else 0
+        n_blocked = step.n_blocked if step is not None else 0
+        leader = step.leader if step is not None else None
+
+        data = {
+            "version":          "v2",
+            "timestamp":        datetime.now(timezone.utc).isoformat(),
+            "exchange":         self._pipeline.exchange_name,
+            "run_state":        run_state,
+            "feed_status":      feed_status,
+            "message":          message,
+            "uptime":           f"{h:02d}:{m:02d}:{s:02d}",
+            "bar_count":        bar,
+            "regime":           regime,
+            "initial_capital":  self._initial_capital,
+            "current_balance":  self._current_balance,
+            "pnl_usd":          realized_pnl,
+            "pnl_pct":          pnl_pct,
+            "n_signals_bar":    n_signals,
+            "n_filled_bar":     n_filled,
+            "n_rejected_bar":   n_rejected,
+            "n_blocked_bar":    n_blocked,
+            "n_positions":      len(open_positions),
+            "current_leader":   leader,
+            "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
+            "open_positions":   open_positions,
+            "ledger_closed_count": self._pipeline.ledger.closed_count,
+        }
+        path = os.path.join(self._config.output_dir, self._config.status_filename)
+        self._write_json_atomic(path, data)
+
+    def _write_leaderboards(self) -> None:
+        """leaderboard_agents.json / leaderboard_players.json как у v1."""
+        try:
+            self._pipeline.ledger.replay_from_event_log(self._pipeline.event_log)
+        except Exception:
+            return
+
+        # AGENTS: данные из PerformanceMemory
+        agents: Dict[str, dict] = {}
+        for label in self._pipeline.perf.all_labels():
+            metrics_agg = self._pipeline.perf.get(label)
+            if not metrics_agg.has_data:
+                continue
+            per_regime = {}
+            for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
+                rm = self._pipeline.perf.get(label, regime=r)
+                if rm.has_data:
+                    per_regime[r.label] = {
+                        "pnl_pct":        rm.pnl_pct,
+                        "closed_trades":  rm.closed_trades,
+                        "win_rate":       rm.win_rate,
+                    }
+            agents["V_" + label] = {
+                "pnl_pct":        metrics_agg.pnl_pct,
+                "closed_trades":  metrics_agg.closed_trades,
+                "win_rate":       metrics_agg.win_rate,
+                "sharpe":         metrics_agg.sharpe,
+                "max_drawdown_pct": metrics_agg.max_dd_pct,
+                "is_quarantined": self._pipeline.qm.is_quarantined(label),
+                "per_regime":     per_regime,
+            }
+
+        # PLAYERS: то же самое только из ledger (delegates)
+        players: Dict[str, dict] = {}
+        player_pnl = self._pipeline.ledger.total_pnl_by_player()
+        trade_counts = self._pipeline.ledger.trade_counts_by_player()
+        win_counts = self._pipeline.ledger.win_counts_by_player()
+        for label, pnl in player_pnl.items():
+            tr = trade_counts.get(label, 0)
+            wins = win_counts.get(label, 0)
+            players["V_" + label] = {
+                "realized_pnl_usd": pnl,
+                "trades":            tr,
+                "wins":              wins,
+                "win_rate":          (wins / tr * 100.0) if tr else 0.0,
+            }
+
+        agents_meta = {
+            "schema":    "v2",
+            "exchange":  self._pipeline.exchange_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "regime":    "—",  # фиксируется по последнему step, ниже
+        }
+        self._write_json_atomic(
+            os.path.join(self._config.output_dir, self._config.leaderboard_agents),
+            {"metadata": agents_meta, "agents": agents},
+        )
+        self._write_json_atomic(
+            os.path.join(self._config.output_dir, self._config.leaderboard_players),
+            {"metadata": agents_meta, "players": players},
+        )
+
+    def _write_dashboard(self) -> None:
+        """ASCII dashboard через TextRenderer."""
+        try:
+            main = self._pipeline.renderer.build_main(timeline_max=20)
+            text = TextRenderer().render_main(main)
+            path = os.path.join(self._config.output_dir, self._config.dashboard_filename)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            self._write_dashboard_html(text)
+        except Exception:
+            log.exception("dashboard render failed")
+
+    def _write_dashboard_html(self, text: str) -> None:
+        status_path = self._config.status_filename
+        escaped = html.escape(text)
+        now = datetime.now(timezone.utc).isoformat()
+        page = f"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="30">
+<title>Panteon v2 dashboard</title>
+<style>
+body {{ margin: 0; background: #0d1117; color: #d6deeb; font-family: Consolas, monospace; }}
+header {{ padding: 12px 16px; background: #161b22; border-bottom: 1px solid #30363d; }}
+main {{ padding: 16px; }}
+a {{ color: #58a6ff; }}
+pre {{ white-space: pre-wrap; line-height: 1.35; font-size: 13px; }}
+.muted {{ color: #8b949e; }}
+</style>
+</head>
+<body>
+<header>
+<strong>Panteon v2</strong>
+<span class="muted">updated {html.escape(now)}</span>
+<span class="muted">status: <a href="{html.escape(status_path)}">{html.escape(status_path)}</a></span>
+</header>
+<main><pre>{escaped}</pre></main>
+</body>
+</html>
+"""
+        path = os.path.join(self._config.output_dir, self._config.dashboard_html)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(page)
+
+    # ── Helpers ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _write_json_atomic(path: str, data: dict) -> None:
+        """Атомарная запись: пишем в tmp + rename."""
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+            os.replace(tmp, path)
+        except Exception:
+            log.exception("atomic write failed: %s", path)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    @property
+    def output_dir(self) -> str:
+        return self._config.output_dir
+
+    def close(self) -> None:
+        """Финальная фиксация state перед выходом."""
+        try:
+            self._write_status(
+                self._last_step,
+                run_state="stopped",
+                feed_status="closed",
+                message="writer closed",
+            )
+            self._write_leaderboards()
+            self._write_dashboard()
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*70}\n")
+                f.write(f"Panteon v2 stopped: {datetime.now(timezone.utc).isoformat()}\n")
+                f.write(f"{'='*70}\n")
+        except Exception:
+            log.exception("close failed")

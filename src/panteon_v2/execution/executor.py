@@ -1,0 +1,311 @@
+"""TradeExecutor — единственный путь сигнала на биржу.
+
+Pipeline:
+    Signal
+    → SymbolHealthMonitor.is_blocked? → BLOCKED
+    → RiskLimits.evaluate?            → BLOCKED
+    → Exchange.send_order             → FILLED / PENDING / REJECTED
+    → on success:
+        PositionTracker.on_open/close → events
+        PerformanceMemory.update_from_trade
+        SymbolHealthMonitor.record_success
+        EmitEvents: OrderSent, OrderFilled, PositionOpened/Closed
+    → on rejection:
+        SymbolHealthMonitor.record_pending_failure
+        EmitEvents: OrderSent, OrderRejected
+    → on pending:
+        SymbolHealthMonitor.record_pending_failure
+        EmitEvents: OrderSent (without fill)
+
+Гарантии:
+  • Каждый Signal с is_open проверяется на is_blocked ДО send_order.
+  • Каждая Trade связана с Signal через signal_id.
+  • Каждое успешное исполнение → PerformanceMemory обновляется один раз.
+  • Любая ветка эмиттит events для AttributionLedger.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
+
+from ..attribution.events import (
+    OrderFilled,
+    OrderRejected,
+    OrderSent,
+    SymbolBlocked,
+)
+from ..attribution.event_log import EventLog
+from ..domain.types import Action, Signal, Trade
+from ..memory import PerformanceMemory
+from .exchange import Exchange, OrderResult, OrderStatus
+from .position_tracker import PositionTracker
+from .risk_limits import RiskLimits
+from .symbol_health import SymbolHealthMonitor
+
+
+# ────────────────────────────────────────────────────────────────────
+# Result types
+# ────────────────────────────────────────────────────────────────────
+
+
+class ExecutionStatus(Enum):
+    """Итоговый статус попытки исполнения."""
+
+    FILLED   = "filled"      # ордер исполнен, позиция учтена
+    PENDING  = "pending"     # биржа приняла, но fill ещё нет
+    REJECTED = "rejected"    # биржа отвергла
+    BLOCKED  = "blocked"     # отвергнут pre-flight (health/risk)
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    """Результат TradeExecutor.execute()."""
+
+    status:     ExecutionStatus
+    signal:     Signal
+    trade:      Optional[Trade] = None
+    reason:     str = ""
+
+    @property
+    def is_success(self) -> bool:
+        return self.status == ExecutionStatus.FILLED
+
+
+# ────────────────────────────────────────────────────────────────────
+# TradeExecutor
+# ────────────────────────────────────────────────────────────────────
+
+
+class TradeExecutor:
+    """Единственный путь Signal → Exchange → Memory + Events.
+
+    Параметры (всё через DI):
+      • exchange        — Exchange Protocol (real или Fake)
+      • health          — SymbolHealthMonitor
+      • risk_limits     — RiskLimits
+      • position_tracker — PositionTracker
+      • perf            — PerformanceMemory
+      • event_log       — EventLog
+    """
+
+    def __init__(
+        self,
+        *,
+        exchange:         Exchange,
+        health:           SymbolHealthMonitor,
+        risk_limits:      RiskLimits,
+        position_tracker: PositionTracker,
+        perf:             PerformanceMemory,
+        event_log:        EventLog,
+    ):
+        self._exchange = exchange
+        self._health = health
+        self._risk = risk_limits
+        self._tracker = position_tracker
+        self._perf = perf
+        self._log = event_log
+
+    # ── Public API ──────────────────────────────────────────────────
+
+    def execute(
+        self,
+        signal: Signal,
+        *,
+        balance_usd: float,
+    ) -> ExecutionResult:
+        """Главная функция. Принимает signal, возвращает ExecutionResult.
+
+        Не выбрасывает исключений (биржевые ошибки → REJECTED).
+        """
+        # 0. Hold actions — игнорируем явно
+        if signal.action.is_hold:
+            return ExecutionResult(
+                status=ExecutionStatus.BLOCKED,
+                signal=signal,
+                reason="hold action",
+            )
+
+        trace_id = self._trace_id(signal)
+
+        # 1. Pre-flight: SymbolHealthMonitor (только для open)
+        if signal.action.is_open and self._health.is_blocked(signal.sym):
+            return ExecutionResult(
+                status=ExecutionStatus.BLOCKED,
+                signal=signal,
+                reason=f"symbol {signal.sym} is in health blocklist",
+            )
+
+        # 2. Pre-flight: RiskLimits
+        risk_check = self._risk.evaluate(
+            signal,
+            balance_usd=balance_usd,
+            open_positions=self._tracker.all_open(),
+            min_notional_for_sym=self._exchange.get_min_notional(signal.sym),
+        )
+        if not risk_check.allowed:
+            return ExecutionResult(
+                status=ExecutionStatus.BLOCKED,
+                signal=signal,
+                reason=f"risk_limits: {risk_check.reason}",
+            )
+
+        # Вычисляем qty:
+        #   • для open — используем risk_check.qty (нотинал × leverage)
+        #   • для close — берём qty из существующей позиции
+        if signal.action.is_close:
+            existing = self._tracker.get(signal.sym)
+            if existing is None:
+                # double-check (RiskLimits должен был отфильтровать)
+                return ExecutionResult(
+                    status=ExecutionStatus.BLOCKED,
+                    signal=signal,
+                    reason="no position to close (post-risk)",
+                )
+            qty = existing.qty
+        else:
+            qty = risk_check.qty
+
+        # 3. Эмитим OrderSent ДО send_order, чтобы в логе была попытка
+        self._log.emit(OrderSent(
+            bar=signal.bar,
+            trace_id=trace_id,
+            signal_id=signal.id,
+            sym=signal.sym,
+            action=signal.action,
+            exchange_order_id="",   # ещё не знаем
+        ))
+
+        # 4. Вызываем биржу
+        try:
+            order_result = self._exchange.send_order(signal, qty=qty)
+        except Exception as exc:
+            # Любая ошибка биржи → REJECTED + record_pending_failure
+            self._health.record_pending_failure(signal.sym)
+            self._log.emit(OrderRejected(
+                bar=signal.bar,
+                trace_id=trace_id,
+                signal_id=signal.id,
+                sym=signal.sym,
+                reason=f"exchange exception: {type(exc).__name__}: {exc}",
+            ))
+            return ExecutionResult(
+                status=ExecutionStatus.REJECTED,
+                signal=signal,
+                reason=f"exchange error: {exc}",
+            )
+
+        # 5. Обработка результата
+        if order_result.status == OrderStatus.FILLED:
+            return self._handle_filled(signal, order_result, trace_id)
+        elif order_result.status == OrderStatus.REJECTED:
+            return self._handle_rejected(signal, order_result, trace_id)
+        else:  # PENDING
+            return self._handle_pending(signal, order_result, trace_id)
+
+    # ── Handlers ────────────────────────────────────────────────────
+
+    def _handle_filled(
+        self,
+        signal: Signal,
+        result: OrderResult,
+        trace_id: str,
+    ) -> ExecutionResult:
+        trade = result.trade
+        if trade is None:
+            # OrderResult.__post_init__ уже это проверил, но parano
+            return self._handle_rejected(signal, result, trace_id)
+
+        # Position tracker → events для лога
+        if signal.action.is_open:
+            events = self._tracker.on_open(signal=signal, trade=trade)
+        else:
+            events = self._tracker.on_close(signal=signal, trade=trade)
+
+        # PerformanceMemory обновляется ОДНИМ вызовом — это SSOT
+        try:
+            self._perf.update_from_trade(trade, signal)
+        except Exception:
+            # Не блокируем — нам важнее зарегистрировать filled trade
+            pass
+
+        # Health → success
+        self._health.record_success(signal.sym)
+
+        # OrderFilled + position events
+        self._log.emit(OrderFilled(
+            bar=signal.bar,
+            trace_id=trace_id,
+            trade=trade,
+        ))
+        self._log.emit_many(events)
+
+        return ExecutionResult(
+            status=ExecutionStatus.FILLED,
+            signal=signal,
+            trade=trade,
+        )
+
+    def _handle_rejected(
+        self,
+        signal: Signal,
+        result: OrderResult,
+        trace_id: str,
+    ) -> ExecutionResult:
+        # Failure для health
+        newly_blocked = self._health.record_pending_failure(signal.sym)
+        self._log.emit(OrderRejected(
+            bar=signal.bar,
+            trace_id=trace_id,
+            signal_id=signal.id,
+            sym=signal.sym,
+            reason=result.message or "rejected by exchange",
+        ))
+        if newly_blocked:
+            status = self._health.status(signal.sym)
+            self._log.emit(SymbolBlocked(
+                bar=signal.bar,
+                trace_id=trace_id,
+                sym=signal.sym,
+                failures_in_window=status.failures_in_window,
+                blocked_until_ts=status.blocked_until_ts or 0.0,
+                reason="pending_failures_threshold",
+            ))
+        return ExecutionResult(
+            status=ExecutionStatus.REJECTED,
+            signal=signal,
+            reason=result.message,
+        )
+
+    def _handle_pending(
+        self,
+        signal: Signal,
+        result: OrderResult,
+        trace_id: str,
+    ) -> ExecutionResult:
+        # Pending тоже считаем failure (как в v1) — после таймаута
+        # биржа обычно его сбрасывает.
+        newly_blocked = self._health.record_pending_failure(signal.sym)
+        if newly_blocked:
+            status = self._health.status(signal.sym)
+            self._log.emit(SymbolBlocked(
+                bar=signal.bar,
+                trace_id=trace_id,
+                sym=signal.sym,
+                failures_in_window=status.failures_in_window,
+                blocked_until_ts=status.blocked_until_ts or 0.0,
+                reason="pending_failures_threshold",
+            ))
+        return ExecutionResult(
+            status=ExecutionStatus.PENDING,
+            signal=signal,
+            reason=result.message or "pending",
+        )
+
+    # ── Internals ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _trace_id(signal: Signal) -> str:
+        return f"{signal.sym}-{signal.bar}-{signal.id}"

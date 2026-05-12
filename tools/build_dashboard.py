@@ -31,7 +31,7 @@ OUT_HTML = RESULTS / "dashboard.html"
 
 EXCHANGES = ("BITGET", "MEXC")
 SESSIONS_LIMIT = int(os.getenv("PANTEON_DASHBOARD_SESSIONS_LIMIT", "40"))
-SESSION_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$")
+SESSION_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:_v\d+)?$")
 
 
 def _safe_read(path: Path):
@@ -59,6 +59,7 @@ def _collect_sessions(exchange: str, results_dir: Path = RESULTS, sessions_limit
         out.append({
             "name": sdir.name,
             "summary": {
+                "version": status.get("version", "v1"),
                 "uptime": status.get("uptime", ""),
                 "bar_count": status.get("bar_count", 0),
                 "live_bar_count": status.get("live_bar_count", 0),

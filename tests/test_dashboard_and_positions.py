@@ -206,6 +206,29 @@ class DashboardBuilderTests(unittest.TestCase):
             self.assertEqual(payload["BITGET"][0]["name"], "2027-01-02_03-04-05")
             self.assertIn("2027-01-02_03-04-05", out_html.read_text(encoding="utf-8"))
 
+    def test_build_dashboard_collects_v2_suffixed_sessions(self):
+        dashboard = _load_build_dashboard()
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp) / "Results"
+            session_dir = results / "BITGET" / "2027-01-02_03-04-05_v2"
+            session_dir.mkdir(parents=True)
+            (results / "MEXC").mkdir(parents=True)
+            (session_dir / "status.json").write_text(
+                json.dumps({"version": "v2", "pnl_pct": 1.23, "bar_count": 7}),
+                encoding="utf-8",
+            )
+
+            out_html = results / "dashboard.html"
+            payload = dashboard.build_dashboard(
+                results_dir=results,
+                out_html=out_html,
+                quiet=True,
+            )
+
+            self.assertEqual(payload["BITGET"][0]["name"], "2027-01-02_03-04-05_v2")
+            self.assertEqual(payload["BITGET"][0]["summary"]["version"], "v2")
+            self.assertIn("2027-01-02_03-04-05_v2", out_html.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,319 @@
+"""Тесты PerformanceMemory."""
+
+from __future__ import annotations
+
+import unittest
+
+from panteon_v2.domain.types import Action, Regime, Signal, Trade
+from panteon_v2.memory import PerformanceMemory
+from panteon_v2.scoring import regime_score
+
+
+def _open_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
+                 by_player: str = "PlayerP", price: float = 100.0,
+                 long_side: bool = True, bar: int = 1) -> Signal:
+    return Signal(
+        id=sid, bar=bar, sym=sym,
+        action=Action.FUT_LONG_FULL if long_side else Action.FUT_SHORT_FULL,
+        price=price, regime=regime,
+        by_player=by_player, by_agent=by_agent,
+    )
+
+
+def _close_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
+                  by_player: str = "PlayerP", price: float = 100.0,
+                  bar: int = 2) -> Signal:
+    return Signal(
+        id=sid, bar=bar, sym=sym, action=Action.FUT_CLOSE_ALL,
+        price=price, regime=regime,
+        by_player=by_player, by_agent=by_agent,
+    )
+
+
+def _open_trade(sig: Signal, fill_price: float = None, qty: float = 1.0,
+                fee: float = 0.0) -> Trade:
+    side = sig.action.side or "long"
+    return Trade(
+        signal_id=sig.id, bar=sig.bar, sym=sig.sym, side=side,
+        qty=qty, fill_price=fill_price or sig.price, fee=fee,
+    )
+
+
+def _close_trade(open_sig: Signal, close_sig: Signal, fill_price: float,
+                 qty: float = 1.0, fee: float = 0.0) -> Trade:
+    return Trade(
+        signal_id=close_sig.id, bar=close_sig.bar, sym=close_sig.sym,
+        side=open_sig.action.side or "long",
+        qty=qty, fill_price=fill_price, fee=fee,
+    )
+
+
+class TestPerformanceMemoryBasic(unittest.TestCase):
+    def test_get_empty(self):
+        perf = PerformanceMemory()
+        self.assertFalse(perf.get("X").has_data)
+        self.assertFalse(perf.get("X", regime=Regime.BULLISH).has_data)
+
+    def test_invalid_trade_fraction(self):
+        with self.assertRaises(ValueError):
+            PerformanceMemory(trade_fraction=0)
+        with self.assertRaises(ValueError):
+            PerformanceMemory(trade_fraction=1.5)
+
+    def test_signal_id_mismatch_rejected(self):
+        perf = PerformanceMemory()
+        sig = _open_signal(1, "BTC", Regime.BULLISH)
+        bad_trade = Trade(signal_id=999, bar=1, sym="BTC", side="long",
+                          qty=1.0, fill_price=100.0, fee=0.0)
+        with self.assertRaises(ValueError):
+            perf.update_from_trade(bad_trade, sig)
+
+
+class TestPerformanceMemoryOpenClose(unittest.TestCase):
+    def test_long_winning_trade(self):
+        perf = PerformanceMemory(trade_fraction=1.0)  # 100% для простоты вычислений
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        # +10% при trade_fraction=1.0 → pnl_pct = 10%
+        self.assertEqual(m.closed_trades, 1)
+        self.assertEqual(m.entries, 1)
+        self.assertEqual(m.wins, 1)
+        self.assertEqual(m.losses, 0)
+        self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
+        self.assertEqual(m.win_rate, 100.0)
+
+    def test_long_losing_trade(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.NEUTRAL, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.NEUTRAL, price=95.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 95.0), cs)
+
+        m = perf.get("AgentA", regime=Regime.NEUTRAL)
+        self.assertAlmostEqual(m.pnl_pct, -5.0, places=5)
+        self.assertEqual(m.wins, 0)
+        self.assertEqual(m.losses, 1)
+
+    def test_short_winning_trade(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BEARISH, price=100.0, long_side=False)
+        cs = _close_signal(2, "BTC", Regime.BEARISH, price=90.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 90.0), cs)
+
+        m = perf.get("AgentA", regime=Regime.BEARISH)
+        # short от 100 до 90 → +10%
+        self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
+        self.assertEqual(m.wins, 1)
+
+    def test_close_without_open_records_close_only(self):
+        """Если close без open — записываем close, но не PnL (orphan close)."""
+        perf = PerformanceMemory()
+        cs = _close_signal(1, "BTC", Regime.NEUTRAL, price=100.0)
+        # Нужен открытый trade с тем же sym, но без _record_open
+        # Создаём только close trade
+        ct = Trade(signal_id=1, bar=2, sym="BTC", side="long",
+                   qty=1.0, fill_price=100.0, fee=0.0)
+        perf.update_from_trade(ct, cs)
+        m = perf.get("AgentA", regime=Regime.NEUTRAL)
+        self.assertEqual(m.closed_trades, 1)
+        self.assertEqual(m.pnl_pct, 0.0)  # нет realized PnL
+
+    def test_trade_fraction_scales_pnl(self):
+        perf = PerformanceMemory(trade_fraction=0.10)  # 10%
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        # +10% raw return × 10% fraction = 1% PnL
+        self.assertAlmostEqual(m.pnl_pct, 1.0, places=5)
+
+
+class TestPerRegimeIsolation(unittest.TestCase):
+    def test_regimes_isolated(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        # Прибыль в bullish
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0, bar=1)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        # Потеря в bearish
+        os2 = _open_signal(3, "ETH", Regime.BEARISH, price=100.0, bar=3)
+        cs2 = _close_signal(4, "ETH", Regime.BEARISH, price=95.0, bar=4)
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 110.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 95.0), cs2)
+
+        m_bull = perf.get("AgentA", regime=Regime.BULLISH)
+        m_bear = perf.get("AgentA", regime=Regime.BEARISH)
+        self.assertAlmostEqual(m_bull.pnl_pct, 10.0, places=5)
+        self.assertAlmostEqual(m_bear.pnl_pct, -5.0, places=5)
+
+    def test_aggregate_sums(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH, price=105.0, bar=2)
+        os2 = _open_signal(3, "ETH", Regime.NEUTRAL, price=200.0, bar=3)
+        cs2 = _close_signal(4, "ETH", Regime.NEUTRAL, price=210.0, bar=4)
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 105.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 210.0), cs2)
+
+        agg = perf.get("AgentA")  # без regime → агрегат
+        # 5% + 5% = 10%
+        self.assertAlmostEqual(agg.pnl_pct, 10.0, places=5)
+        self.assertEqual(agg.closed_trades, 2)
+        self.assertEqual(agg.wins, 2)
+
+
+class TestPlayerAndAgentSeparately(unittest.TestCase):
+    def test_both_label_levels_recorded(self):
+        """update_from_trade обновляет обоих by_agent и by_player."""
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH,
+                          by_agent="LiveAfterShock", by_player="PanteonResearch",
+                          price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH,
+                           by_agent="LiveAfterShock", by_player="PanteonResearch",
+                           price=110.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        m_a = perf.get("LiveAfterShock", regime=Regime.BULLISH)
+        m_p = perf.get("PanteonResearch", regime=Regime.BULLISH)
+        self.assertAlmostEqual(m_a.pnl_pct, 10.0, places=5)
+        self.assertAlmostEqual(m_p.pnl_pct, 10.0, places=5)
+
+    def test_same_agent_and_player_not_double_counted(self):
+        """Если by_agent == by_player → счётчик инкремент один раз."""
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH,
+                          by_agent="X", by_player="X", price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH,
+                           by_agent="X", by_player="X", price=110.0, bar=2)
+        perf.update_from_trade(_open_trade(os), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        m = perf.get("X", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 1)
+        self.assertEqual(m.entries, 1)
+
+
+class TestPerRegimeAndTopK(unittest.TestCase):
+    def test_per_regime_for_label(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH, price=105.0, bar=2)
+        os2 = _open_signal(3, "ETH", Regime.NEUTRAL, price=100.0, bar=3)
+        cs2 = _close_signal(4, "ETH", Regime.NEUTRAL, price=98.0, bar=4)
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 105.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 98.0), cs2)
+
+        per_regime = perf.per_regime_for_label("AgentA")
+        self.assertIn(Regime.BULLISH, per_regime)
+        self.assertIn(Regime.NEUTRAL, per_regime)
+        self.assertAlmostEqual(per_regime[Regime.BULLISH].pnl_pct, 5.0, places=5)
+        self.assertAlmostEqual(per_regime[Regime.NEUTRAL].pnl_pct, -2.0, places=5)
+
+    def test_top_k_for_regime(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        # A: +5%, B: -3%, C: +1%
+        scenarios = [
+            ("AgentA", 100, 105),
+            ("AgentB", 100, 97),
+            ("AgentC", 100, 101),
+        ]
+        sid = 1
+        for label, op_p, cl_p in scenarios:
+            os = Signal(id=sid, bar=1, sym=f"S{sid}",
+                        action=Action.FUT_LONG_FULL, price=op_p,
+                        regime=Regime.BULLISH, by_player=label, by_agent=label)
+            cs = Signal(id=sid + 1, bar=2, sym=f"S{sid}",
+                        action=Action.FUT_CLOSE_ALL, price=cl_p,
+                        regime=Regime.BULLISH, by_player=label, by_agent=label)
+            perf.update_from_trade(_open_trade(os), os)
+            perf.update_from_trade(_close_trade(os, cs, cl_p), cs)
+            sid += 2
+
+        top = perf.top_k_for_regime(Regime.BULLISH, k=3, scorer=regime_score)
+        # Должны быть отсортированы по убыванию score
+        labels = [t[0] for t in top]
+        self.assertEqual(labels[0], "AgentA")
+        self.assertIn("AgentC", labels)
+        self.assertIn("AgentB", labels)
+        # AgentB должен быть последним (отрицательный pnl)
+        self.assertEqual(labels[-1], "AgentB")
+
+    def test_top_k_excludes(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        for label, op_p, cl_p in [("A", 100, 105), ("B", 100, 110)]:
+            os = Signal(id=hash(label) % 1000, bar=1, sym="X",
+                        action=Action.FUT_LONG_FULL, price=op_p,
+                        regime=Regime.BULLISH, by_player=label, by_agent=label)
+            cs = Signal(id=hash(label) % 1000 + 1, bar=2, sym="X",
+                        action=Action.FUT_CLOSE_ALL, price=cl_p,
+                        regime=Regime.BULLISH, by_player=label, by_agent=label)
+            perf.update_from_trade(_open_trade(os), os)
+            perf.update_from_trade(_close_trade(os, cs, cl_p), cs)
+
+        top = perf.top_k_for_regime(Regime.BULLISH, k=5, scorer=regime_score,
+                                    exclude={"B"})
+        labels = [t[0] for t in top]
+        self.assertNotIn("B", labels)
+        self.assertIn("A", labels)
+
+
+class TestSnapshotRestore(unittest.TestCase):
+    def test_roundtrip(self):
+        perf1 = PerformanceMemory(trade_fraction=0.10)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        perf1.update_from_trade(_open_trade(os), os)
+        perf1.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        snap = perf1.snapshot()
+        perf2 = PerformanceMemory()
+        perf2.restore(snap)
+
+        m1 = perf1.get("AgentA", regime=Regime.BULLISH)
+        m2 = perf2.get("AgentA", regime=Regime.BULLISH)
+        self.assertAlmostEqual(m1.pnl_pct, m2.pnl_pct, places=8)
+        self.assertEqual(m1.closed_trades, m2.closed_trades)
+        self.assertEqual(m1.entries, m2.entries)
+
+
+class TestAllLabels(unittest.TestCase):
+    def test_all_labels_distinct(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        # AgentA + PlayerP (одна сделка), AgentB + PlayerP (другая)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH,
+                           by_agent="AgentA", by_player="PlayerP", price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH,
+                            by_agent="AgentA", by_player="PlayerP", price=105.0, bar=2)
+        os2 = _open_signal(3, "ETH", Regime.NEUTRAL,
+                           by_agent="AgentB", by_player="PlayerP", price=100.0, bar=3)
+        cs2 = _close_signal(4, "ETH", Regime.NEUTRAL,
+                            by_agent="AgentB", by_player="PlayerP", price=110.0, bar=4)
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 105.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 110.0), cs2)
+
+        labels = perf.all_labels()
+        self.assertEqual(set(labels), {"AgentA", "AgentB", "PlayerP"})
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
