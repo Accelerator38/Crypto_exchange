@@ -123,6 +123,51 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(bridge._price_hist[-1], {"BTC": 100.0})
         self.assertEqual(bridge._volume_hist[-1], {"BTC": 42.0})
 
+    def test_warmup_replays_bridge_history_into_v2_agents(self):
+        from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
+        from panteon_v2.selection import AgentRegistry
+
+        class RecordingAgent:
+            label = "Recorder"
+
+            def __init__(self):
+                self.calls = []
+
+            def act(self, market):
+                self.calls.append((market.bar, dict(market.prices), dict(market.volumes)))
+                return {}
+
+        bridge = FakeBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 101.0},
+            {"BTC": 102.0},
+        ]
+        bridge._volume_hist = [
+            {"BTC": 10.0},
+            {"BTC": 11.0},
+            {"BTC": 12.0},
+        ]
+        registry = AgentRegistry()
+        agent = RecordingAgent()
+        registry.register(agent)
+
+        warmed = _warmup_v2_agents_from_bridge(
+            bridge,
+            registry,
+            exchange_name="MEXC",
+        )
+
+        self.assertEqual(warmed, 3)
+        self.assertEqual(
+            agent.calls,
+            [
+                (1, {"BTC": 100.0}, {"BTC": 10.0}),
+                (2, {"BTC": 101.0}, {"BTC": 11.0}),
+                (3, {"BTC": 102.0}, {"BTC": 12.0}),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

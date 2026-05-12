@@ -22,7 +22,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..domain.types import MarketSnapshot, Regime
 from ..shadow.adapters import make_market_snapshot
@@ -176,6 +176,103 @@ class V1BridgeFeed:
 # ────────────────────────────────────────────────────────────────────
 
 
+def _history_rows(history: Any) -> List[Dict[str, float]]:
+    """Normalize v1 bridge history into ordered market rows."""
+    rows: List[Dict[str, float]] = []
+
+    if isinstance(history, list):
+        for raw_row in history:
+            if not isinstance(raw_row, dict):
+                continue
+            row: Dict[str, float] = {}
+            for sym, value in raw_row.items():
+                try:
+                    v = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if v:
+                    row[str(sym).upper()] = v
+            if row:
+                rows.append(row)
+        return rows
+
+    if isinstance(history, dict):
+        max_len = 0
+        series_by_sym: Dict[str, Any] = {}
+        for sym, series in history.items():
+            if isinstance(series, (list, tuple)):
+                series_by_sym[str(sym).upper()] = series
+                max_len = max(max_len, len(series))
+        for idx in range(max_len):
+            row = {}
+            for sym, series in series_by_sym.items():
+                if idx >= len(series):
+                    continue
+                try:
+                    v = float(series[idx])
+                except (TypeError, ValueError):
+                    continue
+                if v:
+                    row[sym] = v
+            if row:
+                rows.append(row)
+
+    return rows
+
+
+def _warmup_v2_agents_from_bridge(
+    bridge: Any,
+    registry: Any,
+    *,
+    exchange_name: str,
+    max_bars: Optional[int] = None,
+) -> int:
+    """Replay v1 bridge market history through v2 agents without executing trades."""
+    if getattr(bridge, "_panteon_v2_agent_warmup_done", False):
+        return 0
+
+    agents = list(registry.all_agents()) if callable(getattr(registry, "all_agents", None)) else []
+    if not agents:
+        return 0
+
+    price_rows = _history_rows(getattr(bridge, "_price_hist", None))
+    volume_rows = _history_rows(getattr(bridge, "_volume_hist", None))
+    if max_bars is not None and int(max_bars) > 0:
+        limit = int(max_bars)
+        price_rows = price_rows[-limit:]
+        volume_rows = volume_rows[-limit:]
+    if not price_rows:
+        log.warning("[%s] v2-agent warmup skipped: bridge price history is empty",
+                    exchange_name)
+        return 0
+
+    warmed = 0
+    for idx, prices in enumerate(price_rows, start=1):
+        volumes = volume_rows[idx - 1] if idx - 1 < len(volume_rows) else {}
+        market = make_market_snapshot(
+            bar=idx,
+            prices=prices,
+            volumes=volumes,
+            regime="neutral",
+        )
+        for agent in agents:
+            try:
+                agent.act(market)
+            except Exception:
+                log.debug("[%s] v2-agent warmup failed for %s",
+                          exchange_name, getattr(agent, "label", type(agent).__name__),
+                          exc_info=True)
+        warmed += 1
+
+    try:
+        setattr(bridge, "_panteon_v2_agent_warmup_done", True)
+    except Exception:
+        pass
+    log.info("[%s] v2-agent warmup completed: bars=%d agents=%d",
+             exchange_name, warmed, len(agents))
+    return warmed
+
+
 def _create_bridge(
     exchange_name: str,
     mode: str = "live_futures",
@@ -286,6 +383,12 @@ def run_with_v1_bridge(
              exchange_name)
     feed = V1BridgeFeed(bridge, exchange_name=exchange_name)
     feed.warmup(warmup_bars=warmup_bars)
+    _warmup_v2_agents_from_bridge(
+        bridge,
+        pipeline.registry,
+        exchange_name=exchange_name,
+        max_bars=warmup_bars,
+    )
 
     n_step = 0
     def _on_step(step: StepResult) -> None:
