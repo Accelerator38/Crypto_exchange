@@ -22,8 +22,9 @@ from panteon_v2.app import (
 )
 from panteon_v2.domain.types import Action, Regime
 from panteon_v2.execution import FakeExchange
+from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.memory import PerformanceMemory
-from panteon_v2.selection import AgentRegistry
+from panteon_v2.selection import AgentRegistry, EnsemblePlayer, ThresholdProfile, WeightedConsensus
 from panteon_v2.shadow.adapters import make_market_snapshot
 from panteon_v2.shadow.feed import ReplayFeed
 from panteon_v2.tests._helpers import FakeAgent
@@ -212,6 +213,96 @@ class TestMainLoop(unittest.TestCase):
         events = list(pipeline.event_log.query(event_types=[SignalEmitted]))
         self.assertGreaterEqual(len(events), 1)
 
+    def test_shadow_tournament_runs_agents_without_real_leader(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("ShadowAgent", {"BTC": Action.FUT_LONG_FULL}))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+        )
+        pipeline.profiles = []
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1, prices={"BTC": 100.0}, regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(steps[0].n_signals, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertGreater(steps[0].n_shadow_filled, 0)
+        self.assertTrue(perf_has_data := pipeline.perf.get("ShadowAgent", Regime.BULLISH).has_data)
+        self.assertTrue(perf_has_data)
+
+    def test_shadow_tournament_rates_players_without_agent_double_count(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        agent = FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(agent)
+        perf = PerformanceMemory(trade_fraction=1.0)
+        tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        player = EnsemblePlayer(
+            label="PlayerA",
+            agents=[agent],
+            weights={"AgentA": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.10, open_multi=0.10, open_floor=0.10),
+        )
+
+        summary = tournament.run_bar(
+            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            players=[player],
+            balance_usd=1000.0,
+        )
+
+        self.assertEqual(summary.agent_filled, 1)
+        self.assertEqual(summary.player_filled, 1)
+        self.assertEqual(perf.get("AgentA", Regime.BULLISH).entries, 1)
+        self.assertEqual(perf.get("PlayerA", Regime.BULLISH).entries, 1)
+
+    def test_real_exchange_receives_only_selected_leader_not_virtual_actors(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("AgentB", {"ETH": Action.FUT_LONG_FULL}))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+        )
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(len(exchange.orders_log), steps[0].n_filled)
+        self.assertGreater(steps[0].n_shadow_filled, steps[0].n_filled)
+
 
 class TestOutputWriter(unittest.TestCase):
     def test_writer_creates_operator_files_before_first_bar(self):
@@ -238,6 +329,39 @@ class TestOutputWriter(unittest.TestCase):
             self.assertEqual(status["run_state"], "starting")
             self.assertEqual(status["bar_count"], 0)
             writer.close()
+
+    def test_player_leaderboard_uses_performance_memory(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        migrate_v1_regime_memory({
+            "bullish": {
+                "DefaultEnsemble": {
+                    "samples": 5,
+                    "wins": 3,
+                    "losses": 2,
+                    "pnl_pct": 1.2,
+                },
+                "AgentA": {
+                    "samples": 4,
+                    "wins": 2,
+                    "losses": 2,
+                    "pnl_pct": 0.5,
+                },
+            },
+        }, pipeline.perf)
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
+            writer.close()
+
+        self.assertIn("V_DefaultEnsemble", players)
+        self.assertAlmostEqual(players["V_DefaultEnsemble"]["pnl_pct"], 1.2)
+        self.assertNotIn("V_AgentA", players)
 
 
 # ════════════════════════════════════════════════════════════════════

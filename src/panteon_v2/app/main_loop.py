@@ -73,6 +73,11 @@ class StepResult:
     n_filled:      int
     n_rejected:    int
     n_blocked:     int
+    n_shadow_signals: int = 0
+    n_shadow_filled: int = 0
+    n_shadow_rejected: int = 0
+    n_shadow_blocked: int = 0
+    n_shadow_actors: int = 0
     error:         Optional[str] = None
 
 
@@ -203,7 +208,11 @@ def _run_one_bar(
     ))
     last_regime = market.regime
 
-    # 2. Карантин (раз в N bar-ов)
+    # 2. Shadow tournament: all agents/players learn virtually before real selection.
+    shadow_candidates = _compose_candidates(pipeline, market.regime)
+    shadow_summary = _run_shadow_tournament(pipeline, market, shadow_candidates)
+
+    # 3. Карантин (раз в N bar-ов) после shadow-обновлений perf
     if market.bar - last_qm_bar >= recompute_every:
         result = pipeline.qm.recompute(pipeline.perf)
         last_qm_bar = market.bar
@@ -214,17 +223,8 @@ def _run_one_bar(
                 current=result.current,
             ))
 
-    # 3. Composer → candidates
-    candidates: List[EnsemblePlayer] = []
-    for profile in pipeline.profiles:
-        try:
-            p = pipeline.composer.compose_from_profile_with_fallback(
-                profile, market.regime,
-            )
-            if p is not None:
-                candidates.append(p)
-        except Exception:
-            log.exception("compose failed for profile %s", profile.label)
+    # 4. Composer → candidates for real leader selection
+    candidates = _compose_candidates(pipeline, market.regime)
 
     if not candidates:
         # Никаких eligible — пропускаем bar
@@ -233,11 +233,16 @@ def _run_one_bar(
                 bar=market.bar, regime=market.regime,
                 leader=None, leader_changed=False,
                 n_signals=0, n_filled=0, n_rejected=0, n_blocked=0,
+                n_shadow_signals=shadow_summary.total_signals,
+                n_shadow_filled=shadow_summary.total_filled,
+                n_shadow_rejected=shadow_summary.total_rejected,
+                n_shadow_blocked=shadow_summary.total_blocked,
+                n_shadow_actors=shadow_summary.actors,
             ),
             signal_id_counter, last_qm_bar, last_regime,
         )
 
-    # 4. Strategist
+    # 5. Strategist
     pipeline.strategist.update_candidates(candidates)
     try:
         decision: SwitchDecision = pipeline.strategist.consider_switch(
@@ -249,6 +254,11 @@ def _run_one_bar(
                 bar=market.bar, regime=market.regime,
                 leader=None, leader_changed=False,
                 n_signals=0, n_filled=0, n_rejected=0, n_blocked=0,
+                n_shadow_signals=shadow_summary.total_signals,
+                n_shadow_filled=shadow_summary.total_filled,
+                n_shadow_rejected=shadow_summary.total_rejected,
+                n_shadow_blocked=shadow_summary.total_blocked,
+                n_shadow_actors=shadow_summary.actors,
                 error="all candidates disqualified",
             ),
             signal_id_counter, last_qm_bar, last_regime,
@@ -265,7 +275,7 @@ def _run_one_bar(
             reason=decision.reason,
         ))
 
-    # 5. Vote → signals
+    # 6. Vote → real signals from selected leader only
     leader = decision.new_leader
     signals: List[Signal] = leader.vote(market, signal_id_start=signal_id_counter)
     if signals:
@@ -278,7 +288,7 @@ def _run_one_bar(
             ))
             pipeline.perf.record_signal(sig)
 
-    # 6. Execute
+    # 7. Execute real signals
     n_filled = n_rejected = n_blocked = 0
     for sig in signals:
         try:
@@ -308,9 +318,59 @@ def _run_one_bar(
             n_filled=n_filled,
             n_rejected=n_rejected,
             n_blocked=n_blocked,
+            n_shadow_signals=shadow_summary.total_signals,
+            n_shadow_filled=shadow_summary.total_filled,
+            n_shadow_rejected=shadow_summary.total_rejected,
+            n_shadow_blocked=shadow_summary.total_blocked,
+            n_shadow_actors=shadow_summary.actors,
         ),
         signal_id_counter, last_qm_bar, last_regime,
     )
+
+
+def _compose_candidates(
+    pipeline: ProductionPipeline,
+    regime: Regime,
+) -> List[EnsemblePlayer]:
+    candidates: List[EnsemblePlayer] = []
+    for profile in pipeline.profiles:
+        try:
+            player = pipeline.composer.compose_from_profile_with_fallback(
+                profile,
+                regime,
+            )
+            if player is not None:
+                candidates.append(player)
+        except Exception:
+            log.exception("compose failed for profile %s", profile.label)
+    return candidates
+
+
+def _run_shadow_tournament(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    players: List[EnsemblePlayer],
+):
+    from .shadow_tournament import ShadowStepSummary
+
+    tournament = getattr(pipeline, "shadow_tournament", None)
+    if tournament is None:
+        summary = ShadowStepSummary()
+    else:
+        try:
+            summary = tournament.run_bar(
+                market,
+                players=players,
+                balance_usd=pipeline.current_balance,
+            )
+        except Exception:
+            log.exception("shadow tournament failed on bar %d", market.bar)
+            summary = ShadowStepSummary()
+    try:
+        pipeline.shadow_last_summary = summary.as_dict()
+    except Exception:
+        pass
+    return summary
 
 
 def _max_existing_signal_id(pipeline: ProductionPipeline) -> int:

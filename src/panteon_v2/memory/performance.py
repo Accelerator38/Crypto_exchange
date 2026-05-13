@@ -137,7 +137,7 @@ class PerformanceMemory:
         # Открытые позиции по (label, sym) — нужно знать для close.
         # Один label может иметь только одну открытую позицию по sym
         # (общепринятое допущение, как в v1).
-        self._open: Dict[Tuple[str, str], _OpenPosition] = {}
+        self._open: Dict[Tuple[str, str, str], _OpenPosition] = {}
         # Записанные signals — для bookkeeping (avoid double-counting if
         # update_from_signal вызывается отдельно):
         self._seen_signal_ids: set = set()
@@ -260,8 +260,8 @@ class PerformanceMemory:
                 for (label, regime), s in self._state.items()
             },
             "open": {
-                f"{label}|{sym}": _open_to_dict(p)
-                for (label, sym), p in self._open.items()
+                _open_key_to_text(scope, label, sym): _open_to_dict(p)
+                for (scope, label, sym), p in self._open.items()
             },
             "seen_signal_ids": sorted(self._seen_signal_ids),
         }
@@ -276,8 +276,8 @@ class PerformanceMemory:
             self._state[(label, regime)] = _state_from_dict(payload)
         self._open.clear()
         for key, payload in (snapshot.get("open") or {}).items():
-            label, sym = key.split("|", 1)
-            self._open[(label, sym)] = _open_from_dict(payload)
+            scope, label, sym = _open_key_from_text(key)
+            self._open[(scope, label, sym)] = _open_from_dict(payload)
         self._seen_signal_ids = set(int(x) for x in snapshot.get("seen_signal_ids", []))
 
     # ── Внутренние helper-методы ───────────────────────────────────
@@ -311,7 +311,7 @@ class PerformanceMemory:
         state = self._get_or_create(label, regime)
         state.entries += 1
         # Запоминаем открытую позицию
-        self._open[(label, trade.sym)] = _OpenPosition(
+        self._open[(signal.position_scope, label, trade.sym)] = _OpenPosition(
             signal_id=signal.id,
             label=label,
             regime=regime,
@@ -328,7 +328,7 @@ class PerformanceMemory:
         trade: Trade,
         signal: Signal,
     ) -> None:
-        key = (label, trade.sym)
+        key = (signal.position_scope, label, trade.sym)
         opened = self._open.pop(key, None)
         # Считаем close в любом случае (для signal counter etc)
         state = self._get_or_create(label, regime)
@@ -448,6 +448,23 @@ def _open_to_dict(p: _OpenPosition) -> dict:
         "qty":         p.qty,
         "fee_open":    p.fee_open,
     }
+
+
+def _open_key_to_text(scope: str, label: str, sym: str) -> str:
+    if scope:
+        return f"{scope}|{label}|{sym}"
+    return f"{label}|{sym}"
+
+
+def _open_key_from_text(key: str) -> Tuple[str, str, str]:
+    parts = key.split("|", 2)
+    if len(parts) == 2:
+        label, sym = parts
+        return "", label, sym
+    if len(parts) == 3:
+        scope, label, sym = parts
+        return scope, label, sym
+    return "", key, ""
 
 
 def _open_from_dict(d: dict) -> _OpenPosition:

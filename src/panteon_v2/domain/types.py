@@ -199,6 +199,7 @@ class Signal:
     regime:     Regime
     by_player:  str                                  # имя текущего лидера
     by_agent:   str = ""                             # имя агента-инициатора (если ensemble)
+    position_scope: str = ""                         # namespace для real/shadow позиций
     risk_mult:  float = 1.0
     timestamp:  datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -211,6 +212,8 @@ class Signal:
             raise ValueError(f"Signal.price must be non-negative, got {self.price}")
         if not self.by_player:
             raise ValueError("Signal.by_player must be non-empty")
+        if "|" in self.position_scope:
+            raise ValueError("Signal.position_scope must not contain '|'")
 
 
 # ────────────────────────────────────────────────────────────────────

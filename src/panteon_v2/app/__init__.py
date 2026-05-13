@@ -35,6 +35,7 @@ from .migration import (
     save_v2_snapshot,
 )
 from .output_writer import OutputWriter, OutputWriterConfig
+from .shadow_tournament import ProductionShadowTournament, ShadowStepSummary
 from .startup import start_production, resolve_exchange
 
 __all__ = [
@@ -56,6 +57,8 @@ __all__ = [
     # output_writer
     "OutputWriter",
     "OutputWriterConfig",
+    "ProductionShadowTournament",
+    "ShadowStepSummary",
     # startup
     "start_production",
     "resolve_exchange",

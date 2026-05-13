@@ -93,6 +93,8 @@ class ProductionPipeline:
 
     # Состояние loop
     current_balance: float = 0.0
+    shadow_tournament: Optional[object] = None
+    shadow_last_summary: Optional[dict] = None
 
 
 # ────────────────────────────────────────────────────────────────────

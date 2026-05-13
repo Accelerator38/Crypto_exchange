@@ -36,6 +36,7 @@ from .migration import (
     save_v2_snapshot,
 )
 from .output_writer import OutputWriter, OutputWriterConfig
+from .shadow_tournament import ProductionShadowTournament
 
 
 log = logging.getLogger(__name__)
@@ -330,6 +331,17 @@ def start_production(
         snapshot_path=snapshot_path,
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
+    )
+    pipeline.shadow_tournament = ProductionShadowTournament(
+        registry=pipeline.registry,
+        perf=pipeline.perf,
+        risk_config=risk_config,
+    )
+    log.info(
+        "[%s] production shadow tournament enabled: agents=%d profiles=%d",
+        exchange,
+        len(pipeline.registry),
+        len(pipeline.profiles),
     )
 
     # 5. OutputWriter — обязательно для видимости работы

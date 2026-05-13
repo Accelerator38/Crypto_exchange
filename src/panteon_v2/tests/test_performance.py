@@ -11,22 +11,25 @@ from panteon_v2.scoring import regime_score
 
 def _open_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
                  by_player: str = "PlayerP", price: float = 100.0,
-                 long_side: bool = True, bar: int = 1) -> Signal:
+                 long_side: bool = True, bar: int = 1,
+                 position_scope: str = "") -> Signal:
     return Signal(
         id=sid, bar=bar, sym=sym,
         action=Action.FUT_LONG_FULL if long_side else Action.FUT_SHORT_FULL,
         price=price, regime=regime,
         by_player=by_player, by_agent=by_agent,
+        position_scope=position_scope,
     )
 
 
 def _close_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
                   by_player: str = "PlayerP", price: float = 100.0,
-                  bar: int = 2) -> Signal:
+                  bar: int = 2, position_scope: str = "") -> Signal:
     return Signal(
         id=sid, bar=bar, sym=sym, action=Action.FUT_CLOSE_ALL,
         price=price, regime=regime,
         by_player=by_player, by_agent=by_agent,
+        position_scope=position_scope,
     )
 
 
@@ -205,6 +208,38 @@ class TestPlayerAndAgentSeparately(unittest.TestCase):
         m = perf.get("X", regime=Regime.BULLISH)
         self.assertEqual(m.closed_trades, 1)
         self.assertEqual(m.entries, 1)
+
+    def test_position_scope_keeps_virtual_and_real_positions_independent(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        virtual_open = _open_signal(
+            1, "BTC", Regime.BULLISH,
+            by_agent="", by_player="Leader",
+            price=100.0, position_scope="shadow:Leader",
+        )
+        real_open = _open_signal(
+            2, "BTC", Regime.BULLISH,
+            by_agent="", by_player="Leader",
+            price=200.0,
+        )
+        virtual_close = _close_signal(
+            3, "BTC", Regime.BULLISH,
+            by_agent="", by_player="Leader",
+            price=110.0, bar=3, position_scope="shadow:Leader",
+        )
+        real_close = _close_signal(
+            4, "BTC", Regime.BULLISH,
+            by_agent="", by_player="Leader",
+            price=210.0, bar=4,
+        )
+
+        perf.update_from_trade(_open_trade(virtual_open), virtual_open)
+        perf.update_from_trade(_open_trade(real_open), real_open)
+        perf.update_from_trade(_close_trade(virtual_open, virtual_close, 110.0), virtual_close)
+        perf.update_from_trade(_close_trade(real_open, real_close, 210.0), real_close)
+
+        metrics = perf.get("Leader", regime=Regime.BULLISH)
+        self.assertEqual(metrics.closed_trades, 2)
+        self.assertAlmostEqual(metrics.pnl_pct, 15.0, places=5)
 
 
 class TestPerRegimeAndTopK(unittest.TestCase):

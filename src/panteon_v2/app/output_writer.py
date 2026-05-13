@@ -149,6 +149,8 @@ class OutputWriter:
             f"filled={step.n_filled}",
             f"rejected={step.n_rejected}",
             f"blocked={step.n_blocked}",
+            f"shadow_signals={step.n_shadow_signals}",
+            f"shadow_filled={step.n_shadow_filled}",
         ]
         if step.leader_changed:
             parts.append("LEADER_CHANGED")
@@ -210,6 +212,14 @@ class OutputWriter:
         n_rejected = step.n_rejected if step is not None else 0
         n_blocked = step.n_blocked if step is not None else 0
         leader = step.leader if step is not None else None
+        shadow = {
+            "actors": step.n_shadow_actors if step is not None else 0,
+            "signals": step.n_shadow_signals if step is not None else 0,
+            "filled": step.n_shadow_filled if step is not None else 0,
+            "rejected": step.n_shadow_rejected if step is not None else 0,
+            "blocked": step.n_shadow_blocked if step is not None else 0,
+            "last_summary": getattr(self._pipeline, "shadow_last_summary", None),
+        }
 
         data = {
             "version":          "v2",
@@ -231,6 +241,7 @@ class OutputWriter:
             "n_blocked_bar":    n_blocked,
             "n_positions":      len(open_positions),
             "current_leader":   leader,
+            "shadow":           shadow,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
             "open_positions":   open_positions,
             "ledger_closed_count": self._pipeline.ledger.closed_count,
@@ -245,9 +256,10 @@ class OutputWriter:
         except Exception:
             return
 
-        # AGENTS: данные из PerformanceMemory
+        # AGENTS: registered agent labels from PerformanceMemory
         agents: Dict[str, dict] = {}
-        for label in self._pipeline.perf.all_labels():
+        agent_labels = set(self._pipeline.registry.all_labels())
+        for label in sorted(agent_labels):
             metrics_agg = self._pipeline.perf.get(label)
             if not metrics_agg.has_data:
                 continue
@@ -270,19 +282,39 @@ class OutputWriter:
                 "per_regime":     per_regime,
             }
 
-        # PLAYERS: то же самое только из ledger (delegates)
+        # PLAYERS: profile labels from PerformanceMemory plus real ledger overlay.
         players: Dict[str, dict] = {}
         player_pnl = self._pipeline.ledger.total_pnl_by_player()
         trade_counts = self._pipeline.ledger.trade_counts_by_player()
         win_counts = self._pipeline.ledger.win_counts_by_player()
-        for label, pnl in player_pnl.items():
-            tr = trade_counts.get(label, 0)
-            wins = win_counts.get(label, 0)
+        player_labels = {profile.label for profile in self._pipeline.profiles}
+        player_labels.update(player_pnl.keys())
+        for label in sorted(player_labels):
+            metrics_agg = self._pipeline.perf.get(label)
+            if not metrics_agg.has_data and label not in player_pnl:
+                continue
+            per_regime = {}
+            for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
+                rm = self._pipeline.perf.get(label, regime=r)
+                if rm.has_data:
+                    per_regime[r.label] = {
+                        "pnl_pct":        rm.pnl_pct,
+                        "closed_trades":  rm.closed_trades,
+                        "win_rate":       rm.win_rate,
+                    }
+            real_trades = trade_counts.get(label, 0)
+            real_wins = win_counts.get(label, 0)
             players["V_" + label] = {
-                "realized_pnl_usd": pnl,
-                "trades":            tr,
-                "wins":              wins,
-                "win_rate":          (wins / tr * 100.0) if tr else 0.0,
+                "pnl_pct":          metrics_agg.pnl_pct,
+                "closed_trades":    metrics_agg.closed_trades,
+                "win_rate":         metrics_agg.win_rate,
+                "sharpe":           metrics_agg.sharpe,
+                "max_drawdown_pct": metrics_agg.max_dd_pct,
+                "realized_pnl_usd": player_pnl.get(label, 0.0),
+                "real_trades":      real_trades,
+                "real_wins":        real_wins,
+                "real_win_rate":    (real_wins / real_trades * 100.0) if real_trades else 0.0,
+                "per_regime":       per_regime,
             }
 
         agents_meta = {
