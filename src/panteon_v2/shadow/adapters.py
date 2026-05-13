@@ -12,6 +12,7 @@ Component:
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
@@ -41,6 +42,21 @@ class V1AgentAdapter:
     label:    str
     v1_agent: Any              # любой объект с .act(...)
     portfolio_value_fn: Optional[Callable[[], float]] = None
+
+    def clone_for_shadow(self) -> "V1AgentAdapter":
+        clone_fn = getattr(self.v1_agent, "clone_for_shadow", None)
+        if callable(clone_fn):
+            cloned_v1 = clone_fn()
+        else:
+            try:
+                cloned_v1 = type(self.v1_agent)()
+            except Exception:
+                cloned_v1 = copy.deepcopy(self.v1_agent)
+        return V1AgentAdapter(
+            label=self.label,
+            v1_agent=cloned_v1,
+            portfolio_value_fn=self.portfolio_value_fn,
+        )
 
     def act(self, market: MarketSnapshot) -> Dict[str, Action]:
         try:

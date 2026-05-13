@@ -320,6 +320,8 @@ def _open_memory_by_symbol(pipeline) -> Dict[str, dict]:
         if not isinstance(payload, dict):
             continue
         parts = str(key).split("|")
+        if len(parts) == 3 and parts[0] not in ("", "real"):
+            continue
         sym = str(parts[-1] if parts else "").upper()
         if not sym:
             continue

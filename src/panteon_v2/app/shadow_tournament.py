@@ -8,9 +8,10 @@ without polluting real exchange ledgers or open-position views.
 
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import asdict, dataclass, replace
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ..attribution import EventLog
 from ..domain.types import Action, MarketSnapshot, Signal
@@ -25,7 +26,7 @@ from ..execution import (
     TradeExecutor,
 )
 from ..memory import PerformanceMemory
-from ..selection import Agent, AgentRegistry, Player
+from ..selection import Agent, AgentRegistry, EnsemblePlayer, Player
 
 
 log = logging.getLogger(__name__)
@@ -116,12 +117,17 @@ class ProductionShadowTournament:
         risk_config: RiskLimitsConfig,
         virtual_balance_floor: float = 1000.0,
     ) -> None:
-        self._registry = registry
+        self._source_registry = registry
+        self._registry = AgentRegistry()
         self._perf = perf
         self._risk_config = risk_config
         self._balance_floor = float(virtual_balance_floor)
         self._runtimes: Dict[str, _VirtualActorRuntime] = {}
+        self._source_agents: Dict[str, Agent] = {}
+        self._player_agent_clones: Dict[Tuple[str, str], Agent] = {}
+        self._player_clones: Dict[str, Player] = {}
         self._signal_id = _SHADOW_SIGNAL_ID_START
+        self._refresh_shadow_agents()
 
     def run_bar(
         self,
@@ -131,6 +137,7 @@ class ProductionShadowTournament:
         balance_usd: float,
     ) -> ShadowStepSummary:
         virtual_balance = max(float(balance_usd or 0.0), self._balance_floor)
+        self._refresh_shadow_agents()
         agent_summary = self._run_agents(market, balance_usd=virtual_balance)
         player_summary = self._run_players(market, players, balance_usd=virtual_balance)
         return ShadowStepSummary(
@@ -168,8 +175,11 @@ class ProductionShadowTournament:
     ) -> Dict[str, int]:
         counts = _empty_counts()
         for player in players:
+            shadow_player = self._shadow_player_for(player)
+            if shadow_player is None:
+                continue
             try:
-                raw_signals = player.vote(market, signal_id_start=self._signal_id)
+                raw_signals = shadow_player.vote(market, signal_id_start=self._signal_id)
             except Exception:
                 log.debug("shadow player vote failed for %s", player.label, exc_info=True)
                 raw_signals = []
@@ -224,6 +234,91 @@ class ProductionShadowTournament:
                 timestamp=market.timestamp,
             ))
         return signals
+
+    def _refresh_shadow_agents(self) -> None:
+        for source in self._source_registry.all_agents():
+            self._source_agents[source.label] = source
+            if self._registry.has(source.label):
+                continue
+            clone = self._clone_agent(source, owner=f"agent:{source.label}")
+            if clone is None:
+                continue
+            try:
+                self._registry.register(clone, replace=True)
+            except Exception:
+                log.warning(
+                    "Skipping shadow agent clone for %s: invalid clone",
+                    source.label,
+                    exc_info=True,
+                )
+
+    def _shadow_player_for(self, player: Player) -> Optional[Player]:
+        if isinstance(player, EnsemblePlayer):
+            agents: List[Agent] = []
+            for source in player.agents:
+                key = (player.label, source.label)
+                clone = self._player_agent_clones.get(key)
+                if clone is None:
+                    clone = self._clone_agent(
+                        source,
+                        owner=f"player:{player.label}:{source.label}",
+                    )
+                    if clone is None:
+                        continue
+                    self._player_agent_clones[key] = clone
+                agents.append(clone)
+            if not agents:
+                return None
+            weights = {
+                agent.label: float(player.weights.get(agent.label, 0.0))
+                for agent in agents
+            }
+            total = sum(weights.values())
+            if total <= 0:
+                equal = 1.0 / len(agents)
+                weights = {agent.label: equal for agent in agents}
+            elif abs(total - 1.0) > 1e-6:
+                weights = {label: value / total for label, value in weights.items()}
+            return EnsemblePlayer(
+                label=player.label,
+                agents=agents,
+                weights=weights,
+                voting=player.voting,
+                thresholds=player.thresholds,
+                affinity=player.affinity,
+            )
+
+        clone = self._player_clones.get(player.label)
+        if clone is None:
+            clone = self._clone_actor(player, owner=f"player:{player.label}")
+            if clone is None:
+                return None
+            self._player_clones[player.label] = clone
+        return clone
+
+    def _clone_agent(self, agent: Agent, *, owner: str) -> Optional[Agent]:
+        clone = self._clone_actor(agent, owner=owner)
+        if clone is None:
+            return None
+        if getattr(clone, "label", None) != agent.label:
+            log.warning(
+                "Skipping shadow clone for %s: label changed to %s",
+                agent.label,
+                getattr(clone, "label", None),
+            )
+            return None
+        return clone
+
+    @staticmethod
+    def _clone_actor(actor, *, owner: str):
+        clone_fn = getattr(actor, "clone_for_shadow", None)
+        try:
+            if callable(clone_fn):
+                return clone_fn()
+            return copy.deepcopy(actor)
+        except Exception:
+            log.warning("Skipping shadow clone for %s", owner, exc_info=True)
+            return None
 
     def _next_signal_id(self) -> int:
         signal_id = self._signal_id

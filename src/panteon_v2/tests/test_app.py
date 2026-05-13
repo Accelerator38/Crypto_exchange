@@ -330,6 +330,52 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(len(exchange.orders_log), steps[0].n_filled)
         self.assertGreater(steps[0].n_shadow_filled, steps[0].n_filled)
 
+    def test_shadow_does_not_consume_stateful_agent_before_real_vote(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        class OneShotAgent:
+            label = "AgentA"
+
+            def __init__(self):
+                self.calls = 0
+
+            def act(self, market):
+                self.calls += 1
+                if self.calls == 1:
+                    return {"BTC": Action.FUT_LONG_FULL}
+                return {}
+
+        agent = OneShotAgent()
+        reg = AgentRegistry()
+        reg.register(agent)
+        reg.register(FakeAgent("AgentB"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+        )
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(steps[0].leader, "DefaultEnsemble")
+        self.assertGreater(steps[0].n_shadow_filled, 0)
+        self.assertEqual(steps[0].n_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(len(exchange.orders_log), 1)
+        self.assertEqual(agent.calls, 1)
+
     def test_signal_id_counter_continues_after_perf_snapshot_restore(self):
         from panteon_v2.app.main_loop import _max_existing_signal_id
 
@@ -486,6 +532,58 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(pos.open_signal_id, 77)
         self.assertEqual(pos.by_player, "DefaultEnsemble")
         self.assertEqual(pos.by_agent, "AgentA")
+
+    def test_recover_exchange_positions_ignores_shadow_open_memory(self):
+        from panteon_v2.app.startup import _recover_exchange_positions
+        from panteon_v2.execution.exchange import ExchangePosition
+
+        class LiveExchange(FakeExchange):
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(sym="BTC", side="long", qty=0.01, entry=100.0, leverage=2),
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        pipeline.perf.restore({
+            "trade_fraction": 0.1,
+            "state": {},
+            "open": {
+                "shadow:player:DefaultEnsemble|DefaultEnsemble|BTC": {
+                    "signal_id": 91,
+                    "label": "DefaultEnsemble",
+                    "regime": "bullish",
+                    "side": "long",
+                    "entry_price": 100.0,
+                    "qty": 0.01,
+                    "fee_open": 0.02,
+                },
+                "shadow:agent:AgentA|AgentA|BTC": {
+                    "signal_id": 92,
+                    "label": "AgentA",
+                    "regime": "bullish",
+                    "side": "long",
+                    "entry_price": 100.0,
+                    "qty": 0.01,
+                    "fee_open": 0.02,
+                },
+            },
+            "seen_signal_ids": [91, 92],
+        })
+
+        recovered = _recover_exchange_positions(pipeline)
+
+        pos = pipeline.executor._tracker.get("BTC")
+        self.assertEqual(recovered, 1)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.open_signal_id, 0)
+        self.assertEqual(pos.by_player, "RecoveredExchangePosition")
+        self.assertEqual(pos.by_agent, "")
 
     def test_player_leaderboard_uses_performance_memory(self):
         reg = AgentRegistry()
