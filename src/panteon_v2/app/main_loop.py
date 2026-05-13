@@ -34,6 +34,10 @@ from ..execution import ExecutionResult
 from ..selection import EnsemblePlayer, SwitchDecision
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
+from .live_state import (
+    filter_real_signals_against_tracker,
+    sync_player_agents_to_real_positions,
+)
 
 
 log = logging.getLogger(__name__)
@@ -139,6 +143,9 @@ class StepResult:
     n_shadow_rejected: int = 0
     n_shadow_blocked: int = 0
     n_shadow_actors: int = 0
+    n_filtered_real_signals: int = 0
+    n_stale_close_signals: int = 0
+    n_duplicate_open_signals: int = 0
     error:         Optional[str] = None
 
 
@@ -338,9 +345,23 @@ def _run_one_bar(
 
     # 6. Vote → real signals from selected leader only
     leader = decision.new_leader
-    signals: List[Signal] = leader.vote(market, signal_id_start=signal_id_counter)
+    sync_player_agents_to_real_positions(
+        leader,
+        pipeline,
+        bar_index=market.bar,
+        market_symbols=market.prices.keys(),
+    )
+    raw_signals: List[Signal] = leader.vote(market, signal_id_start=signal_id_counter)
+    if raw_signals:
+        signal_id_counter = max(s.id for s in raw_signals) + 1
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=leader,
+        pipeline=pipeline,
+        bar_index=market.bar,
+    )
+    signals = signal_guard.signals
     if signals:
-        signal_id_counter = max(s.id for s in signals) + 1
         for sig in signals:
             pipeline.event_log.emit(SignalEmitted(
                 bar=market.bar,
@@ -384,6 +405,9 @@ def _run_one_bar(
             n_shadow_rejected=shadow_summary.total_rejected,
             n_shadow_blocked=shadow_summary.total_blocked,
             n_shadow_actors=shadow_summary.actors,
+            n_filtered_real_signals=signal_guard.filtered,
+            n_stale_close_signals=signal_guard.stale_closes,
+            n_duplicate_open_signals=signal_guard.duplicate_opens,
         ),
         signal_id_counter, last_qm_bar, last_regime,
     )

@@ -25,7 +25,13 @@ from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.execution import FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.memory import PerformanceMemory
-from panteon_v2.selection import AgentRegistry, EnsemblePlayer, ThresholdProfile, WeightedConsensus
+from panteon_v2.selection import (
+    AgentRegistry,
+    EnsemblePlayer,
+    PlayerProfile,
+    ThresholdProfile,
+    WeightedConsensus,
+)
 from panteon_v2.shadow.adapters import make_market_snapshot
 from panteon_v2.shadow.feed import ReplayFeed
 from panteon_v2.tests._helpers import FakeAgent
@@ -388,6 +394,106 @@ class TestMainLoop(unittest.TestCase):
         })
 
         self.assertEqual(_max_existing_signal_id(pipeline), 41)
+
+    def test_real_vote_syncs_stateful_agent_to_tracker_before_act(self):
+        class StatefulAgent:
+            label = "Stateful"
+
+            def __init__(self):
+                self.pos = {"BTC": "long"}
+                self.ep = {"BTC": 99.0}
+                self.et = {"BTC": 0}
+                self.seen_pos = []
+
+            def act(self, market):
+                self.seen_pos.append(self.pos.get("BTC"))
+                if self.pos.get("BTC"):
+                    return {"BTC": Action.FUT_CLOSE_ALL}
+                return {"BTC": Action.FUT_LONG_FULL}
+
+        agent = StatefulAgent()
+        reg = AgentRegistry()
+        reg.register(agent)
+        reg.register(FakeAgent("Idle"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[PlayerProfile(
+                label="DefaultEnsemble",
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+                min_agents=2,
+                max_agents=2,
+            )],
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(agent.seen_pos, [None])
+        self.assertEqual(steps[0].n_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(steps[0].n_blocked, 0)
+        self.assertEqual(exchange.orders_log[0].trade.side, "long")
+        self.assertIsNotNone(pipeline.executor._tracker.get("BTC"))
+
+    def test_real_signal_firewall_drops_stale_close_before_events_and_exchange(self):
+        from panteon_v2.attribution import SignalEmitted
+
+        class StubbornCloseAgent:
+            label = "StubbornClose"
+
+            def __init__(self):
+                self.pos = {"INJ": "long"}
+                self.ep = {"INJ": 7.5}
+                self.et = {"INJ": 10}
+
+            def act(self, market):
+                return {"INJ": Action.FUT_CLOSE_ALL}
+
+        agent = StubbornCloseAgent()
+        reg = AgentRegistry()
+        reg.register(agent)
+        reg.register(FakeAgent("Idle"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[PlayerProfile(
+                label="DefaultEnsemble",
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+                min_agents=2,
+                max_agents=2,
+            )],
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"INJ": 7.6},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(steps[0].n_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(steps[0].n_blocked, 0)
+        self.assertEqual(steps[0].n_filtered_real_signals, 1)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertEqual(
+            list(pipeline.event_log.query(event_types=[SignalEmitted])),
+            [],
+        )
+        self.assertIsNone(agent.pos["INJ"])
 
 
 class TestOutputWriter(unittest.TestCase):

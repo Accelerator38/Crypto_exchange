@@ -22,12 +22,15 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 from ..domain.types import MarketSnapshot, Regime
 from ..shadow.adapters import make_market_snapshot
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
+from .live_state import (
+    prepare_v2_agents_for_live_after_warmup as _shared_prepare_live_agents,
+)
 from .main_loop import StepResult, main_loop
 from .output_writer import OutputWriter
 
@@ -312,204 +315,11 @@ def _prepare_v2_agents_for_live_after_warmup(
     bar_index: int = 0,
 ) -> Dict[str, int]:
     """Clear warmup-only positions and seed agents with real exchange positions."""
-    registry = getattr(pipeline, "registry", None)
-    agents = list(registry.all_agents()) if callable(getattr(registry, "all_agents", None)) else []
-    real_positions = _real_positions_for_agent_sync(pipeline)
-
-    for agent in agents:
-        _reset_actor_for_live(agent, bar_index=bar_index, seen=set())
-        for pos in real_positions:
-            _inject_actor_position(
-                agent,
-                sym=pos["sym"],
-                side=pos["side"],
-                entry_price=pos["entry_price"],
-                bar_index=bar_index,
-                seen=set(),
-            )
-
-    summary = {
-        "agents": len(agents),
-        "real_positions": len(real_positions),
-        "bar_index": int(bar_index or 0),
-    }
-    try:
-        setattr(pipeline, "live_state_sync", summary)
-    except Exception:
-        pass
-    log.info(
-        "[%s] v2-agent live state synchronized: agents=%d real_positions=%d bar=%d",
-        exchange_name,
-        summary["agents"],
-        summary["real_positions"],
-        summary["bar_index"],
+    return _shared_prepare_live_agents(
+        pipeline,
+        exchange_name=exchange_name,
+        bar_index=bar_index,
     )
-    return summary
-
-
-def _real_positions_for_agent_sync(pipeline: ProductionPipeline) -> List[Dict[str, Any]]:
-    """Return currently open real positions from tracker, then exchange fallback."""
-    positions: Dict[str, Dict[str, Any]] = {}
-    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
-    if tracker is not None and hasattr(tracker, "all_open"):
-        try:
-            for key, pos in (tracker.all_open() or {}).items():
-                normalized = _normalize_position_for_sync(key, pos)
-                if normalized:
-                    positions[normalized["sym"]] = normalized
-        except Exception:
-            log.debug("tracker position sync read failed", exc_info=True)
-
-    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
-    getter = getattr(exchange, "get_all_positions", None)
-    if callable(getter):
-        try:
-            for key, pos in (getter() or {}).items():
-                normalized = _normalize_position_for_sync(key, pos)
-                if normalized and normalized["sym"] not in positions:
-                    positions[normalized["sym"]] = normalized
-        except Exception:
-            log.debug("exchange position sync read failed", exc_info=True)
-
-    return list(positions.values())
-
-
-def _normalize_position_for_sync(key: Any, pos: Any) -> Optional[Dict[str, Any]]:
-    sym = str(getattr(pos, "sym", key) or "").upper()
-    side = _normalize_side(getattr(pos, "side", ""))
-    entry = getattr(pos, "entry_price", None)
-    if entry is None:
-        entry = getattr(pos, "entry", None)
-    if not sym or side not in ("long", "short"):
-        return None
-    return {
-        "sym": sym,
-        "side": side,
-        "entry_price": _float_or_zero(entry),
-        "qty": _float_or_zero(getattr(pos, "qty", 0.0)),
-    }
-
-
-def _normalize_side(side: Any) -> str:
-    raw = str(side or "").strip().lower()
-    if "short" in raw or raw in {"sell", "-1"}:
-        return "short"
-    if "long" in raw or raw in {"buy", "1"}:
-        return "long"
-    return raw
-
-
-def _reset_actor_for_live(actor: Any, *, bar_index: int, seen: Set[int], depth: int = 0) -> None:
-    if actor is None or depth > 6:
-        return
-    ident = id(actor)
-    if ident in seen:
-        return
-    seen.add(ident)
-
-    reset = getattr(actor, "reset_for_live", None)
-    if callable(reset):
-        try:
-            reset(bar_index)
-        except TypeError:
-            try:
-                reset()
-            except Exception:
-                log.debug("agent reset_for_live failed", exc_info=True)
-        except Exception:
-            log.debug("agent reset_for_live failed", exc_info=True)
-    else:
-        _clear_actor_position_maps(actor)
-
-    for child in _child_actors(actor):
-        _reset_actor_for_live(child, bar_index=bar_index, seen=seen, depth=depth + 1)
-
-
-def _clear_actor_position_maps(actor: Any) -> None:
-    for attr in ("pos", "_pos", "position"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            for sym in list(mapping.keys()):
-                mapping[sym] = None
-    for attr in ("ep", "entry_px", "entry_price"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            for sym in list(mapping.keys()):
-                mapping[sym] = 0.0
-    for attr in ("et", "entry_t", "entry_bar"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            for sym in list(mapping.keys()):
-                mapping[sym] = 0
-
-
-def _inject_actor_position(
-    actor: Any,
-    *,
-    sym: str,
-    side: str,
-    entry_price: float,
-    bar_index: int,
-    seen: Set[int],
-    depth: int = 0,
-) -> None:
-    if actor is None or depth > 6:
-        return
-    ident = id(actor)
-    if ident in seen:
-        return
-    seen.add(ident)
-
-    sync = getattr(actor, "sync_position", None)
-    if callable(sync):
-        try:
-            sync(sym, side, entry_price, bar_index)
-        except TypeError:
-            try:
-                sync(sym, side, entry_price)
-            except Exception:
-                log.debug("agent sync_position failed", exc_info=True)
-        except Exception:
-            log.debug("agent sync_position failed", exc_info=True)
-
-    for attr in ("pos", "_pos", "position"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            mapping[sym] = side
-    for attr in ("ep", "entry_px", "entry_price"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            mapping[sym] = entry_price
-    for attr in ("et", "entry_t", "entry_bar"):
-        mapping = getattr(actor, attr, None)
-        if isinstance(mapping, dict):
-            mapping[sym] = int(bar_index or 0)
-
-    for child in _child_actors(actor):
-        _inject_actor_position(
-            child,
-            sym=sym,
-            side=side,
-            entry_price=entry_price,
-            bar_index=bar_index,
-            seen=seen,
-            depth=depth + 1,
-        )
-
-
-def _child_actors(actor: Any) -> List[Any]:
-    children: List[Any] = []
-    for attr in ("v1_agent", "_inner", "_a", "_b", "_b1", "_b2", "_agent", "agent"):
-        child = getattr(actor, attr, None)
-        if child is not None and child is not actor:
-            children.append(child)
-    for attr in ("agents", "_agents", "sub_agents", "_sub_agents"):
-        raw = getattr(actor, attr, None)
-        if isinstance(raw, dict):
-            children.extend(v for v in raw.values() if v is not None and v is not actor)
-        elif isinstance(raw, (list, tuple, set)):
-            children.extend(v for v in raw if v is not None and v is not actor)
-    return children
 
 
 def _create_bridge(
@@ -648,11 +458,13 @@ def run_with_v1_bridge(
             except Exception:
                 log.exception("output_writer.write failed")
         if n_step % 10 == 0:
-            log.info("  bar=%d leader=%s %s signals=%d filled=%d rejected=%d blocked=%d",
+            filtered = getattr(step, "n_filtered_real_signals", 0)
+            filtered_msg = f" filtered={filtered}" if filtered else ""
+            log.info("  bar=%d leader=%s %s signals=%d filled=%d rejected=%d blocked=%d%s",
                      step.bar, step.leader or "-",
                      _account_log_fields(pipeline),
                      step.n_signals, step.n_filled,
-                     step.n_rejected, step.n_blocked)
+                     step.n_rejected, step.n_blocked, filtered_msg)
 
     def _on_error(exc: Exception) -> None:
         log.error("main_loop error: %s", exc, exc_info=True)

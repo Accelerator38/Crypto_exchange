@@ -172,6 +172,10 @@ class OutputWriter:
             f"shadow_signals={step.n_shadow_signals}",
             f"shadow_filled={step.n_shadow_filled}",
         ]
+        if step.n_filtered_real_signals:
+            parts.append(f"filtered={step.n_filtered_real_signals}")
+            parts.append(f"stale_closes={step.n_stale_close_signals}")
+            parts.append(f"duplicate_opens={step.n_duplicate_open_signals}")
         if step.leader_changed:
             parts.append("LEADER_CHANGED")
         if step.error:
@@ -221,6 +225,9 @@ class OutputWriter:
         n_filled = step.n_filled if step is not None else 0
         n_rejected = step.n_rejected if step is not None else 0
         n_blocked = step.n_blocked if step is not None else 0
+        n_filtered = step.n_filtered_real_signals if step is not None else 0
+        n_stale_closes = step.n_stale_close_signals if step is not None else 0
+        n_duplicate_opens = step.n_duplicate_open_signals if step is not None else 0
         leader = step.leader if step is not None else None
         leader_session = self._session_metrics_for(leader) if leader else {
             "pnl_pct": 0.0,
@@ -268,6 +275,9 @@ class OutputWriter:
             "n_filled_bar":     n_filled,
             "n_rejected_bar":   n_rejected,
             "n_blocked_bar":    n_blocked,
+            "n_filtered_real_signals_bar": n_filtered,
+            "n_stale_close_signals_bar": n_stale_closes,
+            "n_duplicate_open_signals_bar": n_duplicate_opens,
             "n_positions":      position_counts["n_positions"],
             "tracked_positions_count": position_counts["tracked_positions_count"],
             "exchange_positions_count": position_counts["exchange_positions_count"],
