@@ -20,10 +20,12 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 from ..execution import Exchange, FakeExchange, RiskLimitsConfig
+from ..execution.position_tracker import TrackedPosition
 from ..selection import AgentRegistry, PlayerProfile
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
@@ -237,6 +239,116 @@ def resolve_exchange(exchange_name: str, *, mode: str) -> Exchange:
     return FakeExchange(name=f"{name}-DRYRUN")
 
 
+def _recover_exchange_positions(pipeline) -> int:
+    """Seed the v2 tracker from live exchange positions after restart."""
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    getter = getattr(exchange, "get_all_positions", None)
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if not callable(getter) or tracker is None:
+        return 0
+
+    try:
+        exchange_positions = getter() or {}
+    except Exception:
+        log.warning("[%s] exchange open-position recovery failed",
+                    pipeline.exchange_name, exc_info=True)
+        return 0
+
+    memory_by_symbol = _open_memory_by_symbol(pipeline)
+    recovered = 0
+    external = 0
+    for raw_sym, exchange_pos in exchange_positions.items():
+        sym = str(getattr(exchange_pos, "sym", raw_sym) or raw_sym).upper()
+        if not sym or tracker.get(sym) is not None:
+            continue
+        memory = memory_by_symbol.get(sym, {})
+        qty = _float_or_zero(getattr(exchange_pos, "qty", None), memory.get("qty"))
+        entry = _float_or_zero(getattr(exchange_pos, "entry", None), memory.get("entry_price"))
+        if qty <= 0 or entry <= 0:
+            log.warning(
+                "[%s] skipping recovered position %s: qty=%.8f entry=%.8f",
+                pipeline.exchange_name,
+                sym,
+                qty,
+                entry,
+            )
+            continue
+        side = str(getattr(exchange_pos, "side", memory.get("side", "long")) or "long").lower()
+        if side not in ("long", "short"):
+            side = "long"
+        by_player = str(memory.get("by_player") or "RecoveredExchangePosition")
+        by_agent = str(memory.get("by_agent") or "")
+        if not memory.get("by_player") and not memory.get("by_agent"):
+            external += 1
+        tracker.force_set(TrackedPosition(
+            open_signal_id=int(memory.get("signal_id") or 0),
+            sym=sym,
+            side=side,
+            entry_price=entry,
+            qty=qty,
+            fee_open=float(memory.get("fee_open") or 0.0),
+            by_player=by_player,
+            by_agent=by_agent,
+            opened_at=datetime.now(timezone.utc),
+        ))
+        recovered += 1
+
+    if recovered:
+        log.info(
+            "[%s] recovered %d open exchange position(s) into v2 tracker "
+            "(external=%d)",
+            pipeline.exchange_name,
+            recovered,
+            external,
+        )
+    return recovered
+
+
+def _open_memory_by_symbol(pipeline) -> Dict[str, dict]:
+    try:
+        open_memory = pipeline.perf.snapshot().get("open") or {}
+    except Exception:
+        return {}
+    try:
+        agent_labels = set(pipeline.registry.all_labels())
+    except Exception:
+        agent_labels = set()
+    player_labels = {getattr(profile, "label", "") for profile in getattr(pipeline, "profiles", [])}
+
+    by_symbol: Dict[str, dict] = {}
+    for key, payload in open_memory.items():
+        if not isinstance(payload, dict):
+            continue
+        parts = str(key).split("|")
+        sym = str(parts[-1] if parts else "").upper()
+        if not sym:
+            continue
+        label = str(payload.get("label") or (parts[-2] if len(parts) >= 2 else ""))
+        if not label:
+            continue
+        rec = by_symbol.setdefault(sym, {})
+        for field in ("signal_id", "side", "entry_price", "qty", "fee_open"):
+            if field not in rec and field in payload:
+                rec[field] = payload[field]
+        if label in player_labels:
+            rec["by_player"] = label
+        elif label in agent_labels:
+            rec["by_agent"] = label
+        elif not rec.get("by_player"):
+            rec["by_player"] = label
+    return by_symbol
+
+
+def _float_or_zero(*values) -> float:
+    for value in values:
+        try:
+            if value is not None and value != "":
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
 # ────────────────────────────────────────────────────────────────────
 # Main entry: start_production
 # ────────────────────────────────────────────────────────────────────
@@ -345,6 +457,9 @@ def start_production(
     )
 
     # 5. OutputWriter — обязательно для видимости работы
+    if mode != "paper":
+        _recover_exchange_positions(pipeline)
+
     writer = OutputWriter.for_session(pipeline, results_root=results_root)
     log.info("Output directory: %s", writer.output_dir)
 

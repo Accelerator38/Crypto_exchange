@@ -436,12 +436,17 @@ def _run_shadow_tournament(
 
 def _max_existing_signal_id(pipeline: ProductionPipeline) -> int:
     """Если pipeline восстановлен из snapshot — продолжаем нумерацию signal_id."""
+    max_id = -1
     try:
         from ..attribution.events import SignalEmitted
-        max_id = -1
         for ev in pipeline.event_log.query(event_types=[SignalEmitted]):
             if ev.signal and ev.signal.id > max_id:
                 max_id = ev.signal.id
-        return max(max_id, 0)
     except Exception:
-        return 0
+        pass
+    try:
+        for raw_id in (pipeline.perf.snapshot().get("seen_signal_ids") or []):
+            max_id = max(max_id, int(raw_id))
+    except Exception:
+        pass
+    return max(max_id, 0)

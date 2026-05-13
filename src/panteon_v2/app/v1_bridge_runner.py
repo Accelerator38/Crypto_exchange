@@ -36,12 +36,28 @@ log = logging.getLogger(__name__)
 
 
 def _account_log_fields(pipeline: ProductionPipeline) -> str:
-    snapshot = getattr(pipeline, "account_snapshot", None) or {}
     balance = _float_or_zero(getattr(pipeline, "current_balance", 0.0))
-    assets = _float_or_zero(snapshot.get("total_assets", balance))
-    if assets <= 0:
-        assets = balance
-    return f"balance=${balance:.2f} assets=${assets:.2f}"
+    return f"balance=${balance:.2f} positions={_position_count(pipeline)}"
+
+
+def _position_count(pipeline: ProductionPipeline) -> int:
+    tracked_count = 0
+    try:
+        tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+        if tracker is not None and hasattr(tracker, "all_open"):
+            tracked_count = len(tracker.all_open() or {})
+    except Exception:
+        tracked_count = 0
+
+    exchange_count = 0
+    try:
+        exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+        getter = getattr(exchange, "get_all_positions", None)
+        if callable(getter):
+            exchange_count = len(getter() or {})
+    except Exception:
+        exchange_count = 0
+    return max(tracked_count, exchange_count)
 
 
 def _float_or_zero(value: Any) -> float:

@@ -168,16 +168,24 @@ class V1BridgeRunnerTests(unittest.TestCase):
             ],
         )
 
-    def test_account_log_fields_include_balance_and_assets(self):
+    def test_account_log_fields_include_balance_and_position_count(self):
         from panteon_v2.app.v1_bridge_runner import _account_log_fields
+
+        class Exchange:
+            def get_all_positions(self):
+                return {"BTC": object()}
+
+        class Executor:
+            _exchange = Exchange()
 
         class Pipeline:
             current_balance = 120.5
             account_snapshot = {"total_assets": 128.0}
+            executor = Executor()
 
         self.assertEqual(
             _account_log_fields(Pipeline()),
-            "balance=$120.50 assets=$128.00",
+            "balance=$120.50 positions=1",
         )
 
 

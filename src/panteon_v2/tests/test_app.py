@@ -330,6 +330,19 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(len(exchange.orders_log), steps[0].n_filled)
         self.assertGreater(steps[0].n_shadow_filled, steps[0].n_filled)
 
+    def test_signal_id_counter_continues_after_perf_snapshot_restore(self):
+        from panteon_v2.app.main_loop import _max_existing_signal_id
+
+        pipeline, _feed = self._setup()
+        pipeline.perf.restore({
+            "trade_fraction": 0.1,
+            "state": {},
+            "open": {},
+            "seen_signal_ids": [17, 41],
+        })
+
+        self.assertEqual(_max_existing_signal_id(pipeline), 41)
+
 
 class TestOutputWriter(unittest.TestCase):
     def test_writer_creates_operator_files_before_first_bar(self):
@@ -364,7 +377,9 @@ class TestOutputWriter(unittest.TestCase):
                 self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
             writer.close()
 
-    def test_status_and_trading_log_include_balance_and_total_assets(self):
+    def test_status_and_trading_log_include_balance_and_position_count(self):
+        from panteon_v2.execution.exchange import ExchangePosition
+
         class LiveExchange(FakeExchange):
             def get_account_snapshot(self):
                 return {
@@ -374,6 +389,12 @@ class TestOutputWriter(unittest.TestCase):
                     "spot_assets": 7.5,
                     "total_assets": 128.0,
                     "unrealized_pnl": 0.75,
+                }
+
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(sym="BTC", side="long", qty=0.01, entry=100.0),
+                    "ETH": ExchangePosition(sym="ETH", side="short", qty=0.2, entry=50.0),
                 }
 
         reg = AgentRegistry()
@@ -407,8 +428,64 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(status["available_balance_usd"], 101.25)
         self.assertEqual(status["spot_assets_usd"], 7.5)
         self.assertEqual(status["total_assets_usd"], 128.0)
+        self.assertEqual(status["exchange_positions_count"], 2)
+        self.assertEqual(status["tracked_positions_count"], 0)
         self.assertIn("balance=$120.50", trading_log)
-        self.assertIn("assets=$128.00", trading_log)
+        self.assertIn("positions=2", trading_log)
+        self.assertNotIn("assets=", trading_log)
+
+    def test_recover_exchange_positions_seeds_tracker_from_perf_snapshot(self):
+        from panteon_v2.app.startup import _recover_exchange_positions
+        from panteon_v2.execution.exchange import ExchangePosition
+
+        class LiveExchange(FakeExchange):
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(sym="BTC", side="long", qty=0.01, entry=100.0, leverage=2),
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        pipeline.perf.restore({
+            "trade_fraction": 0.1,
+            "state": {},
+            "open": {
+                "real|DefaultEnsemble|BTC": {
+                    "signal_id": 77,
+                    "label": "DefaultEnsemble",
+                    "regime": "bullish",
+                    "side": "long",
+                    "entry_price": 100.0,
+                    "qty": 0.01,
+                    "fee_open": 0.02,
+                },
+                "real|AgentA|BTC": {
+                    "signal_id": 77,
+                    "label": "AgentA",
+                    "regime": "bullish",
+                    "side": "long",
+                    "entry_price": 100.0,
+                    "qty": 0.01,
+                    "fee_open": 0.02,
+                },
+            },
+            "seen_signal_ids": [77],
+        })
+
+        recovered = _recover_exchange_positions(pipeline)
+
+        tracker = pipeline.executor._tracker
+        pos = tracker.get("BTC")
+        self.assertEqual(recovered, 1)
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.open_signal_id, 77)
+        self.assertEqual(pos.by_player, "DefaultEnsemble")
+        self.assertEqual(pos.by_agent, "AgentA")
 
     def test_player_leaderboard_uses_performance_memory(self):
         reg = AgentRegistry()

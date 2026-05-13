@@ -155,15 +155,15 @@ class OutputWriter:
     def _log_step(self, step: StepResult) -> None:
         """Append одну строку в trading.log."""
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        snapshot = self._refresh_account_view()
-        total_assets = float(snapshot.get("total_assets", self._current_balance) or self._current_balance)
+        self._refresh_account_view()
+        position_counts = self._position_counts()
         parts = [
             ts,
             f"bar={step.bar}",
             f"regime={step.regime.label}",
             f"leader={step.leader or '-'}",
             f"balance=${self._current_balance:.2f}",
-            f"assets=${total_assets:.2f}",
+            f"positions={position_counts['n_positions']}",
             f"signals={step.n_signals}",
             f"filled={step.n_filled}",
             f"rejected={step.n_rejected}",
@@ -207,16 +207,8 @@ class OutputWriter:
         )
 
         # Открытые позиции
-        open_positions = {}
-        for sym, pos in self._pipeline.executor._tracker.all_open().items() \
-                if hasattr(self._pipeline.executor, "_tracker") else {}:
-            open_positions[sym] = {
-                "side":  pos.side,
-                "qty":   pos.qty,
-                "entry": pos.entry_price,
-                "by_player": pos.by_player,
-                "by_agent":  pos.by_agent,
-            }
+        open_positions = self._tracked_open_positions()
+        position_counts = self._position_counts(tracked_count=len(open_positions))
 
         uptime_sec = time.time() - self._start_time
         h = int(uptime_sec // 3600)
@@ -261,7 +253,9 @@ class OutputWriter:
             "n_filled_bar":     n_filled,
             "n_rejected_bar":   n_rejected,
             "n_blocked_bar":    n_blocked,
-            "n_positions":      len(open_positions),
+            "n_positions":      position_counts["n_positions"],
+            "tracked_positions_count": position_counts["tracked_positions_count"],
+            "exchange_positions_count": position_counts["exchange_positions_count"],
             "current_leader":   leader,
             "shadow":           shadow,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
@@ -302,6 +296,50 @@ class OutputWriter:
         self._pipeline.current_balance = current_balance
         self._pipeline.account_snapshot = snapshot
         return snapshot
+
+    def _tracked_open_positions(self) -> Dict[str, dict]:
+        open_positions: Dict[str, dict] = {}
+        tracker = getattr(getattr(self._pipeline, "executor", None), "_tracker", None)
+        if tracker is None or not hasattr(tracker, "all_open"):
+            return open_positions
+        try:
+            tracked = tracker.all_open()
+        except Exception:
+            return open_positions
+        for sym, pos in tracked.items():
+            open_positions[sym] = {
+                "side":  pos.side,
+                "qty":   pos.qty,
+                "entry": pos.entry_price,
+                "by_player": pos.by_player,
+                "by_agent":  pos.by_agent,
+            }
+        return open_positions
+
+    def _position_counts(self, *, tracked_count: Optional[int] = None) -> Dict[str, int]:
+        if tracked_count is None:
+            tracked_count = len(self._tracked_open_positions())
+        exchange_count = self._exchange_positions_count()
+        return {
+            "n_positions": max(int(tracked_count), int(exchange_count)),
+            "tracked_positions_count": int(tracked_count),
+            "exchange_positions_count": int(exchange_count),
+        }
+
+    def _exchange_positions_count(self) -> int:
+        exchange = getattr(getattr(self._pipeline, "executor", None), "_exchange", None)
+        getter = getattr(exchange, "get_all_positions", None)
+        if not callable(getter):
+            return 0
+        try:
+            positions = getter()
+        except Exception:
+            log.debug("exchange positions sync failed in OutputWriter", exc_info=True)
+            return 0
+        try:
+            return len(positions or {})
+        except TypeError:
+            return 0
 
     def _write_leaderboards(self) -> None:
         """leaderboard_agents.json / leaderboard_players.json как у v1."""
