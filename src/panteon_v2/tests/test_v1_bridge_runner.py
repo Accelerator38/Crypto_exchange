@@ -168,6 +168,18 @@ class V1BridgeRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_account_log_fields_include_balance_and_assets(self):
+        from panteon_v2.app.v1_bridge_runner import _account_log_fields
+
+        class Pipeline:
+            current_balance = 120.5
+            account_snapshot = {"total_assets": 128.0}
+
+        self.assertEqual(
+            _account_log_fields(Pipeline()),
+            "balance=$120.50 assets=$128.00",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

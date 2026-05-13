@@ -20,6 +20,7 @@ from panteon_v2.app import (
     migrate_v1_regime_memory,
     save_v2_snapshot,
 )
+from panteon_v2.app.main_loop import StepResult
 from panteon_v2.domain.types import Action, Regime
 from panteon_v2.execution import FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
@@ -121,6 +122,32 @@ class TestBootstrap(unittest.TestCase):
 
         self.assertEqual(sync_pipeline_balance(pipeline), 120.5)
         self.assertEqual(pipeline.current_balance, 120.5)
+
+    def test_sync_pipeline_balance_stores_account_snapshot_total_assets(self):
+        from panteon_v2.app.main_loop import sync_pipeline_balance
+
+        class LiveExchange(FakeExchange):
+            def get_account_snapshot(self):
+                return {
+                    "current_balance": 120.5,
+                    "futures_equity": 120.5,
+                    "available_balance": 101.25,
+                    "spot_assets": 7.5,
+                    "total_assets": 128.0,
+                    "unrealized_pnl": 0.75,
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+
+        self.assertEqual(sync_pipeline_balance(pipeline), 120.5)
+        self.assertEqual(pipeline.current_balance, 120.5)
+        self.assertEqual(pipeline.account_snapshot["total_assets"], 128.0)
 
     def test_runtime_risk_config_uses_settings_trade_fraction(self):
         from panteon_v2.app.startup import _risk_config_from_trade_fraction
@@ -321,6 +348,11 @@ class TestOutputWriter(unittest.TestCase):
                 "leaderboard_players.json",
                 "dashboard.txt",
                 "dashboard.html",
+                "dashboard_latest.png",
+                "shadow_agents_dashboard.png",
+                "shadow_player_dashboard.png",
+                "agent_regime_dashboard.png",
+                "player_regime_dashboard.png",
             ):
                 self.assertTrue(os.path.exists(os.path.join(out, name)), name)
             with open(os.path.join(out, "status.json"), "r", encoding="utf-8") as f:
@@ -328,7 +360,55 @@ class TestOutputWriter(unittest.TestCase):
             self.assertEqual(status["version"], "v2")
             self.assertEqual(status["run_state"], "starting")
             self.assertEqual(status["bar_count"], 0)
+            with open(os.path.join(out, "dashboard_latest.png"), "rb") as f:
+                self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
             writer.close()
+
+    def test_status_and_trading_log_include_balance_and_total_assets(self):
+        class LiveExchange(FakeExchange):
+            def get_account_snapshot(self):
+                return {
+                    "current_balance": 120.5,
+                    "futures_equity": 120.5,
+                    "available_balance": 101.25,
+                    "spot_assets": 7.5,
+                    "total_assets": 128.0,
+                    "unrealized_pnl": 0.75,
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("LiveTrendFollow"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=1,
+                regime=Regime.NEUTRAL,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
+                status = json.load(f)
+            with open(os.path.join(writer.output_dir, "trading.log"), "r", encoding="utf-8") as f:
+                trading_log = f.read()
+            writer.close()
+
+        self.assertEqual(status["current_balance"], 120.5)
+        self.assertEqual(status["futures_equity_usd"], 120.5)
+        self.assertEqual(status["available_balance_usd"], 101.25)
+        self.assertEqual(status["spot_assets_usd"], 7.5)
+        self.assertEqual(status["total_assets_usd"], 128.0)
+        self.assertIn("balance=$120.50", trading_log)
+        self.assertIn("assets=$128.00", trading_log)
 
     def test_player_leaderboard_uses_performance_memory(self):
         reg = AgentRegistry()

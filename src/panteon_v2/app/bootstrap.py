@@ -18,7 +18,7 @@ state — только через переданные ссылки.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from ..attribution import AttributionLedger, EventLog
 from ..dashboards import DashboardRenderer
@@ -93,6 +93,7 @@ class ProductionPipeline:
 
     # Состояние loop
     current_balance: float = 0.0
+    account_snapshot: Optional[Dict[str, float]] = None
     shadow_tournament: Optional[object] = None
     shadow_last_summary: Optional[dict] = None
 

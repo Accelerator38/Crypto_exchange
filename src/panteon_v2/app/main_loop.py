@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..attribution import (
     BarStarted,
@@ -43,17 +43,78 @@ def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
     """Best-effort sync of v2 balance from the live exchange adapter."""
     try:
         exchange = getattr(pipeline.executor, "_exchange", None)
+        snapshot_getter = getattr(exchange, "get_account_snapshot", None)
+        if callable(snapshot_getter):
+            snapshot = _normalize_account_snapshot(snapshot_getter())
+            balance = _snapshot_balance(snapshot)
+            if balance and balance > 0:
+                pipeline.account_snapshot = snapshot
+                pipeline.current_balance = balance
+                return balance
+
         getter = getattr(exchange, "get_account_equity", None)
         if not callable(getter):
             return None
         equity = float(getter() or 0.0)
         if equity <= 0:
             return None
+        pipeline.account_snapshot = {
+            "current_balance": equity,
+            "futures_equity": equity,
+            "available_balance": equity,
+            "spot_assets": 0.0,
+            "total_assets": equity,
+            "unrealized_pnl": 0.0,
+        }
         pipeline.current_balance = equity
         return equity
     except Exception:
         log.debug("live balance sync failed", exc_info=True)
         return None
+
+
+def _normalize_account_snapshot(raw: Any) -> Dict[str, float]:
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, float] = {}
+    aliases = {
+        "current_balance": ("current_balance", "balance", "primary_capital"),
+        "futures_equity": ("futures_equity", "equity", "futures_equity_usd"),
+        "available_balance": ("available_balance", "available", "available_balance_usd"),
+        "spot_assets": ("spot_assets", "spot_value", "spot_assets_usd"),
+        "total_assets": ("total_assets", "total_equity", "total_assets_usd"),
+        "unrealized_pnl": ("unrealized_pnl", "unrealized", "unrealized_pnl_usd"),
+    }
+    for canonical, keys in aliases.items():
+        for key in keys:
+            try:
+                value = raw.get(key)
+                if value is not None and value != "":
+                    out[canonical] = float(value)
+                    break
+            except (TypeError, ValueError):
+                continue
+    if "futures_equity" not in out and "current_balance" in out:
+        out["futures_equity"] = out["current_balance"]
+    if "current_balance" not in out and "futures_equity" in out:
+        out["current_balance"] = out["futures_equity"]
+    if "spot_assets" not in out:
+        out["spot_assets"] = 0.0
+    if "total_assets" not in out:
+        out["total_assets"] = out.get("futures_equity", 0.0) + out.get("spot_assets", 0.0)
+    if "available_balance" not in out:
+        out["available_balance"] = out.get("current_balance", 0.0)
+    if "unrealized_pnl" not in out:
+        out["unrealized_pnl"] = 0.0
+    return out
+
+
+def _snapshot_balance(snapshot: Dict[str, float]) -> Optional[float]:
+    for key in ("current_balance", "futures_equity", "total_assets"):
+        value = float(snapshot.get(key, 0.0) or 0.0)
+        if value > 0:
+            return value
+    return None
 
 
 # ────────────────────────────────────────────────────────────────────

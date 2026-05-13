@@ -35,6 +35,22 @@ from .output_writer import OutputWriter
 log = logging.getLogger(__name__)
 
 
+def _account_log_fields(pipeline: ProductionPipeline) -> str:
+    snapshot = getattr(pipeline, "account_snapshot", None) or {}
+    balance = _float_or_zero(getattr(pipeline, "current_balance", 0.0))
+    assets = _float_or_zero(snapshot.get("total_assets", balance))
+    if assets <= 0:
+        assets = balance
+    return f"balance=${balance:.2f} assets=${assets:.2f}"
+
+
+def _float_or_zero(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _is_usable_bridge(candidate: Any) -> bool:
     return (
         candidate is not None
@@ -400,8 +416,9 @@ def run_with_v1_bridge(
             except Exception:
                 log.exception("output_writer.write failed")
         if n_step % 10 == 0:
-            log.info("  bar=%d leader=%s signals=%d filled=%d rejected=%d blocked=%d",
+            log.info("  bar=%d leader=%s %s signals=%d filled=%d rejected=%d blocked=%d",
                      step.bar, step.leader or "-",
+                     _account_log_fields(pipeline),
                      step.n_signals, step.n_filled,
                      step.n_rejected, step.n_blocked)
 

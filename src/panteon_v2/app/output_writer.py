@@ -26,13 +26,25 @@ from ..dashboards import (
     build_leaderboard,
     build_quarantine_panel,
     build_regime_heatmap,
+    write_operator_pngs,
 )
 from ..domain.types import Regime
 from .bootstrap import ProductionPipeline
-from .main_loop import StepResult
+from .main_loop import StepResult, sync_pipeline_balance
 
 
 log = logging.getLogger(__name__)
+
+
+def _first_positive(*values) -> float:
+    for value in values:
+        try:
+            out = float(value)
+            if out > 0:
+                return out
+        except (TypeError, ValueError):
+            continue
+    return 0.0
 
 
 @dataclass
@@ -68,6 +80,9 @@ class OutputWriter:
         self._initial_capital = pipeline.initial_capital
         self._current_balance = pipeline.initial_capital
         self._last_step: Optional[StepResult] = None
+        self._last_status_data: Dict[str, object] = {}
+        self._last_agents_payload: Dict[str, object] = {"metadata": {}, "agents": {}}
+        self._last_players_payload: Dict[str, object] = {"metadata": {}, "players": {}}
         # Создаём output dir
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         # Открываем trading.log (append)
@@ -140,11 +155,15 @@ class OutputWriter:
     def _log_step(self, step: StepResult) -> None:
         """Append одну строку в trading.log."""
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        snapshot = self._refresh_account_view()
+        total_assets = float(snapshot.get("total_assets", self._current_balance) or self._current_balance)
         parts = [
             ts,
             f"bar={step.bar}",
             f"regime={step.regime.label}",
             f"leader={step.leader or '-'}",
+            f"balance=${self._current_balance:.2f}",
+            f"assets=${total_assets:.2f}",
             f"signals={step.n_signals}",
             f"filled={step.n_filled}",
             f"rejected={step.n_rejected}",
@@ -179,13 +198,11 @@ class OutputWriter:
             pass
 
         realized_pnl = self._pipeline.ledger.total_realized_pnl
-        current_from_pipeline = float(getattr(self._pipeline, "current_balance", 0.0) or 0.0)
-        # In live mode main_loop keeps current_balance synced from exchange equity.
-        self._current_balance = current_from_pipeline or (self._initial_capital + realized_pnl)
-        self._pipeline.current_balance = self._current_balance
+        account_snapshot = self._refresh_account_view(realized_pnl=realized_pnl)
+        total_assets = float(account_snapshot.get("total_assets", self._current_balance) or self._current_balance)
 
         pnl_pct = (
-            (self._current_balance - self._initial_capital) / self._initial_capital * 100.0
+            (total_assets - self._initial_capital) / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
 
@@ -233,6 +250,11 @@ class OutputWriter:
             "regime":           regime,
             "initial_capital":  self._initial_capital,
             "current_balance":  self._current_balance,
+            "futures_equity_usd": account_snapshot.get("futures_equity", self._current_balance),
+            "available_balance_usd": account_snapshot.get("available_balance", self._current_balance),
+            "spot_assets_usd": account_snapshot.get("spot_assets", 0.0),
+            "total_assets_usd": total_assets,
+            "unrealized_pnl_usd": account_snapshot.get("unrealized_pnl", 0.0),
             "pnl_usd":          realized_pnl,
             "pnl_pct":          pnl_pct,
             "n_signals_bar":    n_signals,
@@ -246,8 +268,40 @@ class OutputWriter:
             "open_positions":   open_positions,
             "ledger_closed_count": self._pipeline.ledger.closed_count,
         }
+        self._last_status_data = data
         path = os.path.join(self._config.output_dir, self._config.status_filename)
         self._write_json_atomic(path, data)
+
+    def _refresh_account_view(self, *, realized_pnl: float = 0.0) -> Dict[str, float]:
+        try:
+            sync_pipeline_balance(self._pipeline)
+        except Exception:
+            log.debug("account sync failed in OutputWriter", exc_info=True)
+
+        snapshot = dict(getattr(self._pipeline, "account_snapshot", None) or {})
+        fallback_balance = float(getattr(self._pipeline, "current_balance", 0.0) or 0.0)
+        if fallback_balance <= 0:
+            fallback_balance = self._initial_capital + float(realized_pnl or 0.0)
+        current_balance = _first_positive(
+            snapshot.get("current_balance"),
+            snapshot.get("futures_equity"),
+            fallback_balance,
+        )
+        total_assets = _first_positive(
+            snapshot.get("total_assets"),
+            current_balance + float(snapshot.get("spot_assets", 0.0) or 0.0),
+            current_balance,
+        )
+        snapshot.setdefault("current_balance", current_balance)
+        snapshot.setdefault("futures_equity", current_balance)
+        snapshot.setdefault("available_balance", current_balance)
+        snapshot.setdefault("spot_assets", 0.0)
+        snapshot.setdefault("total_assets", total_assets)
+        snapshot.setdefault("unrealized_pnl", 0.0)
+        self._current_balance = current_balance
+        self._pipeline.current_balance = current_balance
+        self._pipeline.account_snapshot = snapshot
+        return snapshot
 
     def _write_leaderboards(self) -> None:
         """leaderboard_agents.json / leaderboard_players.json как у v1."""
@@ -323,13 +377,15 @@ class OutputWriter:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "regime":    "—",  # фиксируется по последнему step, ниже
         }
+        self._last_agents_payload = {"metadata": agents_meta, "agents": agents}
+        self._last_players_payload = {"metadata": agents_meta, "players": players}
         self._write_json_atomic(
             os.path.join(self._config.output_dir, self._config.leaderboard_agents),
-            {"metadata": agents_meta, "agents": agents},
+            self._last_agents_payload,
         )
         self._write_json_atomic(
             os.path.join(self._config.output_dir, self._config.leaderboard_players),
-            {"metadata": agents_meta, "players": players},
+            self._last_players_payload,
         )
 
     def _write_dashboard(self) -> None:
@@ -340,14 +396,38 @@ class OutputWriter:
             path = os.path.join(self._config.output_dir, self._config.dashboard_filename)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
+            self._write_visual_dashboards()
             self._write_dashboard_html(text)
         except Exception:
             log.exception("dashboard render failed")
+
+    def _write_visual_dashboards(self) -> None:
+        try:
+            write_operator_pngs(
+                self._config.output_dir,
+                status=self._last_status_data,
+                agents_payload=self._last_agents_payload,
+                players_payload=self._last_players_payload,
+            )
+        except Exception:
+            log.exception("visual dashboard render failed")
 
     def _write_dashboard_html(self, text: str) -> None:
         status_path = self._config.status_filename
         escaped = html.escape(text)
         now = datetime.now(timezone.utc).isoformat()
+        image_names = (
+            "dashboard_latest.png",
+            "shadow_agents_dashboard.png",
+            "shadow_player_dashboard.png",
+            "agent_regime_dashboard.png",
+            "player_regime_dashboard.png",
+        )
+        image_links = "\n".join(
+            f'<figure><a href="{html.escape(name)}"><img src="{html.escape(name)}" alt="{html.escape(name)}"></a>'
+            f'<figcaption>{html.escape(name)}</figcaption></figure>'
+            for name in image_names
+        )
         page = f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -360,6 +440,10 @@ header {{ padding: 12px 16px; background: #161b22; border-bottom: 1px solid #303
 main {{ padding: 16px; }}
 a {{ color: #58a6ff; }}
 pre {{ white-space: pre-wrap; line-height: 1.35; font-size: 13px; }}
+.gallery {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 18px; }}
+figure {{ margin: 0; background: #161b22; border: 1px solid #30363d; padding: 8px; }}
+img {{ width: 100%; height: auto; display: block; }}
+figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
 .muted {{ color: #8b949e; }}
 </style>
 </head>
@@ -369,7 +453,12 @@ pre {{ white-space: pre-wrap; line-height: 1.35; font-size: 13px; }}
 <span class="muted">updated {html.escape(now)}</span>
 <span class="muted">status: <a href="{html.escape(status_path)}">{html.escape(status_path)}</a></span>
 </header>
-<main><pre>{escaped}</pre></main>
+<main>
+<section class="gallery">
+{image_links}
+</section>
+<pre>{escaped}</pre>
+</main>
 </body>
 </html>
 """

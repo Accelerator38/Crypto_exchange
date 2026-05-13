@@ -114,29 +114,46 @@ class V1FuturesExchangeAdapter:
         available margin is useful for exchange-side checks, but v2 sizing uses
         the account value as its balance base.
         """
-        for source in (self._order_client, self._read_client):
+        snapshot = self.get_account_snapshot()
+        for key in ("current_balance", "futures_equity", "total_assets"):
+            value = float(snapshot.get(key, 0.0) or 0.0)
+            if value > 0:
+                return value
+        return 0.0
+
+    def get_account_snapshot(self) -> Dict[str, float]:
+        """Read a normalized live account snapshot for operator status.
+
+        The v1 runtime exposes richer snapshots on direct clients. Panteon v2
+        keeps only a compact USD view: futures equity/available, spot value,
+        total assets and unrealized PnL.
+        """
+        sources = (self._read_client, self._order_client)
+        for source in sources:
+            if source is None:
+                continue
+            snapshot = getattr(source, "get_full_snapshot", None)
+            if callable(snapshot):
+                try:
+                    normalized = self._snapshot_from_full_snapshot(snapshot())
+                    if normalized.get("current_balance", 0.0) > 0:
+                        return normalized
+                except Exception:
+                    pass
+
+        for source in sources:
             if source is None:
                 continue
             getter = getattr(source, "account_assets", None)
             if callable(getter):
                 try:
-                    value = self._equity_from_assets(getter())
-                    if value > 0:
-                        return value
+                    normalized = self._snapshot_from_assets(getter())
+                    if normalized.get("current_balance", 0.0) > 0:
+                        return normalized
                 except Exception:
                     pass
 
-            snapshot = getattr(source, "get_full_snapshot", None)
-            if callable(snapshot):
-                try:
-                    raw = snapshot()
-                    if isinstance(raw, dict):
-                        value = self._equity_from_assets(raw.get("assets") or raw.get("balances"))
-                        if value > 0:
-                            return value
-                except Exception:
-                    pass
-        return 0.0
+        return {}
 
     def _send_open(
         self,
@@ -454,6 +471,92 @@ class V1FuturesExchangeAdapter:
             try:
                 value = raw.get(key)
                 if value is not None and float(value) > 0:
+                    return float(value)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    @classmethod
+    def _snapshot_from_assets(cls, raw: Any) -> Dict[str, float]:
+        equity = cls._equity_from_assets(raw)
+        available = equity
+        if isinstance(raw, dict):
+            for key in ("USDT_AVAIL", "available", "availableBalance", "free"):
+                try:
+                    value = raw.get(key)
+                    if value is not None and value != "":
+                        available = float(value)
+                        break
+                except (TypeError, ValueError):
+                    continue
+        return {
+            "current_balance": equity,
+            "futures_equity": equity,
+            "available_balance": available,
+            "spot_assets": 0.0,
+            "total_assets": equity,
+            "unrealized_pnl": 0.0,
+        }
+
+    @classmethod
+    def _snapshot_from_full_snapshot(cls, raw: Any) -> Dict[str, float]:
+        if not isinstance(raw, dict):
+            return {}
+        futures = raw.get("futures") if isinstance(raw.get("futures"), dict) else {}
+        spot = raw.get("spot") if isinstance(raw.get("spot"), dict) else {}
+
+        futures_equity = cls._first_positive(
+            futures.get("equity"),
+            raw.get("futures_equity"),
+            raw.get("primary_capital"),
+            cls._equity_from_assets(raw.get("assets") or raw.get("balances")),
+        )
+        available = cls._first_positive(
+            futures.get("available"),
+            futures.get("availableBalance"),
+            raw.get("available_balance"),
+            futures_equity,
+        )
+        unrealized = cls._first_float_value(
+            futures.get("unrealized"),
+            futures.get("unrealized_pnl"),
+            raw.get("unrealized_pnl"),
+        )
+        spot_assets = cls._first_float_value(
+            spot.get("total_value"),
+            spot.get("total"),
+            raw.get("spot_assets"),
+        )
+        total_assets = cls._first_positive(
+            raw.get("total_equity"),
+            raw.get("total_assets"),
+            futures_equity + spot_assets,
+        )
+        return {
+            "current_balance": futures_equity,
+            "futures_equity": futures_equity,
+            "available_balance": available,
+            "spot_assets": spot_assets,
+            "total_assets": total_assets,
+            "unrealized_pnl": unrealized,
+        }
+
+    @staticmethod
+    def _first_positive(*values: Any) -> float:
+        for value in values:
+            try:
+                out = float(value)
+                if out > 0:
+                    return out
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    @staticmethod
+    def _first_float_value(*values: Any) -> float:
+        for value in values:
+            try:
+                if value is not None and value != "":
                     return float(value)
             except (TypeError, ValueError):
                 continue

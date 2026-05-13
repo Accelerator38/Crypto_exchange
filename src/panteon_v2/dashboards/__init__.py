@@ -38,6 +38,7 @@ from .builders import (
 )
 from .renderer import DashboardRenderer
 from .text_renderer import TextRenderer
+from .png_renderer import write_operator_pngs
 
 __all__ = [
     # colors
@@ -66,4 +67,5 @@ __all__ = [
     # renderer
     "DashboardRenderer",
     "TextRenderer",
+    "write_operator_pngs",
 ]
