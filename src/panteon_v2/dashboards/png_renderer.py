@@ -31,6 +31,7 @@ def write_operator_pngs(
     status_map = dict(status or {})
     agents = _entries(agents_payload, "agents")
     players = _entries(players_payload, "players")
+    panteon_pnl_pct = _panteon_pnl_pct(status_map)
 
     paths = [
         out / "dashboard_latest.png",
@@ -39,9 +40,25 @@ def write_operator_pngs(
         out / "agent_regime_dashboard.png",
         out / "player_regime_dashboard.png",
     ]
-    _render_operator_dashboard(paths[0], status_map, agents, players)
-    _render_leaderboard(paths[1], "SHADOW AGENTS DASHBOARD", agents)
-    _render_leaderboard(paths[2], "SHADOW PLAYERS DASHBOARD", players)
+    _render_operator_dashboard(
+        paths[0],
+        status_map,
+        agents,
+        players,
+        panteon_pnl_pct=panteon_pnl_pct,
+    )
+    _render_leaderboard(
+        paths[1],
+        "SHADOW AGENTS DASHBOARD",
+        agents,
+        panteon_pnl_pct=panteon_pnl_pct,
+    )
+    _render_leaderboard(
+        paths[2],
+        "SHADOW PLAYERS DASHBOARD",
+        players,
+        panteon_pnl_pct=panteon_pnl_pct,
+    )
     _render_regime_heatmap(paths[3], "AGENT REGIME DASHBOARD", agents)
     _render_regime_heatmap(paths[4], "PLAYER REGIME DASHBOARD", players)
     return [str(p) for p in paths]
@@ -83,6 +100,8 @@ def _render_operator_dashboard(
     status: Mapping[str, object],
     agents: List[Tuple[str, dict]],
     players: List[Tuple[str, dict]],
+    *,
+    panteon_pnl_pct: float,
 ) -> None:
     plt = _setup_pyplot()
     fig = plt.figure(figsize=(14, 8), facecolor=DARK)
@@ -95,8 +114,10 @@ def _render_operator_dashboard(
         _style_ax(ax)
 
     _draw_status_panel(ax_status, status)
-    _draw_barh(ax_agents, agents[:10], "Top Shadow Agents", BLUE)
-    _draw_barh(ax_players, players[:10], "Top Shadow Players", PURPLE)
+    _draw_barh(ax_agents, agents[:10], "Top Shadow Agents", BLUE,
+               panteon_pnl_pct=panteon_pnl_pct)
+    _draw_barh(ax_players, players[:10], "Top Shadow Players", PURPLE,
+               panteon_pnl_pct=panteon_pnl_pct)
 
     fig.suptitle("Panteon v2 Operator Dashboard", color=TEXT, fontsize=16, fontweight="bold")
     fig.tight_layout(rect=(0, 0, 1, 0.95))
@@ -139,7 +160,14 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         y -= 0.055
 
 
-def _draw_barh(ax, rows: List[Tuple[str, dict]], title: str, color: str) -> None:
+def _draw_barh(
+    ax,
+    rows: List[Tuple[str, dict]],
+    title: str,
+    color: str,
+    *,
+    panteon_pnl_pct: float,
+) -> None:
     _style_ax(ax, title)
     if not rows:
         ax.set_axis_off()
@@ -153,16 +181,23 @@ def _draw_barh(ax, rows: List[Tuple[str, dict]], title: str, color: str) -> None
         colors = [color for _ in values]
     ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
     ax.axvline(0, color=GRID, linewidth=0.8)
+    _draw_panteon_benchmark(ax, values, panteon_pnl_pct)
     ax.set_xlabel("PnL %", color=MUTED, fontsize=8)
     for idx, value in enumerate(values[::-1]):
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
 
 
-def _render_leaderboard(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:
+def _render_leaderboard(
+    path: Path,
+    title: str,
+    rows: List[Tuple[str, dict]],
+    *,
+    panteon_pnl_pct: float,
+) -> None:
     plt = _setup_pyplot()
     height = max(5.0, min(12.0, 2.2 + len(rows[:18]) * 0.36))
     fig, ax = plt.subplots(figsize=(12, height), facecolor=DARK)
-    _draw_barh(ax, rows[:18], title, BLUE)
+    _draw_barh(ax, rows[:18], title, BLUE, panteon_pnl_pct=panteon_pnl_pct)
     fig.tight_layout()
     fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
     plt.close(fig)
@@ -215,6 +250,51 @@ def _usd(value: object) -> str:
         return f"${float(value):,.2f}"
     except (TypeError, ValueError):
         return "$0.00"
+
+
+def _panteon_pnl_pct(status: Mapping[str, object]) -> float:
+    try:
+        return float(status.get("pnl_pct", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        pass
+    try:
+        initial = float(status.get("initial_capital", 0.0) or 0.0)
+        total = float(status.get("total_assets_usd", status.get("current_balance", 0.0)) or 0.0)
+        if initial > 0:
+            return (total - initial) / initial * 100.0
+    except (TypeError, ValueError):
+        pass
+    return 0.0
+
+
+def _draw_panteon_benchmark(ax, shadow_values: Iterable[float], panteon_pnl_pct: float) -> None:
+    values = list(shadow_values)
+    all_values = values + [panteon_pnl_pct, 0.0]
+    min_x = min(all_values)
+    max_x = max(all_values)
+    span = max(max_x - min_x, 1.0)
+    pad = span * 0.16
+    ax.set_xlim(min_x - pad, max_x + pad)
+    ax.axvline(
+        panteon_pnl_pct,
+        color=GOLD,
+        linestyle=(0, (4, 3)),
+        linewidth=2.2,
+        label=f"Panteon {_pct(panteon_pnl_pct)}",
+        zorder=5,
+    )
+    ax.text(
+        panteon_pnl_pct,
+        0.98,
+        f" Panteon {_pct(panteon_pnl_pct)}",
+        transform=ax.get_xaxis_transform(),
+        color=GOLD,
+        fontsize=8,
+        ha="left",
+        va="top",
+        fontweight="bold",
+    )
+    ax.legend(loc="lower right", frameon=False, labelcolor=TEXT, fontsize=8)
 
 
 def _pct(value: object) -> str:
