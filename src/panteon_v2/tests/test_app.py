@@ -21,7 +21,7 @@ from panteon_v2.app import (
     save_v2_snapshot,
 )
 from panteon_v2.app.main_loop import StepResult
-from panteon_v2.domain.types import Action, Regime
+from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.execution import FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.memory import PerformanceMemory
@@ -617,6 +617,89 @@ class TestOutputWriter(unittest.TestCase):
         self.assertIn("V_DefaultEnsemble", players)
         self.assertAlmostEqual(players["V_DefaultEnsemble"]["pnl_pct"], 1.2)
         self.assertNotIn("V_AgentA", players)
+
+    def test_leaderboard_and_status_include_session_local_virtual_leader_metrics(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        migrate_v1_regime_memory({
+            "bullish": {
+                "DefaultEnsemble": {
+                    "samples": 5,
+                    "wins": 3,
+                    "losses": 2,
+                    "pnl_pct": 1.2,
+                },
+            },
+        }, pipeline.perf)
+
+        open_sig = Signal(
+            id=101,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_agent="AgentA",
+            by_player="DefaultEnsemble",
+            position_scope="shadow:player:DefaultEnsemble",
+        )
+        close_sig = Signal(
+            id=102,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_CLOSE_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_agent="AgentA",
+            by_player="DefaultEnsemble",
+            position_scope="shadow:player:DefaultEnsemble",
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            pipeline.perf.update_from_trade(
+                Trade(signal_id=101, bar=1, sym="BTC", side="long",
+                      qty=1.0, fill_price=100.0, fee=0.0),
+                open_sig,
+            )
+            pipeline.perf.update_from_trade(
+                Trade(signal_id=102, bar=2, sym="BTC", side="long",
+                      qty=1.0, fill_price=110.0, fee=0.0),
+                close_sig,
+            )
+            writer.write(StepResult(
+                bar=2,
+                regime=Regime.BULLISH,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+            ))
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "status.json"),
+                      "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        row = players["V_DefaultEnsemble"]
+        self.assertAlmostEqual(row["pnl_pct"], 2.2)
+        self.assertAlmostEqual(row["session_pnl_pct"], 1.0)
+        self.assertEqual(row["session_closed_trades"], 1)
+        self.assertEqual(status["live_session"]["leader"], "DefaultEnsemble")
+        self.assertAlmostEqual(
+            status["live_session"]["leader_virtual_session_pnl_pct"],
+            1.0,
+        )
+        self.assertEqual(
+            status["live_session"]["leader_virtual_session_closed_trades"],
+            1,
+        )
 
 
 # ════════════════════════════════════════════════════════════════════

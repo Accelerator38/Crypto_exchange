@@ -168,6 +168,105 @@ class V1BridgeRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_prepare_live_agents_clears_warmup_positions_and_injects_real_positions(self):
+        from panteon_v2.app.v1_bridge_runner import (
+            _prepare_v2_agents_for_live_after_warmup,
+            _warmup_v2_agents_from_bridge,
+        )
+        from panteon_v2.selection import AgentRegistry
+
+        class StatefulAgent:
+            label = "Stateful"
+
+            def __init__(self):
+                self.h = {}
+                self.pos = {}
+                self.ep = {}
+                self.et = {}
+                self.reset_calls = []
+
+            def act(self, market):
+                for sym, price in market.prices.items():
+                    self.h.setdefault(sym, []).append(price)
+                    if price >= 102.0:
+                        self.pos[sym] = "long"
+                        self.ep[sym] = price
+                        self.et[sym] = market.bar
+                return {}
+
+            def reset_for_live(self, bar_index):
+                self.reset_calls.append(bar_index)
+                for sym in list(self.pos):
+                    self.pos[sym] = None
+                for sym in list(self.ep):
+                    self.ep[sym] = 0.0
+                for sym in list(self.et):
+                    self.et[sym] = 0
+
+        class Adapter:
+            label = "WrappedStateful"
+
+            def __init__(self, inner):
+                self.v1_agent = inner
+
+            def act(self, market):
+                return self.v1_agent.act(market)
+
+        class Tracker:
+            def all_open(self):
+                return {
+                    "ETH": types.SimpleNamespace(
+                        sym="ETH",
+                        side="short",
+                        entry_price=222.0,
+                        qty=0.4,
+                    ),
+                }
+
+        class Executor:
+            _tracker = Tracker()
+
+        class Pipeline:
+            executor = Executor()
+
+            def __init__(self, registry):
+                self.registry = registry
+
+        bridge = FakeBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 101.0},
+            {"BTC": 102.0},
+        ]
+        registry = AgentRegistry()
+        inner = StatefulAgent()
+        registry.register(Adapter(inner))
+
+        _warmup_v2_agents_from_bridge(
+            bridge,
+            registry,
+            exchange_name="MEXC",
+        )
+        self.assertEqual(inner.pos["BTC"], "long")
+        self.assertEqual(inner.h["BTC"], [100.0, 101.0, 102.0])
+
+        summary = _prepare_v2_agents_for_live_after_warmup(
+            Pipeline(registry),
+            exchange_name="MEXC",
+            bar_index=3,
+        )
+
+        self.assertEqual(summary["agents"], 1)
+        self.assertEqual(summary["real_positions"], 1)
+        self.assertEqual(inner.reset_calls, [3])
+        self.assertEqual(inner.h["BTC"], [100.0, 101.0, 102.0])
+        self.assertIsNone(inner.pos["BTC"])
+        self.assertEqual(inner.ep["BTC"], 0.0)
+        self.assertEqual(inner.et["BTC"], 0)
+        self.assertEqual(inner.pos["ETH"], "short")
+        self.assertEqual(inner.ep["ETH"], 222.0)
+        self.assertEqual(inner.et["ETH"], 3)
+
     def test_account_log_fields_include_balance_and_position_count(self):
         from panteon_v2.app.v1_bridge_runner import _account_log_fields
 

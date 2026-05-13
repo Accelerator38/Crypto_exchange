@@ -71,8 +71,12 @@ def _entries(payload: Mapping[str, object] | None, key: str) -> List[Tuple[str, 
     rows: List[Tuple[str, dict]] = []
     for name, values in raw.items():
         if isinstance(values, Mapping):
-            rows.append((str(name).replace("V_", "", 1), dict(values)))
-    rows.sort(key=lambda item: float(item[1].get("pnl_pct", 0.0) or 0.0), reverse=True)
+            row = dict(values)
+            row["display_pnl_pct"] = _float_value(
+                row.get("session_pnl_pct", row.get("pnl_pct", 0.0))
+            )
+            rows.append((str(name).replace("V_", "", 1), row))
+    rows.sort(key=lambda item: float(item[1].get("display_pnl_pct", 0.0) or 0.0), reverse=True)
     return rows
 
 
@@ -128,6 +132,14 @@ def _render_operator_dashboard(
 def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
     ax.set_axis_off()
     ax.set_facecolor(MID)
+    live_session = status.get("live_session") if isinstance(status.get("live_session"), Mapping) else {}
+    pnl_usd = (
+        live_session.get("panteon_equity_pnl_usd")
+        if isinstance(live_session, Mapping)
+        else None
+    )
+    if pnl_usd is None:
+        pnl_usd = status.get("pnl_usd", 0.0)
     lines = [
         ("Exchange", status.get("exchange", "-")),
         ("State", f"{status.get('run_state', '-')}/{status.get('feed_status', '-')}"),
@@ -139,7 +151,7 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         ("Available", _usd(status.get("available_balance_usd", 0.0))),
         ("Spot assets", _usd(status.get("spot_assets_usd", 0.0))),
         ("Total assets", _usd(status.get("total_assets_usd", status.get("current_balance", 0.0)))),
-        ("PnL", f"{_usd(status.get('pnl_usd', 0.0))} / {_pct(status.get('pnl_pct', 0.0))}"),
+        ("PnL", f"{_usd(pnl_usd)} / {_pct(status.get('pnl_pct', 0.0))}"),
         ("Positions", status.get("n_positions", 0)),
     ]
     shadow = status.get("shadow") if isinstance(status.get("shadow"), Mapping) else {}
@@ -175,14 +187,16 @@ def _draw_barh(
                 ha="center", va="center", color=MUTED, fontsize=11)
         return
     labels = [_short(name) for name, _ in rows]
-    values = [float(data.get("pnl_pct", 0.0) or 0.0) for _, data in rows]
+    values = [float(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)) or 0.0) for _, data in rows]
     colors = [GREEN if value >= 0 else RED for value in values]
     if all(abs(value) < 1e-12 for value in values):
         colors = [color for _ in values]
     ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
     ax.axvline(0, color=GRID, linewidth=0.8)
     _draw_panteon_benchmark(ax, values, panteon_pnl_pct)
-    ax.set_xlabel("PnL %", color=MUTED, fontsize=8)
+    uses_session = any("session_pnl_pct" in data for _, data in rows)
+    ax.set_xlabel("Session PnL %" if uses_session else "PnL %",
+                  color=MUTED, fontsize=8)
     for idx, value in enumerate(values[::-1]):
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
 
@@ -250,6 +264,13 @@ def _usd(value: object) -> str:
         return f"${float(value):,.2f}"
     except (TypeError, ValueError):
         return "$0.00"
+
+
+def _float_value(value: object) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _panteon_pnl_pct(status: Mapping[str, object]) -> float:

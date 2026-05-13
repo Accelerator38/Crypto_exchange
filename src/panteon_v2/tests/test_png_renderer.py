@@ -40,6 +40,20 @@ class TestPngRenderer(unittest.TestCase):
         self.assertIn(("SHADOW AGENTS DASHBOARD", 2.75), captured)
         self.assertIn(("SHADOW PLAYERS DASHBOARD", 2.75), captured)
 
+    def test_entries_prefer_session_pnl_for_operator_comparison(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._entries({
+            "players": {
+                "V_LongMemoryLeader": {"pnl_pct": 50.0, "session_pnl_pct": -1.0},
+                "V_CurrentLeader": {"pnl_pct": 2.0, "session_pnl_pct": 3.0},
+            },
+        }, "players")
+
+        self.assertEqual(rows[0][0], "CurrentLeader")
+        self.assertEqual(rows[0][1]["display_pnl_pct"], 3.0)
+        self.assertEqual(rows[1][1]["display_pnl_pct"], -1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

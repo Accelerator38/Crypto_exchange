@@ -83,6 +83,7 @@ class OutputWriter:
         self._last_status_data: Dict[str, object] = {}
         self._last_agents_payload: Dict[str, object] = {"metadata": {}, "agents": {}}
         self._last_players_payload: Dict[str, object] = {"metadata": {}, "players": {}}
+        self._session_perf_baseline = self._capture_session_perf_baseline()
         # Создаём output dir
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         # Открываем trading.log (append)
@@ -221,6 +222,20 @@ class OutputWriter:
         n_rejected = step.n_rejected if step is not None else 0
         n_blocked = step.n_blocked if step is not None else 0
         leader = step.leader if step is not None else None
+        leader_session = self._session_metrics_for(leader) if leader else {
+            "pnl_pct": 0.0,
+            "closed_trades": 0,
+            "win_rate": 0.0,
+        }
+        live_session = {
+            "panteon_equity_pnl_usd": total_assets - self._initial_capital,
+            "panteon_realized_pnl_usd": realized_pnl,
+            "panteon_pnl_pct": pnl_pct,
+            "leader": leader,
+            "leader_virtual_session_pnl_pct": leader_session["pnl_pct"],
+            "leader_virtual_session_closed_trades": leader_session["closed_trades"],
+            "leader_virtual_session_win_rate": leader_session["win_rate"],
+        }
         shadow = {
             "actors": step.n_shadow_actors if step is not None else 0,
             "signals": step.n_shadow_signals if step is not None else 0,
@@ -257,6 +272,8 @@ class OutputWriter:
             "tracked_positions_count": position_counts["tracked_positions_count"],
             "exchange_positions_count": position_counts["exchange_positions_count"],
             "current_leader":   leader,
+            "live_session":     live_session,
+            "live_state_sync":  getattr(self._pipeline, "live_state_sync", None),
             "shadow":           shadow,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
             "open_positions":   open_positions,
@@ -326,6 +343,65 @@ class OutputWriter:
             "exchange_positions_count": int(exchange_count),
         }
 
+    def _capture_session_perf_baseline(self) -> Dict[str, dict]:
+        labels = set()
+        try:
+            labels.update(self._pipeline.perf.all_labels())
+        except Exception:
+            pass
+        try:
+            labels.update(self._pipeline.registry.all_labels())
+        except Exception:
+            pass
+        try:
+            labels.update(profile.label for profile in self._pipeline.profiles)
+        except Exception:
+            pass
+        return {
+            label: self._metrics_snapshot(label)
+            for label in labels
+            if label
+        }
+
+    def _metrics_snapshot(self, label: str) -> dict:
+        metrics = self._pipeline.perf.get(label)
+        return {
+            "pnl_pct": float(metrics.pnl_pct),
+            "closed_trades": int(metrics.closed_trades),
+            "wins": int(metrics.wins),
+            "losses": int(metrics.losses),
+            "entries": int(metrics.entries),
+            "signals": int(metrics.signals),
+        }
+
+    def _session_metrics_for(self, label: Optional[str], metrics=None) -> dict:
+        if not label:
+            return {
+                "pnl_pct": 0.0,
+                "closed_trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "entries": 0,
+                "signals": 0,
+                "win_rate": 0.0,
+            }
+        metrics = metrics or self._pipeline.perf.get(label)
+        baseline = self._session_perf_baseline.get(label, {})
+        closed = max(0, int(metrics.closed_trades) - int(baseline.get("closed_trades", 0)))
+        wins = max(0, int(metrics.wins) - int(baseline.get("wins", 0)))
+        losses = max(0, int(metrics.losses) - int(baseline.get("losses", 0)))
+        entries = max(0, int(metrics.entries) - int(baseline.get("entries", 0)))
+        signals = max(0, int(metrics.signals) - int(baseline.get("signals", 0)))
+        return {
+            "pnl_pct": float(metrics.pnl_pct) - float(baseline.get("pnl_pct", 0.0)),
+            "closed_trades": closed,
+            "wins": wins,
+            "losses": losses,
+            "entries": entries,
+            "signals": signals,
+            "win_rate": (wins / closed * 100.0) if closed else 0.0,
+        }
+
     def _exchange_positions_count(self) -> int:
         exchange = getattr(getattr(self._pipeline, "executor", None), "_exchange", None)
         getter = getattr(exchange, "get_all_positions", None)
@@ -355,6 +431,7 @@ class OutputWriter:
             metrics_agg = self._pipeline.perf.get(label)
             if not metrics_agg.has_data:
                 continue
+            session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
             for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
                 rm = self._pipeline.perf.get(label, regime=r)
@@ -366,8 +443,11 @@ class OutputWriter:
                     }
             agents["V_" + label] = {
                 "pnl_pct":        metrics_agg.pnl_pct,
+                "session_pnl_pct": session["pnl_pct"],
                 "closed_trades":  metrics_agg.closed_trades,
+                "session_closed_trades": session["closed_trades"],
                 "win_rate":       metrics_agg.win_rate,
+                "session_win_rate": session["win_rate"],
                 "sharpe":         metrics_agg.sharpe,
                 "max_drawdown_pct": metrics_agg.max_dd_pct,
                 "is_quarantined": self._pipeline.qm.is_quarantined(label),
@@ -385,6 +465,7 @@ class OutputWriter:
             metrics_agg = self._pipeline.perf.get(label)
             if not metrics_agg.has_data and label not in player_pnl:
                 continue
+            session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
             for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
                 rm = self._pipeline.perf.get(label, regime=r)
@@ -398,8 +479,11 @@ class OutputWriter:
             real_wins = win_counts.get(label, 0)
             players["V_" + label] = {
                 "pnl_pct":          metrics_agg.pnl_pct,
+                "session_pnl_pct":  session["pnl_pct"],
                 "closed_trades":    metrics_agg.closed_trades,
+                "session_closed_trades": session["closed_trades"],
                 "win_rate":         metrics_agg.win_rate,
+                "session_win_rate": session["win_rate"],
                 "sharpe":           metrics_agg.sharpe,
                 "max_drawdown_pct": metrics_agg.max_dd_pct,
                 "realized_pnl_usd": player_pnl.get(label, 0.0),
