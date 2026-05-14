@@ -37,6 +37,7 @@ def write_operator_pngs(
         out / "dashboard_latest.png",
         out / "shadow_dashboard.png",
         out / "regime_dashboard.png",
+        out / "memory_dashboard.png",
     ]
     _render_operator_dashboard(
         paths[0],
@@ -52,6 +53,7 @@ def write_operator_pngs(
         panteon_pnl_pct=panteon_pnl_pct,
     )
     _render_combined_regime_dashboard(paths[2], agents, players)
+    _render_memory_dashboard(paths[3], agents, players)
     return [str(p) for p in paths]
 
 
@@ -278,6 +280,107 @@ def _render_combined_regime_dashboard(
     fig.subplots_adjust(top=0.92, bottom=0.08, left=0.12, right=0.96)
     fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
     plt.close(fig)
+
+
+def _render_memory_dashboard(
+    path: Path,
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+) -> None:
+    plt = _setup_pyplot()
+    fig = plt.figure(figsize=(16, 10), facecolor=DARK)
+    gs = fig.add_gridspec(
+        2,
+        2,
+        width_ratios=[1.1, 1.2],
+        height_ratios=[1, 1],
+        hspace=0.34,
+        wspace=0.24,
+    )
+    ax_player_score = fig.add_subplot(gs[0, 0])
+    ax_agent_score = fig.add_subplot(gs[1, 0])
+    ax_experience = fig.add_subplot(gs[0, 1])
+    ax_regime = fig.add_subplot(gs[1, 1])
+
+    _draw_barh(ax_player_score, players[:12], "Memory: Players PnL", PURPLE, panteon_pnl_pct=0.0)
+    _draw_barh(ax_agent_score, agents[:12], "Memory: Agents PnL", BLUE, panteon_pnl_pct=0.0)
+    _draw_memory_experience(ax_experience, players, agents)
+    _draw_memory_regime_summary(ax_regime, players, agents)
+
+    fig.suptitle("Panteon Memory Dashboard", color=TEXT, fontsize=15, fontweight="bold")
+    fig.subplots_adjust(top=0.92, bottom=0.08, left=0.10, right=0.96)
+    fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+
+def _draw_memory_experience(
+    ax,
+    players: List[Tuple[str, dict]],
+    agents: List[Tuple[str, dict]],
+) -> None:
+    _style_ax(ax, "Memory Experience")
+    rows = []
+    for group, source, color in (("P", players, PURPLE), ("A", agents, BLUE)):
+        for name, data in source[:8]:
+            rows.append((
+                f"{group}:{_short(name, 18)}",
+                float(data.get("closed_trades", 0.0) or 0.0),
+                float(data.get("signals", 0.0) or 0.0),
+                color,
+            ))
+    if not rows:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No memory experience yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=11)
+        return
+    labels = [row[0] for row in rows]
+    closed = [row[1] for row in rows]
+    signals = [row[2] for row in rows]
+    y = list(range(len(rows)))
+    ax.barh(y, signals, color=GRID, alpha=0.85, label="signals")
+    ax.barh(y, closed, color=[row[3] for row in rows], alpha=0.86, label="closed")
+    ax.set_yticks(y, labels=labels, color=MUTED)
+    ax.invert_yaxis()
+    ax.set_xlabel("Count", color=MUTED, fontsize=8)
+    ax.legend(loc="lower right", frameon=False, labelcolor=TEXT, fontsize=8)
+
+
+def _draw_memory_regime_summary(
+    ax,
+    players: List[Tuple[str, dict]],
+    agents: List[Tuple[str, dict]],
+) -> None:
+    _style_ax(ax, "Memory By Regime")
+    regimes = ["bullish", "bearish", "neutral", "crash"]
+    matrix = []
+    labels = []
+    for label, rows in (("Players", players), ("Agents", agents)):
+        per_regime = {regime: [] for regime in regimes}
+        for _name, data in rows:
+            raw = data.get("per_regime")
+            if not isinstance(raw, Mapping):
+                continue
+            for regime in regimes:
+                item = raw.get(regime)
+                if isinstance(item, Mapping):
+                    per_regime[regime].append(float(item.get("pnl_pct", 0.0) or 0.0))
+        labels.append(label)
+        matrix.append([
+            sum(values) / len(values) if values else 0.0
+            for values in (per_regime[regime] for regime in regimes)
+        ])
+    image = ax.imshow(matrix, aspect="auto", cmap="RdYlGn", vmin=-5, vmax=5)
+    ax.set_xticks(range(len(regimes)), labels=regimes, color=MUTED)
+    ax.set_yticks(range(len(labels)), labels=labels, color=MUTED)
+    for y, row in enumerate(matrix):
+        for x, value in enumerate(row):
+            ax.text(x, y, _pct(value), ha="center", va="center", color="#111111", fontsize=9)
+    try:
+        fig = ax.figure
+        cbar = fig.colorbar(image, ax=ax, fraction=0.035, pad=0.03)
+        cbar.ax.tick_params(colors=MUTED, labelsize=8)
+    except Exception:
+        pass
 
 
 def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:

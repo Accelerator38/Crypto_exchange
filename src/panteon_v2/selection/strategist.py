@@ -61,6 +61,8 @@ class StrategistConfig:
     min_live_score: float = -1_000_000.0
     max_live_drawdown_pct: float = 100.0
     min_regime_confidence: float = 0.0
+    real_score_weight: float = 0.35
+    real_min_closed_trades: int = 3
 
     def __post_init__(self) -> None:
         if self.cooldown_bars < 0:
@@ -77,6 +79,10 @@ class StrategistConfig:
             raise ValueError("max_live_drawdown_pct must be >= 0")
         if not 0.0 <= self.min_regime_confidence <= 1.0:
             raise ValueError("min_regime_confidence must be in [0, 1]")
+        if self.real_score_weight < 0:
+            raise ValueError("real_score_weight must be >= 0")
+        if self.real_min_closed_trades < 0:
+            raise ValueError("real_min_closed_trades must be >= 0")
 
 
 DEFAULT_STRATEGIST = StrategistConfig()
@@ -138,8 +144,10 @@ class Strategist:
         *,
         config: StrategistConfig = DEFAULT_STRATEGIST,
         scoring_config: ScoringConfig = DEFAULT_SCORING,
+        real_perf: Optional[PerformanceMemory] = None,
     ):
         self._perf = perf
+        self._real_perf = real_perf
         self._qm = qm
         self._candidates: List[Player] = list(candidates)
         self._config = config
@@ -445,8 +453,12 @@ class Strategist:
         if own_metrics.has_data:
             base_score = regime_score(own_metrics, regime, config=self._scoring)
             if own_metrics.closed_trades > 0:
-                return self._apply_affinity(player, regime, base_score)
-            return base_score
+                return self._apply_real_overlay(
+                    player,
+                    regime,
+                    self._apply_affinity(player, regime, base_score),
+                )
+            return self._apply_real_overlay(player, regime, base_score)
         # Fallback: средний score агентов
         agent_scores = []
         has_closed_experience = False
@@ -461,8 +473,8 @@ class Strategist:
             return 0.0
         base_score = sum(agent_scores) / len(agent_scores)
         if has_closed_experience:
-            return self._apply_affinity(player, regime, base_score)
-        return base_score
+            base_score = self._apply_affinity(player, regime, base_score)
+        return self._apply_real_overlay(player, regime, base_score)
 
     def _apply_affinity(self, player: Player, regime: Regime, score: float) -> float:
         affinity = getattr(player, "affinity", None)
@@ -471,3 +483,18 @@ class Strategist:
         if affinity == regime:
             return score + self._config.affinity_bonus
         return score - self._config.affinity_mismatch_penalty
+
+    def _apply_real_overlay(self, player: Player, regime: Regime, score: float) -> float:
+        real_perf = getattr(self, "_real_perf", None)
+        cfg = self._config
+        if real_perf is None or cfg.real_score_weight <= 0:
+            return score
+
+        metrics = real_perf.get(player.label, regime=regime)
+        if metrics.closed_trades < cfg.real_min_closed_trades:
+            metrics = real_perf.get(player.label)
+        if metrics.closed_trades < cfg.real_min_closed_trades:
+            return score
+
+        real_score = regime_score(metrics, regime, config=self._scoring)
+        return score + cfg.real_score_weight * real_score

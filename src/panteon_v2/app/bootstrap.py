@@ -42,6 +42,7 @@ from ..selection import (
     PROFILE_DEFAULT_ENSEMBLE,
     PROFILE_DEFENSIVE_RESEARCH,
     PROFILE_MEAN_REV_RESEARCH,
+    PROFILE_NEUTRAL_EDGE_RESEARCH,
     PROFILE_TREND_RESEARCH,
     PlayerComposer,
     PlayerProfile,
@@ -96,6 +97,7 @@ class KillSwitchState:
 
 PRODUCTION_PROFILES: List[PlayerProfile] = [
     PROFILE_DEFAULT_ENSEMBLE,
+    PROFILE_NEUTRAL_EDGE_RESEARCH,
     PROFILE_TREND_RESEARCH,
     PROFILE_MEAN_REV_RESEARCH,
     PROFILE_DEFENSIVE_RESEARCH,
@@ -208,6 +210,7 @@ def build_production_pipeline(
         virtual_perf, qm, candidates=[],
         config=strategist_config,
         scoring_config=scoring_config,
+        real_perf=real_perf,
     )
     executor = TradeExecutor(
         exchange=exchange,

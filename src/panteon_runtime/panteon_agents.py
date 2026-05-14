@@ -1685,6 +1685,319 @@ class NeutralRangeScalper:
         return actions
 
 
+class NeutralLiquiditySweepAgent:
+    """
+    Neutral-market false-breakout fade.
+
+    This is not a generic RSI/mean-reversion agent. It waits for a symbol to
+    sweep beyond a recent range edge on volume and then close back inside the
+    range while BTC/ETH and market breadth remain neutral. The edge is the
+    failed breakout, not simply "price is low/high".
+    """
+    CHECK_INT = 3
+    LOOKBACK = 90
+    MARKET_LB = 180
+    VOL_WINDOW = 60
+    MAX_POS = 3
+    SWEEP_MARGIN = 0.0012
+    REENTRY_MARGIN = 0.0004
+    MIN_WIDTH = 0.004
+    MAX_WIDTH = 0.075
+    MIN_VOL_Z = 0.35
+    MAX_ANCHOR_MOM = 0.008
+    MAX_BREADTH_ABS = 0.55
+    STOP = 0.007
+    TARGET = 0.014
+    HOLD = 90
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _ret(self, sym: str, lb: int) -> Optional[float]:
+        hist = list(self.h.get(sym) or [])
+        if len(hist) < lb + 1:
+            return None
+        base = hist[-lb - 1]
+        if base <= 0:
+            return None
+        return hist[-1] / base - 1.0
+
+    def _neutral_context(self) -> bool:
+        lb = max(2, int(self.MARKET_LB))
+        anchor_rets = [
+            r for r in (self._ret("BTC", lb), self._ret("ETH", lb))
+            if r is not None
+        ]
+        if anchor_rets and max(abs(r) for r in anchor_rets) > self.MAX_ANCHOR_MOM:
+            return False
+
+        rets = []
+        for hist in self.h.values():
+            h = list(hist)
+            if len(h) < lb + 1:
+                continue
+            base = h[-lb - 1]
+            if base > 0:
+                rets.append(h[-1] / base - 1.0)
+        if not rets:
+            return True
+        med = float(np.median(rets))
+        directional = [r for r in rets if abs(r) > self.MAX_ANCHOR_MOM * 0.25]
+        if len(directional) >= 4:
+            up_share = sum(1 for r in directional if r > 0.0) / len(directional)
+            breadth_bias = abs(up_share - 0.5) * 2.0
+        else:
+            breadth_bias = 0.0
+        return abs(med) <= self.MAX_ANCHOR_MOM and breadth_bias <= self.MAX_BREADTH_ABS
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.LOOKBACK, self.MARKET_LB, self.VOL_WINDOW) * 2 + 10
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=max_hist)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        allow_entry = self._neutral_context()
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < self.LOOKBACK + 3:
+                continue
+
+            if cur == "long":
+                if px <= ep * (1 - self.STOP) or px >= ep * (1 + self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+            if cur == "short":
+                if px >= ep * (1 + self.STOP) or px <= ep * (1 - self.TARGET) or held >= self.HOLD:
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if not allow_entry or n_open >= self.MAX_POS:
+                continue
+
+            base_window = h[-self.LOOKBACK - 2:-2]
+            if len(base_window) < self.LOOKBACK:
+                continue
+            lo = float(min(base_window))
+            hi = float(max(base_window))
+            width = hi / max(lo, 1e-12) - 1.0
+            if width < self.MIN_WIDTH or width > self.MAX_WIDTH:
+                continue
+
+            prev = h[-2]
+            vol_z = _vol_zscore(self.v[sym], window=max(3, int(self.VOL_WINDOW)))
+            if vol_z < self.MIN_VOL_Z:
+                continue
+
+            swept_low = prev < lo * (1 - self.SWEEP_MARGIN) and px > lo * (1 - self.REENTRY_MARGIN)
+            swept_high = prev > hi * (1 + self.SWEEP_MARGIN) and px < hi * (1 + self.REENTRY_MARGIN)
+            strong = vol_z >= self.MIN_VOL_Z + 0.75
+
+            if swept_low:
+                actions[sym] = 5 if strong else 4
+                self.pos[sym] = "long"
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+            elif swept_high:
+                actions[sym] = 7 if strong else 6
+                self.pos[sym] = "short"
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
+class AnchorFlowMomentumAgent:
+    """
+    Anchor/breadth-confirmed momentum continuation.
+
+    The agent trades with BTC/ETH anchor direction only when market breadth
+    agrees, then selects symbols with relative momentum and volume expansion.
+    This differs from single-symbol trend following and OI breakouts: market
+    structure is confirmed by anchors before any symbol is allowed to trade.
+    """
+    CHECK_INT = 5
+    FAST_LB = 24
+    SLOW_LB = 96
+    MARKET_LB = 120
+    VOL_WINDOW = 60
+    MAX_POS = 3
+    MIN_ANCHOR_MOM = 0.0025
+    MIN_BREADTH = 0.56
+    MIN_REL_STRENGTH = 0.0015
+    MIN_VOL_Z = 0.25
+    STOP = 0.012
+    TARGET = 0.028
+    HOLD = 180
+
+    def __init__(self):
+        self.h: Dict[str, deque] = {}
+        self.v: Dict[str, deque] = {}
+        self.pos: Dict[str, Optional[str]] = {}
+        self.ep: Dict[str, float] = {}
+        self.et: Dict[str, int] = {}
+        self.t = 0
+        self._lc = -9999
+
+    def _ret_from(self, h, lb: int) -> Optional[float]:
+        vals = list(h)
+        if len(vals) < lb + 1:
+            return None
+        base = vals[-lb - 1]
+        if base <= 0:
+            return None
+        return vals[-1] / base - 1.0
+
+    def _anchor_direction(self):
+        lb = max(2, int(self.MARKET_LB))
+        anchor = []
+        for sym in ("BTC", "ETH"):
+            r = self._ret_from(self.h.get(sym) or [], lb)
+            if r is not None:
+                anchor.append(r)
+        if not anchor:
+            return "", 0.0
+
+        rets = []
+        for hist in self.h.values():
+            r = self._ret_from(hist, lb)
+            if r is not None:
+                rets.append(r)
+        if not rets:
+            return "", 0.0
+
+        anchor_med = float(np.median(anchor))
+        up_share = sum(1 for r in rets if r > 0.0) / len(rets)
+        if anchor_med >= self.MIN_ANCHOR_MOM and up_share >= self.MIN_BREADTH:
+            return "long", anchor_med
+        if anchor_med <= -self.MIN_ANCHOR_MOM and up_share <= 1.0 - self.MIN_BREADTH:
+            return "short", anchor_med
+        return "", anchor_med
+
+    def _market_median_return(self, lb: int) -> float:
+        vals = []
+        for hist in self.h.values():
+            r = self._ret_from(hist, lb)
+            if r is not None:
+                vals.append(r)
+        return float(np.median(vals)) if vals else 0.0
+
+    def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        max_hist = max(self.FAST_LB, self.SLOW_LB, self.MARKET_LB, self.VOL_WINDOW) * 2 + 10
+        for s, p in prices.items():
+            self.h.setdefault(s, deque(maxlen=max_hist)).append(float(p))
+            self.v.setdefault(s, deque(maxlen=max_hist)).append(float(volumes.get(s, 0) or 0))
+            self.pos.setdefault(s, None)
+            self.ep.setdefault(s, 0.0)
+            self.et.setdefault(s, 0)
+
+        self.t = bar_index if bar_index is not None else self.t + 1
+        actions = {s: 0 for s in prices}
+        if self.t - self._lc < self.CHECK_INT:
+            return actions
+        self._lc = self.t
+
+        direction, anchor_mom = self._anchor_direction()
+        median_slow = self._market_median_return(max(2, int(self.SLOW_LB)))
+        n_open = sum(1 for v in self.pos.values() if v is not None)
+
+        for sym in prices:
+            h = list(self.h[sym])
+            px = float(prices[sym])
+            cur = self.pos[sym]
+            ep = float(self.ep[sym])
+            held = self.t - self.et[sym]
+            if len(h) < max(self.FAST_LB, self.SLOW_LB, self.MARKET_LB) + 1:
+                continue
+
+            fast = self._ret_from(self.h[sym], max(2, int(self.FAST_LB))) or 0.0
+            slow = self._ret_from(self.h[sym], max(2, int(self.SLOW_LB))) or 0.0
+            rel = slow - median_slow
+
+            if cur == "long":
+                if (
+                    px <= ep * (1 - self.STOP)
+                    or px >= ep * (1 + self.TARGET)
+                    or held >= self.HOLD
+                    or direction == "short"
+                    or fast < -self.MIN_ANCHOR_MOM
+                ):
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+            if cur == "short":
+                if (
+                    px >= ep * (1 + self.STOP)
+                    or px <= ep * (1 - self.TARGET)
+                    or held >= self.HOLD
+                    or direction == "long"
+                    or fast > self.MIN_ANCHOR_MOM
+                ):
+                    actions[sym] = 8
+                    self.pos[sym] = None
+                    n_open = max(0, n_open - 1)
+                continue
+
+            if not direction or n_open >= self.MAX_POS:
+                continue
+            vol_z = _vol_zscore(self.v[sym], window=max(3, int(self.VOL_WINDOW)))
+            if vol_z < self.MIN_VOL_Z:
+                continue
+
+            strong = abs(rel) >= self.MIN_REL_STRENGTH * 2.0 and vol_z >= self.MIN_VOL_Z + 0.75
+            if (
+                direction == "long"
+                and anchor_mom > 0
+                and slow >= self.MIN_ANCHOR_MOM * 0.7
+                and fast > 0
+                and rel >= self.MIN_REL_STRENGTH
+            ):
+                actions[sym] = 5 if strong else 4
+                self.pos[sym] = "long"
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+            elif (
+                direction == "short"
+                and anchor_mom < 0
+                and slow <= -self.MIN_ANCHOR_MOM * 0.7
+                and fast < 0
+                and rel <= -self.MIN_REL_STRENGTH
+            ):
+                actions[sym] = 7 if strong else 6
+                self.pos[sym] = "short"
+                self.ep[sym] = px
+                self.et[sym] = self.t
+                n_open += 1
+        return actions
+
+
 class CrashPanicShortAgent:
     """
     Crash-regime liquidation cascade short.

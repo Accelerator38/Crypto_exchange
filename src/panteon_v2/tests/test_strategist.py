@@ -195,6 +195,31 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
 
         self.assertEqual(decision.new_leader.label, "BullProfile")
 
+    def test_real_negative_history_penalizes_otherwise_best_leader(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "A", Regime.NEUTRAL, 8, 0.30, start_id=1)
+        _add_perf(virtual_perf, "B", Regime.NEUTRAL, 8, 0.25, start_id=200)
+        _add_perf(real_perf, "PlayerA", Regime.NEUTRAL, 4, -0.40, start_id=500)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            virtual_perf,
+            qm,
+            candidates=[
+                _make_player("PlayerA", ["A"]),
+                _make_player("PlayerB", ["B"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_score_weight=1.0,
+                real_min_closed_trades=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "PlayerB")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -180,15 +180,22 @@ class TradeExecutor:
             quantized_notional = qty * signal.price
             allowed_notional = max(float(risk_check.notional or 0.0), 0.0)
             if allowed_notional > 0 and quantized_notional > allowed_notional + 1e-9:
-                return ExecutionResult(
-                    status=ExecutionStatus.BLOCKED,
-                    signal=signal,
-                    reason=(
-                        "risk_limits: quantized notional "
-                        f"${quantized_notional:.2f} exceeds approved "
-                        f"${allowed_notional:.2f}"
-                    ),
+                cfg = self._risk.config
+                upscale = quantized_notional / max(allowed_notional, 1e-12)
+                can_accept_quantized_floor = (
+                    quantized_notional <= float(cfg.max_notional_usd) + 1e-9
+                    and upscale <= float(cfg.max_min_notional_upscale) + 1e-9
                 )
+                if not can_accept_quantized_floor:
+                    return ExecutionResult(
+                        status=ExecutionStatus.BLOCKED,
+                        signal=signal,
+                        reason=(
+                            "risk_limits: quantized notional "
+                            f"${quantized_notional:.2f} exceeds approved "
+                            f"${allowed_notional:.2f}"
+                        ),
+                    )
 
         # 3. Эмитим OrderSent ДО send_order, чтобы в логе была попытка
         self._log.emit(OrderSent(

@@ -129,6 +129,29 @@ PROFILE_MEAN_REV_RESEARCH = PlayerProfile(
     },
 )
 
+PROFILE_NEUTRAL_EDGE_RESEARCH = PlayerProfile(
+    label="NeutralEdgeResearch",
+    voting=WeightedConsensus(),
+    thresholds=ThresholdProfile(
+        open_single=0.30, open_multi=0.23, open_floor=0.18,
+        close_single=0.26, close_multi=0.20,
+    ),
+    affinity=Regime.NEUTRAL,
+    max_agents=6,
+    min_agents=2,
+    bias={
+        "ResearchValidatorAgent": 0.28,
+        "LiveTrendFollow": 0.20,
+        "BullRotationAgent": 0.18,
+        "BearReliefFadeAgent": 0.16,
+        "LiveRegimePullback": 0.14,
+        "LiveOIBreakout": 0.10,
+        "LiveCrashHunter": 0.08,
+        "NeutralLiquiditySweep": 0.22,
+        "AnchorFlowMomentum": 0.18,
+    },
+)
+
 PROFILE_DEFENSIVE_RESEARCH = PlayerProfile(
     label="DefensiveResearch",
     voting=WeightedConsensus(),

@@ -649,6 +649,7 @@ class TestOutputWriter(unittest.TestCase):
                 "dashboard_latest.png",
                 "shadow_dashboard.png",
                 "regime_dashboard.png",
+                "memory_dashboard.png",
             ):
                 self.assertTrue(os.path.exists(os.path.join(out, name)), name)
             with open(os.path.join(out, "status.json"), "r", encoding="utf-8") as f:
@@ -659,6 +660,29 @@ class TestOutputWriter(unittest.TestCase):
             with open(os.path.join(out, "dashboard_latest.png"), "rb") as f:
                 self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
             writer.close()
+
+    def test_writer_publishes_latest_exchange_dashboards_to_results_root(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.close()
+
+            for name in (
+                "dashboard_latest_MEXC.png",
+                "regime_dashboard_MEXC.png",
+                "memory_dashboard_MEXC.png",
+            ):
+                path = os.path.join(td, name)
+                self.assertTrue(os.path.exists(path), name)
+                with open(path, "rb") as f:
+                    self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
 
     def test_status_and_trading_log_include_balance_and_position_count(self):
         from panteon_v2.execution.exchange import ExchangePosition

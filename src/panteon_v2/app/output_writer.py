@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 import html
 from dataclasses import dataclass
@@ -65,6 +66,7 @@ class OutputWriterConfig:
     dashboard_filename:   str = "dashboard.txt"
     dashboard_html:       str = "dashboard.html"
     events_jsonl:         str = "events.jsonl"
+    latest_dir:           Optional[str] = None
 
 
 class OutputWriter:
@@ -126,6 +128,7 @@ class OutputWriter:
             results_root, pipeline.exchange_name.upper().replace("-DRYRUN","").replace("-PAPER",""),
             ts + "_v2",
         )
+        kwargs.setdefault("latest_dir", results_root)
         cfg = OutputWriterConfig(output_dir=output_dir, **kwargs)
         return cls(pipeline, cfg)
 
@@ -628,14 +631,50 @@ class OutputWriter:
 
     def _write_visual_dashboards(self) -> None:
         try:
-            write_operator_pngs(
+            paths = write_operator_pngs(
                 self._config.output_dir,
                 status=self._last_status_data,
                 agents_payload=self._last_agents_payload,
                 players_payload=self._last_players_payload,
             )
+            self._publish_latest_visual_dashboards(paths)
         except Exception:
             log.exception("visual dashboard render failed")
+
+    def _publish_latest_visual_dashboards(self, paths: List[str]) -> None:
+        latest_dir = self._config.latest_dir
+        if not latest_dir:
+            return
+        exchange = self._latest_exchange_suffix()
+        selected = {
+            "dashboard_latest.png": f"dashboard_latest_{exchange}.png",
+            "regime_dashboard.png": f"regime_dashboard_{exchange}.png",
+            "memory_dashboard.png": f"memory_dashboard_{exchange}.png",
+        }
+        Path(latest_dir).mkdir(parents=True, exist_ok=True)
+        for raw_path in paths:
+            src = Path(raw_path)
+            dest_name = selected.get(src.name)
+            if not dest_name or not src.exists():
+                continue
+            dest = Path(latest_dir) / dest_name
+            tmp = dest.with_suffix(dest.suffix + ".tmp")
+            try:
+                shutil.copyfile(src, tmp)
+                os.replace(tmp, dest)
+            except Exception:
+                log.exception("latest dashboard publish failed: %s -> %s", src, dest)
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+
+    def _latest_exchange_suffix(self) -> str:
+        raw = str(self._pipeline.exchange_name or "UNKNOWN").upper()
+        for suffix in ("-DRYRUN", "-PAPER"):
+            raw = raw.replace(suffix, "")
+        cleaned = "".join(ch if ch.isalnum() else "_" for ch in raw).strip("_")
+        return cleaned or "UNKNOWN"
 
     def _write_dashboard_html(self, text: str) -> None:
         status_path = self._config.status_filename
@@ -645,6 +684,7 @@ class OutputWriter:
             "dashboard_latest.png",
             "shadow_dashboard.png",
             "regime_dashboard.png",
+            "memory_dashboard.png",
         )
         image_links = "\n".join(
             f'<figure><a href="{html.escape(name)}"><img src="{html.escape(name)}" alt="{html.escape(name)}"></a>'

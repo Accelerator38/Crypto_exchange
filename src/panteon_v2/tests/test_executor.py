@@ -257,6 +257,35 @@ class TestExecuteRiskQuantization(unittest.TestCase):
         self.assertIn("quantized notional", result.reason)
         self.assertEqual(deps["exchange"].sent, 0)
 
+    def test_executor_allows_exchange_quantized_qty_inside_upscale_limit(self):
+        class MinLotExchange(FakeExchange):
+            def __init__(self):
+                super().__init__()
+                self.sent_qty = 0.0
+
+            def quantize_order_qty(self, signal, qty):
+                return 0.01
+
+            def send_order(self, signal, *, qty):
+                self.sent_qty = qty
+                return super().send_order(signal, qty=qty)
+
+        deps = _make_executor()
+        deps["exchange"] = MinLotExchange()
+        deps["risk_limits"] = RiskLimits(config=RiskLimitsConfig(
+            capital_fraction=0.10,
+            min_notional_usd=0.0,
+            max_notional_usd=20.0,
+            max_min_notional_upscale=2.0,
+        ))
+        ex = TradeExecutor(**deps)
+        sig = _make_signal(price=813.0)
+
+        result = ex.execute(sig, balance_usd=51.0)
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        self.assertEqual(deps["exchange"].sent_qty, 0.01)
+
 
 class TestExecuteMemoryUpdateFailure(unittest.TestCase):
     def test_memory_update_failure_is_emitted_after_filled_trade(self):

@@ -22,13 +22,18 @@ class TestPngRenderer(unittest.TestCase):
         def fake_regime(path, agents, players):
             captured.append(("regime", path.name, len(agents), len(players)))
 
+        def fake_memory(path, agents, players):
+            captured.append(("memory", path.name, len(agents), len(players)))
+
         with tempfile.TemporaryDirectory() as td, \
                 patch.object(png_renderer, "_render_operator_dashboard",
                              side_effect=fake_operator), \
                 patch.object(png_renderer, "_render_combined_shadow_dashboard",
                              side_effect=fake_shadow), \
                 patch.object(png_renderer, "_render_combined_regime_dashboard",
-                             side_effect=fake_regime):
+                             side_effect=fake_regime), \
+                patch.object(png_renderer, "_render_memory_dashboard",
+                             side_effect=fake_memory):
             paths = png_renderer.write_operator_pngs(
                 td,
                 status={"pnl_pct": 2.75},
@@ -38,11 +43,17 @@ class TestPngRenderer(unittest.TestCase):
 
         self.assertEqual(
             [path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1] for path in paths],
-            ["dashboard_latest.png", "shadow_dashboard.png", "regime_dashboard.png"],
+            [
+                "dashboard_latest.png",
+                "shadow_dashboard.png",
+                "regime_dashboard.png",
+                "memory_dashboard.png",
+            ],
         )
         self.assertIn(("operator", "dashboard_latest.png", 2.75), captured)
         self.assertIn(("shadow", "shadow_dashboard.png", 1, 1, 2.75), captured)
         self.assertIn(("regime", "regime_dashboard.png", 1, 1), captured)
+        self.assertIn(("memory", "memory_dashboard.png", 1, 1), captured)
 
     def test_entries_prefer_session_pnl_for_operator_comparison(self):
         from panteon_v2.dashboards import png_renderer

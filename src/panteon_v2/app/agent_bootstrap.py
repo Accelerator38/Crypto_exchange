@@ -49,6 +49,8 @@ KNOWN_V1_AGENTS: List[Tuple[str, str]] = [
     ("BullRotationAgent",   "panteon_agents:BullRotationAgent"),
     ("BearReliefFadeAgent", "panteon_agents:BearReliefFadeAgent"),
     ("NeutralRangeScalper", "panteon_agents:NeutralRangeScalper"),
+    ("NeutralLiquiditySweep", "panteon_agents:NeutralLiquiditySweepAgent"),
+    ("AnchorFlowMomentum",  "panteon_agents:AnchorFlowMomentumAgent"),
     ("CrashPanicShortAgent", "panteon_agents:CrashPanicShortAgent"),
     ("PlayerFunding",       "panteon_agents:PlayerFunding"),
 ]
