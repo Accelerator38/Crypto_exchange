@@ -31,6 +31,8 @@ def write_operator_pngs(
     status_map = dict(status or {})
     agents = _entries(agents_payload, "agents")
     players = _entries(players_payload, "players")
+    memory_agents = _entries(agents_payload, "agents", pnl_source="memory")
+    memory_players = _entries(players_payload, "players", pnl_source="memory")
     panteon_pnl_pct = _panteon_pnl_pct(status_map)
 
     paths = [
@@ -52,22 +54,36 @@ def write_operator_pngs(
         players,
         panteon_pnl_pct=panteon_pnl_pct,
     )
-    _render_combined_regime_dashboard(paths[2], agents, players)
-    _render_memory_dashboard(paths[3], agents, players)
+    _render_combined_regime_dashboard(paths[2], memory_agents, memory_players)
+    _render_memory_dashboard(paths[3], memory_agents, memory_players)
     return [str(p) for p in paths]
 
 
-def _entries(payload: Mapping[str, object] | None, key: str) -> List[Tuple[str, dict]]:
+def _entries(
+    payload: Mapping[str, object] | None,
+    key: str,
+    *,
+    pnl_source: str = "session",
+) -> List[Tuple[str, dict]]:
     raw = (payload or {}).get(key) if isinstance(payload, Mapping) else {}
     if not isinstance(raw, Mapping):
         return []
+    if pnl_source not in {"session", "memory"}:
+        raise ValueError(f"unsupported pnl_source: {pnl_source!r}")
     rows: List[Tuple[str, dict]] = []
     for name, values in raw.items():
         if isinstance(values, Mapping):
             row = dict(values)
-            row["display_pnl_pct"] = _float_value(
+            row["memory_pnl_pct"] = _float_value(row.get("pnl_pct", 0.0))
+            row["session_display_pnl_pct"] = _float_value(
                 row.get("session_pnl_pct", row.get("pnl_pct", 0.0))
             )
+            if pnl_source == "memory":
+                row["display_pnl_pct"] = row["memory_pnl_pct"]
+                row["display_pnl_source"] = "memory"
+            else:
+                row["display_pnl_pct"] = row["session_display_pnl_pct"]
+                row["display_pnl_source"] = "session"
             rows.append((str(name).replace("V_", "", 1), row))
     rows.sort(key=lambda item: float(item[1].get("display_pnl_pct", 0.0) or 0.0), reverse=True)
     return rows
@@ -178,6 +194,8 @@ def _draw_barh(
     color: str,
     *,
     panteon_pnl_pct: float,
+    x_label: str | None = None,
+    benchmark: bool = True,
 ) -> None:
     _style_ax(ax, title)
     if not rows:
@@ -192,10 +210,15 @@ def _draw_barh(
         colors = [color for _ in values]
     ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
     ax.axvline(0, color=GRID, linewidth=0.8)
-    _draw_panteon_benchmark(ax, values, panteon_pnl_pct)
-    uses_session = any("session_pnl_pct" in data for _, data in rows)
-    ax.set_xlabel("Session PnL %" if uses_session else "PnL %",
-                  color=MUTED, fontsize=8)
+    if benchmark:
+        _draw_panteon_benchmark(ax, values, panteon_pnl_pct)
+    source = next(
+        (str(data.get("display_pnl_source")) for _, data in rows
+         if data.get("display_pnl_source")),
+        "",
+    )
+    default_label = "Session PnL %" if source == "session" else "Memory PnL %"
+    ax.set_xlabel(x_label or default_label, color=MUTED, fontsize=8)
     for idx, value in enumerate(values[::-1]):
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
 
@@ -302,8 +325,24 @@ def _render_memory_dashboard(
     ax_experience = fig.add_subplot(gs[0, 1])
     ax_regime = fig.add_subplot(gs[1, 1])
 
-    _draw_barh(ax_player_score, players[:12], "Memory: Players PnL", PURPLE, panteon_pnl_pct=0.0)
-    _draw_barh(ax_agent_score, agents[:12], "Memory: Agents PnL", BLUE, panteon_pnl_pct=0.0)
+    _draw_barh(
+        ax_player_score,
+        players[:12],
+        "Memory: Players PnL",
+        PURPLE,
+        panteon_pnl_pct=0.0,
+        x_label="Cumulative Memory PnL %",
+        benchmark=False,
+    )
+    _draw_barh(
+        ax_agent_score,
+        agents[:12],
+        "Memory: Agents PnL",
+        BLUE,
+        panteon_pnl_pct=0.0,
+        x_label="Cumulative Memory PnL %",
+        benchmark=False,
+    )
     _draw_memory_experience(ax_experience, players, agents)
     _draw_memory_regime_summary(ax_regime, players, agents)
 
@@ -319,15 +358,7 @@ def _draw_memory_experience(
     agents: List[Tuple[str, dict]],
 ) -> None:
     _style_ax(ax, "Memory Experience")
-    rows = []
-    for group, source, color in (("P", players, PURPLE), ("A", agents, BLUE)):
-        for name, data in source[:8]:
-            rows.append((
-                f"{group}:{_short(name, 18)}",
-                float(data.get("closed_trades", 0.0) or 0.0),
-                float(data.get("signals", 0.0) or 0.0),
-                color,
-            ))
+    rows = _memory_experience_rows(players, agents)
     if not rows:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "No memory experience yet", transform=ax.transAxes,
@@ -337,8 +368,8 @@ def _draw_memory_experience(
     closed = [row[1] for row in rows]
     signals = [row[2] for row in rows]
     y = list(range(len(rows)))
-    ax.barh(y, signals, color=GRID, alpha=0.85, label="signals")
-    ax.barh(y, closed, color=[row[3] for row in rows], alpha=0.86, label="closed")
+    ax.barh(y, signals, color=GOLD, alpha=0.52, label="signals generated")
+    ax.barh(y, closed, color=[row[3] for row in rows], alpha=0.86, label="closed trades")
     ax.set_yticks(y, labels=labels, color=MUTED)
     ax.invert_yaxis()
     ax.set_xlabel("Count", color=MUTED, fontsize=8)
@@ -352,24 +383,16 @@ def _draw_memory_regime_summary(
 ) -> None:
     _style_ax(ax, "Memory By Regime")
     regimes = ["bullish", "bearish", "neutral", "crash"]
-    matrix = []
-    labels = []
-    for label, rows in (("Players", players), ("Agents", agents)):
-        per_regime = {regime: [] for regime in regimes}
-        for _name, data in rows:
-            raw = data.get("per_regime")
-            if not isinstance(raw, Mapping):
-                continue
-            for regime in regimes:
-                item = raw.get(regime)
-                if isinstance(item, Mapping):
-                    per_regime[regime].append(float(item.get("pnl_pct", 0.0) or 0.0))
-        labels.append(label)
-        matrix.append([
-            sum(values) / len(values) if values else 0.0
-            for values in (per_regime[regime] for regime in regimes)
-        ])
-    image = ax.imshow(matrix, aspect="auto", cmap="RdYlGn", vmin=-5, vmax=5)
+    rows = _memory_regime_rows(players=players, agents=agents)
+    if not rows:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No regime memory yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=11)
+        return
+    labels = [row[0] for row in rows]
+    matrix = [row[1] for row in rows]
+    vmin, vmax = _heatmap_limits(matrix)
+    image = ax.imshow(matrix, aspect="auto", cmap="RdYlGn", vmin=vmin, vmax=vmax)
     ax.set_xticks(range(len(regimes)), labels=regimes, color=MUTED)
     ax.set_yticks(range(len(labels)), labels=labels, color=MUTED)
     for y, row in enumerate(matrix):
@@ -381,6 +404,92 @@ def _draw_memory_regime_summary(
         cbar.ax.tick_params(colors=MUTED, labelsize=8)
     except Exception:
         pass
+
+
+def _memory_experience_rows(
+    players: List[Tuple[str, dict]],
+    agents: List[Tuple[str, dict]],
+    *,
+    limit: int = 16,
+) -> List[Tuple[str, float, float, str]]:
+    rows: List[Tuple[str, float, float, str]] = []
+    for group, source, color in (("P", players, PURPLE), ("A", agents, BLUE)):
+        for name, data in source:
+            closed = float(data.get("closed_trades", 0.0) or 0.0)
+            signals = float(data.get("signals", 0.0) or 0.0)
+            if closed <= 0 and signals <= 0:
+                continue
+            rows.append((f"{group}:{_short(name, 18)}", closed, signals, color))
+    rows.sort(key=lambda row: (row[2], row[1]), reverse=True)
+    return rows[: max(0, int(limit))]
+
+
+def _memory_regime_rows(
+    *,
+    players: List[Tuple[str, dict]],
+    agents: List[Tuple[str, dict]],
+    limit: int = 18,
+) -> List[Tuple[str, List[float], int]]:
+    regimes = ["bullish", "bearish", "neutral", "crash"]
+    candidates: List[Tuple[str, List[float], int, float]] = []
+    for prefix, source in (("P", players), ("A", agents)):
+        for name, data in source:
+            raw = data.get("per_regime")
+            if not isinstance(raw, Mapping):
+                continue
+            values: List[float] = []
+            closed_total = 0
+            has_data = False
+            for regime in regimes:
+                item = raw.get(regime)
+                if isinstance(item, Mapping):
+                    pnl = float(item.get("pnl_pct", 0.0) or 0.0)
+                    closed = int(item.get("closed_trades", 0) or 0)
+                    has_data = has_data or closed > 0 or abs(pnl) > 1e-12
+                else:
+                    pnl = 0.0
+                    closed = 0
+                values.append(pnl)
+                closed_total += closed
+            if not has_data:
+                continue
+            best_regime_pnl = max(values) if values else 0.0
+            label = f"{prefix}:{_short(name, 20)}"
+            candidates.append((label, values, closed_total, best_regime_pnl))
+
+    selected: List[Tuple[str, List[float], int, float]] = []
+    seen = set()
+
+    def add_rows(rows: List[Tuple[str, List[float], int, float]]) -> None:
+        for row in rows:
+            if len(selected) >= limit:
+                return
+            if row[0] in seen:
+                continue
+            seen.add(row[0])
+            selected.append(row)
+
+    for regime_idx in range(len(regimes)):
+        add_rows(sorted(
+            candidates,
+            key=lambda row: (row[1][regime_idx], row[2]),
+            reverse=True,
+        )[:3])
+    add_rows(sorted(
+        candidates,
+        key=lambda row: (row[3], row[2], sum(row[1])),
+        reverse=True,
+    ))
+    return [(label, values, closed_total) for label, values, closed_total, _ in selected]
+
+
+def _heatmap_limits(matrix: List[List[float]]) -> Tuple[float, float]:
+    max_abs = 0.0
+    for row in matrix:
+        for value in row:
+            max_abs = max(max_abs, abs(float(value)))
+    limit = max(0.25, min(5.0, max_abs))
+    return -limit, limit
 
 
 def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:

@@ -902,6 +902,48 @@ class TestOutputWriter(unittest.TestCase):
         self.assertAlmostEqual(players["V_DefaultEnsemble"]["pnl_pct"], 1.2)
         self.assertNotIn("V_AgentA", players)
 
+    def test_leaderboards_export_memory_activity_counts(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        migrate_v1_regime_memory({
+            "bullish": {
+                "DefaultEnsemble": {
+                    "samples": 5,
+                    "wins": 3,
+                    "losses": 2,
+                    "pnl_pct": 1.2,
+                },
+                "AgentA": {
+                    "samples": 4,
+                    "wins": 2,
+                    "losses": 2,
+                    "pnl_pct": 0.5,
+                },
+            },
+        }, pipeline.perf)
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "leaderboard_agents.json"),
+                      "r", encoding="utf-8") as f:
+                agents = json.load(f)["agents"]
+            writer.close()
+
+        player = players["V_DefaultEnsemble"]
+        agent = agents["V_AgentA"]
+        self.assertEqual(player["signals"], 5)
+        self.assertEqual(player["entries"], 5)
+        self.assertEqual(player["wins"], 3)
+        self.assertEqual(player["losses"], 2)
+        self.assertEqual(player["per_regime"]["bullish"]["signals"], 5)
+        self.assertEqual(agent["signals"], 4)
+        self.assertEqual(agent["per_regime"]["bullish"]["entries"], 4)
+
     def test_leaderboard_and_status_include_session_local_virtual_leader_metrics(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("AgentA"))
