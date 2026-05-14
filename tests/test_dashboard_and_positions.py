@@ -16,6 +16,7 @@ from exchange_api_runtime import (  # noqa: E402
     POSITION_SOURCE_PANTEON_ORDER,
     POSITION_SOURCE_RECOVERED_AFTER_SNAPSHOT_GAP,
     PositionSyncHealth,
+    MexcDirectClient,
     recovered_position_policy,
     safe_reconcile_open_positions,
 )
@@ -109,6 +110,52 @@ class PositionExitGovernorTests(unittest.TestCase):
 
         self.assertEqual(out, {})
         self.assertIn("LAB", book)
+
+
+class RuntimeHttpClientTests(unittest.TestCase):
+    def test_mexc_runtime_http_ignores_environment_proxy(self):
+        import exchange_api_runtime
+        import mexc_connector
+
+        direct = MexcDirectClient("key", "secret")
+        spot = mexc_connector.MexcSpotClient("key", "secret")
+        futures = mexc_connector.MexcFuturesClient("key", "secret")
+
+        self.assertFalse(exchange_api_runtime.MEXC_DIRECT_HTTP.trust_env)
+        self.assertFalse(mexc_connector.MEXC_CONNECTOR_HTTP.trust_env)
+        self.assertFalse(direct._session.trust_env)
+        self.assertFalse(spot.s.trust_env)
+        self.assertFalse(futures.s.trust_env)
+
+    def test_mexc_futures_post_sends_the_exact_signed_json_body(self):
+        import mexc_connector
+
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"code": 200, "data": "ok"}
+
+        class FakeSession:
+            trust_env = False
+
+            def request(self, method, url, **kwargs):
+                captured.update(kwargs)
+                return FakeResponse()
+
+        client = mexc_connector.MexcFuturesClient("key", "secret")
+        client.s = FakeSession()
+
+        client._req("POST", "/api/v1/private/order/submit", {"b": 2, "a": 1})
+
+        self.assertEqual(captured["data"], '{"b":2,"a":1}')
+        self.assertNotIn("json", captured)
 
 
 class PositionReconcileTests(unittest.TestCase):
@@ -228,6 +275,48 @@ class DashboardBuilderTests(unittest.TestCase):
             self.assertEqual(payload["BITGET"][0]["name"], "2027-01-02_03-04-05_v2")
             self.assertEqual(payload["BITGET"][0]["summary"]["version"], "v2")
             self.assertIn("2027-01-02_03-04-05_v2", out_html.read_text(encoding="utf-8"))
+
+
+class WarmupDashboardTests(unittest.TestCase):
+    def _sample_warmup(self):
+        prices_bars = []
+        volumes_bars = []
+        symbols = ["BTC", "ETH", "SOL"]
+        for idx in range(12):
+            prices_bars.append({
+                "BTC": 100.0 + idx,
+                "ETH": 50.0 + idx * 0.5,
+                "SOL": 20.0 - idx * 0.1,
+            })
+            volumes_bars.append({
+                "BTC": 1000.0 + idx * 10,
+                "ETH": 700.0 + idx * 7,
+                "SOL": 300.0 + idx * 3,
+            })
+        return prices_bars, volumes_bars, symbols
+
+    def test_warmup_renderer_writes_single_combined_png(self):
+        from mexc_connector import plot_warmup_dashboard
+
+        prices_bars, volumes_bars, symbols = self._sample_warmup()
+
+        with tempfile.TemporaryDirectory() as td:
+            plot_warmup_dashboard(prices_bars, volumes_bars, symbols, td, tf_kline="1m")
+
+            self.assertTrue((Path(td) / "warmup_dashboard.png").exists())
+            self.assertFalse((Path(td) / "warmup_data.png").exists())
+            self.assertFalse((Path(td) / "warmup_market_analysis.png").exists())
+
+    def test_legacy_warmup_market_analysis_uses_combined_png(self):
+        from mexc_connector import plot_warmup_market_analysis
+
+        prices_bars, volumes_bars, symbols = self._sample_warmup()
+
+        with tempfile.TemporaryDirectory() as td:
+            plot_warmup_market_analysis(prices_bars, volumes_bars, symbols, td, tf_kline="1m", bar=12)
+
+            self.assertTrue((Path(td) / "warmup_dashboard.png").exists())
+            self.assertFalse((Path(td) / "warmup_market_analysis.png").exists())
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os, sys, time, hmac, hashlib, logging, json, threading, math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -181,6 +181,13 @@ SPOT_BASE_URL         = "https://api.mexc.com"
 FUTURES_LIVE_BASE_URL = "https://contract.mexc.com"
 FUTURES_TEST_BASE_URL = "https://futures.testnet.mexc.com"
 
+MEXC_CONNECTOR_HTTP = requests.Session()
+MEXC_CONNECTOR_HTTP.trust_env = False
+
+
+def _mexc_get(url: str, **kwargs):
+    return MEXC_CONNECTOR_HTTP.get(url, **kwargs)
+
 # Подключение MEXC-специфичных модулей
 try:
     from mexc_funding import FundingDataFetcher, funding_signal
@@ -235,7 +242,7 @@ def fetch_klines(symbol: str, interval: str = "1m", n_bars: int = 5760) -> List[
         chunk_end = start_time + (i + 1) * limit * _interval_ms(interval)
         chunk_end = min(chunk_end, end_time)
         try:
-            r = requests.get(
+            r = _mexc_get(
                 f"{SPOT_BASE_URL}/api/v3/klines",
                 params={
                     "symbol":    symbol,
@@ -362,7 +369,7 @@ def fetch_top_symbols(
         blacklist.update(extra_blacklist)
 
     try:
-        r = requests.get(f"{SPOT_BASE_URL}/api/v3/ticker/24hr", timeout=10)
+        r = _mexc_get(f"{SPOT_BASE_URL}/api/v3/ticker/24hr", timeout=10)
         r.raise_for_status()
         items = r.json()
     except Exception as e:
@@ -671,6 +678,7 @@ class MexcSpotClient:
     def __init__(self, api_key, api_secret):
         self.api_key = api_key; self.api_secret = api_secret
         self.s = requests.Session()
+        self.s.trust_env = False
         self.s.headers.update({"X-MEXC-APIKEY": api_key})
 
     def _sign(self, p):
@@ -719,6 +727,7 @@ class MexcFuturesClient:
         self.api_key = api_key; self.api_secret = api_secret
         self.base = FUTURES_TEST_BASE_URL if testnet else FUTURES_LIVE_BASE_URL
         self.s = requests.Session()
+        self.s.trust_env = False
         # Runtime-блэклист: символы которые получили ошибку "symbol not found"
         self._bad_symbols: set = set()
         self._contract_meta_cache: dict = {}
@@ -767,7 +776,8 @@ class MexcFuturesClient:
             h = {"ApiKey": self.api_key, "Request-Time": ts,
                  "Signature": sig, "Content-Type": "application/json",
                  "User-Agent": UA}
-            r = self.s.request(method, self.base + path, json=p, headers=h, timeout=10)
+            body_str = json.dumps(p, separators=(",", ":")) if p else ""
+            r = self.s.request(method, self.base + path, data=body_str, headers=h, timeout=10)
         else:
             sig = self._sign_get(p, ts)
             h = {"ApiKey": self.api_key, "Request-Time": ts,
@@ -998,7 +1008,7 @@ class MexcFuturesClient:
             self._last_req_time = time.time()
 
             _r   = _sess.post(f"{FUTURES_LIVE_BASE_URL}/api/v1/private/order/submit",
-                              json=_body, headers=_h, timeout=10)
+                              data=_bstr, headers=_h, timeout=10)
             _r.raise_for_status()
             res  = _r.json()
             code = res.get("code", -1)
@@ -1054,6 +1064,7 @@ class MexcFuturesClient:
             "vol":      vol,
             "type":     5,
             "openType": 1,
+            "leverage": max(1, int(leverage)) if leverage else 20,
         }
         try:
             res = self._req("POST", "/api/v1/private/order/submit", body)
@@ -1295,6 +1306,204 @@ def plot_compound_growth(portfolios: Dict[str, PaperPortfolio], output_dir: str,
     log.info("  [compound_growth] → %s", out)
 
 
+def _plot_combined_warmup_dashboard(prices_bars: List[dict], volumes_bars: List[dict],
+                                    symbols: List[str], output_dir: str,
+                                    tf_kline: str = "1m") -> None:
+    if not prices_bars or not symbols:
+        return
+
+    n_bars = len(prices_bars)
+    hours = n_bars / 60 if tf_kline == "1m" else n_bars
+    ts_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    x = np.arange(n_bars)
+
+    price_arr: Dict[str, np.ndarray] = {}
+    volume_arr: Dict[str, np.ndarray] = {}
+    for sym in symbols:
+        px = np.array([b.get(sym, np.nan) for b in prices_bars], dtype=float)
+        vol = np.array([b.get(sym, 0.0) for b in (volumes_bars or prices_bars)], dtype=float)
+        valid = px[np.isfinite(px)]
+        if len(valid) >= 2 and valid[0] > 0:
+            price_arr[sym] = px
+            volume_arr[sym] = vol
+    if not price_arr:
+        return
+
+    changes: Dict[str, float] = {}
+    norm_arrays = []
+    for sym, px in price_arr.items():
+        valid = px[np.isfinite(px)]
+        if len(valid) < 2 or valid[0] <= 0:
+            continue
+        changes[sym] = (valid[-1] / valid[0] - 1) * 100
+        norm_arrays.append(np.where(np.isfinite(px) & (px > 0), px / valid[0], np.nan))
+    market_avg = np.nanmean(norm_arrays, axis=0) if norm_arrays else np.ones(n_bars)
+
+    valid_mask = np.isfinite(market_avg)
+    if valid_mask.sum() > 2:
+        xv = x[valid_mask]
+        yv = market_avg[valid_mask]
+        slope, intercept = np.polyfit(xv, yv, 1)
+        trend_line = slope * x + intercept
+    else:
+        slope = 0.0
+        trend_line = market_avg.copy()
+
+    market_ret = np.diff(market_avg) / (market_avg[:-1] + 1e-12)
+    market_ret = market_ret[np.isfinite(market_ret)]
+    sigma = float(np.std(market_ret)) if len(market_ret) > 1 else 0.0
+    spike_pct = float(np.mean(np.abs(market_ret) > 2 * sigma) * 100) if sigma > 0 else 0.0
+
+    def _autocorr(arr, lag=1):
+        if len(arr) < lag + 2:
+            return 0.0
+        centered = arr - np.mean(arr)
+        if np.std(centered) <= 0:
+            return 0.0
+        return float(np.corrcoef(centered[:-lag], centered[lag:])[0, 1])
+
+    autocorr = _autocorr(market_ret)
+    snr = float(abs(slope) / (sigma + 1e-12)) * 1000 if sigma > 0 else 0.0
+    noise_score = min(10.0, max(0.0, spike_pct * 2 - min(abs(autocorr), 0.5) * 3 + 2))
+    total_ret = float(np.nanmean(list(changes.values()))) if changes else 0.0
+    regime_lbl = (
+        "CRASH" if total_ret < -10 else
+        "BEAR" if total_ret < -3 else
+        "SIDEWAYS" if abs(total_ret) < 3 else
+        "BULL" if total_ret < 15 else
+        "STRONG BULL"
+    )
+
+    leaders = sorted(changes, key=changes.get, reverse=True)
+    laggards = sorted(changes, key=changes.get)
+    ranked_bars = list(dict.fromkeys(leaders[:8] + laggards[:5]))[::-1]
+    curve_syms = leaders[:6]
+    volume_syms = sorted(
+        volume_arr,
+        key=lambda sym: float(np.nanmean(volume_arr.get(sym, np.array([0.0])))),
+        reverse=True,
+    )[:6]
+
+    fig = plt.figure(figsize=(24, 16), facecolor="#0D1117")
+    fig.suptitle(
+        f"Warmup Dashboard | {regime_lbl} | Noise {noise_score:.1f}/10 | "
+        f"{n_bars} bars ({hours:.0f}h x {tf_kline}) | {ts_str}",
+        fontsize=14, fontweight="bold", color="#E6EDF3", y=0.985,
+    )
+    gs = gridspec.GridSpec(
+        3, 3, figure=fig, hspace=0.36, wspace=0.28,
+        height_ratios=[1.25, 1.0, 0.72],
+    )
+
+    def _style(ax, title: str):
+        ax.set_facecolor("#161B22")
+        ax.set_title(title, color="#E6EDF3", fontsize=11, fontweight="bold", pad=8)
+        ax.tick_params(colors="#8B949E", labelsize=8)
+        ax.grid(True, alpha=0.22, color="#30363D")
+        for spine in ax.spines.values():
+            spine.set_color("#30363D")
+
+    ax_market = fig.add_subplot(gs[0, :2])
+    _style(ax_market, "Market Curve and Trend")
+    ax_market.plot(x, market_avg, color="#58A6FF", lw=1.5, label="Market avg")
+    ax_market.plot(x, trend_line, color="#F0C040", lw=1.4, ls="--", label="Trend")
+    ax_market.axhline(1.0, color="#E6EDF3", lw=0.8, alpha=0.35, ls=":")
+    ax_market.set_ylabel("Normalized price", color="#8B949E", fontsize=8)
+    ax_market.set_xlabel("Bar", color="#8B949E", fontsize=8)
+    ax_market.legend(loc="upper left", fontsize=8, frameon=False, labelcolor="#E6EDF3")
+
+    ax_noise = fig.add_subplot(gs[0, 2])
+    _style(ax_noise, "Market Noise")
+    metric_labels = ["Noise", "AutoCorr", "SNR", "Spike %"]
+    metric_values = [noise_score / 10.0, autocorr, min(snr, 1.0), min(spike_pct / 10.0, 1.0)]
+    metric_colors = [
+        "#F85149" if noise_score >= 6.5 else "#D29922" if noise_score >= 3.5 else "#3FB950",
+        "#BC8CFF", "#58A6FF", "#F85149",
+    ]
+    y_pos = np.arange(len(metric_labels))[::-1]
+    ax_noise.barh(y_pos, metric_values, color=metric_colors, alpha=0.85)
+    ax_noise.set_yticks(y_pos)
+    ax_noise.set_yticklabels(metric_labels, color="#E6EDF3")
+    ax_noise.axvline(0, color="#E6EDF3", lw=0.6, alpha=0.3)
+    ax_noise.set_xlim(min(-1.0, min(metric_values) - 0.1), 1.05)
+    raw_text = [f"{noise_score:.1f}/10", f"{autocorr:+.3f}", f"{snr:.3f}", f"{spike_pct:.1f}%"]
+    for idx, (value, text) in enumerate(zip(metric_values[::-1], raw_text[::-1])):
+        ax_noise.text(value + 0.03, idx, text, color="#E6EDF3", va="center", fontsize=8)
+
+    ax_rank = fig.add_subplot(gs[1, 0])
+    _style(ax_rank, "Warmup Winners and Losers")
+    vals = [changes.get(sym, 0.0) for sym in ranked_bars]
+    colors = ["#3FB950" if val >= 0 else "#F85149" for val in vals]
+    ax_rank.barh(ranked_bars, vals, color=colors, alpha=0.86)
+    ax_rank.axvline(0, color="#E6EDF3", lw=0.8, alpha=0.45)
+    ax_rank.set_xlabel("Change %", color="#8B949E", fontsize=8)
+    for idx, val in enumerate(vals):
+        ax_rank.text(val, idx, f" {val:+.1f}%", color="#E6EDF3", va="center", fontsize=7)
+
+    ax_curves = fig.add_subplot(gs[1, 1])
+    _style(ax_curves, "Top Price Curves")
+    palette = plt.cm.tab10(np.linspace(0, 0.9, max(len(curve_syms), 1)))
+    for idx, sym in enumerate(curve_syms):
+        px = price_arr.get(sym)
+        if px is None:
+            continue
+        valid = px[np.isfinite(px)]
+        if len(valid) < 2 or valid[0] <= 0:
+            continue
+        norm = np.where(np.isfinite(px) & (px > 0), px / valid[0], np.nan)
+        ax_curves.plot(x, norm, lw=1.5, color=palette[idx],
+                       label=f"{sym} ({changes.get(sym, 0):+.1f}%)")
+    ax_curves.axhline(1.0, color="#E6EDF3", lw=0.8, alpha=0.35, ls=":")
+    ax_curves.set_ylabel("Normalized price", color="#8B949E", fontsize=8)
+    ax_curves.set_xlabel("Bar", color="#8B949E", fontsize=8)
+    ax_curves.legend(loc="upper left", fontsize=7, frameon=False, labelcolor="#E6EDF3")
+
+    ax_volume = fig.add_subplot(gs[1, 2])
+    _style(ax_volume, "Top Volumes")
+    vol_palette = plt.cm.tab10(np.linspace(0, 0.9, max(len(volume_syms), 1)))
+    for idx, sym in enumerate(volume_syms):
+        vol = volume_arr.get(sym)
+        if vol is None:
+            continue
+        window = min(60, max(1, len(vol) // 4))
+        vol_s = np.convolve(vol, np.ones(window) / window, mode="same") if window > 1 else vol
+        ax_volume.plot(x, vol_s, lw=1.1, alpha=0.85, color=vol_palette[idx], label=sym)
+    ax_volume.set_xlabel("Bar", color="#8B949E", fontsize=8)
+    ax_volume.set_ylabel("Volume", color="#8B949E", fontsize=8)
+    ax_volume.legend(loc="upper left", fontsize=7, frameon=False, labelcolor="#E6EDF3")
+    ax_volume.yaxis.set_major_formatter(
+        plt.FuncFormatter(lambda v, _: f"{v/1e6:.1f}M" if v >= 1e6 else
+                          f"{v/1e3:.0f}K" if v >= 1e3 else f"{v:.0f}"))
+
+    ax_summary = fig.add_subplot(gs[2, :])
+    ax_summary.set_facecolor("#161B22")
+    ax_summary.axis("off")
+    best = leaders[0] if leaders else "-"
+    worst = laggards[0] if laggards else "-"
+    leader_s = "  ".join(f"{sym}({changes.get(sym, 0):+.1f}%)" for sym in leaders[:5])
+    laggard_s = "  ".join(f"{sym}({changes.get(sym, 0):+.1f}%)" for sym in laggards[:5])
+    summary = (
+        f"WARMUP SUMMARY [{ts_str}]\n"
+        f"Bars: {n_bars} ({hours:.0f}h x {tf_kline}) | Symbols: {len(price_arr)} | "
+        f"Market: {total_ret:+.2f}% | Type: {regime_lbl} | Noise: {noise_score:.1f}/10\n"
+        f"Best: {best} ({changes.get(best, 0):+.2f}%) | "
+        f"Worst: {worst} ({changes.get(worst, 0):+.2f}%) | "
+        f"AutoCorr: {autocorr:+.3f} | SNR: {snr:.3f} | Spike%: {spike_pct:.1f}%\n"
+        f"Leaders:  {leader_s}\n"
+        f"Laggards: {laggard_s}"
+    )
+    ax_summary.text(
+        0.015, 0.92, summary, transform=ax_summary.transAxes,
+        fontsize=9, va="top", family="monospace", color="#E6EDF3",
+        bbox=dict(boxstyle="round", facecolor="#0D1117", alpha=0.95, edgecolor="#30363D"),
+    )
+
+    out = os.path.join(output_dir, "warmup_dashboard.png")
+    fig.savefig(out, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
+    fig.clf()
+    log.info("  [warmup_dashboard] -> %s", out)
+
+
 def plot_warmup_dashboard(prices_bars: List[dict], volumes_bars: List[dict],
                           symbols: List[str], output_dir: str,
                           tf_kline: str = "1m") -> None:
@@ -1309,6 +1518,14 @@ def plot_warmup_dashboard(prices_bars: List[dict], volumes_bars: List[dict],
     """
     if not prices_bars or not symbols:
         return
+    _plot_combined_warmup_dashboard(
+        prices_bars=prices_bars,
+        volumes_bars=volumes_bars,
+        symbols=symbols,
+        output_dir=output_dir,
+        tf_kline=tf_kline,
+    )
+    return
 
     n_bars  = len(prices_bars)
     n_syms  = len(symbols)
@@ -1483,6 +1700,14 @@ def plot_warmup_market_analysis(prices_bars: List[dict], volumes_bars: List[dict
     """
     if not prices_bars or not symbols:
         return
+    _plot_combined_warmup_dashboard(
+        prices_bars=prices_bars,
+        volumes_bars=volumes_bars,
+        symbols=symbols,
+        output_dir=output_dir,
+        tf_kline=tf_kline,
+    )
+    return
 
     n_bars  = len(prices_bars)
     hours   = n_bars / 60 if tf_kline == "1m" else n_bars
@@ -2242,15 +2467,6 @@ class AgentMexcBridge:
         except Exception as e:
             log.warning("[warmup] plot_warmup_dashboard: %s", e)
 
-        try:
-            plot_warmup_market_analysis(
-                prices_bars=prices_bars, volumes_bars=volumes_bars,
-                symbols=self.symbols, output_dir=self.output_dir,
-                tf_kline=self._tf_kline, bar=self._warmup_end,
-            )
-        except Exception as e:
-            log.warning("[warmup] plot_warmup_market_analysis: %s", e)
-
         # Активный прогрев создал позиции — сохраняем начальный дашборд
         if self.mode == "paper" and self.paper_pf:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -2318,7 +2534,7 @@ class AgentMexcBridge:
         # FIX v9.1: retry до 3 раз при сетевых ошибках (ConnectTimeout, NameResolutionError)
         for _attempt in range(3):
             try:
-                r = requests.get(f"{SPOT_BASE_URL}/api/v3/ticker/24hr", timeout=15)
+                r = _mexc_get(f"{SPOT_BASE_URL}/api/v3/ticker/24hr", timeout=15)
                 r.raise_for_status()
                 sym_set = set(self.symbols)
                 for item in r.json():
@@ -2938,7 +3154,7 @@ AgentExchangeBridge = AgentMexcBridge
 
 def check_connectivity() -> bool:
     try:
-        requests.get(f"{SPOT_BASE_URL}/api/v3/ping", timeout=5).raise_for_status()
+        _mexc_get(f"{SPOT_BASE_URL}/api/v3/ping", timeout=5).raise_for_status()
         log.info("✅ MEXC API доступен."); return True
     except Exception as e:
         log.error("❌ %s", e); return False

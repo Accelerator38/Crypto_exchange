@@ -17,6 +17,14 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 
+MEXC_DIRECT_HTTP = requests.Session()
+MEXC_DIRECT_HTTP.trust_env = False
+
+
+def _mexc_direct_get(url: str, **kwargs):
+    return MEXC_DIRECT_HTTP.get(url, **kwargs)
+
+
 from project_paths import PROJECT_ROOT, RUNTIME_DIR, add_runtime_paths
 
 
@@ -852,6 +860,7 @@ class MexcDirectClient:
         self.api_key    = api_key
         self.api_secret = api_secret
         self._session   = requests.Session()
+        self._session.trust_env = False
         self._session.headers.update({"X-MEXC-APIKEY": api_key})
         self._last_good_futures_snapshot: Optional[dict] = None
         self._last_good_futures_snapshot_at = 0.0
@@ -971,7 +980,7 @@ class MexcDirectClient:
         ts  = self._ts()
         sig = self._futures_sign({}, ts)
         try:
-            r = requests.get(
+            r = _mexc_direct_get(
                 f"{self.FUTURES_BASE}/api/v1/private/position/open_positions",
                 headers={
                     "ApiKey": self.api_key,
@@ -994,7 +1003,7 @@ class MexcDirectClient:
         ts  = self._ts()
         sig = self._futures_sign({}, ts)
         try:
-            r = requests.get(
+            r = _mexc_direct_get(
                 f"{self.FUTURES_BASE}/api/v1/private/account/assets",
                 headers={
                     "ApiKey": self.api_key,
@@ -1045,7 +1054,7 @@ class MexcDirectClient:
             "contractSize": float(self._CONTRACT_SIZE_FALLBACKS.get(base, 1.0)),
         }
         try:
-            r = requests.get(
+            r = _mexc_direct_get(
                 f"{self.FUTURES_BASE}/api/v1/contract/detail",
                 params={"symbol": fallback["symbol"]},
                 timeout=5,
@@ -1111,7 +1120,7 @@ class MexcDirectClient:
             for attempt in range(2):
                 ts = self._ts()
                 sig = self._futures_sign({}, ts)
-                r = requests.get(
+                r = _mexc_direct_get(
                     f"{self.FUTURES_BASE}/api/v1/private/account/assets",
                     headers={"ApiKey": self.api_key, "Request-Time": str(ts),
                              "Signature": sig, "Content-Type": "application/json",

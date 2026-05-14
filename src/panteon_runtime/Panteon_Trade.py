@@ -1896,6 +1896,378 @@ def save_player_regime_dashboard(vp_map: Dict[str, 'VirtualPortfolio'], output_d
     )
 
 
+def save_combined_shadow_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
+                                   player_vp_map: Dict[str, 'VirtualPortfolio'],
+                                   stats,
+                                   regime_tracker,
+                                   output_dir: str,
+                                   output_filename: str = 'shadow_dashboard.png',
+                                   agent_status_map: Optional[Dict[str, str]] = None,
+                                   player_status_map: Optional[Dict[str, str]] = None):
+    """Render one shadow dashboard: players on top, agents below."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.gridspec as gridspec
+        import numpy as np
+    except ImportError:
+        return
+
+    if not agent_vp_map and not player_vp_map:
+        return
+
+    BG = '#0D1117'
+    MID = '#161B22'
+    GRN = '#3FB950'
+    RED = '#F85149'
+    BLU = '#58A6FF'
+    PRP = '#BC8CFF'
+    YLW = '#D29922'
+    WHT = '#E6EDF3'
+    GRY = '#8B949E'
+    GRID = '#21262D'
+    quarantine_statuses = {'quarantine', 'shadow_only', 'purgatory'}
+
+    fig = plt.figure(figsize=(22, 14), facecolor=BG)
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig, hspace=0.34, wspace=0.25,
+        width_ratios=[1.65, 1.0],
+    )
+
+    def _style(ax, title=''):
+        ax.set_facecolor(MID)
+        ax.tick_params(colors=GRY, labelsize=7)
+        ax.set_title(title, color=WHT, fontsize=11, fontweight='bold', pad=8)
+        for spine in ax.spines.values():
+            spine.set_color(GRID)
+        ax.grid(True, alpha=0.18, color=GRID)
+
+    def _clean_label(name: str, max_len: int = 20) -> str:
+        txt = str(name or '').replace('V_', '').replace('STP_', '')
+        return txt if len(txt) <= max_len else txt[: max(0, max_len - 3)] + '...'
+
+    def _repair_curve(values):
+        out = []
+        last = None
+        for value in list(values or []):
+            try:
+                cur = float(value)
+            except Exception:
+                cur = last if last is not None else float('nan')
+            if not np.isfinite(cur) or cur <= 0:
+                cur = last if last is not None else cur
+            out.append(cur)
+            if np.isfinite(cur) and cur > 0:
+                last = cur
+        return out
+
+    def _real_curve():
+        eq = _repair_curve(getattr(stats, 'equity_curve', []) or [])
+        if not eq:
+            return [], []
+        raw_x = getattr(stats, 'live_bar_curve', None)
+        if not isinstance(raw_x, list) or len(raw_x) != len(eq):
+            raw_x = list(range(len(eq)))
+        out_x, out_y = [], []
+        for raw_bar, equity in zip(raw_x, eq):
+            try:
+                bar = int(raw_bar)
+            except Exception:
+                bar = len(out_x)
+            if out_x and bar == out_x[-1]:
+                out_y[-1] = equity
+            else:
+                out_x.append(bar)
+                out_y.append(equity)
+        return out_x, out_y
+
+    real_x, real_eq = _real_curve()
+    real_ic = float(getattr(stats, 'initial_capital', 0.0) or 0.0)
+    real_pnl = ((real_eq[-1] / real_ic) - 1.0) * 100.0 if real_eq and real_ic > 0 else (
+        float(getattr(stats, 'pnl_pct', 0.0) or 0.0)
+    )
+
+    def _curve_x(length: int):
+        if length <= 0:
+            return []
+        if not real_x:
+            return list(range(length))
+        if len(real_x) >= length:
+            return list(real_x[-length:])
+        if len(real_x) == 1:
+            return [real_x[0] + i for i in range(length)]
+        return np.linspace(real_x[0], real_x[-1], length).tolist()
+
+    def _draw_group(row: int, title: str, vp_map: Dict[str, 'VirtualPortfolio'],
+                    status_map: Optional[Dict[str, str]], accent: str):
+        ax_eq = fig.add_subplot(gs[row, 0])
+        ax_rank = fig.add_subplot(gs[row, 1])
+        _style(ax_eq, f'{title} Equity Curves')
+        _style(ax_rank, f'{title} P&L Ranking')
+
+        if not vp_map:
+            for ax in (ax_eq, ax_rank):
+                ax.text(0.5, 0.5, 'No data yet', transform=ax.transAxes,
+                        ha='center', va='center', color=GRY, fontsize=11)
+            return
+
+        ranked = sorted(vp_map.items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+        palette = plt.cm.tab20(np.linspace(0, 1, max(len(ranked), 1)))
+        for idx, (name, vp) in enumerate(ranked[:18]):
+            eq = _repair_curve(getattr(vp, 'equity_history', []) or [])
+            if len(eq) < 2:
+                continue
+            label = f"{_clean_label(name, 18)} ({vp.pnl_pct:+.1f}%)" if idx < 6 else None
+            ax_eq.plot(_curve_x(len(eq)), eq, color=palette[idx % 20],
+                       lw=1.8 if idx < 4 else 0.9,
+                       alpha=0.9 if idx < 4 else 0.35,
+                       label=label)
+        if real_eq:
+            ax_eq.plot(real_x, real_eq, color=YLW, lw=2.4, alpha=1.0,
+                       linestyle='--', label=f'REAL ({real_pnl:+.1f}%)')
+        ic = ranked[0][1].initial_capital if ranked else real_ic or 100.0
+        ax_eq.axhline(ic, color=WHT, lw=0.8, alpha=0.28, linestyle=':')
+        ax_eq.set_ylabel('Equity ($)', color=GRY, fontsize=8)
+        ax_eq.set_xlabel('Bar', color=GRY, fontsize=8)
+        ax_eq.legend(loc='upper left', fontsize=6, ncol=2,
+                     facecolor=MID, edgecolor=GRID, labelcolor=WHT)
+
+        status_map = status_map or {}
+        top = ranked[:18]
+        raw_statuses = [str(status_map.get(name, '') or '').lower() for name, _ in top]
+        labels = [
+            _clean_label(name, 18) + (' [Q]' if st in quarantine_statuses else '')
+            for (name, _), st in zip(top, raw_statuses)
+        ]
+        values = [float(vp.pnl_pct or 0.0) for _, vp in top]
+        colors = []
+        for value, st in zip(values, raw_statuses):
+            if st in quarantine_statuses:
+                colors.append(GRY)
+            elif value > 0:
+                colors.append(GRN)
+            elif value < 0:
+                colors.append(RED)
+            else:
+                colors.append(accent)
+        y_pos = range(len(labels))
+        bars = ax_rank.barh(y_pos, values, color=colors, alpha=0.82, height=0.72)
+        for bar, st in zip(bars, raw_statuses):
+            if st in quarantine_statuses:
+                bar.set_alpha(0.45)
+        ax_rank.axvline(0, color=WHT, lw=0.6, alpha=0.45)
+        ax_rank.axvline(real_pnl, color=YLW, lw=2, linestyle='--',
+                        label=f'REAL {real_pnl:+.1f}%')
+        ax_rank.set_yticks(y_pos)
+        ax_rank.set_yticklabels(labels, fontsize=6.7, color=WHT)
+        try:
+            for tick_lbl, st in zip(ax_rank.get_yticklabels(), raw_statuses):
+                if st in quarantine_statuses:
+                    tick_lbl.set_color(GRY)
+        except Exception:
+            pass
+        ax_rank.set_xlabel('P&L %', color=GRY, fontsize=8)
+        ax_rank.legend(fontsize=7, facecolor=MID, edgecolor=GRID, labelcolor=WHT)
+        ax_rank.invert_yaxis()
+
+    _draw_group(0, 'Shadow Players', player_vp_map, player_status_map, PRP)
+    _draw_group(1, 'Shadow Agents', agent_vp_map, agent_status_map, BLU)
+
+    regime = regime_tracker.current if regime_tracker else '?'
+    fig.suptitle(f'Shadow Dashboard - Players and Agents | Regime: {regime}',
+                 fontsize=15, fontweight='bold', color=WHT, y=0.985)
+    path = os.path.join(output_dir, output_filename)
+    fig.savefig(path, dpi=130, bbox_inches='tight', facecolor=BG, edgecolor='none')
+    plt.close(fig)
+    log.debug("Combined shadow dashboard -> %s", path)
+
+
+def save_combined_regime_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
+                                   player_vp_map: Dict[str, 'VirtualPortfolio'],
+                                   output_dir: str,
+                                   output_filename: str = 'regime_dashboard.png',
+                                   agent_status_map: Optional[Dict[str, str]] = None,
+                                   player_status_map: Optional[Dict[str, str]] = None):
+    """Render one regime dashboard: players on top, agents below, curves on the right."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import matplotlib.gridspec as gridspec
+        import numpy as np
+    except ImportError:
+        return
+
+    if not agent_vp_map and not player_vp_map:
+        return
+
+    BG = '#0D1117'
+    MID = '#161B22'
+    WHT = '#E6EDF3'
+    GRY = '#8B949E'
+    GRID = '#21262D'
+    quarantine_statuses = {'quarantine', 'shadow_only', 'purgatory'}
+
+    fig = plt.figure(figsize=(22, 14), facecolor=BG)
+    gs = gridspec.GridSpec(
+        2, 2, figure=fig, hspace=0.34, wspace=0.24,
+        width_ratios=[1.55, 1.0],
+    )
+
+    def _style(ax, title=''):
+        ax.set_facecolor(MID)
+        ax.tick_params(colors=GRY, labelsize=7)
+        ax.set_title(title, color=WHT, fontsize=11, fontweight='bold', pad=8)
+        for spine in ax.spines.values():
+            spine.set_color(GRID)
+        ax.grid(True, alpha=0.18, color=GRID)
+
+    def _clean_label(name: str, max_len: int = 24) -> str:
+        txt = str(name or '').replace('V_', '').replace('STP_', '')
+        return txt if len(txt) <= max_len else txt[: max(0, max_len - 3)] + '...'
+
+    def _collect_rows(vp_map: Dict[str, 'VirtualPortfolio']):
+        rows = []
+        for name, vp in (vp_map or {}).items():
+            per_regime = vp.export_regime_stats()
+            total_abs = sum(abs(float(per_regime[r].get('pnl_pct', 0.0) or 0.0)) for r in MARKET_REGIMES)
+            total_signals = sum(int(per_regime[r].get('signals', 0) or 0) for r in MARKET_REGIMES)
+            if total_abs <= 0.0 and total_signals <= 0:
+                continue
+            rows.append((name, vp, per_regime))
+        rows.sort(key=lambda item: item[1].pnl_pct, reverse=True)
+        return rows[:22]
+
+    def _draw_heatmap(ax, title: str, vp_map: Dict[str, 'VirtualPortfolio'],
+                      status_map: Optional[Dict[str, str]]):
+        rows = _collect_rows(vp_map)
+        ax.set_facecolor(MID)
+        if not rows:
+            ax.set_axis_off()
+            ax.text(0.5, 0.5, 'No regime data yet', transform=ax.transAxes,
+                    ha='center', va='center', color=GRY, fontsize=11)
+            ax.set_title(title, color=WHT, fontsize=11, fontweight='bold', pad=8)
+            return None
+
+        matrix, annot = [], []
+        for _name, _vp, per_regime in rows:
+            row, ann_row = [], []
+            for regime in MARKET_REGIMES:
+                stats_r = per_regime.get(regime, {})
+                pnl_pct = float(stats_r.get('pnl_pct', 0.0) or 0.0)
+                ticks = int(stats_r.get('ticks', 0) or 0)
+                signals = int(stats_r.get('signals', 0) or 0)
+                row.append(np.nan if ticks <= 0 and signals <= 0 else pnl_pct)
+                ann_row.append('' if ticks <= 0 and signals <= 0 else f'{pnl_pct:+.2f}%\nS{signals}')
+            matrix.append(row)
+            annot.append(ann_row)
+
+        arr = np.array(matrix, dtype=float)
+        max_abs = np.nanmax(np.abs(arr)) if np.isfinite(arr).any() else 1.0
+        max_abs = max(float(max_abs), 0.5)
+        cmap = plt.get_cmap('RdYlGn')
+        try:
+            cmap = cmap.copy()
+            cmap.set_bad('#30363D')
+        except Exception:
+            pass
+        image = ax.imshow(arr, cmap=cmap, vmin=-max_abs, vmax=max_abs, aspect='auto')
+        status_map = status_map or {}
+        row_statuses = [str(status_map.get(name, '') or '').lower() for name, _, _ in rows]
+        labels = [
+            _clean_label(name) + (' [Q]' if st in quarantine_statuses else '')
+            for (name, _, _), st in zip(rows, row_statuses)
+        ]
+        ax.set_xticks(range(len(MARKET_REGIMES)))
+        ax.set_xticklabels([r.upper() for r in MARKET_REGIMES], color=WHT, fontsize=8)
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels, color=WHT, fontsize=7)
+        ax.set_title(title, color=WHT, fontsize=11, fontweight='bold', pad=8)
+        ax.tick_params(colors=GRY)
+        for i in range(arr.shape[0]):
+            for j in range(arr.shape[1]):
+                if not np.isfinite(arr[i, j]):
+                    continue
+                text_color = BG if abs(arr[i, j]) > max_abs * 0.45 else WHT
+                ax.text(j, i, annot[i][j], ha='center', va='center',
+                        fontsize=6.5, color=text_color)
+        try:
+            for tick_lbl, st in zip(ax.get_yticklabels(), row_statuses):
+                if st in quarantine_statuses:
+                    tick_lbl.set_color(GRY)
+            for i, st in enumerate(row_statuses):
+                if st in quarantine_statuses:
+                    ax.axhspan(i - 0.5, i + 0.5, facecolor=GRY, alpha=0.50, zorder=2)
+        except Exception:
+            pass
+        for spine in ax.spines.values():
+            spine.set_color(GRID)
+        ax.set_xticks(np.arange(-.5, len(MARKET_REGIMES), 1), minor=True)
+        ax.set_yticks(np.arange(-.5, len(rows), 1), minor=True)
+        ax.grid(which='minor', color=GRID, linestyle='-', linewidth=0.7)
+        ax.tick_params(which='minor', bottom=False, left=False)
+        return image
+
+    def _draw_equity(ax, title: str, vp_map: Dict[str, 'VirtualPortfolio']):
+        _style(ax, title)
+        ranked = sorted((vp_map or {}).items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+        if not ranked:
+            ax.text(0.5, 0.5, 'No equity history yet', transform=ax.transAxes,
+                    ha='center', va='center', color=GRY, fontsize=11)
+            return
+        palette = plt.cm.tab20(np.linspace(0, 1, max(len(ranked), 1)))
+        plotted = 0
+        for idx, (name, vp) in enumerate(ranked[:18]):
+            eq = []
+            for value in list(getattr(vp, 'equity_history', []) or []):
+                try:
+                    eq.append(float(value))
+                except Exception:
+                    continue
+            if len(eq) < 2:
+                continue
+            label = f"{_clean_label(name, 18)} ({vp.pnl_pct:+.1f}%)" if plotted < 6 else None
+            ax.plot(range(len(eq)), eq, color=palette[idx % 20],
+                    lw=1.8 if plotted < 4 else 0.9,
+                    alpha=0.9 if plotted < 4 else 0.35,
+                    label=label)
+            plotted += 1
+        if plotted == 0:
+            ax.text(0.5, 0.5, 'No equity history yet', transform=ax.transAxes,
+                    ha='center', va='center', color=GRY, fontsize=11)
+            return
+        first_ic = float(getattr(ranked[0][1], 'initial_capital', 0.0) or 0.0)
+        if first_ic > 0:
+            ax.axhline(first_ic, color=WHT, lw=0.8, alpha=0.28, linestyle=':')
+        ax.set_xlabel('Bar', color=GRY, fontsize=8)
+        ax.set_ylabel('Equity ($)', color=GRY, fontsize=8)
+        ax.legend(loc='upper left', fontsize=6, ncol=2,
+                  facecolor=MID, edgecolor=GRID, labelcolor=WHT)
+
+    heat_player = fig.add_subplot(gs[0, 0])
+    curve_player = fig.add_subplot(gs[0, 1])
+    heat_agent = fig.add_subplot(gs[1, 0])
+    curve_agent = fig.add_subplot(gs[1, 1])
+    im_player = _draw_heatmap(heat_player, 'Players by Market Regime', player_vp_map, player_status_map)
+    im_agent = _draw_heatmap(heat_agent, 'Agents by Market Regime', agent_vp_map, agent_status_map)
+    _draw_equity(curve_player, 'Players Equity Over Time', player_vp_map)
+    _draw_equity(curve_agent, 'Agents Equity Over Time', agent_vp_map)
+    for ax, image in ((heat_player, im_player), (heat_agent, im_agent)):
+        if image is None:
+            continue
+        cbar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.02)
+        cbar.ax.tick_params(colors=GRY, labelsize=8)
+        cbar.set_label('P&L % contribution', color=GRY, fontsize=8)
+
+    fig.suptitle('Regime Dashboard - Players Over Agents',
+                 fontsize=15, fontweight='bold', color=WHT, y=0.985)
+    path = os.path.join(output_dir, output_filename)
+    fig.savefig(path, dpi=130, bbox_inches='tight', facecolor=BG, edgecolor='none')
+    plt.close(fig)
+    log.debug("Combined regime dashboard -> %s", path)
+
+
 if False and EXCHANGE_NAME != "MEXC":
     try:
         MexcDirectClient = getattr(
@@ -2180,19 +2552,16 @@ class ComboMonitorThread(threading.Thread):
         except Exception as exc:
             log.debug("  [real_attribution] failed: %s", exc)
         try:
-            save_shadow_agents_dashboard(
-                vp_map, self._stats, self._regime_tracker,
-                self._output_dir, status_map=agent_status_map,
+            save_combined_shadow_dashboard(
+                vp_map, player_vp_map, self._stats, self._regime_tracker,
+                self._output_dir,
+                agent_status_map=agent_status_map,
+                player_status_map=player_status_map,
             )
-            save_shadow_player_dashboard(
-                player_vp_map, self._stats, self._regime_tracker,
-                self._output_dir, status_map=player_status_map,
-            )
-            save_agent_regime_dashboard(
-                vp_map, self._output_dir, status_map=agent_status_map,
-            )
-            save_player_regime_dashboard(
-                player_vp_map, self._output_dir, status_map=player_status_map,
+            save_combined_regime_dashboard(
+                vp_map, player_vp_map, self._output_dir,
+                agent_status_map=agent_status_map,
+                player_status_map=player_status_map,
             )
         except Exception as e:
             log.debug("Shadow dashboard err: %s", e)
