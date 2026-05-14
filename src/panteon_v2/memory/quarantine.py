@@ -48,6 +48,15 @@ class RecomputeResult:
         return len(self.added) == 0 and len(self.removed) == 0
 
 
+@dataclass(frozen=True)
+class QuarantineRecord:
+    label: str
+    state: str
+    reason: str = ""
+    entered_bar: int = 0
+    updated_bar: int = 0
+
+
 # Тип callback-а для observers
 QuarantineObserver = Callable[[FrozenSet[str], RecomputeResult], None]
 
@@ -76,6 +85,14 @@ class QuarantineManager:
     ):
         self._seed: FrozenSet[str] = frozenset(seed)
         self._dynamic: Set[str] = set(self._seed)
+        self._records = {
+            label: QuarantineRecord(
+                label=label,
+                state="quarantined",
+                reason="seed",
+            )
+            for label in self._seed
+        }
         self._observers: List[QuarantineObserver] = []
         self._config: ScoringConfig = config
         self._lock = threading.Lock()
@@ -92,6 +109,10 @@ class QuarantineManager:
         """Immutable снимок текущего набора."""
         with self._lock:
             return frozenset(self._dynamic)
+
+    def record_for(self, label: str) -> Optional[QuarantineRecord]:
+        with self._lock:
+            return self._records.get(label)
 
     @property
     def seed(self) -> FrozenSet[str]:
@@ -147,6 +168,20 @@ class QuarantineManager:
             self._dynamic = new_set
             added = frozenset(new_set - previous)
             removed = frozenset(previous - new_set)
+            for label in added:
+                self._records[label] = QuarantineRecord(
+                    label=label,
+                    state="quarantined",
+                    reason="seed" if label in self._seed else "hopeless_in_all_regimes",
+                )
+            for label in removed:
+                old = self._records.get(label)
+                self._records[label] = QuarantineRecord(
+                    label=label,
+                    state="probation",
+                    reason="locally_proven",
+                    entered_bar=(old.entered_bar if old else 0),
+                )
             result = RecomputeResult(
                 added=added,
                 removed=removed,
@@ -191,12 +226,25 @@ class QuarantineManager:
 
     # ── Manual ops (для тестов и initialization) ─────────────────────
 
-    def force_quarantine(self, label: str) -> None:
+    def force_quarantine(
+        self,
+        label: str,
+        *,
+        reason: str = "manual",
+        bar: int = 0,
+    ) -> None:
         """Принудительно добавить в карантин (минуя recompute).
 
         Используется только для bootstrap или тестов.
         """
         with self._lock:
+            self._records[label] = QuarantineRecord(
+                label=label,
+                state="quarantined",
+                reason=reason,
+                entered_bar=int(bar or 0),
+                updated_bar=int(bar or 0),
+            )
             if label not in self._dynamic:
                 self._dynamic.add(label)
                 result = RecomputeResult(
@@ -208,9 +256,23 @@ class QuarantineManager:
                 return
         self._notify(result)
 
-    def force_release(self, label: str) -> None:
+    def force_release(
+        self,
+        label: str,
+        *,
+        reason: str = "manual_release",
+        bar: int = 0,
+    ) -> None:
         """Принудительно снять с карантина (минуя recompute)."""
         with self._lock:
+            old = self._records.get(label)
+            self._records[label] = QuarantineRecord(
+                label=label,
+                state="probation",
+                reason=reason,
+                entered_bar=(old.entered_bar if old else 0),
+                updated_bar=int(bar or 0),
+            )
             if label in self._dynamic:
                 self._dynamic.discard(label)
                 result = RecomputeResult(

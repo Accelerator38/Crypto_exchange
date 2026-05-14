@@ -221,16 +221,27 @@ def migrate_from_v1_memory_files(
 def save_v2_snapshot(
     perf:        PerformanceMemory,
     path:        str,
+    *,
+    real_perf:   Optional[PerformanceMemory] = None,
+    order_ledger = None,
 ) -> None:
     """Сохранить PerformanceMemory snapshot в JSON."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    snapshot = perf.snapshot()
+    if real_perf is not None:
+        snapshot["_real_memory"] = real_perf.snapshot()
+    if order_ledger is not None and hasattr(order_ledger, "snapshot"):
+        snapshot["_order_ledger"] = order_ledger.snapshot()
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(perf.snapshot(), f, indent=2)
+        json.dump(snapshot, f, indent=2)
 
 
 def load_v2_snapshot(
     perf:        PerformanceMemory,
     path:        str,
+    *,
+    real_perf:   Optional[PerformanceMemory] = None,
+    order_ledger = None,
 ) -> bool:
     """Загрузить PerformanceMemory snapshot из JSON. True если успешно."""
     if not os.path.exists(path):
@@ -239,6 +250,10 @@ def load_v2_snapshot(
         with open(path, "r", encoding="utf-8") as f:
             snap = json.load(f)
         perf.restore(snap)
+        if real_perf is not None and isinstance(snap.get("_real_memory"), dict):
+            real_perf.restore(snap["_real_memory"])
+        if order_ledger is not None and hasattr(order_ledger, "restore"):
+            order_ledger.restore(snap.get("_order_ledger") or {})
         return True
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("load_v2_snapshot failed (%s): %s", path, exc)

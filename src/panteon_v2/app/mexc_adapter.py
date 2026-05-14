@@ -41,7 +41,7 @@ class MexcExchangeAdapter(V1FuturesExchangeAdapter):
             name="MEXC",
             order_client=order_client,
             read_client=read_client,
-            leverage=leverage if leverage is not None else load_runtime_leverage(),
+            leverage=leverage if leverage is not None else load_runtime_leverage("MEXC"),
             default_min_notional=5.0,
             default_fee_rate=0.0002,
             close_via_place_order=True,

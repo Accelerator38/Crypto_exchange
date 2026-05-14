@@ -171,8 +171,13 @@ class MarketSnapshot:
     regime:     Regime
     prices:     Dict[str, float]                     # sym → spot/futures price
     volumes:    Dict[str, float]                     # sym → 1m volume
+    regime_confidence: float = 1.0
     funding:    Dict[str, float] = field(default_factory=dict)  # sym → funding rate
     month:      Optional[int] = None                # для seasonality агентов
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= float(self.regime_confidence) <= 1.0:
+            raise ValueError("MarketSnapshot.regime_confidence must be in [0, 1]")
 
     def has_price(self, sym: str) -> bool:
         return sym in self.prices and self.prices[sym] > 0

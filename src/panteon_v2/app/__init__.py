@@ -17,6 +17,7 @@ Boundary между чистой архитектурой v2 (panteon_v2/) и р
 """
 
 from .bootstrap import (
+    LiveExecutionConfig,
     PRODUCTION_PROFILES,
     ProductionPipeline,
     build_dryrun_pipeline,
@@ -40,6 +41,7 @@ from .startup import start_production, resolve_exchange
 
 __all__ = [
     # bootstrap
+    "LiveExecutionConfig",
     "PRODUCTION_PROFILES",
     "ProductionPipeline",
     "build_dryrun_pipeline",

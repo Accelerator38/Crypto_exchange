@@ -24,9 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Union
 
-from ..execution import Exchange, FakeExchange, RiskLimitsConfig
+from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
-from ..selection import AgentRegistry, PlayerProfile
+from ..selection import AgentRegistry, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import register_all_v1_agents
@@ -102,17 +102,75 @@ def _risk_config_from_trade_fraction(trade_fraction: float) -> RiskLimitsConfig:
     fraction = float(trade_fraction)
     if not 0 < fraction <= 1.0:
         raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
-    return RiskLimitsConfig(capital_fraction=fraction)
+    return RiskLimitsConfig(
+        max_open_positions=4,
+        capital_fraction=fraction,
+        floor_to_exchange_min_notional=True,
+    )
 
 
 def _resolve_trade_fraction(exchange_name: str) -> float:
     try:
         from .v1_futures_adapter import load_runtime_trade_fraction
 
-        return load_runtime_trade_fraction(default=0.10)
+        return load_runtime_trade_fraction(exchange_name, default=0.10)
     except Exception:
         log.debug("[%s] runtime trade_fraction unavailable", exchange_name, exc_info=True)
         return 0.10
+
+
+def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
+    try:
+        from .exchange_profile import load_exchange_profile
+
+        settings = load_exchange_profile(exchange_name).parsed_settings
+    except Exception:
+        settings = {}
+
+    def num(name: str, default: float) -> float:
+        try:
+            return float(settings.get(name, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    def num_any(names: Sequence[str], default: float) -> float:
+        for name in names:
+            if name in settings:
+                return num(name, default)
+        return float(default)
+
+    return StrategistConfig(
+        cooldown_bars=int(num("player_switch_cooldown_bars", 30)),
+        switch_margin=num("player_switch_margin", 0.30),
+        min_score_to_switch=num("player_min_score_to_switch", -0.05),
+        streak_needed=int(num("player_switch_confirmations", 2)),
+        hard_negative=num_any(("player_hard_negative_score", "player_hard_negative_pnl"), -0.50),
+        urgent_gap=num("player_urgent_gap", 0.80),
+        min_live_closed_trades=int(num("player_min_live_closed_trades", 0)),
+        min_live_score=num("player_min_live_score", 0.0),
+        max_live_drawdown_pct=num("player_max_live_drawdown_pct", 100.0),
+        min_regime_confidence=num("regime_min_confidence", 0.0),
+    )
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_fail_closed_after_bridge_error(
+    *,
+    mode: str,
+    polling_session_dir: Optional[str],
+    allow_live_feed_fallback: bool,
+) -> bool:
+    return (
+        mode != "paper"
+        and not polling_session_dir
+        and not allow_live_feed_fallback
+    )
 
 
 def _perf_has_state(perf) -> bool:
@@ -148,13 +206,20 @@ def _normalize_migration_paths(
 def _load_or_migrate_state(
     *,
     perf,
+    real_perf=None,
+    order_ledger=None,
     snapshot_path: Optional[str],
     migrate_from_v1: Optional[Union[str, Sequence[str]]],
     exchange_name: str,
 ) -> None:
     loaded = False
     if snapshot_path and os.path.exists(snapshot_path):
-        loaded = load_v2_snapshot(perf, snapshot_path)
+        loaded = load_v2_snapshot(
+            perf,
+            snapshot_path,
+            real_perf=real_perf,
+            order_ledger=order_ledger,
+        )
         if loaded:
             if _perf_has_state(perf):
                 log.info("Loaded v2-snapshot from %s", snapshot_path)
@@ -183,7 +248,12 @@ def _load_or_migrate_state(
             len(paths),
         )
         if snapshot_path:
-            save_v2_snapshot(perf, snapshot_path)
+            save_v2_snapshot(
+                perf,
+                snapshot_path,
+                real_perf=real_perf,
+                order_ledger=order_ledger,
+            )
             log.info("Saved migrated v2-snapshot -> %s", snapshot_path)
     else:
         log.warning(
@@ -304,6 +374,54 @@ def _recover_exchange_positions(pipeline) -> int:
     return recovered
 
 
+def _recover_pending_orders(pipeline) -> Dict[str, int]:
+    """Poll restored accepted orders once after startup snapshot load."""
+    ledger = getattr(pipeline, "order_ledger", None)
+    executor = getattr(pipeline, "executor", None)
+    pending_records = getattr(ledger, "pending_records", None)
+    recover = getattr(executor, "recover_pending_order", None)
+    summary = {"checked": 0, "filled": 0, "rejected": 0, "pending": 0, "skipped": 0}
+    if not callable(pending_records) or not callable(recover):
+        return summary
+
+    for record in pending_records():
+        order_id = str(getattr(record, "exchange_order_id", "") or "")
+        signal = getattr(record, "signal", None)
+        if not order_id or signal is None:
+            summary["skipped"] += 1
+            continue
+        summary["checked"] += 1
+        try:
+            result = recover(signal, order_id)
+        except Exception:
+            log.warning(
+                "[%s] pending order recovery failed: %s",
+                getattr(pipeline, "exchange_name", "UNKNOWN"),
+                order_id,
+                exc_info=True,
+            )
+            summary["pending"] += 1
+            continue
+        if result.status == ExecutionStatus.FILLED:
+            summary["filled"] += 1
+        elif result.status == ExecutionStatus.REJECTED:
+            summary["rejected"] += 1
+        else:
+            summary["pending"] += 1
+
+    if summary["checked"] or summary["skipped"]:
+        log.info(
+            "[%s] pending order recovery: checked=%d filled=%d rejected=%d pending=%d skipped=%d",
+            getattr(pipeline, "exchange_name", "UNKNOWN"),
+            summary["checked"],
+            summary["filled"],
+            summary["rejected"],
+            summary["pending"],
+            summary["skipped"],
+        )
+    return summary
+
+
 def _open_memory_by_symbol(pipeline) -> Dict[str, dict]:
     try:
         open_memory = pipeline.perf.snapshot().get("open") or {}
@@ -373,6 +491,7 @@ def start_production(
     use_v1_bridge:      bool = True,
     results_root:       str = "Results",
     warmup_bars:        Optional[int] = None,
+    allow_live_feed_fallback: Optional[bool] = None,
 ) -> int:
     """Запустить production main_loop для указанной биржи.
 
@@ -388,6 +507,8 @@ def start_production(
     log.info("=" * 70)
     os.environ["CRYPTO_EXCHANGE"] = exchange.upper()
     os.environ[f"{exchange.upper()}_TRADING_MODE"] = mode
+    if allow_live_feed_fallback is None:
+        allow_live_feed_fallback = _env_flag("PANTEON_ALLOW_LIVE_FEED_FALLBACK", False)
 
     # 1. Exchange adapter + capital base
     exchange_adapter = resolve_exchange(exchange, mode=mode)
@@ -399,6 +520,7 @@ def start_production(
     )
     trade_fraction = _resolve_trade_fraction(exchange)
     risk_config = _risk_config_from_trade_fraction(trade_fraction)
+    strategist_config = _resolve_strategist_config(exchange)
     log.info("[%s] v2 risk capital_fraction=%.2f%%",
              exchange, risk_config.capital_fraction * 100.0)
 
@@ -431,6 +553,7 @@ def start_production(
         initial_capital=resolved_initial_capital,
         seed_quarantine=seed_quarantine,
         profiles=profiles or PRODUCTION_PROFILES,
+        strategist_config=strategist_config,
         risk_config=risk_config,
         perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
@@ -442,6 +565,8 @@ def start_production(
     # 4. Загрузка persisted state
     _load_or_migrate_state(
         perf=pipeline.perf,
+        real_perf=pipeline.real_perf,
+        order_ledger=pipeline.order_ledger,
         snapshot_path=snapshot_path,
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
@@ -461,6 +586,7 @@ def start_production(
     # 5. OutputWriter — обязательно для видимости работы
     if mode != "paper":
         _recover_exchange_positions(pipeline)
+        _recover_pending_orders(pipeline)
 
     writer = OutputWriter.for_session(pipeline, results_root=results_root)
     log.info("Output directory: %s", writer.output_dir)
@@ -483,12 +609,41 @@ def start_production(
             )
             # Сохраняем snapshot
             if snapshot_path:
-                save_v2_snapshot(pipeline.perf, snapshot_path)
+                save_v2_snapshot(
+                    pipeline.perf,
+                    snapshot_path,
+                    real_perf=pipeline.real_perf,
+                    order_ledger=pipeline.order_ledger,
+                )
                 log.info("Saved snapshot → %s", snapshot_path)
             if rc == 0:
                 return rc
+            if _should_fail_closed_after_bridge_error(
+                mode=mode,
+                polling_session_dir=polling_session_dir,
+                allow_live_feed_fallback=bool(allow_live_feed_fallback),
+            ):
+                log.error(
+                    "[%s] v1-bridge returned rc=%s; failing closed",
+                    exchange,
+                    rc,
+                )
+                writer.close()
+                return int(rc or 3)
             log.warning("v1-bridge returned rc=%s; falling back to local feed", rc)
         except Exception as exc:
+            if _should_fail_closed_after_bridge_error(
+                mode=mode,
+                polling_session_dir=polling_session_dir,
+                allow_live_feed_fallback=bool(allow_live_feed_fallback),
+            ):
+                log.error(
+                    "v1-bridge runner failed (%s); failing closed",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                writer.close()
+                return 3
             log.warning("v1-bridge runner failed (%s) — falling back to empty feed",
                         type(exc).__name__)
 
@@ -507,6 +662,14 @@ def start_production(
             "infrastructure verification, NOT production)", exchange)
         # SyntheticFeed follows sleep_between_polls_sec from the caller.
     else:
+        if _should_fail_closed_after_bridge_error(
+            mode=mode,
+            polling_session_dir=polling_session_dir,
+            allow_live_feed_fallback=bool(allow_live_feed_fallback),
+        ):
+            log.error("No live feed configured; failing closed")
+            writer.close()
+            return 3
         feed = ReplayFeed()
         log.warning(
             "No feed configured and live-bridge unavailable — main_loop "
@@ -560,7 +723,12 @@ def start_production(
 
     writer.close()
     if snapshot_path:
-        save_v2_snapshot(pipeline.perf, snapshot_path)
+        save_v2_snapshot(
+            pipeline.perf,
+            snapshot_path,
+            real_perf=pipeline.real_perf,
+            order_ledger=pipeline.order_ledger,
+        )
         log.info("Saved snapshot → %s", snapshot_path)
     log.info("Shutdown. Processed %d bars.", len(steps))
     return 0

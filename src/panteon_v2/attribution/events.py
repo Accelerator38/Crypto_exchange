@@ -136,6 +136,15 @@ class OrderRejected(Event):
 
 
 @dataclass(frozen=True)
+class MemoryUpdateFailed(Event):
+    """Filled trade was recorded, but PerformanceMemory update failed."""
+
+    signal_id: int = -1
+    sym:       str = ""
+    reason:    str = ""
+
+
+@dataclass(frozen=True)
 class PositionOpened(Event):
     """Открыта новая позиция (после OrderFilled)."""
 

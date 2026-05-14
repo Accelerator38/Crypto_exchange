@@ -45,7 +45,7 @@ class BitgetExchangeAdapter(V1FuturesExchangeAdapter):
             name="BITGET",
             order_client=order_client,
             read_client=read_client,
-            leverage=leverage if leverage is not None else load_runtime_leverage(),
+            leverage=leverage if leverage is not None else load_runtime_leverage("BITGET"),
             default_min_notional=5.10,
             default_fee_rate=0.0006,
             close_via_place_order=False,

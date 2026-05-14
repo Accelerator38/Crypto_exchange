@@ -25,6 +25,7 @@ from ..dashboards import DashboardRenderer
 from ..execution import (
     Exchange,
     FakeExchange,
+    OrderLedger,
     PositionTracker,
     RiskLimits,
     RiskLimitsConfig,
@@ -47,6 +48,46 @@ from ..selection import (
     Strategist,
     StrategistConfig,
 )
+
+
+@dataclass(frozen=True)
+class LiveExecutionConfig:
+    """Guardrails for real exchange execution."""
+
+    max_new_opens_per_bar: int = 1
+    max_daily_loss_pct: float = 0.0
+    max_consecutive_failed_orders: int = 5
+    max_exchange_desync_events: int = 0
+    max_stale_feed_polls: int = 0
+    max_slippage_pct: float = 0.0
+    max_api_error_streak: int = 5
+
+    def __post_init__(self) -> None:
+        if self.max_new_opens_per_bar < 0:
+            raise ValueError("max_new_opens_per_bar must be >= 0")
+        for name in (
+            "max_daily_loss_pct",
+            "max_slippage_pct",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be >= 0")
+        for name in (
+            "max_consecutive_failed_orders",
+            "max_exchange_desync_events",
+            "max_stale_feed_polls",
+            "max_api_error_streak",
+        ):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be >= 0")
+
+
+@dataclass
+class KillSwitchState:
+    disabled_reason: str = ""
+    consecutive_failed_orders: int = 0
+    api_error_streak: int = 0
+    exchange_desync_events: int = 0
+    stale_feed_polls: int = 0
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -77,6 +118,8 @@ class ProductionPipeline:
 
     registry:    AgentRegistry
     perf:        PerformanceMemory
+    virtual_perf: PerformanceMemory
+    real_perf:   PerformanceMemory
     qm:          QuarantineManager
     selector:    AgentSelector
     composer:    PlayerComposer
@@ -84,6 +127,7 @@ class ProductionPipeline:
     executor:    TradeExecutor
     event_log:   EventLog
     ledger:      AttributionLedger
+    order_ledger: OrderLedger
     renderer:    DashboardRenderer
 
     # Метаданные
@@ -96,6 +140,8 @@ class ProductionPipeline:
     account_snapshot: Optional[Dict[str, float]] = None
     shadow_tournament: Optional[object] = None
     shadow_last_summary: Optional[dict] = None
+    live_execution: LiveExecutionConfig = field(default_factory=LiveExecutionConfig)
+    kill_switch: KillSwitchState = field(default_factory=KillSwitchState)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -114,6 +160,7 @@ def build_production_pipeline(
     strategist_config:  Optional[StrategistConfig] = None,
     risk_config:        Optional[RiskLimitsConfig] = None,
     health_config:      Optional[SymbolHealthConfig] = None,
+    live_execution_config: Optional[LiveExecutionConfig] = None,
     perf_trade_fraction: float = 0.10,
     jsonl_event_log:    Optional[str] = None,
 ) -> ProductionPipeline:
@@ -144,18 +191,21 @@ def build_production_pipeline(
     strategist_config = strategist_config or StrategistConfig()
     risk_config = risk_config or RiskLimitsConfig()
     health_config = health_config or SymbolHealthConfig()
+    live_execution_config = live_execution_config or LiveExecutionConfig()
 
     event_log = EventLog(jsonl_path=jsonl_event_log)
-    perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
+    virtual_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
+    real_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
     qm = QuarantineManager(seed=set(seed_quarantine), config=scoring_config)
-    selector = AgentSelector(registry, perf, qm, config=scoring_config)
+    selector = AgentSelector(registry, virtual_perf, qm, config=scoring_config)
     composer = PlayerComposer(selector)
     health = SymbolHealthMonitor(config=health_config)
     risk_limits = RiskLimits(config=risk_config)
     position_tracker = PositionTracker()
     ledger = AttributionLedger()
+    order_ledger = OrderLedger()
     strategist = Strategist(
-        perf, qm, candidates=[],
+        virtual_perf, qm, candidates=[],
         config=strategist_config,
         scoring_config=scoring_config,
     )
@@ -164,12 +214,13 @@ def build_production_pipeline(
         health=health,
         risk_limits=risk_limits,
         position_tracker=position_tracker,
-        perf=perf,
+        perf=real_perf,
         event_log=event_log,
+        order_ledger=order_ledger,
     )
     renderer = DashboardRenderer(
         ledger=ledger,
-        perf=perf,
+        perf=virtual_perf,
         qm=qm,
         event_log=event_log,
         health=health,
@@ -177,7 +228,9 @@ def build_production_pipeline(
 
     return ProductionPipeline(
         registry=registry,
-        perf=perf,
+        perf=virtual_perf,
+        virtual_perf=virtual_perf,
+        real_perf=real_perf,
         qm=qm,
         selector=selector,
         composer=composer,
@@ -185,11 +238,13 @@ def build_production_pipeline(
         executor=executor,
         event_log=event_log,
         ledger=ledger,
+        order_ledger=order_ledger,
         renderer=renderer,
         profiles=profiles,
         initial_capital=initial_capital,
         exchange_name=getattr(exchange, "name", "UNKNOWN"),
         current_balance=initial_capital,
+        live_execution=live_execution_config,
     )
 
 

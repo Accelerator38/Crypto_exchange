@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from panteon_v2.domain.types import Action, Regime, Signal
 from panteon_v2.execution import RiskLimits, RiskLimitsConfig
@@ -53,6 +54,31 @@ class TestRiskLimits(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertIn("max_open_positions", result.reason)
 
+    def test_external_recovered_positions_do_not_consume_panteon_open_limit(self):
+        cfg = RiskLimitsConfig(max_open_positions=2)
+        rl = RiskLimits(config=cfg)
+        positions = {
+            "UNI": SimpleNamespace(by_player="RecoveredExchangePosition"),
+            "NEAR": SimpleNamespace(by_player="RecoveredExchangePosition"),
+            "DOGE": SimpleNamespace(by_player="DefaultEnsemble"),
+        }
+        sig = _make_signal(sym="BTC")
+
+        result = rl.evaluate(sig, balance_usd=1000.0, open_positions=positions)
+
+        self.assertTrue(result.allowed, result.reason)
+
+    def test_external_recovered_position_still_blocks_same_symbol_open(self):
+        positions = {
+            "BTC": SimpleNamespace(by_player="RecoveredExchangePosition"),
+        }
+        sig = _make_signal(sym="BTC")
+
+        result = self.rl.evaluate(sig, balance_usd=1000.0, open_positions=positions)
+
+        self.assertFalse(result.allowed)
+        self.assertIn("already open", result.reason)
+
     def test_position_already_open(self):
         sig = _make_signal()
         positions = {"BTC": object()}
@@ -75,6 +101,26 @@ class TestRiskLimits(unittest.TestCase):
                                   min_notional_for_sym=200.0)
         # Notional = 100, < 200 (per-symbol min)
         self.assertFalse(result.allowed)
+
+    def test_exchange_min_notional_can_floor_small_live_orders(self):
+        cfg = RiskLimitsConfig(
+            capital_fraction=0.04,
+            floor_to_exchange_min_notional=True,
+            max_min_notional_upscale=4.0,
+        )
+        rl = RiskLimits(config=cfg)
+        sig = _make_signal(sym="ETH", price=2000.0)
+
+        result = rl.evaluate(
+            sig,
+            balance_usd=43.61146697,
+            open_positions={},
+            min_notional_for_sym=5.10,
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertAlmostEqual(result.notional, 5.10, places=5)
+        self.assertAlmostEqual(result.qty, 5.10 / 2000.0, places=8)
 
     def test_max_notional_caps(self):
         cfg = RiskLimitsConfig(max_notional_usd=50.0, capital_fraction=1.0)

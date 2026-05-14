@@ -188,7 +188,6 @@ class ProductionShadowTournament:
             signals = [
                 replace(
                     signal,
-                    by_agent="",
                     position_scope=f"shadow:player:{player.label}",
                 )
                 for signal in raw_signals

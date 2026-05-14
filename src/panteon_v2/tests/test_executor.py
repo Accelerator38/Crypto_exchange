@@ -6,6 +6,7 @@ import unittest
 
 from panteon_v2.attribution import (
     EventLog,
+    MemoryUpdateFailed,
     OrderFilled,
     OrderRejected,
     OrderSent,
@@ -17,8 +18,11 @@ from panteon_v2.domain.types import Action, Regime, Signal
 from panteon_v2.execution import (
     ExecutionStatus,
     FakeExchange,
+    OrderResult,
+    OrderStatus,
     PositionTracker,
     RiskLimits,
+    RiskLimitsConfig,
     SymbolHealthMonitor,
     TradeExecutor,
 )
@@ -189,6 +193,88 @@ class TestExecutePending(unittest.TestCase):
         self.assertIsNone(result.trade)
         st = self.deps["health"].status("BTC")
         self.assertEqual(st.failures_in_window, 1)
+
+    def test_pending_order_is_polled_and_accounted_when_fill_is_available(self):
+        class PollingExchange(FakeExchange):
+            def __init__(self):
+                super().__init__()
+                self.last_qty = 0.0
+                self.polled = []
+
+            def send_order(self, signal, *, qty):
+                self.last_qty = qty
+                return OrderResult(
+                    status=OrderStatus.PENDING,
+                    signal_id=signal.id,
+                    sym=signal.sym,
+                    exchange_order_id="PENDING-1",
+                    message="accepted",
+                )
+
+            def poll_order(self, order_id, signal):
+                self.polled.append(order_id)
+                return FakeExchange.send_order(self, signal, qty=self.last_qty)
+
+        deps = _make_executor()
+        deps["exchange"] = PollingExchange()
+        ex = TradeExecutor(**deps)
+
+        result = ex.execute(_make_signal(), balance_usd=1000.0)
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        self.assertEqual(deps["exchange"].polled, ["PENDING-1"])
+        self.assertTrue(deps["position_tracker"].has("BTC"))
+        self.assertEqual(deps["perf"].get("A").entries, 1)
+
+
+class TestExecuteRiskQuantization(unittest.TestCase):
+    def test_executor_blocks_exchange_quantized_qty_above_approved_risk_notional(self):
+        class MinLotExchange(FakeExchange):
+            def __init__(self):
+                super().__init__()
+                self.sent = 0
+
+            def quantize_order_qty(self, signal, qty):
+                return 0.01
+
+            def send_order(self, signal, *, qty):
+                self.sent += 1
+                return super().send_order(signal, qty=qty)
+
+        deps = _make_executor()
+        deps["exchange"] = MinLotExchange()
+        deps["risk_limits"] = RiskLimits(config=RiskLimitsConfig(
+            capital_fraction=0.10,
+            min_notional_usd=0.0,
+            max_notional_usd=5.0,
+        ))
+        ex = TradeExecutor(**deps)
+        sig = _make_signal(price=1000.0)
+
+        result = ex.execute(sig, balance_usd=50.0)
+
+        self.assertEqual(result.status, ExecutionStatus.BLOCKED)
+        self.assertIn("quantized notional", result.reason)
+        self.assertEqual(deps["exchange"].sent, 0)
+
+
+class TestExecuteMemoryUpdateFailure(unittest.TestCase):
+    def test_memory_update_failure_is_emitted_after_filled_trade(self):
+        class BrokenMemory(PerformanceMemory):
+            def update_from_trade(self, trade, signal):
+                raise RuntimeError("memory disk full")
+
+        deps = _make_executor()
+        deps["perf"] = BrokenMemory(trade_fraction=1.0)
+        ex = TradeExecutor(**deps)
+
+        result = ex.execute(_make_signal(), balance_usd=1000.0)
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        failures = list(deps["event_log"].query(event_types=[MemoryUpdateFailed]))
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].signal_id, 1)
+        self.assertIn("memory disk full", failures[0].reason)
 
 
 class TestExecuteSuccessClearsHealth(unittest.TestCase):

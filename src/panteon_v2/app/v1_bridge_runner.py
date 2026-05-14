@@ -33,6 +33,7 @@ from .live_state import (
 )
 from .main_loop import StepResult, main_loop
 from .output_writer import OutputWriter
+from .regime_detector import PriceRegimeDetector
 
 
 log = logging.getLogger(__name__)
@@ -111,10 +112,18 @@ class V1BridgeFeed:
     Это duck-typed подход — не зависим от конкретной версии bridge.
     """
 
-    def __init__(self, bridge: Any, exchange_name: str):
+    def __init__(
+        self,
+        bridge: Any,
+        exchange_name: str,
+        *,
+        regime_detector: Optional[PriceRegimeDetector] = None,
+    ):
         self._bridge = bridge
         self._exchange = exchange_name
         self._warmed_up = False
+        self._regime_detector = regime_detector or PriceRegimeDetector()
+        self._regime_seeded = False
 
     def warmup(self, warmup_bars: Optional[int] = None) -> None:
         if self._warmed_up:
@@ -123,6 +132,7 @@ class V1BridgeFeed:
             bars = warmup_bars or getattr(self._bridge, "warmup_bars", None) or 5760
             self._bridge.warmup(n_bars=int(bars))
             self._warmed_up = True
+            self._seed_regime_detector_from_bridge_history()
             log.info("[%s] v1-bridge warmup completed (%d bars)",
                      self._exchange, bars)
         except Exception:
@@ -183,32 +193,31 @@ class V1BridgeFeed:
         except Exception:
             log.debug("[%s] failed to append bridge market history", self._exchange)
 
-        # Регим — пытаемся из bridge agent
-        regime_str = "neutral"
-        try:
-            agents = getattr(self._bridge, "agents", {}) or {}
-            for ag in agents.values():
-                inner = getattr(ag, "_inner", ag)
-                if hasattr(inner, "_inner"):
-                    inner = inner._inner
-                r = getattr(inner, "_r", None) or getattr(inner, "_last_regime", None)
-                if r:
-                    regime_str = str(r)
-                    break
-        except Exception:
-            pass
+        # Regime is owned by the v2 price detector, not by agent internals.
+        regime = self._regime_detector.update(prices)
 
         return make_market_snapshot(
             bar=bar,
             prices=prices,
             volumes=volumes,
-            regime=regime_str,
+            regime=regime.label,
+            regime_confidence=self._regime_detector.confidence,
         )
 
 
 # ────────────────────────────────────────────────────────────────────
 # Bridge factory
 # ────────────────────────────────────────────────────────────────────
+
+    def _seed_regime_detector_from_bridge_history(self) -> None:
+        if self._regime_seeded:
+            return
+        try:
+            rows = _history_rows(getattr(self._bridge, "_price_hist", None))
+            self._regime_detector.seed(rows)
+        except Exception:
+            log.debug("[%s] failed to seed regime detector", self._exchange, exc_info=True)
+        self._regime_seeded = True
 
 
 def _history_rows(history: Any) -> List[Dict[str, float]]:
@@ -281,14 +290,17 @@ def _warmup_v2_agents_from_bridge(
                     exchange_name)
         return 0
 
+    detector = PriceRegimeDetector()
     warmed = 0
     for idx, prices in enumerate(price_rows, start=1):
         volumes = volume_rows[idx - 1] if idx - 1 < len(volume_rows) else {}
+        regime = detector.update(prices)
         market = make_market_snapshot(
             bar=idx,
             prices=prices,
             volumes=volumes,
-            regime="neutral",
+            regime=regime.label,
+            regime_confidence=detector.confidence,
         )
         for agent in agents:
             try:
@@ -320,6 +332,31 @@ def _prepare_v2_agents_for_live_after_warmup(
         exchange_name=exchange_name,
         bar_index=bar_index,
     )
+
+
+def _bridge_warmup_bars(bridge: Any, warmup_bars: Optional[int]) -> int:
+    if warmup_bars is not None:
+        return int(warmup_bars)
+    return int(getattr(bridge, "warmup_bars", None) or 5760)
+
+
+def _write_bridge_heartbeat(
+    output_writer: Optional[OutputWriter],
+    *,
+    run_state: str,
+    feed_status: str,
+    message: str,
+) -> None:
+    if not output_writer:
+        return
+    try:
+        output_writer.write_heartbeat(
+            run_state=run_state,
+            feed_status=feed_status,
+            message=message,
+        )
+    except Exception:
+        log.exception("output_writer heartbeat failed")
 
 
 def _create_bridge(
@@ -431,7 +468,20 @@ def run_with_v1_bridge(
     log.info("[%s] v1 bridge feed active: market-data only, v1 order cycle disabled",
              exchange_name)
     feed = V1BridgeFeed(bridge, exchange_name=exchange_name)
+    bars_to_warmup = _bridge_warmup_bars(bridge, warmup_bars)
+    _write_bridge_heartbeat(
+        output_writer,
+        run_state="warming_up",
+        feed_status="warmup_loading",
+        message=f"loading {bars_to_warmup} historical bars through v1 bridge",
+    )
     feed.warmup(warmup_bars=warmup_bars)
+    _write_bridge_heartbeat(
+        output_writer,
+        run_state="warming_up",
+        feed_status="agent_warmup",
+        message="replaying warmup history into v2 agents",
+    )
     warmed_bars = _warmup_v2_agents_from_bridge(
         bridge,
         pipeline.registry,
@@ -446,6 +496,12 @@ def run_with_v1_bridge(
         pipeline,
         exchange_name=exchange_name,
         bar_index=live_bar_index,
+    )
+    _write_bridge_heartbeat(
+        output_writer,
+        run_state="running",
+        feed_status="active",
+        message=f"warmup completed; waiting for live market bar at index {live_bar_index}",
     )
 
     n_step = 0

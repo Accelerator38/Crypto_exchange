@@ -17,7 +17,7 @@ from panteon_v2.tests._helpers import FakeAgent
 from panteon_v2.tests.test_selector import _add_perf
 
 
-def _make_player(label: str, agent_labels):
+def _make_player(label: str, agent_labels, *, affinity=None):
     """Создаёт EnsemblePlayer с фейковыми агентами по labels."""
     n = len(agent_labels)
     weights = {lbl: 1.0 / n for lbl in agent_labels}
@@ -28,6 +28,7 @@ def _make_player(label: str, agent_labels):
         weights=weights,
         voting=WeightedConsensus(),
         thresholds=ThresholdProfile(),
+        affinity=affinity,
     )
 
 
@@ -153,6 +154,46 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         st.update_candidates([_make_player("PB", ["B"])])
         # current всё ещё PA пока не consider_switch
         self.assertEqual(st.current_leader().label, "PA")
+
+
+    def test_consider_switch_forces_new_leader_when_current_not_in_candidates(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "A", Regime.BULLISH, 5, 1.0)
+        _add_perf(perf, "B", Regime.BULLISH, 5, 1.0, start_id=200)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[_make_player("PA", ["A"])],
+            config=StrategistConfig(
+                cooldown_bars=1000,
+                switch_margin=10.0,
+                urgent_gap=10.0,
+                hard_negative=-100.0,
+            ),
+        )
+        st.consider_switch(Regime.BULLISH, current_bar=1)
+        st.update_candidates([_make_player("PB", ["B"])])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertTrue(decision.switched)
+        self.assertEqual(decision.new_leader.label, "PB")
+        self.assertIn("not in candidates", decision.reason)
+
+    def test_affinity_breaks_ties_for_current_regime(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "BearAgent", Regime.BULLISH, 5, 1.0)
+        _add_perf(perf, "BullAgent", Regime.BULLISH, 5, 1.0, start_id=200)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(perf, qm, candidates=[
+            _make_player("BearProfile", ["BearAgent"], affinity=Regime.BEARISH),
+            _make_player("BullProfile", ["BullAgent"], affinity=Regime.BULLISH),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "BullProfile")
 
 
 if __name__ == "__main__":

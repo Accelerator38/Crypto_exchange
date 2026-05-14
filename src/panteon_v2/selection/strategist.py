@@ -55,6 +55,12 @@ class StrategistConfig:
     streak_needed:    int   = 2       # baрs подряд best должен быть лучшим
     hard_negative:    float = -0.50   # current.score ≤ hard_negative → urgent
     urgent_gap:       float = 0.80    # best - current ≥ gap → urgent
+    affinity_bonus:   float = 0.05
+    affinity_mismatch_penalty: float = 0.02
+    min_live_closed_trades: int = 0
+    min_live_score: float = -1_000_000.0
+    max_live_drawdown_pct: float = 100.0
+    min_regime_confidence: float = 0.0
 
     def __post_init__(self) -> None:
         if self.cooldown_bars < 0:
@@ -63,6 +69,14 @@ class StrategistConfig:
             raise ValueError("switch_margin must be ≥ 0")
         if self.streak_needed < 1:
             raise ValueError("streak_needed must be ≥ 1")
+        if self.affinity_bonus < 0 or self.affinity_mismatch_penalty < 0:
+            raise ValueError("affinity score adjustments must be >= 0")
+        if self.min_live_closed_trades < 0:
+            raise ValueError("min_live_closed_trades must be >= 0")
+        if self.max_live_drawdown_pct < 0:
+            raise ValueError("max_live_drawdown_pct must be >= 0")
+        if not 0.0 <= self.min_regime_confidence <= 1.0:
+            raise ValueError("min_regime_confidence must be in [0, 1]")
 
 
 DEFAULT_STRATEGIST = StrategistConfig()
@@ -150,6 +164,7 @@ class Strategist:
         self,
         regime: Regime,
         current_bar: int,
+        regime_confidence: float = 1.0,
     ) -> SwitchDecision:
         """Главная функция. Решает: сменить лидера или оставить.
 
@@ -161,6 +176,12 @@ class Strategist:
         disqualified: List[_DisqualificationReason] = []
         for cand in self._candidates:
             issue = self._validate(cand)
+            if issue is None:
+                issue = self._validate_promotion(
+                    cand,
+                    regime,
+                    regime_confidence=regime_confidence,
+                )
             if issue is None:
                 eligible.append(cand)
             else:
@@ -209,6 +230,25 @@ class Strategist:
             )
 
         # 4. Current есть — оцениваем нужно ли менять
+        current_in_candidates = any(
+            cand.label == self._current.label for cand in eligible
+        )
+        if not current_in_candidates:
+            previous = self._current
+            self._current = best_player
+            self._last_switch_bar = int(current_bar)
+            self._streak_label = ""
+            self._streak_count = 0
+            return SwitchDecision(
+                new_leader=best_player,
+                previous=previous,
+                score=best_score,
+                margin=0.0,
+                is_urgent=True,
+                reason="current not in candidates",
+                switched=True,
+            )
+
         current_score = self._score_player(self._current, regime)
         margin = best_score - current_score
         urgent = (
@@ -312,6 +352,87 @@ class Strategist:
                 )
         return None
 
+    def _validate_promotion(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        regime_confidence: float,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        if regime_confidence < cfg.min_regime_confidence:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    f"regime confidence {regime_confidence:.2f} below "
+                    f"{cfg.min_regime_confidence:.2f}"
+                ),
+            )
+        if (
+            cfg.min_live_closed_trades <= 0
+            and cfg.min_live_score <= -999_999.0
+            and cfg.max_live_drawdown_pct >= 100.0
+        ):
+            return None
+        metrics = self._promotion_metrics(player, regime)
+        score = self._score_player(player, regime)
+        if metrics.closed_trades < cfg.min_live_closed_trades:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    f"promotion gate: closed_trades "
+                    f"{metrics.closed_trades} < {cfg.min_live_closed_trades}"
+                ),
+            )
+        if score < cfg.min_live_score:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=f"promotion gate: score {score:.4f} < {cfg.min_live_score:.4f}",
+            )
+        if metrics.max_dd_pct > cfg.max_live_drawdown_pct:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    f"promotion gate: max_dd_pct {metrics.max_dd_pct:.2f} > "
+                    f"{cfg.max_live_drawdown_pct:.2f}"
+                ),
+            )
+        return None
+
+    def _promotion_metrics(self, player: Player, regime: Regime) -> Metrics:
+        own = self._perf.get(player.label, regime=regime)
+        if own.has_data:
+            return own
+        closed = entries = signals = wins = losses = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            metrics = self._perf.get(label, regime=regime)
+            if not metrics.has_data:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == 0:
+            return Metrics.empty()
+        sharpe = sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=sharpe,
+            max_dd_pct=max_dd,
+        )
+
     def _score_player(self, player: Player, regime: Regime) -> float:
         """Score для игрока.
 
@@ -322,15 +443,31 @@ class Strategist:
         """
         own_metrics = self._perf.get(player.label, regime=regime)
         if own_metrics.has_data:
-            return regime_score(own_metrics, regime, config=self._scoring)
+            base_score = regime_score(own_metrics, regime, config=self._scoring)
+            if own_metrics.closed_trades > 0:
+                return self._apply_affinity(player, regime, base_score)
+            return base_score
         # Fallback: средний score агентов
         agent_scores = []
+        has_closed_experience = False
         for label in player.agent_labels:
             metrics = self._perf.get(label, regime=regime)
             if metrics.has_data:
+                has_closed_experience = has_closed_experience or metrics.closed_trades > 0
                 agent_scores.append(
                     regime_score(metrics, regime, config=self._scoring)
                 )
         if not agent_scores:
             return 0.0
-        return sum(agent_scores) / len(agent_scores)
+        base_score = sum(agent_scores) / len(agent_scores)
+        if has_closed_experience:
+            return self._apply_affinity(player, regime, base_score)
+        return base_score
+
+    def _apply_affinity(self, player: Player, regime: Regime, score: float) -> float:
+        affinity = getattr(player, "affinity", None)
+        if affinity is None:
+            return score
+        if affinity == regime:
+            return score + self._config.affinity_bonus
+        return score - self._config.affinity_mismatch_penalty

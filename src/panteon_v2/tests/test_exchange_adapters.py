@@ -104,7 +104,11 @@ class FakeBitgetFuturesClient:
 
     def close_all(self, symbol: str):
         self.orders.append(("close_all", symbol))
-        return {"success": True, "order_id": f"BITGET-CLOSE-{symbol}"}
+        return {
+            "success": True,
+            "order_id": f"BITGET-CLOSE-{symbol}",
+            "amount": 0.04,
+        }
 
 
 class TestMexcExchangeAdapter(unittest.TestCase):
@@ -122,6 +126,36 @@ class TestMexcExchangeAdapter(unittest.TestCase):
         self.assertEqual(result.exchange_order_id, "MEXC-3-3")
         self.assertEqual(result.trade.side, "short")
         self.assertAlmostEqual(result.trade.qty, 0.003)
+
+    def test_open_bumps_to_mexc_contract_minimum(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        client = FakeMexcFuturesClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_LONG_FULL), qty=0.0004)
+
+        self.assertEqual(result.status, OrderStatus.FILLED)
+        self.assertEqual(client.orders[-1], ("place_order", "BTC", 1, 1, 2))
+        self.assertEqual(result.exchange_order_id, "MEXC-1-1")
+        self.assertAlmostEqual(result.trade.qty, 0.001)
+
+    def test_ack_only_mexc_order_is_pending_until_fill_is_confirmed(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        class AckOnlyClient(FakeMexcFuturesClient):
+            def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
+                self.orders.append(("place_order", symbol, side, vol, leverage))
+                return {"success": True, "order_id": "ACK-ONLY"}
+
+        client = AckOnlyClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_LONG_FULL), qty=0.003)
+
+        self.assertEqual(result.status, OrderStatus.PENDING)
+        self.assertEqual(result.exchange_order_id, "ACK-ONLY")
+        self.assertIsNone(result.trade)
 
     def test_close_long_maps_to_mexc_close_side(self):
         from panteon_v2.app.mexc_adapter import MexcExchangeAdapter

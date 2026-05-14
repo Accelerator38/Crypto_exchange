@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from panteon_v2.app import (
@@ -20,10 +21,13 @@ from panteon_v2.app import (
     migrate_v1_regime_memory,
     save_v2_snapshot,
 )
+from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.app.main_loop import StepResult
+from panteon_v2.attribution import PositionClosed
 from panteon_v2.domain.types import Action, Regime, Signal, Trade
-from panteon_v2.execution import FakeExchange
+from panteon_v2.execution import ExchangePosition, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
+from panteon_v2.execution.position_tracker import TrackedPosition
 from panteon_v2.memory import PerformanceMemory
 from panteon_v2.selection import (
     AgentRegistry,
@@ -161,6 +165,7 @@ class TestBootstrap(unittest.TestCase):
         cfg = _risk_config_from_trade_fraction(0.035)
 
         self.assertEqual(cfg.capital_fraction, 0.035)
+        self.assertTrue(cfg.floor_to_exchange_min_notional)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -276,7 +281,7 @@ class TestMainLoop(unittest.TestCase):
         self.assertTrue(perf_has_data := pipeline.perf.get("ShadowAgent", Regime.BULLISH).has_data)
         self.assertTrue(perf_has_data)
 
-    def test_shadow_tournament_rates_players_without_agent_double_count(self):
+    def test_shadow_tournament_rates_players_and_agent_contribution(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
 
         agent = FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})
@@ -304,7 +309,7 @@ class TestMainLoop(unittest.TestCase):
 
         self.assertEqual(summary.agent_filled, 1)
         self.assertEqual(summary.player_filled, 1)
-        self.assertEqual(perf.get("AgentA", Regime.BULLISH).entries, 1)
+        self.assertEqual(perf.get("AgentA", Regime.BULLISH).entries, 2)
         self.assertEqual(perf.get("PlayerA", Regime.BULLISH).entries, 1)
 
     def test_real_exchange_receives_only_selected_leader_not_virtual_actors(self):
@@ -335,6 +340,26 @@ class TestMainLoop(unittest.TestCase):
 
         self.assertEqual(len(exchange.orders_log), steps[0].n_filled)
         self.assertGreater(steps[0].n_shadow_filled, steps[0].n_filled)
+
+    def test_step_result_records_blocked_reasons(self):
+        pipeline, feed = self._setup()
+        pipeline.current_balance = 1.0
+        pipeline.account_snapshot = {
+            "current_balance": 1.0,
+            "futures_equity": 1.0,
+            "available_balance": 1.0,
+            "spot_assets": 0.0,
+            "total_assets": 1.0,
+            "unrealized_pnl": 0.0,
+        }
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].n_blocked, 1)
+        self.assertEqual(
+            steps[0].blocked_reasons,
+            {"risk_limits: notional $0.10 < min $5.00": 1},
+        )
 
     def test_shadow_does_not_consume_stateful_agent_before_real_vote(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
@@ -495,6 +520,114 @@ class TestMainLoop(unittest.TestCase):
         )
         self.assertIsNone(agent.pos["INJ"])
 
+    def test_live_guard_caps_new_opens_per_bar(self):
+        class MultiOpenAgent:
+            label = "MultiOpen"
+
+            def act(self, market):
+                return {
+                    "BTC": Action.FUT_LONG_FULL,
+                    "ETH": Action.FUT_LONG_FULL,
+                    "SOL": Action.FUT_LONG_FULL,
+                }
+
+        reg = AgentRegistry()
+        reg.register(MultiOpenAgent())
+        reg.register(FakeAgent("Idle"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[PlayerProfile(
+                label="DefaultEnsemble",
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(open_single=0.20, open_multi=0.20),
+                min_agents=2,
+                max_agents=2,
+            )],
+            live_execution_config=LiveExecutionConfig(max_new_opens_per_bar=1),
+        )
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0, "SOL": 25.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(steps[0].n_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(steps[0].n_filtered_real_signals, 2)
+        self.assertEqual(steps[0].n_rate_limited_open_signals, 2)
+        self.assertEqual(len(exchange.orders_log), 1)
+
+    def test_live_guard_keeps_closes_when_open_cap_is_reached(self):
+        class CloseAndOpenAgent:
+            label = "CloseAndOpen"
+
+            def act(self, market):
+                return {
+                    "BTC": Action.FUT_CLOSE_ALL,
+                    "ETH": Action.FUT_CLOSE_ALL,
+                    "SOL": Action.FUT_LONG_FULL,
+                    "XRP": Action.FUT_LONG_FULL,
+                }
+
+        reg = AgentRegistry()
+        reg.register(CloseAndOpenAgent())
+        reg.register(FakeAgent("Idle"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[PlayerProfile(
+                label="DefaultEnsemble",
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(
+                    open_single=0.20,
+                    open_multi=0.20,
+                    close_single=0.20,
+                ),
+                min_agents=2,
+                max_agents=2,
+            )],
+            live_execution_config=LiveExecutionConfig(max_new_opens_per_bar=1),
+        )
+        tracker = pipeline.executor._tracker
+        opened_at = datetime.now(timezone.utc)
+        for sym, side, entry in (("BTC", "long", 100.0), ("ETH", "short", 50.0)):
+            tracker.force_set(TrackedPosition(
+                open_signal_id=1,
+                sym=sym,
+                side=side,
+                entry_price=entry,
+                qty=1.0,
+                fee_open=0.0,
+                by_player="DefaultEnsemble",
+                by_agent="CloseAndOpen",
+                opened_at=opened_at,
+            ))
+            exchange._positions[sym] = ExchangePosition(sym=sym, side=side, qty=1.0, entry=entry)
+
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 101.0, "ETH": 49.0, "SOL": 25.0, "XRP": 0.5},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed)
+
+        self.assertEqual(steps[0].n_signals, 3)
+        self.assertEqual(steps[0].n_filled, 3)
+        self.assertEqual(steps[0].n_rate_limited_open_signals, 1)
+        self.assertFalse(pipeline.executor._tracker.has("BTC"))
+        self.assertFalse(pipeline.executor._tracker.has("ETH"))
+        self.assertEqual(len(exchange.orders_log), 3)
+
 
 class TestOutputWriter(unittest.TestCase):
     def test_writer_creates_operator_files_before_first_bar(self):
@@ -514,10 +647,8 @@ class TestOutputWriter(unittest.TestCase):
                 "dashboard.txt",
                 "dashboard.html",
                 "dashboard_latest.png",
-                "shadow_agents_dashboard.png",
-                "shadow_player_dashboard.png",
-                "agent_regime_dashboard.png",
-                "player_regime_dashboard.png",
+                "shadow_dashboard.png",
+                "regime_dashboard.png",
             ):
                 self.assertTrue(os.path.exists(os.path.join(out, name)), name)
             with open(os.path.join(out, "status.json"), "r", encoding="utf-8") as f:
@@ -567,7 +698,10 @@ class TestOutputWriter(unittest.TestCase):
                 n_signals=0,
                 n_filled=0,
                 n_rejected=0,
-                n_blocked=0,
+                n_blocked=2,
+                blocked_reasons={
+                    "risk_limits: notional $1.74 < min $5.10": 2,
+                },
             ))
             with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
                 status = json.load(f)
@@ -582,9 +716,29 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(status["total_assets_usd"], 128.0)
         self.assertEqual(status["exchange_positions_count"], 2)
         self.assertEqual(status["tracked_positions_count"], 0)
+        self.assertEqual(
+            status["blocked_reasons_bar"],
+            {"risk_limits: notional $1.74 < min $5.10": 2},
+        )
         self.assertIn("balance=$120.50", trading_log)
         self.assertIn("positions=2", trading_log)
+        self.assertIn("blocked_reasons=", trading_log)
+        self.assertIn("notional $1.74 < min $5.10 x2", trading_log)
         self.assertNotIn("assets=", trading_log)
+
+    def test_json_writer_falls_back_when_atomic_replace_is_denied(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "status.json")
+            with patch(
+                "panteon_v2.app.output_writer.os.replace",
+                side_effect=PermissionError("locked"),
+            ):
+                OutputWriter._write_json_atomic(path, {"ok": True})
+
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+        self.assertEqual(data, {"ok": True})
 
     def test_recover_exchange_positions_seeds_tracker_from_perf_snapshot(self):
         from panteon_v2.app.startup import _recover_exchange_positions
@@ -806,6 +960,100 @@ class TestOutputWriter(unittest.TestCase):
             status["live_session"]["leader_virtual_session_closed_trades"],
             1,
         )
+
+    def test_status_separates_panteon_owned_from_external_recovered_positions(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=100.0,
+        )
+        opened_at = datetime.now(timezone.utc)
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=10,
+            sym="BTC",
+            side="long",
+            entry_price=100.0,
+            qty=1.0,
+            fee_open=0.0,
+            by_player="DefaultEnsemble",
+            by_agent="AgentA",
+            opened_at=opened_at,
+        ))
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=0,
+            sym="ETH",
+            side="short",
+            entry_price=50.0,
+            qty=1.0,
+            fee_open=0.0,
+            by_player="RecoveredExchangePosition",
+            by_agent="",
+            opened_at=opened_at,
+        ))
+        exchange._positions["BTC"] = ExchangePosition(
+            sym="BTC", side="long", qty=1.0, entry=100.0, unrealized_pnl=0.75,
+        )
+        exchange._positions["ETH"] = ExchangePosition(
+            sym="ETH", side="short", qty=1.0, entry=50.0, unrealized_pnl=-0.25,
+        )
+        pipeline.event_log.emit(PositionClosed(
+            bar=2,
+            trace_id="owned-close",
+            open_signal_id=1,
+            close_signal_id=2,
+            sym="SOL",
+            side="long",
+            entry=10.0,
+            exit=9.9,
+            qty=1.0,
+            realized_pnl=-0.10,
+            by_player="DefaultEnsemble",
+            by_agent="AgentA",
+        ))
+        pipeline.event_log.emit(PositionClosed(
+            bar=2,
+            trace_id="external-close",
+            open_signal_id=0,
+            close_signal_id=3,
+            sym="XRP",
+            side="long",
+            entry=1.0,
+            exit=0.8,
+            qty=1.0,
+            realized_pnl=-0.20,
+            by_player="RecoveredExchangePosition",
+            by_agent="",
+        ))
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=2,
+                regime=Regime.NEUTRAL,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"),
+                      "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        live = status["live_session"]
+        self.assertAlmostEqual(live["panteon_owned_realized_pnl_usd"], -0.10)
+        self.assertAlmostEqual(live["external_realized_pnl_usd"], -0.20)
+        self.assertAlmostEqual(live["panteon_owned_unrealized_pnl_usd"], 0.75)
+        self.assertAlmostEqual(live["external_unrealized_pnl_usd"], -0.25)
+        self.assertAlmostEqual(live["panteon_owned_pnl_pct"], 0.65)
+        self.assertEqual(live["panteon_owned_positions_count"], 1)
+        self.assertEqual(live["external_positions_count"], 1)
+        self.assertEqual(live["comparison_scope"], "panteon_owned")
 
 
 # ════════════════════════════════════════════════════════════════════

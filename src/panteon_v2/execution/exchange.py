@@ -245,6 +245,18 @@ class FakeExchange:
         self._orders_log.append(result)
         return result
 
+    def quantize_order_qty(self, signal: Signal, qty: float) -> float:
+        return float(qty or 0.0)
+
+    def poll_order(self, order_id: str, signal: Signal) -> OrderResult:
+        return OrderResult(
+            status=OrderStatus.PENDING,
+            signal_id=signal.id,
+            sym=signal.sym,
+            exchange_order_id=order_id,
+            message="pending",
+        )
+
     def get_position(self, sym: str) -> Optional[ExchangePosition]:
         return self._positions.get(sym)
 

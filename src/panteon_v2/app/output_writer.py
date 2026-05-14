@@ -47,6 +47,10 @@ def _first_positive(*values) -> float:
     return 0.0
 
 
+def _is_external_player(label: object) -> bool:
+    return str(label or "") in {"", "RecoveredExchangePosition"}
+
+
 @dataclass
 class OutputWriterConfig:
     """Конфигурация писателя."""
@@ -83,6 +87,7 @@ class OutputWriter:
         self._last_status_data: Dict[str, object] = {}
         self._last_agents_payload: Dict[str, object] = {"metadata": {}, "agents": {}}
         self._last_players_payload: Dict[str, object] = {"metadata": {}, "players": {}}
+        self._assets_history: List[float] = []
         self._session_perf_baseline = self._capture_session_perf_baseline()
         # Создаём output dir
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
@@ -176,6 +181,9 @@ class OutputWriter:
             parts.append(f"filtered={step.n_filtered_real_signals}")
             parts.append(f"stale_closes={step.n_stale_close_signals}")
             parts.append(f"duplicate_opens={step.n_duplicate_open_signals}")
+            parts.append(f"rate_limited_opens={step.n_rate_limited_open_signals}")
+        if step.blocked_reasons:
+            parts.append(f"blocked_reasons={self._format_reason_counts(step.blocked_reasons)}")
         if step.leader_changed:
             parts.append("LEADER_CHANGED")
         if step.error:
@@ -210,6 +218,9 @@ class OutputWriter:
             (total_assets - self._initial_capital) / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
+        self._assets_history.append(total_assets)
+        if len(self._assets_history) > 720:
+            self._assets_history = self._assets_history[-720:]
 
         # Открытые позиции
         open_positions = self._tracked_open_positions()
@@ -228,16 +239,53 @@ class OutputWriter:
         n_filtered = step.n_filtered_real_signals if step is not None else 0
         n_stale_closes = step.n_stale_close_signals if step is not None else 0
         n_duplicate_opens = step.n_duplicate_open_signals if step is not None else 0
+        n_rate_limited_opens = step.n_rate_limited_open_signals if step is not None else 0
+        blocked_reasons = dict(step.blocked_reasons) if step is not None else {}
         leader = step.leader if step is not None else None
         leader_session = self._session_metrics_for(leader) if leader else {
             "pnl_pct": 0.0,
             "closed_trades": 0,
             "win_rate": 0.0,
         }
+        position_pnl = self._position_pnl_summary(leader=leader)
+        player_pnl = self._pipeline.ledger.total_pnl_by_player()
+        external_realized_pnl = sum(
+            pnl for player, pnl in player_pnl.items()
+            if _is_external_player(player)
+        )
+        panteon_owned_realized_pnl = sum(
+            pnl for player, pnl in player_pnl.items()
+            if not _is_external_player(player)
+        )
+        leader_realized_pnl = player_pnl.get(leader, 0.0) if leader else 0.0
+        panteon_owned_total_pnl = (
+            panteon_owned_realized_pnl
+            + position_pnl["panteon_owned_unrealized_pnl_usd"]
+        )
+        panteon_owned_pnl_pct = (
+            panteon_owned_total_pnl / self._initial_capital * 100.0
+            if self._initial_capital > 0 else 0.0
+        )
         live_session = {
-            "panteon_equity_pnl_usd": total_assets - self._initial_capital,
-            "panteon_realized_pnl_usd": realized_pnl,
-            "panteon_pnl_pct": pnl_pct,
+            "account_equity_pnl_usd": total_assets - self._initial_capital,
+            "account_realized_pnl_usd": realized_pnl,
+            "account_pnl_pct": pnl_pct,
+            "panteon_equity_pnl_usd": panteon_owned_total_pnl,
+            "panteon_realized_pnl_usd": panteon_owned_realized_pnl,
+            "panteon_pnl_pct": panteon_owned_pnl_pct,
+            "panteon_owned_realized_pnl_usd": panteon_owned_realized_pnl,
+            "panteon_owned_unrealized_pnl_usd": position_pnl["panteon_owned_unrealized_pnl_usd"],
+            "panteon_owned_total_pnl_usd": panteon_owned_total_pnl,
+            "panteon_owned_pnl_pct": panteon_owned_pnl_pct,
+            "panteon_owned_positions_count": position_pnl["panteon_owned_positions_count"],
+            "external_realized_pnl_usd": external_realized_pnl,
+            "external_unrealized_pnl_usd": position_pnl["external_unrealized_pnl_usd"],
+            "external_positions_count": position_pnl["external_positions_count"],
+            "leader_realized_pnl_usd": leader_realized_pnl,
+            "leader_unrealized_pnl_usd": position_pnl["leader_unrealized_pnl_usd"],
+            "leader_positions_count": position_pnl["leader_positions_count"],
+            "handoff_positions_count": position_pnl["handoff_positions_count"],
+            "comparison_scope": "panteon_owned",
             "leader": leader,
             "leader_virtual_session_pnl_pct": leader_session["pnl_pct"],
             "leader_virtual_session_closed_trades": leader_session["closed_trades"],
@@ -268,6 +316,7 @@ class OutputWriter:
             "available_balance_usd": account_snapshot.get("available_balance", self._current_balance),
             "spot_assets_usd": account_snapshot.get("spot_assets", 0.0),
             "total_assets_usd": total_assets,
+            "assets_curve":     list(self._assets_history),
             "unrealized_pnl_usd": account_snapshot.get("unrealized_pnl", 0.0),
             "pnl_usd":          realized_pnl,
             "pnl_pct":          pnl_pct,
@@ -278,6 +327,8 @@ class OutputWriter:
             "n_filtered_real_signals_bar": n_filtered,
             "n_stale_close_signals_bar": n_stale_closes,
             "n_duplicate_open_signals_bar": n_duplicate_opens,
+            "n_rate_limited_open_signals_bar": n_rate_limited_opens,
+            "blocked_reasons_bar": blocked_reasons,
             "n_positions":      position_counts["n_positions"],
             "tracked_positions_count": position_counts["tracked_positions_count"],
             "exchange_positions_count": position_counts["exchange_positions_count"],
@@ -333,15 +384,55 @@ class OutputWriter:
             tracked = tracker.all_open()
         except Exception:
             return open_positions
+        exchange_positions = self._exchange_positions()
         for sym, pos in tracked.items():
+            exchange_pos = exchange_positions.get(str(sym).upper())
+            unrealized = float(getattr(exchange_pos, "unrealized_pnl", 0.0) or 0.0)
             open_positions[sym] = {
                 "side":  pos.side,
                 "qty":   pos.qty,
                 "entry": pos.entry_price,
                 "by_player": pos.by_player,
                 "by_agent":  pos.by_agent,
+                "unrealized_pnl_usd": unrealized,
+                "external": _is_external_player(pos.by_player),
             }
         return open_positions
+
+    def _position_pnl_summary(self, *, leader: Optional[str]) -> Dict[str, float]:
+        summary = {
+            "panteon_owned_unrealized_pnl_usd": 0.0,
+            "external_unrealized_pnl_usd": 0.0,
+            "leader_unrealized_pnl_usd": 0.0,
+            "panteon_owned_positions_count": 0,
+            "external_positions_count": 0,
+            "leader_positions_count": 0,
+            "handoff_positions_count": 0,
+        }
+        tracker = getattr(getattr(self._pipeline, "executor", None), "_tracker", None)
+        if tracker is None or not hasattr(tracker, "all_open"):
+            return summary
+        try:
+            tracked = tracker.all_open()
+        except Exception:
+            return summary
+        exchange_positions = self._exchange_positions()
+        for sym, pos in tracked.items():
+            owner = getattr(pos, "by_player", "")
+            exchange_pos = exchange_positions.get(str(sym).upper())
+            unrealized = float(getattr(exchange_pos, "unrealized_pnl", 0.0) or 0.0)
+            if _is_external_player(owner):
+                summary["external_unrealized_pnl_usd"] += unrealized
+                summary["external_positions_count"] += 1
+                continue
+            summary["panteon_owned_unrealized_pnl_usd"] += unrealized
+            summary["panteon_owned_positions_count"] += 1
+            if leader and owner == leader:
+                summary["leader_unrealized_pnl_usd"] += unrealized
+                summary["leader_positions_count"] += 1
+            elif leader:
+                summary["handoff_positions_count"] += 1
+        return summary
 
     def _position_counts(self, *, tracked_count: Optional[int] = None) -> Dict[str, int]:
         if tracked_count is None:
@@ -413,19 +504,21 @@ class OutputWriter:
         }
 
     def _exchange_positions_count(self) -> int:
+        return len(self._exchange_positions())
+
+    def _exchange_positions(self) -> Dict[str, object]:
         exchange = getattr(getattr(self._pipeline, "executor", None), "_exchange", None)
         getter = getattr(exchange, "get_all_positions", None)
         if not callable(getter):
-            return 0
+            return {}
         try:
             positions = getter()
         except Exception:
             log.debug("exchange positions sync failed in OutputWriter", exc_info=True)
-            return 0
-        try:
-            return len(positions or {})
-        except TypeError:
-            return 0
+            return {}
+        if not isinstance(positions, dict):
+            return {}
+        return {str(sym).upper(): pos for sym, pos in positions.items()}
 
     def _write_leaderboards(self) -> None:
         """leaderboard_agents.json / leaderboard_players.json как у v1."""
@@ -550,10 +643,8 @@ class OutputWriter:
         now = datetime.now(timezone.utc).isoformat()
         image_names = (
             "dashboard_latest.png",
-            "shadow_agents_dashboard.png",
-            "shadow_player_dashboard.png",
-            "agent_regime_dashboard.png",
-            "player_regime_dashboard.png",
+            "shadow_dashboard.png",
+            "regime_dashboard.png",
         )
         image_links = "\n".join(
             f'<figure><a href="{html.escape(name)}"><img src="{html.escape(name)}" alt="{html.escape(name)}"></a>'
@@ -604,16 +695,46 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
     def _write_json_atomic(path: str, data: dict) -> None:
         """Атомарная запись: пишем в tmp + rename."""
         tmp = path + ".tmp"
+        last_exc: Optional[Exception] = None
+        for attempt in range(5):
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, default=str, ensure_ascii=False)
+                os.replace(tmp, path)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                time.sleep(0.05 * (attempt + 1))
+            except Exception:
+                log.exception("atomic write failed: %s", path)
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                return
+
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str, ensure_ascii=False)
-            os.replace(tmp, path)
-        except Exception:
-            log.exception("atomic write failed: %s", path)
             try:
                 os.remove(tmp)
             except OSError:
                 pass
+        except Exception:
+            log.exception("atomic write failed: %s", path)
+            if last_exc is not None:
+                log.debug("last atomic replace error: %r", last_exc)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _format_reason_counts(reasons: Dict[str, int]) -> str:
+        return "; ".join(
+            f"{reason} x{count}"
+            for reason, count in sorted(reasons.items())
+        )
 
     @property
     def output_dir(self) -> str:

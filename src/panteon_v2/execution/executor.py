@@ -32,6 +32,7 @@ from enum import Enum
 from typing import Optional
 
 from ..attribution.events import (
+    MemoryUpdateFailed,
     OrderFilled,
     OrderRejected,
     OrderSent,
@@ -41,6 +42,7 @@ from ..attribution.event_log import EventLog
 from ..domain.types import Action, Signal, Trade
 from ..memory import PerformanceMemory
 from .exchange import Exchange, OrderResult, OrderStatus
+from .order_ledger import OrderLedger
 from .position_tracker import PositionTracker
 from .risk_limits import RiskLimits
 from .symbol_health import SymbolHealthMonitor
@@ -100,6 +102,7 @@ class TradeExecutor:
         position_tracker: PositionTracker,
         perf:             PerformanceMemory,
         event_log:        EventLog,
+        order_ledger:     Optional[OrderLedger] = None,
     ):
         self._exchange = exchange
         self._health = health
@@ -107,6 +110,7 @@ class TradeExecutor:
         self._tracker = position_tracker
         self._perf = perf
         self._log = event_log
+        self._order_ledger = order_ledger or OrderLedger()
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -166,7 +170,25 @@ class TradeExecutor:
                 )
             qty = existing.qty
         else:
-            qty = risk_check.qty
+            qty = self._quantize_open_qty(signal, risk_check.qty)
+            if qty <= 0:
+                return ExecutionResult(
+                    status=ExecutionStatus.BLOCKED,
+                    signal=signal,
+                    reason="risk_limits: quantized qty is below exchange minimum",
+                )
+            quantized_notional = qty * signal.price
+            allowed_notional = max(float(risk_check.notional or 0.0), 0.0)
+            if allowed_notional > 0 and quantized_notional > allowed_notional + 1e-9:
+                return ExecutionResult(
+                    status=ExecutionStatus.BLOCKED,
+                    signal=signal,
+                    reason=(
+                        "risk_limits: quantized notional "
+                        f"${quantized_notional:.2f} exceeds approved "
+                        f"${allowed_notional:.2f}"
+                    ),
+                )
 
         # 3. Эмитим OrderSent ДО send_order, чтобы в логе была попытка
         self._log.emit(OrderSent(
@@ -179,6 +201,7 @@ class TradeExecutor:
         ))
 
         # 4. Вызываем биржу
+        self._order_ledger.record_submitted(signal)
         try:
             order_result = self._exchange.send_order(signal, qty=qty)
         except Exception as exc:
@@ -207,6 +230,30 @@ class TradeExecutor:
 
     # ── Handlers ────────────────────────────────────────────────────
 
+    def recover_pending_order(self, signal: Signal, order_id: str) -> ExecutionResult:
+        """Poll and finalize a previously accepted order after process restart."""
+        trace_id = f"{self._trace_id(signal)}-recover"
+        placeholder = OrderResult(
+            status=OrderStatus.PENDING,
+            signal_id=signal.id,
+            sym=signal.sym,
+            exchange_order_id=str(order_id or ""),
+            message="restored pending order",
+        )
+        polled = self._poll_pending(signal, placeholder)
+        if polled is None or polled.status == OrderStatus.PENDING:
+            if polled is not None:
+                self._order_ledger.record_result(signal, polled)
+            return ExecutionResult(
+                status=ExecutionStatus.PENDING,
+                signal=signal,
+                reason="restored order is still pending",
+            )
+        self._order_ledger.record_result(signal, polled)
+        if polled.status == OrderStatus.FILLED:
+            return self._handle_filled(signal, polled, trace_id)
+        return self._handle_rejected(signal, polled, trace_id)
+
     def _handle_filled(
         self,
         signal: Signal,
@@ -219,6 +266,8 @@ class TradeExecutor:
             return self._handle_rejected(signal, result, trace_id)
 
         # Position tracker → events для лога
+        self._order_ledger.record_result(signal, result)
+
         if signal.action.is_open:
             events = self._tracker.on_open(signal=signal, trade=trade)
         else:
@@ -227,9 +276,15 @@ class TradeExecutor:
         # PerformanceMemory обновляется ОДНИМ вызовом — это SSOT
         try:
             self._perf.update_from_trade(trade, signal)
-        except Exception:
+        except Exception as exc:
             # Не блокируем — нам важнее зарегистрировать filled trade
-            pass
+            self._log.emit(MemoryUpdateFailed(
+                bar=signal.bar,
+                trace_id=trace_id,
+                signal_id=signal.id,
+                sym=signal.sym,
+                reason=f"{type(exc).__name__}: {exc}",
+            ))
 
         # Health → success
         self._health.record_success(signal.sym)
@@ -255,6 +310,7 @@ class TradeExecutor:
         trace_id: str,
     ) -> ExecutionResult:
         # Failure для health
+        self._order_ledger.record_result(signal, result)
         newly_blocked = self._health.record_pending_failure(signal.sym)
         self._log.emit(OrderRejected(
             bar=signal.bar,
@@ -285,6 +341,15 @@ class TradeExecutor:
         result: OrderResult,
         trace_id: str,
     ) -> ExecutionResult:
+        self._order_ledger.record_result(signal, result)
+        polled = self._poll_pending(signal, result)
+        if polled is not None and polled.status != OrderStatus.PENDING:
+            self._order_ledger.record_result(signal, polled)
+            if polled.status == OrderStatus.FILLED:
+                return self._handle_filled(signal, polled, trace_id)
+            if polled.status == OrderStatus.REJECTED:
+                return self._handle_rejected(signal, polled, trace_id)
+
         # Pending тоже считаем failure (как в v1) — после таймаута
         # биржа обычно его сбрасывает.
         newly_blocked = self._health.record_pending_failure(signal.sym)
@@ -309,3 +374,30 @@ class TradeExecutor:
     @staticmethod
     def _trace_id(signal: Signal) -> str:
         return f"{signal.sym}-{signal.bar}-{signal.id}"
+
+    def _quantize_open_qty(self, signal: Signal, qty: float) -> float:
+        quantize = getattr(self._exchange, "quantize_order_qty", None)
+        if not callable(quantize):
+            return float(qty or 0.0)
+        try:
+            return float(quantize(signal, qty) or 0.0)
+        except Exception:
+            return 0.0
+
+    def _poll_pending(self, signal: Signal, result: OrderResult) -> Optional[OrderResult]:
+        order_id = result.exchange_order_id
+        if not order_id:
+            return None
+        poll = getattr(self._exchange, "poll_order", None)
+        if not callable(poll):
+            return None
+        try:
+            polled = poll(order_id, signal)
+        except TypeError:
+            try:
+                polled = poll(order_id)
+            except Exception:
+                return None
+        except Exception:
+            return None
+        return polled if isinstance(polled, OrderResult) else None

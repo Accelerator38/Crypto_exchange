@@ -35,10 +35,8 @@ def write_operator_pngs(
 
     paths = [
         out / "dashboard_latest.png",
-        out / "shadow_agents_dashboard.png",
-        out / "shadow_player_dashboard.png",
-        out / "agent_regime_dashboard.png",
-        out / "player_regime_dashboard.png",
+        out / "shadow_dashboard.png",
+        out / "regime_dashboard.png",
     ]
     _render_operator_dashboard(
         paths[0],
@@ -47,20 +45,13 @@ def write_operator_pngs(
         players,
         panteon_pnl_pct=panteon_pnl_pct,
     )
-    _render_leaderboard(
+    _render_combined_shadow_dashboard(
         paths[1],
-        "SHADOW AGENTS DASHBOARD",
         agents,
-        panteon_pnl_pct=panteon_pnl_pct,
-    )
-    _render_leaderboard(
-        paths[2],
-        "SHADOW PLAYERS DASHBOARD",
         players,
         panteon_pnl_pct=panteon_pnl_pct,
     )
-    _render_regime_heatmap(paths[3], "AGENT REGIME DASHBOARD", agents)
-    _render_regime_heatmap(paths[4], "PLAYER REGIME DASHBOARD", players)
+    _render_combined_regime_dashboard(paths[2], agents, players)
     return [str(p) for p in paths]
 
 
@@ -134,12 +125,17 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
     ax.set_facecolor(MID)
     live_session = status.get("live_session") if isinstance(status.get("live_session"), Mapping) else {}
     pnl_usd = (
-        live_session.get("panteon_equity_pnl_usd")
+        live_session.get("panteon_owned_total_pnl_usd")
         if isinstance(live_session, Mapping)
         else None
     )
     if pnl_usd is None:
         pnl_usd = status.get("pnl_usd", 0.0)
+    panteon_pct = (
+        live_session.get("panteon_owned_pnl_pct")
+        if isinstance(live_session, Mapping)
+        else status.get("pnl_pct", 0.0)
+    )
     lines = [
         ("Exchange", status.get("exchange", "-")),
         ("State", f"{status.get('run_state', '-')}/{status.get('feed_status', '-')}"),
@@ -151,7 +147,8 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         ("Available", _usd(status.get("available_balance_usd", 0.0))),
         ("Spot assets", _usd(status.get("spot_assets_usd", 0.0))),
         ("Total assets", _usd(status.get("total_assets_usd", status.get("current_balance", 0.0)))),
-        ("PnL", f"{_usd(pnl_usd)} / {_pct(status.get('pnl_pct', 0.0))}"),
+        ("Panteon PnL", f"{_usd(pnl_usd)} / {_pct(panteon_pct)}"),
+        ("Account PnL", _pct(status.get("pnl_pct", 0.0))),
         ("Positions", status.get("n_positions", 0)),
     ]
     shadow = status.get("shadow") if isinstance(status.get("shadow"), Mapping) else {}
@@ -217,22 +214,103 @@ def _render_leaderboard(
     plt.close(fig)
 
 
+def _render_combined_shadow_dashboard(
+    path: Path,
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+    *,
+    panteon_pnl_pct: float,
+) -> None:
+    plt = _setup_pyplot()
+    fig = plt.figure(figsize=(14, 9), facecolor=DARK)
+    gs = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.36)
+    ax_players = fig.add_subplot(gs[0, 0])
+    ax_agents = fig.add_subplot(gs[1, 0])
+    _draw_barh(
+        ax_players,
+        players[:16],
+        "Shadow Players",
+        PURPLE,
+        panteon_pnl_pct=panteon_pnl_pct,
+    )
+    _draw_barh(
+        ax_agents,
+        agents[:16],
+        "Shadow Agents",
+        BLUE,
+        panteon_pnl_pct=panteon_pnl_pct,
+    )
+    fig.suptitle("Shadow Players and Agents", color=TEXT, fontsize=15, fontweight="bold")
+    fig.subplots_adjust(top=0.92, bottom=0.08, left=0.12, right=0.96)
+    fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+
+def _render_combined_regime_dashboard(
+    path: Path,
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+) -> None:
+    plt = _setup_pyplot()
+    fig = plt.figure(figsize=(17, 10), facecolor=DARK)
+    gs = fig.add_gridspec(
+        2,
+        2,
+        width_ratios=[1.55, 1.0],
+        height_ratios=[1, 1],
+        hspace=0.34,
+        wspace=0.22,
+    )
+    ax_player_heat = fig.add_subplot(gs[0, 0])
+    ax_player_curve = fig.add_subplot(gs[0, 1])
+    ax_agent_heat = fig.add_subplot(gs[1, 0])
+    ax_agent_curve = fig.add_subplot(gs[1, 1])
+    player_image = _draw_regime_heatmap(ax_player_heat, "Player Regime Efficiency", players)
+    agent_image = _draw_regime_heatmap(ax_agent_heat, "Agent Regime Efficiency", agents)
+    _draw_equity_curves(ax_player_curve, "Player Equity Curves", players, PURPLE)
+    _draw_equity_curves(ax_agent_curve, "Agent Equity Curves", agents, BLUE)
+    for ax, image in ((ax_player_heat, player_image), (ax_agent_heat, agent_image)):
+        if image is None:
+            continue
+        cbar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.02)
+        cbar.ax.tick_params(colors=MUTED, labelsize=8)
+    fig.suptitle("Regime Dashboard", color=TEXT, fontsize=15, fontweight="bold")
+    fig.subplots_adjust(top=0.92, bottom=0.08, left=0.12, right=0.96)
+    fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+
 def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:
     plt = _setup_pyplot()
     regimes = ["bullish", "bearish", "neutral", "crash"]
     usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)][:16]
     fig_h = max(4.5, 2.0 + len(usable) * 0.42)
     fig, ax = plt.subplots(figsize=(11, fig_h), facecolor=DARK)
+    image = _draw_regime_heatmap(ax, title, rows, regimes=regimes)
+    if image is not None:
+        cbar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.02)
+        cbar.ax.tick_params(colors=MUTED, labelsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+    plt.close(fig)
+
+
+def _draw_regime_heatmap(
+    ax,
+    title: str,
+    rows: List[Tuple[str, dict]],
+    *,
+    regimes: List[str] | None = None,
+):
+    regimes = regimes or ["bullish", "bearish", "neutral", "crash"]
+    usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)][:16]
     ax.set_facecolor(MID)
     if not usable:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "No regime data yet", transform=ax.transAxes,
                 ha="center", va="center", color=MUTED, fontsize=12)
         ax.set_title(title, color=TEXT, fontsize=12, fontweight="bold", pad=10)
-        fig.tight_layout()
-        fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
-        plt.close(fig)
-        return
+        return None
 
     matrix = []
     labels = []
@@ -252,11 +330,58 @@ def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]])
     for y, row in enumerate(matrix):
         for x, value in enumerate(row):
             ax.text(x, y, _pct(value), ha="center", va="center", color="#111111", fontsize=8)
-    cbar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.02)
-    cbar.ax.tick_params(colors=MUTED, labelsize=8)
-    fig.tight_layout()
-    fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
-    plt.close(fig)
+    return image
+
+
+def _draw_equity_curves(
+    ax,
+    title: str,
+    rows: List[Tuple[str, dict]],
+    fallback_color: str,
+) -> None:
+    _style_ax(ax, title)
+    plotted = 0
+    palette = None
+    try:
+        import matplotlib.pyplot as plt  # noqa: WPS433
+
+        palette = plt.cm.tab20
+    except Exception:
+        palette = None
+    for idx, (name, data) in enumerate(rows[:12]):
+        curve = _equity_curve(data)
+        if len(curve) < 2:
+            continue
+        color = palette(idx % 20) if palette is not None else fallback_color
+        lw = 1.7 if plotted < 4 else 0.9
+        alpha = 0.9 if plotted < 4 else 0.35
+        label = f"{_short(name, 16)} {_pct(data.get('display_pnl_pct', data.get('pnl_pct', 0.0)))}" if plotted < 6 else None
+        ax.plot(range(len(curve)), curve, color=color, linewidth=lw, alpha=alpha, label=label)
+        plotted += 1
+    if plotted == 0:
+        ax.text(0.5, 0.5, "No equity history yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=11)
+        return
+    ax.set_xlabel("Bar", color=MUTED, fontsize=8)
+    ax.set_ylabel("Assets", color=MUTED, fontsize=8)
+    ax.legend(loc="upper left", fontsize=7, frameon=False, labelcolor=TEXT)
+
+
+def _equity_curve(data: Mapping[str, object]) -> List[float]:
+    for key in ("equity_curve", "assets_curve", "total_assets_curve", "history"):
+        raw = data.get(key)
+        if not isinstance(raw, (list, tuple)):
+            continue
+        out: List[float] = []
+        for value in raw:
+            try:
+                out.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if len(out) >= 2:
+            return out
+    pnl = _float_value(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)))
+    return [100.0, 100.0 * (1.0 + pnl / 100.0)]
 
 
 def _usd(value: object) -> str:
@@ -274,6 +399,12 @@ def _float_value(value: object) -> float:
 
 
 def _panteon_pnl_pct(status: Mapping[str, object]) -> float:
+    live_session = status.get("live_session")
+    if isinstance(live_session, Mapping):
+        try:
+            return float(live_session.get("panteon_owned_pnl_pct", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            pass
     try:
         return float(status.get("pnl_pct", 0.0) or 0.0)
     except (TypeError, ValueError):

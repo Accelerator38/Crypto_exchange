@@ -7,6 +7,8 @@ import sys
 import types
 import unittest
 
+from panteon_v2.domain.types import Regime
+
 
 class FakeRuntime:
     api_key_env = "FAKE_API_KEY"
@@ -123,6 +125,27 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(bridge._price_hist[-1], {"BTC": 100.0})
         self.assertEqual(bridge._volume_hist[-1], {"BTC": 42.0})
 
+    def test_bridge_feed_detects_regime_from_market_history_without_bridge_agents(self):
+        from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
+
+        class RisingBridge(FakeBridge):
+            def _fetch_market(self):
+                self.fetch_calls += 1
+                return {"BTC": 115.0}, {"BTC": 42.0}
+
+        bridge = RisingBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 105.0},
+            {"BTC": 110.0},
+        ]
+        bridge.agents = {}
+        feed = V1BridgeFeed(bridge, exchange_name="MEXC")
+
+        snap = feed.next_bar()
+
+        self.assertEqual(snap.regime, Regime.BULLISH)
+
     def test_warmup_replays_bridge_history_into_v2_agents(self):
         from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
         from panteon_v2.selection import AgentRegistry
@@ -134,7 +157,12 @@ class V1BridgeRunnerTests(unittest.TestCase):
                 self.calls = []
 
             def act(self, market):
-                self.calls.append((market.bar, dict(market.prices), dict(market.volumes)))
+                self.calls.append((
+                    market.bar,
+                    dict(market.prices),
+                    dict(market.volumes),
+                    market.regime,
+                ))
                 return {}
 
         bridge = FakeBridge()
@@ -162,9 +190,9 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(
             agent.calls,
             [
-                (1, {"BTC": 100.0}, {"BTC": 10.0}),
-                (2, {"BTC": 101.0}, {"BTC": 11.0}),
-                (3, {"BTC": 102.0}, {"BTC": 12.0}),
+                (1, {"BTC": 100.0}, {"BTC": 10.0}, Regime.NEUTRAL),
+                (2, {"BTC": 101.0}, {"BTC": 11.0}, Regime.BULLISH),
+                (3, {"BTC": 102.0}, {"BTC": 12.0}, Regime.BULLISH),
             ],
         )
 
@@ -286,6 +314,59 @@ class V1BridgeRunnerTests(unittest.TestCase):
             _account_log_fields(Pipeline()),
             "balance=$120.50 positions=1",
         )
+
+    def test_run_with_v1_bridge_publishes_warmup_heartbeats(self):
+        from panteon_v2.app.v1_bridge_runner import run_with_v1_bridge
+        from panteon_v2.app.bootstrap import build_production_pipeline
+        from panteon_v2.execution import FakeExchange
+        from panteon_v2.selection import AgentRegistry
+        from panteon_v2.tests._helpers import FakeAgent
+
+        class Writer:
+            output_dir = "out-dir"
+
+            def __init__(self):
+                self.heartbeats = []
+                self.steps = []
+                self.closed = False
+
+            def write_heartbeat(self, **kwargs):
+                self.heartbeats.append(kwargs)
+
+            def write(self, step):
+                self.steps.append(step)
+
+            def close(self):
+                self.closed = True
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        bridge = FakeBridge()
+        bridge.warmup_bars = 12
+        writer = Writer()
+
+        rc = run_with_v1_bridge(
+            pipeline,
+            exchange_name="MEXC",
+            bridge=bridge,
+            output_writer=writer,
+            max_bars=1,
+            sleep_between_polls_sec=0.0,
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [hb["feed_status"] for hb in writer.heartbeats],
+            ["warmup_loading", "agent_warmup", "active"],
+        )
+        self.assertIn("12 historical bars", writer.heartbeats[0]["message"])
+        self.assertEqual(len(writer.steps), 1)
+        self.assertTrue(writer.closed)
 
 
 if __name__ == "__main__":

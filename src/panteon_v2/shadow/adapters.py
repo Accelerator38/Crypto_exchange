@@ -101,6 +101,7 @@ def make_market_snapshot(
     volumes:   Optional[Dict[str, float]] = None,
     funding:   Optional[Dict[str, float]] = None,
     regime:    str = "neutral",
+    regime_confidence: float = 1.0,
     month:     Optional[int] = None,
     timestamp: Optional[datetime] = None,
 ) -> MarketSnapshot:
@@ -144,6 +145,7 @@ def make_market_snapshot(
         regime=Regime.from_string(regime),
         prices=clean_prices,
         volumes=clean_volumes,
+        regime_confidence=float(regime_confidence),
         funding=clean_funding,
         month=month,
     )

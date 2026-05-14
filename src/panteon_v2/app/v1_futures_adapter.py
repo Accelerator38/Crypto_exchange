@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional
 
 from ..domain.types import Action, Signal, Trade
@@ -14,27 +15,49 @@ from ..execution.exchange import ExchangePosition, OrderResult, OrderStatus
 log = logging.getLogger(__name__)
 
 
-def load_runtime_leverage(default: int = 2) -> int:
+def load_runtime_leverage(exchange_name: Optional[str] = None, default: int = 2) -> int:
     """Best-effort read of the existing v1 leverage setting."""
     try:
-        from mexc_connector import _load_settings, _parse_settings  # type: ignore
+        exchange_name, default = _compat_exchange_arg(exchange_name, default)
+        from .exchange_profile import load_exchange_profile
 
-        cfg = _parse_settings(_load_settings())
-        return int(float(cfg.get("leverage", default) or default))
+        return load_exchange_profile(
+            exchange_name,
+            default_leverage=int(default),
+        ).leverage
     except Exception:
         return int(default)
 
 
-def load_runtime_trade_fraction(default: float = 0.10) -> float:
+def load_runtime_trade_fraction(
+    exchange_name: Optional[str] = None,
+    default: float = 0.10,
+) -> float:
     """Best-effort read of the existing v1 trade_fraction setting."""
     try:
-        from mexc_connector import _load_settings, _parse_settings  # type: ignore
+        exchange_name, default = _compat_exchange_arg(exchange_name, default)
+        from .exchange_profile import load_exchange_profile
 
-        cfg = _parse_settings(_load_settings())
-        value = float(cfg.get("trade_fraction", default) or default)
+        value = load_exchange_profile(
+            exchange_name,
+            default_trade_fraction=float(default),
+        ).trade_fraction
         return value if 0 < value <= 1.0 else float(default)
     except Exception:
         return float(default)
+
+
+def _compat_exchange_arg(exchange_name: Optional[str], default):
+    if exchange_name is not None and not isinstance(exchange_name, str):
+        return None, exchange_name
+    return exchange_name, default
+
+
+@dataclass(frozen=True)
+class _PendingOrderContext:
+    signal: Signal
+    qty: float
+    side: str
 
 
 class V1FuturesExchangeAdapter:
@@ -65,6 +88,7 @@ class V1FuturesExchangeAdapter:
         self._default_min_notional = float(default_min_notional)
         self._default_fee_rate = float(default_fee_rate)
         self._close_via_place_order = bool(close_via_place_order)
+        self._pending_orders: Dict[str, _PendingOrderContext] = {}
 
     def send_order(self, signal: Signal, *, qty: float) -> OrderResult:
         action = self._to_futures_action(signal.action)
@@ -105,6 +129,61 @@ class V1FuturesExchangeAdapter:
         except Exception:
             pass
         return self._default_min_notional
+
+    def quantize_order_qty(self, signal: Signal, qty: float) -> float:
+        action = self._to_futures_action(signal.action)
+        if action.is_open:
+            vol = self._contracts_for_open_qty(signal.sym, qty)
+            return self._qty_for_contracts(signal.sym, vol) if vol > 0 else 0.0
+        if action.is_close:
+            vol = self._contracts_for_qty(signal.sym, qty)
+            return self._qty_for_contracts(signal.sym, vol) if vol > 0 else 0.0
+        return float(qty or 0.0)
+
+    def poll_order(self, order_id: str, signal: Signal) -> OrderResult:
+        order_id = str(order_id or "")
+        if not order_id:
+            return OrderResult(
+                status=OrderStatus.REJECTED,
+                signal_id=signal.id,
+                sym=signal.sym,
+                message=f"{self.name} pending order has no order id",
+            )
+
+        raw = self._fetch_order_detail(order_id, signal)
+        if raw is not None:
+            status_text = self._extract_status(raw)
+            if status_text in {"rejected", "reject", "failed", "error", "canceled", "cancelled", "expired"}:
+                return OrderResult(
+                    status=OrderStatus.REJECTED,
+                    signal_id=signal.id,
+                    sym=signal.sym,
+                    exchange_order_id=order_id,
+                    message=f"{self.name} order {order_id} {status_text}",
+                )
+            if self._has_fill_evidence(raw) or status_text in {"filled", "closed", "done", "success"}:
+                ctx = self._pending_orders.get(order_id)
+                result = self._result_from_raw(
+                    signal,
+                    self._with_order_id(raw, order_id),
+                    qty=(ctx.qty if ctx is not None else 0.0),
+                    side=(ctx.side if ctx is not None else signal.action.side or "long"),
+                )
+                if result.status != OrderStatus.PENDING:
+                    self._pending_orders.pop(order_id, None)
+                return result
+
+        inferred = self._infer_pending_fill_from_position(order_id, signal)
+        if inferred is not None:
+            return inferred
+
+        return OrderResult(
+            status=OrderStatus.PENDING,
+            signal_id=signal.id,
+            sym=signal.sym,
+            exchange_order_id=order_id,
+            message=f"{self.name} order is still pending",
+        )
 
     def get_account_equity(self) -> float:
         """Read total USDT futures equity for live sizing/status.
@@ -163,9 +242,10 @@ class V1FuturesExchangeAdapter:
         v1_side: int,
         trade_side: str,
     ) -> OrderResult:
-        vol = self._contracts_for_qty(signal.sym, qty)
+        vol = self._contracts_for_open_qty(signal.sym, qty)
         if vol <= 0:
             return self._rejected(signal, f"qty {qty} is below contract minimum")
+        sent_qty = self._qty_for_contracts(signal.sym, vol)
         try:
             raw = self._order_client.place_order(
                 signal.sym,
@@ -178,7 +258,9 @@ class V1FuturesExchangeAdapter:
                 signal,
                 f"adapter exception: {type(exc).__name__}: {exc}",
             )
-        return self._result_from_raw(signal, raw, qty=qty, side=trade_side)
+        result = self._result_from_raw(signal, raw, qty=sent_qty, side=trade_side)
+        self._remember_pending(result, signal=signal, qty=sent_qty, side=trade_side)
+        return result
 
     def _send_close(self, signal: Signal, qty: float) -> OrderResult:
         existing = self.get_position(signal.sym)
@@ -201,7 +283,9 @@ class V1FuturesExchangeAdapter:
                     signal,
                     f"adapter exception: {type(exc).__name__}: {exc}",
                 )
-            return self._result_from_raw(signal, raw, qty=qty, side=close_side)
+            result = self._result_from_raw(signal, raw, qty=qty, side=close_side)
+            self._remember_pending(result, signal=signal, qty=qty, side=close_side)
+            return result
 
         try:
             raw = self._order_client.close_all(signal.sym)
@@ -210,7 +294,9 @@ class V1FuturesExchangeAdapter:
                 signal,
                 f"adapter exception: {type(exc).__name__}: {exc}",
             )
-        return self._result_from_raw(signal, raw, qty=qty, side=close_side)
+        result = self._result_from_raw(signal, raw, qty=qty, side=close_side)
+        self._remember_pending(result, signal=signal, qty=qty, side=close_side)
+        return result
 
     def _result_from_raw(
         self,
@@ -241,6 +327,14 @@ class V1FuturesExchangeAdapter:
                 signal_id=signal.id,
                 sym=signal.sym,
                 message=f"{self.name} accepted order without order id",
+            )
+        if not self._has_fill_evidence(raw):
+            return OrderResult(
+                status=OrderStatus.PENDING,
+                signal_id=signal.id,
+                sym=signal.sym,
+                exchange_order_id=order_id,
+                message=f"{self.name} accepted order without confirmed fill",
             )
 
         fill_price = self._first_float(
@@ -276,6 +370,151 @@ class V1FuturesExchangeAdapter:
             exchange_order_id=order_id,
             trade=trade,
         )
+
+    def _remember_pending(
+        self,
+        result: OrderResult,
+        *,
+        signal: Signal,
+        qty: float,
+        side: str,
+    ) -> None:
+        if result.status == OrderStatus.PENDING and result.exchange_order_id:
+            self._pending_orders[result.exchange_order_id] = _PendingOrderContext(
+                signal=signal,
+                qty=float(qty or 0.0),
+                side=side,
+            )
+        elif result.exchange_order_id:
+            self._pending_orders.pop(result.exchange_order_id, None)
+
+    def _fetch_order_detail(self, order_id: str, signal: Signal) -> Optional[dict]:
+        for source in (self._read_client, self._order_client):
+            if source is None:
+                continue
+            for method_name in (
+                "get_order",
+                "get_order_detail",
+                "query_order",
+                "order_detail",
+                "fetch_order",
+            ):
+                method = getattr(source, method_name, None)
+                if not callable(method):
+                    continue
+                for args in ((order_id, signal.sym), (order_id,), (signal.sym, order_id)):
+                    try:
+                        raw = method(*args)
+                    except TypeError:
+                        continue
+                    except Exception:
+                        break
+                    normalized = self._unwrap_order_payload(raw)
+                    if normalized is not None:
+                        return normalized
+        return None
+
+    @classmethod
+    def _unwrap_order_payload(cls, raw: Any) -> Optional[dict]:
+        if not isinstance(raw, dict):
+            return None
+        data = raw.get("data")
+        if isinstance(data, dict):
+            merged = dict(data)
+            for key, value in raw.items():
+                merged.setdefault(key, value)
+            return merged
+        if isinstance(data, list) and data:
+            first = data[0]
+            if isinstance(first, dict):
+                merged = dict(first)
+                for key, value in raw.items():
+                    merged.setdefault(key, value)
+                return merged
+        return raw
+
+    @staticmethod
+    def _extract_status(raw: dict) -> str:
+        for key in ("status", "state", "orderStatus", "execStatus"):
+            value = raw.get(key)
+            if value is not None and value != "":
+                return str(value).strip().lower()
+        return ""
+
+    @staticmethod
+    def _with_order_id(raw: dict, order_id: str) -> dict:
+        out = dict(raw)
+        out.setdefault("order_id", order_id)
+        out.setdefault("orderId", order_id)
+        out.setdefault("success", True)
+        return out
+
+    def _infer_pending_fill_from_position(
+        self,
+        order_id: str,
+        signal: Signal,
+    ) -> Optional[OrderResult]:
+        ctx = self._pending_orders.get(order_id)
+        try:
+            pos = self.get_position(signal.sym)
+        except Exception:
+            pos = None
+
+        if signal.action.is_open:
+            expected_side = signal.action.side
+            if pos is None or (expected_side and pos.side != expected_side):
+                return None
+            qty = pos.qty if pos.qty > 0 else (ctx.qty if ctx is not None else 0.0)
+            if qty <= 0 or pos.entry <= 0:
+                return None
+            fee = qty * pos.entry * self._default_fee_rate
+            trade = Trade(
+                signal_id=signal.id,
+                bar=signal.bar,
+                sym=signal.sym,
+                side=pos.side,
+                qty=qty,
+                fill_price=pos.entry,
+                fee=fee,
+                funding=0.0,
+                exchange_order_id=order_id,
+                timestamp=datetime.now(timezone.utc),
+            )
+            self._pending_orders.pop(order_id, None)
+            return OrderResult(
+                status=OrderStatus.FILLED,
+                signal_id=signal.id,
+                sym=signal.sym,
+                exchange_order_id=order_id,
+                trade=trade,
+            )
+
+        if signal.action.is_close and ctx is not None and pos is None:
+            qty = ctx.qty
+            if qty <= 0 or signal.price <= 0:
+                return None
+            fee = qty * signal.price * self._default_fee_rate
+            trade = Trade(
+                signal_id=signal.id,
+                bar=signal.bar,
+                sym=signal.sym,
+                side=ctx.side or "long",
+                qty=qty,
+                fill_price=signal.price,
+                fee=fee,
+                funding=0.0,
+                exchange_order_id=order_id,
+                timestamp=datetime.now(timezone.utc),
+            )
+            self._pending_orders.pop(order_id, None)
+            return OrderResult(
+                status=OrderStatus.FILLED,
+                signal_id=signal.id,
+                sym=signal.sym,
+                exchange_order_id=order_id,
+                trade=trade,
+            )
+        return None
 
     def _raw_positions(self) -> Iterable[dict]:
         for source in (self._read_client, self._order_client):
@@ -373,12 +612,31 @@ class V1FuturesExchangeAdapter:
 
     def _contracts_for_qty(self, sym: str, qty: float) -> int:
         meta = self._contract_meta(sym)
+        return self._contracts_for_qty_from_meta(qty, meta, floor_to_min=False)
+
+    def _contracts_for_open_qty(self, sym: str, qty: float) -> int:
+        meta = self._contract_meta(sym)
+        return self._contracts_for_qty_from_meta(qty, meta, floor_to_min=True)
+
+    def _contracts_for_qty_from_meta(
+        self,
+        qty: float,
+        meta: dict,
+        *,
+        floor_to_min: bool,
+    ) -> int:
         step = self._contract_qty_step(meta)
         raw_vol = float(qty or 0.0) / step if step > 0 else 0.0
         min_vol = max(1, int(float(meta.get("minVol", 1) or 1)))
         vol_unit = max(1, int(float(meta.get("volUnit", 1) or 1)))
+        min_vol = int(math.ceil(min_vol / vol_unit) * vol_unit)
         vol = int(math.floor(raw_vol / vol_unit) * vol_unit)
+        if floor_to_min and raw_vol > 0 and vol < min_vol:
+            return min_vol
         return vol if vol >= min_vol else 0
+
+    def _qty_for_contracts(self, sym: str, contracts: int) -> float:
+        return float(contracts) * self._contract_qty_step(self._contract_meta(sym))
 
     def _position_qty(self, sym: str, raw: dict) -> float:
         qty = self._first_float(raw, "qty", "quantity", "amount", default=0.0)
@@ -407,6 +665,29 @@ class V1FuturesExchangeAdapter:
         if contracts > 0 and size > 0:
             return contracts * size
         return float(fallback)
+
+    @staticmethod
+    def _has_fill_evidence(raw: dict) -> bool:
+        for key in (
+            "fillPrice",
+            "fill_price",
+            "avgPrice",
+            "average",
+            "amount",
+            "qty",
+            "quantity",
+            "contracts",
+            "vol",
+            "fee",
+            "commission",
+        ):
+            value = raw.get(key)
+            if value not in (None, "", 0, "0"):
+                return True
+        data = raw.get("data")
+        if isinstance(data, dict):
+            return V1FuturesExchangeAdapter._has_fill_evidence(data)
+        return False
 
     def _contract_meta(self, sym: str) -> dict:
         getter = getattr(self._order_client, "_get_contract_meta", None)

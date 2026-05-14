@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from ..attribution import (
@@ -30,12 +30,13 @@ from ..attribution import (
     SignalEmitted,
 )
 from ..domain.types import MarketSnapshot, Regime, Signal
-from ..execution import ExecutionResult
+from ..execution import ExecutionResult, ExecutionStatus
 from ..selection import EnsemblePlayer, SwitchDecision
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
 from .live_state import (
     filter_real_signals_against_tracker,
+    reconcile_tracker_with_exchange,
     sync_player_agents_to_real_positions,
 )
 
@@ -146,6 +147,8 @@ class StepResult:
     n_filtered_real_signals: int = 0
     n_stale_close_signals: int = 0
     n_duplicate_open_signals: int = 0
+    n_rate_limited_open_signals: int = 0
+    blocked_reasons: Dict[str, int] = field(default_factory=dict)
     error:         Optional[str] = None
 
 
@@ -203,6 +206,7 @@ def main_loop(
 
         if market is None:
             idle_polls += 1
+            _record_stale_feed_poll(pipeline, idle_polls)
             if on_idle:
                 try:
                     on_idle(idle_polls)
@@ -218,6 +222,7 @@ def main_loop(
 
         try:
             idle_polls = 0
+            _reset_stale_feed(pipeline)
             step, signal_id_counter, last_qm_bar, last_regime = _run_one_bar(
                 pipeline, market,
                 signal_id_counter=signal_id_counter,
@@ -264,6 +269,8 @@ def _run_one_bar(
 ):
     trace = f"prod-{market.bar}"
     sync_pipeline_balance(pipeline)
+    reconcile_summary = reconcile_tracker_with_exchange(pipeline, bar_index=market.bar)
+    _record_exchange_desync(pipeline, reconcile_summary)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
 
     # 1. Регим
@@ -292,6 +299,23 @@ def _run_one_bar(
             ))
 
     # 4. Composer → candidates for real leader selection
+    kill_reason = _kill_switch_reason(pipeline)
+    if kill_reason:
+        return (
+            StepResult(
+                bar=market.bar, regime=market.regime,
+                leader=None, leader_changed=False,
+                n_signals=0, n_filled=0, n_rejected=0, n_blocked=0,
+                n_shadow_signals=shadow_summary.total_signals,
+                n_shadow_filled=shadow_summary.total_filled,
+                n_shadow_rejected=shadow_summary.total_rejected,
+                n_shadow_blocked=shadow_summary.total_blocked,
+                n_shadow_actors=shadow_summary.actors,
+                error=f"kill switch active: {kill_reason}",
+            ),
+            signal_id_counter, last_qm_bar, last_regime,
+        )
+
     candidates = _compose_candidates(pipeline, market.regime)
 
     if not candidates:
@@ -314,7 +338,9 @@ def _run_one_bar(
     pipeline.strategist.update_candidates(candidates)
     try:
         decision: SwitchDecision = pipeline.strategist.consider_switch(
-            market.regime, current_bar=market.bar,
+            market.regime,
+            current_bar=market.bar,
+            regime_confidence=float(getattr(market, "regime_confidence", 1.0) or 1.0),
         )
     except ValueError:
         return (
@@ -359,6 +385,11 @@ def _run_one_bar(
         player=leader,
         pipeline=pipeline,
         bar_index=market.bar,
+        max_new_opens_per_bar=getattr(
+            getattr(pipeline, "live_execution", None),
+            "max_new_opens_per_bar",
+            1,
+        ),
     )
     signals = signal_guard.signals
     if signals:
@@ -368,10 +399,11 @@ def _run_one_bar(
                 trace_id=trace,
                 signal=sig,
             ))
-            pipeline.perf.record_signal(sig)
+            getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
 
     # 7. Execute real signals
     n_filled = n_rejected = n_blocked = 0
+    blocked_reasons: Dict[str, int] = {}
     for sig in signals:
         try:
             res: ExecutionResult = pipeline.executor.execute(
@@ -379,17 +411,27 @@ def _run_one_bar(
             )
         except Exception:
             log.exception("execute failed for signal %d", sig.id)
+            _record_order_failure(pipeline, "execute exception")
             n_rejected += 1
             continue
-        from ..execution import ExecutionStatus
         if res.status == ExecutionStatus.FILLED:
             n_filled += 1
+            _record_order_success(pipeline, sig, res)
             # Update balance (simple): добавляем realized PnL если был close
             # (детальнее — в AttributionLedger; здесь упрощённо)
         elif res.status == ExecutionStatus.REJECTED:
+            _record_order_failure(pipeline, res.reason or "rejected")
+            n_rejected += 1
+        elif res.status == ExecutionStatus.PENDING:
+            _record_order_failure(pipeline, res.reason or "pending")
             n_rejected += 1
         elif res.status == ExecutionStatus.BLOCKED:
             n_blocked += 1
+            reason = res.reason or "blocked"
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+        if _kill_switch_reason(pipeline):
+            break
+    kill_reason_after_execution = _kill_switch_reason(pipeline)
 
     return (
         StepResult(
@@ -408,6 +450,12 @@ def _run_one_bar(
             n_filtered_real_signals=signal_guard.filtered,
             n_stale_close_signals=signal_guard.stale_closes,
             n_duplicate_open_signals=signal_guard.duplicate_opens,
+            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            blocked_reasons=blocked_reasons,
+            error=(
+                f"kill switch active: {kill_reason_after_execution}"
+                if kill_reason_after_execution else None
+            ),
         ),
         signal_id_counter, last_qm_bar, last_regime,
     )
@@ -456,6 +504,162 @@ def _run_shadow_tournament(
     except Exception:
         pass
     return summary
+
+
+def _live_config(pipeline: ProductionPipeline) -> Any:
+    return getattr(pipeline, "live_execution", None)
+
+
+def _kill_state(pipeline: ProductionPipeline) -> Any:
+    return getattr(pipeline, "kill_switch", None)
+
+
+def _set_kill_switch(pipeline: ProductionPipeline, reason: str) -> None:
+    state = _kill_state(pipeline)
+    if state is None or not reason:
+        return
+    if getattr(state, "disabled_reason", ""):
+        return
+    state.disabled_reason = reason
+    log.error("real trading disabled by kill switch: %s", reason)
+
+
+def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
+    state = _kill_state(pipeline)
+    if state is not None and getattr(state, "disabled_reason", ""):
+        return str(state.disabled_reason)
+
+    cfg = _live_config(pipeline)
+    max_daily_loss_pct = float(getattr(cfg, "max_daily_loss_pct", 0.0) or 0.0)
+    if max_daily_loss_pct > 0:
+        initial = float(getattr(pipeline, "initial_capital", 0.0) or 0.0)
+        current = float(getattr(pipeline, "current_balance", 0.0) or 0.0)
+        if initial > 0 and current > 0:
+            floor = initial * (1.0 - max_daily_loss_pct / 100.0)
+            if current <= floor:
+                reason = (
+                    f"max daily loss exceeded: current={current:.2f}, "
+                    f"floor={floor:.2f}"
+                )
+                _set_kill_switch(pipeline, reason)
+                return reason
+    return ""
+
+
+def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
+    cfg = _live_config(pipeline)
+    limit = int(getattr(cfg, "max_exchange_desync_events", 0) or 0)
+    if limit <= 0 or not isinstance(summary, dict):
+        return
+    events = int(summary.get("added", 0) or 0)
+    events += int(summary.get("updated", 0) or 0)
+    events += int(summary.get("removed", 0) or 0)
+    if events <= 0:
+        return
+    state = _kill_state(pipeline)
+    if state is None:
+        return
+    state.exchange_desync_events += events
+    if state.exchange_desync_events >= limit:
+        _set_kill_switch(
+            pipeline,
+            f"exchange desync events {state.exchange_desync_events} >= {limit}",
+        )
+
+
+def _record_stale_feed_poll(pipeline: ProductionPipeline, idle_polls: int) -> None:
+    cfg = _live_config(pipeline)
+    limit = int(getattr(cfg, "max_stale_feed_polls", 0) or 0)
+    state = _kill_state(pipeline)
+    if state is not None:
+        state.stale_feed_polls = int(idle_polls)
+    if limit > 0 and idle_polls >= limit:
+        _set_kill_switch(pipeline, f"stale feed polls {idle_polls} >= {limit}")
+
+
+def _reset_stale_feed(pipeline: ProductionPipeline) -> None:
+    state = _kill_state(pipeline)
+    if state is not None:
+        state.stale_feed_polls = 0
+
+
+def _record_order_success(
+    pipeline: ProductionPipeline,
+    signal: Signal,
+    result: ExecutionResult,
+) -> None:
+    state = _kill_state(pipeline)
+    if state is not None:
+        state.consecutive_failed_orders = 0
+        state.api_error_streak = 0
+
+    cfg = _live_config(pipeline)
+    limit = float(getattr(cfg, "max_slippage_pct", 0.0) or 0.0)
+    slippage_pct = _result_slippage_pct(signal, result)
+    if limit > 0 and slippage_pct is not None and slippage_pct > limit:
+        _set_kill_switch(
+            pipeline,
+            f"excessive slippage {slippage_pct:.4f}% > {limit:.4f}%",
+        )
+
+
+def _record_order_failure(pipeline: ProductionPipeline, reason: str) -> None:
+    state = _kill_state(pipeline)
+    cfg = _live_config(pipeline)
+    if state is None:
+        return
+    state.consecutive_failed_orders += 1
+    if _looks_like_api_error(reason):
+        state.api_error_streak += 1
+
+    failed_limit = int(getattr(cfg, "max_consecutive_failed_orders", 0) or 0)
+    api_limit = int(getattr(cfg, "max_api_error_streak", 0) or 0)
+    if failed_limit > 0 and state.consecutive_failed_orders >= failed_limit:
+        _set_kill_switch(
+            pipeline,
+            (
+                f"consecutive failed orders "
+                f"{state.consecutive_failed_orders} >= {failed_limit}"
+            ),
+        )
+    if api_limit > 0 and state.api_error_streak >= api_limit:
+        _set_kill_switch(
+            pipeline,
+            f"API error storm {state.api_error_streak} >= {api_limit}",
+        )
+
+
+def _result_slippage_pct(
+    signal: Signal,
+    result: ExecutionResult,
+) -> Optional[float]:
+    trade = getattr(result, "trade", None)
+    if trade is None:
+        return None
+    try:
+        expected = float(signal.price)
+        filled = float(trade.fill_price)
+    except (TypeError, ValueError):
+        return None
+    if expected <= 0 or filled <= 0:
+        return None
+    return abs(filled - expected) / expected * 100.0
+
+
+def _looks_like_api_error(reason: str) -> bool:
+    lowered = str(reason or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "api",
+            "exchange error",
+            "exchange exception",
+            "timeout",
+            "rate limit",
+            "connection",
+            "network",
+        )
+    )
 
 
 def _max_existing_signal_id(pipeline: ProductionPipeline) -> int:
