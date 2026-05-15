@@ -17,6 +17,7 @@ class OrderStage(Enum):
     PARTIALLY_FILLED = "partially_filled"
     FILLED = "filled"
     CANCELED = "canceled"
+    TIMED_OUT = "timed_out"
     REJECTED = "rejected"
 
 
@@ -87,6 +88,38 @@ class OrderLedger:
                 OrderStage.PARTIALLY_FILLED,
             }
         ]
+
+    def expire_pending(self, *, max_age_sec: float, now: Optional[datetime] = None) -> list[OrderRecord]:
+        current = now or datetime.now(timezone.utc)
+        expired: list[OrderRecord] = []
+        for record in list(self.pending_records()):
+            age_sec = (current - record.created_at).total_seconds()
+            if age_sec < float(max_age_sec):
+                continue
+            expired.append(self.mark_timed_out(record))
+        return expired
+
+    def mark_timed_out(
+        self,
+        record: OrderRecord,
+        *,
+        message: str = "pending timeout",
+    ) -> OrderRecord:
+        key = record.exchange_order_id or f"signal:{record.signal_id}"
+        updated = OrderRecord(
+            signal_id=record.signal_id,
+            sym=record.sym,
+            action=record.action,
+            stage=OrderStage.TIMED_OUT,
+            exchange_order_id=record.exchange_order_id,
+            message=message,
+            signal=record.signal,
+            trade=record.trade,
+            created_at=record.created_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+        self._records[key] = updated
+        return updated
 
     def snapshot(self) -> dict:
         return {

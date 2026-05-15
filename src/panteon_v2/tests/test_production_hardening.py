@@ -289,6 +289,7 @@ class TestPromotionGate(unittest.TestCase):
 class TestShadowAttribution(unittest.TestCase):
     def test_player_shadow_trade_preserves_agent_contributor(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        from panteon_v2.attribution import EventLog
         from panteon_v2.execution import RiskLimitsConfig
 
         agent = FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})
@@ -329,6 +330,48 @@ class TestShadowAttribution(unittest.TestCase):
         self.assertEqual(perf.get("AgentA", Regime.BULLISH).entries, 2)
         self.assertEqual(perf.get("PlayerA", Regime.BULLISH).entries, 1)
 
+    def test_shadow_agent_failure_emits_event_and_penalizes_actor(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        from panteon_v2.attribution import AgentVoteFailed, EventLog
+        from panteon_v2.execution import RiskLimitsConfig
+        from panteon_v2.selection import AgentRegistry
+
+        class CrashingAgent:
+            label = "BrokenAgent"
+
+            def act(self, market):
+                raise RuntimeError("model exploded")
+
+        registry = AgentRegistry()
+        registry.register(CrashingAgent())
+        perf = PerformanceMemory()
+        event_log = EventLog()
+        tournament = ProductionShadowTournament(
+            registry=registry,
+            perf=perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=event_log,
+        )
+        market = MarketSnapshot(
+            bar=1,
+            timestamp=datetime.now(timezone.utc),
+            regime=Regime.BULLISH,
+            prices={"BTC": 100.0},
+            volumes={"BTC": 1.0},
+        )
+
+        tournament.run_bar(market, players=[], balance_usd=1000.0)
+
+        events = list(event_log.query(event_types=[AgentVoteFailed]))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].agent_label, "BrokenAgent")
+        self.assertIn("model exploded", events[0].reason)
+        metrics = perf.get("BrokenAgent", Regime.BULLISH)
+        self.assertEqual(metrics.losses, 0)
+        self.assertEqual(metrics.pnl_pct, 0.0)
+        self.assertEqual(metrics.rejected_signals, 1)
+        self.assertEqual(metrics.execution_failures, 1)
+
 
 class TestStartupFailClosed(unittest.TestCase):
     def test_live_bridge_failure_fails_closed_without_explicit_fallback(self):
@@ -348,6 +391,23 @@ class TestStartupFailClosed(unittest.TestCase):
                 allow_live_feed_fallback=False,
             )
         )
+
+    def test_live_guardrails_are_resolved_from_settings(self):
+        from panteon_v2.app.startup import _live_execution_config_from_settings
+
+        cfg = _live_execution_config_from_settings({
+            "v2_max_daily_loss_pct": 4.5,
+            "v2_max_slippage_pct": 0.35,
+            "v2_max_api_error_streak": 2,
+            "v2_max_stale_feed_polls": 7,
+            "v2_pending_order_timeout_sec": 90,
+        })
+
+        self.assertEqual(cfg.max_daily_loss_pct, 4.5)
+        self.assertEqual(cfg.max_slippage_pct, 0.35)
+        self.assertEqual(cfg.max_api_error_streak, 2)
+        self.assertEqual(cfg.max_stale_feed_polls, 7)
+        self.assertEqual(cfg.pending_order_timeout_sec, 90)
 
 
 class TestKillSwitches(unittest.TestCase):

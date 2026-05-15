@@ -16,6 +16,12 @@ from .events import (
     RegimeDetected,
     QuarantineRecomputed,
     LeaderSelected,
+    DecisionStarted,
+    CandidateScored,
+    CandidateRejected,
+    ShadowActorUpdated,
+    AgentVoteFailed,
+    PlayerVoteFailed,
     SignalEmitted,
     OrderSent,
     OrderFilled,
@@ -25,7 +31,7 @@ from .events import (
     PositionClosed,
     SymbolBlocked,
 )
-from .event_log import EventLog
+from .event_log import EventLog, EventLogPersistenceError
 from .ledger import Attribution, AttributionLedger
 
 __all__ = [
@@ -36,6 +42,12 @@ __all__ = [
     "RegimeDetected",
     "QuarantineRecomputed",
     "LeaderSelected",
+    "DecisionStarted",
+    "CandidateScored",
+    "CandidateRejected",
+    "ShadowActorUpdated",
+    "AgentVoteFailed",
+    "PlayerVoteFailed",
     "SignalEmitted",
     "OrderSent",
     "OrderFilled",
@@ -46,6 +58,7 @@ __all__ = [
     "SymbolBlocked",
     # Storage
     "EventLog",
+    "EventLogPersistenceError",
     # Ledger
     "Attribution",
     "AttributionLedger",

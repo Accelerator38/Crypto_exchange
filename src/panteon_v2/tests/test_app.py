@@ -23,7 +23,7 @@ from panteon_v2.app import (
 )
 from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.app.main_loop import StepResult
-from panteon_v2.attribution import PositionClosed
+from panteon_v2.attribution import CandidateScored, EventLog, PositionClosed, ShadowActorUpdated
 from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.execution import ExchangePosition, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
@@ -251,6 +251,17 @@ class TestMainLoop(unittest.TestCase):
         events = list(pipeline.event_log.query(event_types=[SignalEmitted]))
         self.assertGreaterEqual(len(events), 1)
 
+    def test_candidate_score_events_emit_full_candidate_list(self):
+        pipeline, feed = self._setup()
+
+        main_loop(pipeline, feed, max_bars=1)
+
+        scored = list(pipeline.event_log.query(event_types=[CandidateScored]))
+        self.assertGreaterEqual(len(scored), 1)
+        self.assertTrue(any(ev.selected_by_pantheon for ev in scored))
+        self.assertTrue(all(ev.decision_id for ev in scored))
+        self.assertTrue(all(ev.memory_keys_read for ev in scored))
+
     def test_shadow_tournament_runs_agents_without_real_leader(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
 
@@ -288,10 +299,12 @@ class TestMainLoop(unittest.TestCase):
         reg = AgentRegistry()
         reg.register(agent)
         perf = PerformanceMemory(trade_fraction=1.0)
+        event_log = EventLog()
         tournament = ProductionShadowTournament(
             registry=reg,
             perf=perf,
             risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=event_log,
         )
         player = EnsemblePlayer(
             label="PlayerA",
@@ -311,6 +324,9 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(summary.player_filled, 1)
         self.assertEqual(perf.get("AgentA", Regime.BULLISH).entries, 2)
         self.assertEqual(perf.get("PlayerA", Regime.BULLISH).entries, 1)
+        shadow_events = list(event_log.query(event_types=[ShadowActorUpdated]))
+        self.assertGreaterEqual(len(shadow_events), 2)
+        self.assertTrue(all(ev.filled >= 1 for ev in shadow_events))
 
     def test_real_exchange_receives_only_selected_leader_not_virtual_actors(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament

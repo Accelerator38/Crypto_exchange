@@ -23,6 +23,10 @@ from typing import Iterable, Iterator, List, Optional, Type, Union
 from .events import Event
 
 
+class EventLogPersistenceError(RuntimeError):
+    """Raised when an EventLog JSONL append cannot be persisted."""
+
+
 class EventLog:
     """Append-only список событий с фильтрацией.
 
@@ -115,11 +119,13 @@ class EventLog:
         """Запись одного события в JSONL (вызывается под self._lock)."""
         try:
             payload = self._event_to_dict(event)
-            with self._jsonl_path.open("a", encoding="utf-8") as f:
+            path = Path(self._jsonl_path)
+            with path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(payload, default=_json_default) + "\n")
-        except Exception:
-            # Не падаем из-за проблем с диском — память остаётся source of truth
-            pass
+        except Exception as exc:
+            raise EventLogPersistenceError(
+                f"failed to append {type(event).__name__} to {self._jsonl_path}: {exc}"
+            ) from exc
 
     @staticmethod
     def _event_to_dict(event: Event) -> dict:

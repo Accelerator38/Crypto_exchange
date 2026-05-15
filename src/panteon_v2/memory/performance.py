@@ -52,6 +52,10 @@ class _LabelRegimeState:
     equity:        float = 1.0
     peak:          float = 1.0
     max_dd_pct:    float = 0.0          # максимальная просадка в %
+    blocked_signals: int = 0
+    rejected_signals: int = 0
+    pending_signals: int = 0
+    execution_failures: int = 0
 
     def snapshot_as_metrics(self) -> Metrics:
         sharpe = _sharpe(self.returns)
@@ -64,6 +68,10 @@ class _LabelRegimeState:
             losses=self.losses,
             sharpe=sharpe,
             max_dd_pct=self.max_dd_pct,
+            blocked_signals=self.blocked_signals,
+            rejected_signals=self.rejected_signals,
+            pending_signals=self.pending_signals,
+            execution_failures=self.execution_failures,
         )
 
 
@@ -158,6 +166,43 @@ class PerformanceMemory:
         # Считаем сигналы для агента и игрока
         for label in self._labels_from_signal(signal):
             self._get_or_create(label, signal.regime).signals += 1
+
+    def record_actor_failure(
+        self,
+        label: str,
+        regime: Regime,
+        *,
+        penalty_pct: float = 0.05,
+    ) -> None:
+        """Record an operational actor failure without mixing it into market PnL."""
+        if not label:
+            return
+        self._record_execution_status(
+            str(label),
+            regime,
+            status="rejected",
+            count_signal=True,
+        )
+
+    def record_execution_outcome(
+        self,
+        signal: Signal,
+        *,
+        status: str,
+        reason: str = "",
+    ) -> None:
+        """Attribute BLOCKED/REJECTED/PENDING separately from market PnL."""
+        normalized = str(status or "").strip().lower()
+        if normalized not in {"blocked", "rejected", "pending"}:
+            return
+        self.record_signal(signal)
+        for label in self._labels_from_signal(signal):
+            self._record_execution_status(
+                label,
+                signal.regime,
+                status=normalized,
+                count_signal=False,
+            )
 
     def update_from_trade(self, trade: Trade, signal: Signal) -> None:
         """Главный entry point. Обновляет метрики на основании trade.
@@ -301,6 +346,25 @@ class PerformanceMemory:
             labels.append(signal.by_player)
         return labels
 
+    def _record_execution_status(
+        self,
+        label: str,
+        regime: Regime,
+        *,
+        status: str,
+        count_signal: bool,
+    ) -> None:
+        state = self._get_or_create(label, regime)
+        if count_signal:
+            state.signals += 1
+        if status == "blocked":
+            state.blocked_signals += 1
+        elif status == "rejected":
+            state.rejected_signals += 1
+        elif status == "pending":
+            state.pending_signals += 1
+        state.execution_failures += 1
+
     def _record_open(
         self,
         label: str,
@@ -374,6 +438,7 @@ class PerformanceMemory:
         """Сумма метрик по всем регимам для одного label."""
         agg_pnl = 0.0
         closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
         all_returns: List[float] = []
         agg_dd = 0.0
         any_data = False
@@ -387,6 +452,10 @@ class PerformanceMemory:
             signals += state.signals
             wins += state.wins
             losses += state.losses
+            blocked += state.blocked_signals
+            rejected += state.rejected_signals
+            pending += state.pending_signals
+            execution_failures += state.execution_failures
             all_returns.extend(state.returns)
             agg_dd = max(agg_dd, state.max_dd_pct)
         if not any_data:
@@ -400,6 +469,10 @@ class PerformanceMemory:
             losses=losses,
             sharpe=_sharpe(all_returns),
             max_dd_pct=agg_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
         )
 
 
@@ -420,6 +493,10 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
         "equity":        s.equity,
         "peak":          s.peak,
         "max_dd_pct":    s.max_dd_pct,
+        "blocked_signals": s.blocked_signals,
+        "rejected_signals": s.rejected_signals,
+        "pending_signals": s.pending_signals,
+        "execution_failures": s.execution_failures,
     }
 
 
@@ -435,6 +512,10 @@ def _state_from_dict(d: dict) -> _LabelRegimeState:
     s.equity        = float(d.get("equity", 1.0))
     s.peak          = float(d.get("peak", 1.0))
     s.max_dd_pct    = float(d.get("max_dd_pct", 0.0))
+    s.blocked_signals = int(d.get("blocked_signals", 0))
+    s.rejected_signals = int(d.get("rejected_signals", 0))
+    s.pending_signals = int(d.get("pending_signals", 0))
+    s.execution_failures = int(d.get("execution_failures", 0))
     return s
 
 

@@ -9,7 +9,9 @@ import unittest
 from panteon_v2.attribution import (
     BarEnded,
     BarStarted,
+    CandidateScored,
     EventLog,
+    EventLogPersistenceError,
     LeaderSelected,
     QuarantineRecomputed,
     RegimeDetected,
@@ -81,6 +83,38 @@ class TestEventLog(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             self.assertIn("BarStarted", lines[0])
             self.assertIn("LeaderSelected", lines[1])
+
+    def test_jsonl_write_failure_is_not_silent(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "events.jsonl")
+            log = EventLog(jsonl_path=path)
+            log._jsonl_path = os.path.join(td, "missing", "events.jsonl")  # type: ignore[attr-defined]
+
+            with self.assertRaises(EventLogPersistenceError):
+                log.emit(BarStarted(bar=1, trace_id="t1"))
+
+    def test_candidate_scored_event_serializes_full_audit_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "events.jsonl")
+            log = EventLog(jsonl_path=path)
+            log.emit(CandidateScored(
+                bar=7,
+                trace_id="decision-7",
+                decision_id="decision-7",
+                player_label="P",
+                rank=1,
+                score=-0.05,
+                score_source="no_data",
+                selected_by_pantheon=True,
+                memory_keys_read=("P|bullish", "A|bullish"),
+                agent_labels=("A",),
+            ))
+
+            with open(path, "r", encoding="utf-8") as f:
+                payload = f.read()
+            self.assertIn("CandidateScored", payload)
+            self.assertIn("memory_keys_read", payload)
+            self.assertIn("selected_by_pantheon", payload)
 
     def test_signal_emitted_event(self):
         log = EventLog()

@@ -30,7 +30,7 @@ from ..selection import AgentRegistry, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import register_all_v1_agents
-from .bootstrap import PRODUCTION_PROFILES, build_production_pipeline
+from .bootstrap import LiveExecutionConfig, PRODUCTION_PROFILES, build_production_pipeline
 from .main_loop import main_loop
 from .migration import (
     load_v2_snapshot,
@@ -151,6 +151,50 @@ def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
         max_live_drawdown_pct=num("player_max_live_drawdown_pct", 100.0),
         min_regime_confidence=num("regime_min_confidence", 0.0),
     )
+
+
+def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
+    def num_any(names: Sequence[str], default: float) -> float:
+        for name in names:
+            if name in settings:
+                try:
+                    return float(settings.get(name))
+                except (TypeError, ValueError):
+                    return float(default)
+        return float(default)
+
+    def int_any(names: Sequence[str], default: int) -> int:
+        return int(num_any(names, float(default)))
+
+    return LiveExecutionConfig(
+        max_new_opens_per_bar=int_any(("v2_max_new_opens_per_bar", "max_new_opens_per_bar"), 1),
+        max_daily_loss_pct=num_any(("v2_max_daily_loss_pct", "max_daily_loss_pct"), 5.0),
+        max_consecutive_failed_orders=int_any(
+            ("v2_max_consecutive_failed_orders", "max_consecutive_failed_orders"),
+            3,
+        ),
+        max_exchange_desync_events=int_any(
+            ("v2_max_exchange_desync_events", "max_exchange_desync_events"),
+            5,
+        ),
+        max_stale_feed_polls=int_any(("v2_max_stale_feed_polls", "max_stale_feed_polls"), 12),
+        max_slippage_pct=num_any(("v2_max_slippage_pct", "max_slippage_pct"), 0.75),
+        max_api_error_streak=int_any(("v2_max_api_error_streak", "max_api_error_streak"), 3),
+        pending_order_timeout_sec=num_any(
+            ("v2_pending_order_timeout_sec", "pending_order_timeout_sec"),
+            180.0,
+        ),
+    )
+
+
+def _resolve_live_execution_config(exchange_name: str) -> LiveExecutionConfig:
+    try:
+        from .exchange_profile import load_exchange_profile
+
+        settings = load_exchange_profile(exchange_name).parsed_settings
+    except Exception:
+        settings = {}
+    return _live_execution_config_from_settings(settings)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -521,8 +565,19 @@ def start_production(
     trade_fraction = _resolve_trade_fraction(exchange)
     risk_config = _risk_config_from_trade_fraction(trade_fraction)
     strategist_config = _resolve_strategist_config(exchange)
+    live_execution_config = _resolve_live_execution_config(exchange)
     log.info("[%s] v2 risk capital_fraction=%.2f%%",
              exchange, risk_config.capital_fraction * 100.0)
+    log.info(
+        "[%s] v2 live guardrails: daily_loss=%.2f%% slippage=%.2f%% "
+        "api_errors=%d stale_polls=%d pending_timeout=%.0fs",
+        exchange,
+        live_execution_config.max_daily_loss_pct,
+        live_execution_config.max_slippage_pct,
+        live_execution_config.max_api_error_streak,
+        live_execution_config.max_stale_feed_polls,
+        live_execution_config.pending_order_timeout_sec,
+    )
 
     # 2. Регистрируем v1-агенты. Они получают актуальный v2 balance.
     registry = AgentRegistry()
@@ -555,6 +610,7 @@ def start_production(
         profiles=profiles or PRODUCTION_PROFILES,
         strategist_config=strategist_config,
         risk_config=risk_config,
+        live_execution_config=live_execution_config,
         perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
     )
@@ -575,6 +631,7 @@ def start_production(
         registry=pipeline.registry,
         perf=pipeline.perf,
         risk_config=risk_config,
+        event_log=pipeline.event_log,
     )
     log.info(
         "[%s] production shadow tournament enabled: agents=%d profiles=%d",
@@ -587,6 +644,11 @@ def start_production(
     if mode != "paper":
         _recover_exchange_positions(pipeline)
         _recover_pending_orders(pipeline)
+        expire = getattr(pipeline.executor, "expire_stale_pending_orders", None)
+        if callable(expire):
+            timed_out = expire(max_age_sec=live_execution_config.pending_order_timeout_sec)
+            if timed_out:
+                log.warning("[%s] timed out %d restored pending order(s)", exchange, timed_out)
 
     writer = OutputWriter.for_session(pipeline, results_root=results_root)
     log.info("Output directory: %s", writer.output_dir)

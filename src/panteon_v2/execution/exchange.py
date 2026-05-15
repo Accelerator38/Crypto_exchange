@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 from ..domain.types import Signal, Trade
 
@@ -129,6 +129,10 @@ class FakeExchange:
         self.name = name
         self._positions: Dict[str, ExchangePosition] = {}
         self._next_orders: Dict[str, List[OrderStatus]] = {}  # forced statuses
+        self._next_pending_plans: Dict[str, List[Tuple[Optional[OrderStatus], int]]] = {}
+        self._pending_plans: Dict[str, Tuple[Optional[OrderStatus], int]] = {}
+        self._pending_poll_counts: Dict[str, int] = {}
+        self._pending_qty: Dict[str, float] = {}
         self._min_notional: Dict[str, float] = {}
         self._slippage: float = 0.0
         self._fee_rate: float = 0.0006
@@ -145,6 +149,25 @@ class FakeExchange:
     def configure_pending(self, sym: str, count: int = 1) -> None:
         self._next_orders.setdefault(sym, []).extend(
             [OrderStatus.PENDING] * count
+        )
+        self._next_pending_plans.setdefault(sym, []).extend(
+            [(None, 0)] * count
+        )
+
+    def configure_pending_fill(self, sym: str, *, after_polls: int = 1, count: int = 1) -> None:
+        self._next_orders.setdefault(sym, []).extend(
+            [OrderStatus.PENDING] * count
+        )
+        self._next_pending_plans.setdefault(sym, []).extend(
+            [(OrderStatus.FILLED, max(1, int(after_polls)))] * count
+        )
+
+    def configure_pending_reject(self, sym: str, *, after_polls: int = 1, count: int = 1) -> None:
+        self._next_orders.setdefault(sym, []).extend(
+            [OrderStatus.PENDING] * count
+        )
+        self._next_pending_plans.setdefault(sym, []).extend(
+            [(OrderStatus.REJECTED, max(1, int(after_polls)))] * count
         )
 
     def set_min_notional(self, sym: str, value: float) -> None:
@@ -177,11 +200,17 @@ class FakeExchange:
             self._orders_log.append(result)
             return result
         if forced == OrderStatus.PENDING:
+            order_id = f"FAKE-PENDING-{signal.id}"
+            plan_queue = self._next_pending_plans.get(signal.sym)
+            plan = plan_queue.pop(0) if plan_queue else (None, 0)
+            self._pending_plans[order_id] = plan
+            self._pending_poll_counts[order_id] = 0
+            self._pending_qty[order_id] = float(qty or 0.0)
             result = OrderResult(
                 status=OrderStatus.PENDING,
                 signal_id=signal.id,
                 sym=signal.sym,
-                exchange_order_id=f"FAKE-PENDING-{signal.id}",
+                exchange_order_id=order_id,
                 message="forced pending (test)",
             )
             self._orders_log.append(result)
@@ -249,6 +278,27 @@ class FakeExchange:
         return float(qty or 0.0)
 
     def poll_order(self, order_id: str, signal: Signal) -> OrderResult:
+        plan = self._pending_plans.get(order_id)
+        if plan is not None:
+            outcome, after_polls = plan
+            self._pending_poll_counts[order_id] = self._pending_poll_counts.get(order_id, 0) + 1
+            if outcome is not None and self._pending_poll_counts[order_id] >= after_polls:
+                if outcome == OrderStatus.REJECTED:
+                    self._pending_plans.pop(order_id, None)
+                    self._pending_poll_counts.pop(order_id, None)
+                    self._pending_qty.pop(order_id, None)
+                    return OrderResult(
+                        status=OrderStatus.REJECTED,
+                        signal_id=signal.id,
+                        sym=signal.sym,
+                        exchange_order_id=order_id,
+                        message="forced pending reject (test)",
+                    )
+                qty = self._pending_qty.get(order_id, 0.0)
+                self._pending_plans.pop(order_id, None)
+                self._pending_poll_counts.pop(order_id, None)
+                self._pending_qty.pop(order_id, None)
+                return self._filled_from_pending(signal, qty=qty, order_id=order_id)
         return OrderResult(
             status=OrderStatus.PENDING,
             signal_id=signal.id,
@@ -256,6 +306,47 @@ class FakeExchange:
             exchange_order_id=order_id,
             message="pending",
         )
+
+    def _filled_from_pending(self, signal: Signal, *, qty: float, order_id: str) -> OrderResult:
+        side = signal.action.side
+        if not side:
+            existing = self._positions.get(signal.sym)
+            side = existing.side if existing is not None else "long"
+
+        fill_price = signal.price * (
+            1.0 + self._slippage if signal.action.is_long_open
+            else 1.0 - self._slippage if signal.action.is_short_open
+            else 1.0
+        )
+        notional = qty * fill_price
+        fee = notional * self._fee_rate
+        trade = Trade(
+            signal_id=signal.id,
+            bar=signal.bar,
+            sym=signal.sym,
+            side=side,
+            qty=qty,
+            fill_price=fill_price,
+            fee=fee,
+            funding=0.0,
+            exchange_order_id=order_id,
+            timestamp=datetime.now(timezone.utc),
+        )
+        if signal.action.is_open:
+            self._positions[signal.sym] = ExchangePosition(
+                sym=signal.sym, side=side, qty=qty, entry=fill_price,
+            )
+        elif signal.action.is_close:
+            self._positions.pop(signal.sym, None)
+        result = OrderResult(
+            status=OrderStatus.FILLED,
+            signal_id=signal.id,
+            sym=signal.sym,
+            exchange_order_id=order_id,
+            trade=trade,
+        )
+        self._orders_log.append(result)
+        return result
 
     def get_position(self, sym: str) -> Optional[ExchangePosition]:
         return self._positions.get(sym)

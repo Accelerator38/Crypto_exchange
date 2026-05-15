@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import FrozenSet, Optional
+from typing import FrozenSet, Optional, Tuple
 
 from ..domain.types import Action, Regime, Signal, Trade
 
@@ -90,6 +90,82 @@ class LeaderSelected(Event):
     margin:        float = 0.0   # на сколько лучше предыдущего
     is_urgent:     bool  = False
     reason:        str   = ""
+    decision_id:   str   = ""
+
+
+@dataclass(frozen=True)
+class DecisionStarted(Event):
+    """Start of a leader-selection decision for forensic reconstruction."""
+
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    candidate_labels: Tuple[str, ...] = ()
+    shadow_total_signals: int = 0
+    shadow_total_filled: int = 0
+    shadow_total_rejected: int = 0
+    shadow_total_blocked: int = 0
+
+
+@dataclass(frozen=True)
+class CandidateScored(Event):
+    """One candidate score row from the full selector candidate list."""
+
+    decision_id: str = ""
+    player_label: str = ""
+    rank: int = 0
+    score: float = 0.0
+    score_source: str = ""
+    selected_by_pantheon: bool = False
+    has_data: bool = False
+    closed_trades: int = 0
+    signals: int = 0
+    execution_failures: int = 0
+    uncertainty_penalty: float = 0.0
+    memory_keys_read: Tuple[str, ...] = ()
+    agent_labels: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CandidateRejected(Event):
+    """Candidate filtered out before scoring."""
+
+    decision_id: str = ""
+    player_label: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ShadowActorUpdated(Event):
+    """Current-bar shadow trading update that fed virtual performance memory."""
+
+    actor_label: str = ""
+    actor_type: str = ""
+    signals: int = 0
+    filled: int = 0
+    rejected: int = 0
+    blocked: int = 0
+
+
+@dataclass(frozen=True)
+class AgentVoteFailed(Event):
+    """Agent failed while producing a vote/action for a bar."""
+
+    player_label: str = ""
+    agent_label:  str = ""
+    reason:       str = ""
+
+
+@dataclass(frozen=True)
+class PlayerVoteFailed(Event):
+    """Player failed while producing real or shadow signals for a bar."""
+
+    player_label: str = ""
+    reason:       str = ""
 
 
 # ────────────────────────────────────────────────────────────────────

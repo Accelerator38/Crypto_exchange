@@ -13,7 +13,7 @@ import logging
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from ..attribution import EventLog
+from ..attribution import AgentVoteFailed, EventLog, PlayerVoteFailed, ShadowActorUpdated
 from ..domain.types import Action, MarketSnapshot, Signal
 from ..execution import (
     ExecutionResult,
@@ -116,12 +116,14 @@ class ProductionShadowTournament:
         perf: PerformanceMemory,
         risk_config: RiskLimitsConfig,
         virtual_balance_floor: float = 1000.0,
+        event_log: Optional[EventLog] = None,
     ) -> None:
         self._source_registry = registry
         self._registry = AgentRegistry()
         self._perf = perf
         self._risk_config = risk_config
         self._balance_floor = float(virtual_balance_floor)
+        self._event_log = event_log
         self._runtimes: Dict[str, _VirtualActorRuntime] = {}
         self._source_agents: Dict[str, Agent] = {}
         self._player_agent_clones: Dict[Tuple[str, str], Agent] = {}
@@ -157,12 +159,20 @@ class ProductionShadowTournament:
         for agent in self._registry.all_agents():
             signals = self._signals_from_agent(agent, market)
             counts["signals"] += len(signals)
+            results = self._runtime(f"agent:{agent.label}").execute_many(
+                signals,
+                balance_usd=balance_usd,
+            )
             _add_execution_counts(
                 counts,
-                self._runtime(f"agent:{agent.label}").execute_many(
-                    signals,
-                    balance_usd=balance_usd,
-                ),
+                results,
+            )
+            self._emit_shadow_actor_updated(
+                market,
+                actor_type="agent",
+                actor_label=agent.label,
+                signals=len(signals),
+                results=results,
             )
         return counts
 
@@ -180,9 +190,11 @@ class ProductionShadowTournament:
                 continue
             try:
                 raw_signals = shadow_player.vote(market, signal_id_start=self._signal_id)
-            except Exception:
+            except Exception as exc:
                 log.debug("shadow player vote failed for %s", player.label, exc_info=True)
+                self._record_player_failure(player.label, market, exc)
                 raw_signals = []
+            self._record_player_agent_failures(player.label, shadow_player, market)
             if raw_signals:
                 self._signal_id = max(signal.id for signal in raw_signals) + 1
             signals = [
@@ -193,20 +205,34 @@ class ProductionShadowTournament:
                 for signal in raw_signals
             ]
             counts["signals"] += len(signals)
+            results = self._runtime(f"player:{player.label}").execute_many(
+                signals,
+                balance_usd=balance_usd,
+            )
             _add_execution_counts(
                 counts,
-                self._runtime(f"player:{player.label}").execute_many(
-                    signals,
-                    balance_usd=balance_usd,
-                ),
+                results,
+            )
+            self._emit_shadow_actor_updated(
+                market,
+                actor_type="player",
+                actor_label=player.label,
+                signals=len(signals),
+                results=results,
             )
         return counts
 
     def _signals_from_agent(self, agent: Agent, market: MarketSnapshot) -> List[Signal]:
         try:
             actions = agent.act(market)
-        except Exception:
+        except Exception as exc:
             log.debug("shadow agent act failed for %s", agent.label, exc_info=True)
+            self._record_agent_failure(
+                player_label="shadow:agent",
+                agent_label=agent.label,
+                market=market,
+                exc=exc,
+            )
             return []
 
         signals: List[Signal] = []
@@ -334,6 +360,100 @@ class ProductionShadowTournament:
             )
             self._runtimes[actor_key] = runtime
         return runtime
+
+    def _record_player_agent_failures(
+        self,
+        player_label: str,
+        player: Player,
+        market: MarketSnapshot,
+    ) -> None:
+        for err in getattr(player, "last_vote_errors", []) or []:
+            label = str(getattr(err, "agent_label", "") or "")
+            reason = str(getattr(err, "reason", "") or "")
+            if not label:
+                continue
+            self._emit_agent_failure(
+                player_label=player_label,
+                agent_label=label,
+                reason=reason,
+                market=market,
+            )
+            self._perf.record_actor_failure(label, market.regime)
+
+    def _record_agent_failure(
+        self,
+        *,
+        player_label: str,
+        agent_label: str,
+        market: MarketSnapshot,
+        exc: Exception,
+    ) -> None:
+        reason = f"{type(exc).__name__}: {exc}"
+        self._emit_agent_failure(
+            player_label=player_label,
+            agent_label=agent_label,
+            reason=reason,
+            market=market,
+        )
+        self._perf.record_actor_failure(agent_label, market.regime)
+
+    def _record_player_failure(
+        self,
+        player_label: str,
+        market: MarketSnapshot,
+        exc: Exception,
+    ) -> None:
+        reason = f"{type(exc).__name__}: {exc}"
+        if self._event_log is not None:
+            self._event_log.emit(PlayerVoteFailed(
+                bar=market.bar,
+                trace_id=f"shadow-{market.bar}",
+                player_label=player_label,
+                reason=reason,
+            ))
+        self._perf.record_actor_failure(player_label, market.regime)
+
+    def _emit_agent_failure(
+        self,
+        *,
+        player_label: str,
+        agent_label: str,
+        reason: str,
+        market: MarketSnapshot,
+    ) -> None:
+        if self._event_log is None:
+            return
+        self._event_log.emit(AgentVoteFailed(
+            bar=market.bar,
+            trace_id=f"shadow-{market.bar}",
+            player_label=player_label,
+            agent_label=agent_label,
+            reason=reason,
+        ))
+
+    def _emit_shadow_actor_updated(
+        self,
+        market: MarketSnapshot,
+        *,
+        actor_type: str,
+        actor_label: str,
+        signals: int,
+        results: Sequence[ExecutionResult],
+    ) -> None:
+        if self._event_log is None:
+            return
+        counts = _empty_counts()
+        _add_execution_counts(counts, results)
+        self._event_log.emit(ShadowActorUpdated(
+            bar=market.bar,
+            trace_id=f"shadow-{market.bar}",
+            actor_type=actor_type,
+            actor_label=actor_label,
+            signals=signals,
+            filled=counts["filled"],
+            rejected=counts["rejected"],
+            blocked=counts["blocked"],
+        ))
 
 
 def _empty_counts() -> Dict[str, int]:

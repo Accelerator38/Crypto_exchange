@@ -140,6 +140,9 @@ class TestEnsemblePlayerVote(unittest.TestCase):
         # выше open_single. Открываем.
         self.assertEqual(len(signals), 1)
         self.assertTrue(signals[0].action.is_long_open)
+        self.assertEqual(len(p.last_vote_errors), 1)
+        self.assertEqual(p.last_vote_errors[0].agent_label, "Crash")
+        self.assertIn("boom", p.last_vote_errors[0].reason)
 
     def test_close_signal(self):
         a = FakeAgent("A", {"BTC": Action.FUT_CLOSE_ALL})
@@ -164,6 +167,26 @@ class TestEnsemblePlayerVote(unittest.TestCase):
         signals = p.vote(market, signal_id_start=1)
         # by_agent должен быть Heavy (больший вес)
         self.assertEqual(signals[0].by_agent, "Heavy")
+
+    def test_signal_records_full_vote_weights_and_actions(self):
+        a1 = FakeAgent("Heavy", {"BTC": Action.FUT_LONG_FULL})
+        a2 = FakeAgent("Light", {"BTC": Action.FUT_LONG_HALF})
+        a3 = FakeAgent("Hold", {"BTC": Action.HOLD})
+        p = EnsemblePlayer(
+            label="T",
+            agents=[a1, a2, a3],
+            weights={"Heavy": 0.5, "Light": 0.3, "Hold": 0.2},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        market = make_market(prices={"BTC": 100.0})
+
+        signal = p.vote(market, signal_id_start=1)[0]
+
+        self.assertEqual(signal.vote_weights, {"Heavy": 0.5, "Light": 0.3, "Hold": 0.2})
+        self.assertEqual(signal.vote_actions["Heavy"], Action.FUT_LONG_FULL)
+        self.assertEqual(signal.vote_actions["Light"], Action.FUT_LONG_HALF)
+        self.assertEqual(signal.vote_actions["Hold"], Action.HOLD)
 
 
 if __name__ == "__main__":

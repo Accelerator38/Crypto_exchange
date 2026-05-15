@@ -15,6 +15,10 @@ from ..execution.exchange import ExchangePosition, OrderResult, OrderStatus
 log = logging.getLogger(__name__)
 
 
+class ExchangeMetadataUnavailable(RuntimeError):
+    """Raised when open-order metadata is unavailable or marked as fallback."""
+
+
 def load_runtime_leverage(exchange_name: Optional[str] = None, default: int = 2) -> int:
     """Best-effort read of the existing v1 leverage setting."""
     try:
@@ -80,6 +84,7 @@ class V1FuturesExchangeAdapter:
         default_min_notional: float = 5.0,
         default_fee_rate: float = 0.0006,
         close_via_place_order: bool = False,
+        fail_closed_on_metadata_error: bool = True,
     ) -> None:
         self.name = name
         self._order_client = order_client
@@ -88,6 +93,7 @@ class V1FuturesExchangeAdapter:
         self._default_min_notional = float(default_min_notional)
         self._default_fee_rate = float(default_fee_rate)
         self._close_via_place_order = bool(close_via_place_order)
+        self._fail_closed_on_metadata_error = bool(fail_closed_on_metadata_error)
         self._pending_orders: Dict[str, _PendingOrderContext] = {}
 
     def send_order(self, signal: Signal, *, qty: float) -> OrderResult:
@@ -115,6 +121,8 @@ class V1FuturesExchangeAdapter:
         return out
 
     def get_min_notional(self, sym: str) -> float:
+        if self._fail_closed_on_metadata_error:
+            self._contract_meta(sym, require_reliable=True)
         for attr in ("BITGET_MIN_NOTIONAL_USDT", "MIN_ORDER_USDT"):
             try:
                 value = getattr(self._order_client, attr)
@@ -161,7 +169,7 @@ class V1FuturesExchangeAdapter:
                     exchange_order_id=order_id,
                     message=f"{self.name} order {order_id} {status_text}",
                 )
-            if self._has_fill_evidence(raw) or status_text in {"filled", "closed", "done", "success"}:
+            if self._is_fill_confirmed(raw):
                 ctx = self._pending_orders.get(order_id)
                 result = self._result_from_raw(
                     signal,
@@ -242,7 +250,10 @@ class V1FuturesExchangeAdapter:
         v1_side: int,
         trade_side: str,
     ) -> OrderResult:
-        vol = self._contracts_for_open_qty(signal.sym, qty)
+        try:
+            vol = self._contracts_for_open_qty(signal.sym, qty)
+        except ExchangeMetadataUnavailable as exc:
+            return self._rejected(signal, f"exchange metadata error: {exc}")
         if vol <= 0:
             return self._rejected(signal, f"qty {qty} is below contract minimum")
         sent_qty = self._qty_for_contracts(signal.sym, vol)
@@ -328,7 +339,10 @@ class V1FuturesExchangeAdapter:
                 sym=signal.sym,
                 message=f"{self.name} accepted order without order id",
             )
-        if not self._has_fill_evidence(raw):
+        status_text = self._extract_status(raw)
+        if status_text in {"rejected", "reject", "failed", "error", "canceled", "cancelled", "expired"}:
+            return self._rejected(signal, f"{self.name} order {order_id} {status_text}")
+        if not self._is_fill_confirmed(raw):
             return OrderResult(
                 status=OrderStatus.PENDING,
                 signal_id=signal.id,
@@ -615,7 +629,7 @@ class V1FuturesExchangeAdapter:
         return self._contracts_for_qty_from_meta(qty, meta, floor_to_min=False)
 
     def _contracts_for_open_qty(self, sym: str, qty: float) -> int:
-        meta = self._contract_meta(sym)
+        meta = self._contract_meta(sym, require_reliable=True)
         return self._contracts_for_qty_from_meta(qty, meta, floor_to_min=True)
 
     def _contracts_for_qty_from_meta(
@@ -657,7 +671,19 @@ class V1FuturesExchangeAdapter:
         return contracts * contract_size
 
     def _actual_qty(self, raw: dict, *, fallback: float) -> float:
-        amount = self._first_float(raw, "amount", "qty", "quantity", default=0.0)
+        amount = self._first_float(
+            raw,
+            "filledQty",
+            "filled_qty",
+            "executedQty",
+            "cumExecQty",
+            "dealVol",
+            "filledAmount",
+            "amount",
+            "qty",
+            "quantity",
+            default=0.0,
+        )
         if amount > 0:
             return amount
         contracts = self._first_float(raw, "contracts", "vol", default=0.0)
@@ -666,6 +692,25 @@ class V1FuturesExchangeAdapter:
             return contracts * size
         return float(fallback)
 
+    @classmethod
+    def _is_fill_confirmed(cls, raw: dict) -> bool:
+        status_text = cls._extract_status(raw)
+        if status_text in {"filled", "closed", "done", "complete", "completed"}:
+            return True
+        if status_text in {
+            "open",
+            "new",
+            "created",
+            "pending",
+            "accepted",
+            "submitted",
+            "partially_filled",
+            "partial",
+            "live",
+        }:
+            return False
+        return cls._has_fill_evidence(raw)
+
     @staticmethod
     def _has_fill_evidence(raw: dict) -> bool:
         for key in (
@@ -673,13 +718,16 @@ class V1FuturesExchangeAdapter:
             "fill_price",
             "avgPrice",
             "average",
-            "amount",
-            "qty",
-            "quantity",
-            "contracts",
-            "vol",
-            "fee",
-            "commission",
+            "dealAvgPrice",
+            "filledAvgPrice",
+            "priceAvg",
+            "executedPrice",
+            "filledQty",
+            "filled_qty",
+            "executedQty",
+            "cumExecQty",
+            "dealVol",
+            "filledAmount",
         ):
             value = raw.get(key)
             if value not in (None, "", 0, "0"):
@@ -689,16 +737,43 @@ class V1FuturesExchangeAdapter:
             return V1FuturesExchangeAdapter._has_fill_evidence(data)
         return False
 
-    def _contract_meta(self, sym: str) -> dict:
+    def _contract_meta(self, sym: str, *, require_reliable: bool = False) -> dict:
         getter = getattr(self._order_client, "_get_contract_meta", None)
+        error: Optional[Exception] = None
         if callable(getter):
             try:
                 meta = getter(self._normalize_symbol(sym))
                 if isinstance(meta, dict):
+                    if require_reliable and self._fail_closed_on_metadata_error:
+                        self._assert_reliable_contract_meta(sym, meta)
                     return meta
-            except Exception:
-                pass
+            except ExchangeMetadataUnavailable:
+                raise
+            except Exception as exc:
+                error = exc
+        if require_reliable and self._fail_closed_on_metadata_error:
+            detail = f": {type(error).__name__}: {error}" if error is not None else ""
+            raise ExchangeMetadataUnavailable(
+                f"{self.name} contract metadata unavailable for {sym}{detail}"
+            )
         return {}
+
+    def _assert_reliable_contract_meta(self, sym: str, meta: dict) -> None:
+        if not meta:
+            raise ExchangeMetadataUnavailable(f"{self.name} empty contract metadata for {sym}")
+        if bool(meta.get("metadataFallback")):
+            raise ExchangeMetadataUnavailable(f"{self.name} fallback contract metadata for {sym}")
+        source = str(meta.get("metadataSource") or "").strip().lower()
+        if source in {"fallback", "default", "synthetic"}:
+            raise ExchangeMetadataUnavailable(f"{self.name} fallback contract metadata for {sym}")
+        if meta.get("apiAllowed") is False:
+            raise ExchangeMetadataUnavailable(f"{self.name} contract API disabled for {sym}")
+        state = meta.get("state")
+        if state not in (None, "", 0, "0", "online", "enabled", "normal", "live", "trading"):
+            raise ExchangeMetadataUnavailable(f"{self.name} contract state {state!r} for {sym}")
+        step = self._first_float(meta, "contractSize", "amountStep", "sizeIncrement", default=0.0)
+        if step <= 0:
+            raise ExchangeMetadataUnavailable(f"{self.name} invalid contract size for {sym}")
 
     @staticmethod
     def _contract_qty_step(meta: dict) -> float:

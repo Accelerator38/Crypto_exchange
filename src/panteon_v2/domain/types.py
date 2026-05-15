@@ -205,6 +205,8 @@ class Signal:
     by_player:  str                                  # имя текущего лидера
     by_agent:   str = ""                             # имя агента-инициатора (если ensemble)
     position_scope: str = ""                         # namespace для real/shadow позиций
+    vote_weights: Dict[str, float] = field(default_factory=dict)
+    vote_actions: Dict[str, Action] = field(default_factory=dict)
     risk_mult:  float = 1.0
     timestamp:  datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -285,6 +287,10 @@ class Metrics:
     losses:         int   = 0
     sharpe:         float = 0.0
     max_dd_pct:     float = 0.0                      # максимальная просадка в %
+    blocked_signals: int = 0
+    rejected_signals: int = 0
+    pending_signals: int = 0
+    execution_failures: int = 0
 
     def __post_init__(self) -> None:
         if self.closed_trades < 0 or self.entries < 0 or self.signals < 0:
@@ -296,6 +302,13 @@ class Metrics:
                 f"wins + losses ({self.wins + self.losses}) > "
                 f"closed_trades ({self.closed_trades}): {self}"
             )
+        if (
+            self.blocked_signals < 0
+            or self.rejected_signals < 0
+            or self.pending_signals < 0
+            or self.execution_failures < 0
+        ):
+            raise ValueError(f"execution counters must be non-negative: {self}")
 
     # ── Computed properties (никакой мутации) ──────────────────────
 
@@ -316,7 +329,12 @@ class Metrics:
     @property
     def has_data(self) -> bool:
         """True если есть хоть какая-то торговая активность."""
-        return self.signals > 0 or self.entries > 0 or self.closed_trades > 0
+        return (
+            self.signals > 0
+            or self.entries > 0
+            or self.closed_trades > 0
+            or self.execution_failures > 0
+        )
 
     # ── Удобный конструктор для тестов и заглушек ──────────────────
 

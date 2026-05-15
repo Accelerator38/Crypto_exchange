@@ -56,6 +56,8 @@ class FakeMexcFuturesClient:
         return {
             "success": True,
             "order_id": f"MEXC-{side}-{vol}",
+            "status": "filled",
+            "avgPrice": 100.0,
             "amount": vol * self._get_contract_meta(symbol)["contractSize"],
             "fee": 0.001,
             "contracts": vol,
@@ -99,6 +101,8 @@ class FakeBitgetFuturesClient:
         return {
             "success": True,
             "order_id": f"BITGET-{side}-{vol}",
+            "status": "filled",
+            "avgPrice": 2000.0,
             "amount": vol * self._get_contract_meta(symbol)["amountStep"],
         }
 
@@ -107,6 +111,8 @@ class FakeBitgetFuturesClient:
         return {
             "success": True,
             "order_id": f"BITGET-CLOSE-{symbol}",
+            "status": "filled",
+            "avgPrice": 2000.0,
             "amount": 0.04,
         }
 
@@ -156,6 +162,68 @@ class TestMexcExchangeAdapter(unittest.TestCase):
         self.assertEqual(result.status, OrderStatus.PENDING)
         self.assertEqual(result.exchange_order_id, "ACK-ONLY")
         self.assertIsNone(result.trade)
+
+    def test_mexc_ack_with_submitted_amount_is_pending_until_fill_is_confirmed(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        class AckWithSubmittedAmountClient(FakeMexcFuturesClient):
+            def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
+                meta = self._get_contract_meta(symbol)
+                self.orders.append(("place_order", symbol, side, vol, leverage))
+                return {
+                    "success": True,
+                    "order_id": "MEXC-ACK-1",
+                    "data": "MEXC-ACK-1",
+                    "contracts": vol,
+                    "contractSize": meta["contractSize"],
+                    "amount": vol * meta["contractSize"],
+                }
+
+        client = AckWithSubmittedAmountClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_LONG_FULL), qty=0.003)
+
+        self.assertEqual(result.status, OrderStatus.PENDING)
+        self.assertEqual(result.exchange_order_id, "MEXC-ACK-1")
+        self.assertIsNone(result.trade)
+
+    def test_mexc_open_fails_closed_on_fallback_contract_metadata(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        class FallbackMetaClient(FakeMexcFuturesClient):
+            def _get_contract_meta(self, symbol: str) -> dict:
+                meta = super()._get_contract_meta(symbol)
+                meta["metadataFallback"] = True
+                meta["metadataSource"] = "fallback"
+                return meta
+
+        client = FallbackMetaClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_LONG_FULL), qty=0.003)
+
+        self.assertEqual(result.status, OrderStatus.REJECTED)
+        self.assertIn("metadata", result.message.lower())
+        self.assertFalse(any(order[0] == "place_order" for order in client.orders))
+
+    def test_mexc_close_all_allows_fallback_contract_metadata(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        class FallbackMetaClient(FakeMexcFuturesClient):
+            def _get_contract_meta(self, symbol: str) -> dict:
+                meta = super()._get_contract_meta(symbol)
+                meta["metadataFallback"] = True
+                meta["metadataSource"] = "fallback"
+                return meta
+
+        client = FallbackMetaClient()
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_CLOSE_ALL), qty=0.002)
+
+        self.assertEqual(result.status, OrderStatus.FILLED)
+        self.assertEqual(client.orders[-1], ("place_order", "BTC", 4, 2, 2))
 
     def test_close_long_maps_to_mexc_close_side(self):
         from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
@@ -219,6 +287,28 @@ class TestBitgetExchangeAdapter(unittest.TestCase):
         self.assertEqual(client.orders[-1], ("close_all", "ETH"))
         self.assertEqual(result.exchange_order_id, "BITGET-CLOSE-ETH")
         self.assertEqual(result.trade.side, "short")
+
+    def test_bitget_open_ack_status_with_submitted_amount_is_pending(self):
+        from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter
+
+        class AckOpenClient(FakeBitgetFuturesClient):
+            def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
+                self.orders.append(("place_order", symbol, side, vol, leverage))
+                return {
+                    "success": True,
+                    "order_id": "BITGET-ACK-1",
+                    "status": "open",
+                    "amount": vol * self._get_contract_meta(symbol)["amountStep"],
+                }
+
+        client = AckOpenClient()
+        adapter = BitgetExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        result = adapter.send_order(_signal(Action.FUT_LONG_FULL, sym="ETH", price=2000.0), qty=0.03)
+
+        self.assertEqual(result.status, OrderStatus.PENDING)
+        self.assertEqual(result.exchange_order_id, "BITGET-ACK-1")
+        self.assertIsNone(result.trade)
 
     def test_reads_bitget_position_shape_and_min_notional(self):
         from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter

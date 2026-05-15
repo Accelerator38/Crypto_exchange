@@ -53,6 +53,12 @@ class Player(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class VoteError:
+    agent_label: str
+    reason: str
+
+
 # ────────────────────────────────────────────────────────────────────
 # EnsemblePlayer
 # ────────────────────────────────────────────────────────────────────
@@ -82,6 +88,7 @@ class EnsemblePlayer:
     voting:       VotingPolicy
     thresholds:   ThresholdProfile
     affinity:     Optional[Regime] = None
+    last_vote_errors: List[VoteError] = field(default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.label:
@@ -118,15 +125,21 @@ class EnsemblePlayer:
         """Сначала собираем голоса всех агентов, потом агрегируем
         через VotingPolicy, затем превращаем в Signal-ы."""
         if not self.agents:
+            self.last_vote_errors = []
             return []
 
+        self.last_vote_errors = []
         votes: Dict[str, Dict[str, Action]] = {}
         for agent in self.agents:
             try:
                 agent_actions = agent.act(market)
-            except Exception:
+            except Exception as exc:
                 # Агент не должен падать в production. Если упал —
                 # его как будто нет в этом баре.
+                self.last_vote_errors.append(VoteError(
+                    agent_label=agent.label,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ))
                 agent_actions = {}
             # Sanitize — только sym из market
             cleaned: Dict[str, Action] = {}
@@ -153,6 +166,14 @@ class EnsemblePlayer:
             # Кто из агентов проголосовал — берём ОДНОГО основного
             # (первого с тем же направлением или с весомым голосом).
             by_agent = self._main_contributor(sym, action, votes)
+            vote_actions = {
+                label: votes.get(label, {}).get(sym, Action.HOLD)
+                for label in self.agent_labels
+            }
+            vote_weights = {
+                label: float(self.weights.get(label, 0.0))
+                for label in self.agent_labels
+            }
             signals.append(Signal(
                 id=sid,
                 bar=market.bar,
@@ -162,6 +183,8 @@ class EnsemblePlayer:
                 regime=market.regime,
                 by_player=self.label,
                 by_agent=by_agent,
+                vote_weights=vote_weights,
+                vote_actions=vote_actions,
                 risk_mult=1.0,
                 timestamp=market.timestamp,
             ))

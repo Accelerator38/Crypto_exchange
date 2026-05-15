@@ -162,6 +162,59 @@ class TestPngRenderer(unittest.TestCase):
         self.assertIn("A:AgentA", labels)
         self.assertNotEqual(labels, ["Players", "Agents"])
 
+    def test_bar_rows_gray_inactive_statuses_and_split_virtual_panteon(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = [
+            ("GoodAgent", {"display_pnl_pct": 1.2, "status": "live"}),
+            ("BadAgent", {"display_pnl_pct": -2.4, "status": "quarantine"}),
+            ("Virtual_Panteon", {"display_pnl_pct": 0.8, "status": "shadow_only"}),
+        ]
+
+        bar_rows, virtual_panteon = png_renderer._split_virtual_panteon(rows)
+        colors = png_renderer._bar_colors_for_rows(bar_rows, fallback_color=png_renderer.BLUE)
+
+        self.assertEqual([name for name, _ in bar_rows], ["GoodAgent", "BadAgent"])
+        self.assertEqual(virtual_panteon, 0.8)
+        self.assertEqual(colors, [png_renderer.GREEN, png_renderer.MUTED])
+
+    def test_panteon_benchmark_draws_virtual_panteon_gray_dashed(self):
+        from panteon_v2.dashboards import png_renderer
+
+        class FakeAxis:
+            def __init__(self):
+                self.lines = []
+                self.texts = []
+                self.xlim = None
+
+            def set_xlim(self, left, right):
+                self.xlim = (left, right)
+
+            def axvline(self, x, **kwargs):
+                self.lines.append((x, kwargs))
+
+            def text(self, x, y, text, **kwargs):
+                self.texts.append((x, y, text, kwargs))
+
+            def get_xaxis_transform(self):
+                return "x-transform"
+
+            def legend(self, **kwargs):
+                pass
+
+        ax = FakeAxis()
+        png_renderer._draw_panteon_benchmark(
+            ax,
+            [1.0, -0.5],
+            panteon_pnl_pct=2.0,
+            virtual_panteon_pnl_pct=0.75,
+        )
+
+        self.assertEqual(ax.lines[0][1]["color"], png_renderer.GOLD)
+        self.assertEqual(ax.lines[1][0], 0.75)
+        self.assertEqual(ax.lines[1][1]["color"], png_renderer.MUTED)
+        self.assertEqual(ax.lines[1][1]["linestyle"], (0, (2, 3)))
+
 
 if __name__ == "__main__":
     unittest.main()

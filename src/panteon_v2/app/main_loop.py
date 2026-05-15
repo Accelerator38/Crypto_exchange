@@ -23,8 +23,13 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from ..attribution import (
+    AgentVoteFailed,
     BarStarted,
+    CandidateRejected,
+    CandidateScored,
+    DecisionStarted,
     LeaderSelected,
+    PlayerVoteFailed,
     QuarantineRecomputed,
     RegimeDetected,
     SignalEmitted,
@@ -271,6 +276,7 @@ def _run_one_bar(
     sync_pipeline_balance(pipeline)
     reconcile_summary = reconcile_tracker_with_exchange(pipeline, bar_index=market.bar)
     _record_exchange_desync(pipeline, reconcile_summary)
+    _expire_stale_pending_orders(pipeline)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
 
     # 1. Регим
@@ -317,6 +323,7 @@ def _run_one_bar(
         )
 
     candidates = _compose_candidates(pipeline, market.regime)
+    decision_id = trace
 
     if not candidates:
         # Никаких eligible — пропускаем bar
@@ -335,6 +342,21 @@ def _run_one_bar(
         )
 
     # 5. Strategist
+    pipeline.event_log.emit(DecisionStarted(
+        bar=market.bar,
+        trace_id=trace,
+        decision_id=decision_id,
+        exchange=str(getattr(pipeline, "exchange_name", "") or ""),
+        timeframe=str(getattr(pipeline, "timeframe", "") or ""),
+        mode=str(getattr(pipeline, "mode", "") or ""),
+        run_id=str(getattr(pipeline, "run_id", "") or ""),
+        session_id=str(getattr(pipeline, "session_id", "") or ""),
+        candidate_labels=tuple(getattr(c, "label", "") for c in candidates),
+        shadow_total_signals=shadow_summary.total_signals,
+        shadow_total_filled=shadow_summary.total_filled,
+        shadow_total_rejected=shadow_summary.total_rejected,
+        shadow_total_blocked=shadow_summary.total_blocked,
+    ))
     pipeline.strategist.update_candidates(candidates)
     try:
         decision: SwitchDecision = pipeline.strategist.consider_switch(
@@ -358,6 +380,14 @@ def _run_one_bar(
             signal_id_counter, last_qm_bar, last_regime,
         )
 
+    _emit_candidate_audit_events(
+        pipeline,
+        market,
+        decision,
+        decision_id=decision_id,
+        trace_id=trace,
+    )
+
     if decision.switched:
         pipeline.event_log.emit(LeaderSelected(
             bar=market.bar, trace_id=trace,
@@ -367,6 +397,7 @@ def _run_one_bar(
             margin=decision.margin,
             is_urgent=decision.is_urgent,
             reason=decision.reason,
+            decision_id=decision_id,
         ))
 
     # 6. Vote → real signals from selected leader only
@@ -377,7 +408,12 @@ def _run_one_bar(
         bar_index=market.bar,
         market_symbols=market.prices.keys(),
     )
-    raw_signals: List[Signal] = leader.vote(market, signal_id_start=signal_id_counter)
+    try:
+        raw_signals = leader.vote(market, signal_id_start=signal_id_counter)
+    except Exception as exc:
+        _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace)
+        raw_signals = []
+    _record_agent_vote_failures(pipeline, market, leader, trace_id=trace)
     if raw_signals:
         signal_id_counter = max(s.id for s in raw_signals) + 1
     signal_guard = filter_real_signals_against_tracker(
@@ -506,6 +542,86 @@ def _run_shadow_tournament(
     return summary
 
 
+def _emit_candidate_audit_events(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    decision: SwitchDecision,
+    *,
+    decision_id: str,
+    trace_id: str,
+) -> None:
+    selected_label = getattr(decision.new_leader, "label", "")
+    for row in getattr(decision, "candidate_scores", ()) or ():
+        pipeline.event_log.emit(CandidateScored(
+            bar=market.bar,
+            trace_id=trace_id,
+            decision_id=decision_id,
+            player_label=row.label,
+            rank=row.rank,
+            score=row.score,
+            score_source=row.score_source,
+            selected_by_pantheon=(row.label == selected_label),
+            has_data=row.has_data,
+            closed_trades=row.closed_trades,
+            signals=row.signals,
+            execution_failures=row.execution_failures,
+            uncertainty_penalty=row.uncertainty_penalty,
+            memory_keys_read=row.memory_keys_read,
+            agent_labels=row.agent_labels,
+        ))
+    for row in getattr(decision, "candidate_rejections", ()) or ():
+        pipeline.event_log.emit(CandidateRejected(
+            bar=market.bar,
+            trace_id=trace_id,
+            decision_id=decision_id,
+            player_label=row.label,
+            reason=row.reason,
+        ))
+
+
+def _record_agent_vote_failures(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    player: EnsemblePlayer,
+    *,
+    trace_id: str,
+) -> int:
+    count = 0
+    for err in getattr(player, "last_vote_errors", []) or []:
+        label = str(getattr(err, "agent_label", "") or "")
+        reason = str(getattr(err, "reason", "") or "")
+        if not label:
+            continue
+        pipeline.event_log.emit(AgentVoteFailed(
+            bar=market.bar,
+            trace_id=trace_id,
+            player_label=getattr(player, "label", ""),
+            agent_label=label,
+            reason=reason,
+        ))
+        getattr(pipeline, "real_perf", pipeline.perf).record_actor_failure(label, market.regime)
+        count += 1
+    return count
+
+
+def _record_player_vote_failure(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    player_label: str,
+    exc: Exception,
+    *,
+    trace_id: str,
+) -> None:
+    reason = f"{type(exc).__name__}: {exc}"
+    pipeline.event_log.emit(PlayerVoteFailed(
+        bar=market.bar,
+        trace_id=trace_id,
+        player_label=player_label,
+        reason=reason,
+    ))
+    getattr(pipeline, "real_perf", pipeline.perf).record_actor_failure(player_label, market.regime)
+
+
 def _live_config(pipeline: ProductionPipeline) -> Any:
     return getattr(pipeline, "live_execution", None)
 
@@ -565,6 +681,21 @@ def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
             pipeline,
             f"exchange desync events {state.exchange_desync_events} >= {limit}",
         )
+
+
+def _expire_stale_pending_orders(pipeline: ProductionPipeline) -> int:
+    cfg = _live_config(pipeline)
+    timeout = float(getattr(cfg, "pending_order_timeout_sec", 0.0) or 0.0)
+    if timeout <= 0:
+        return 0
+    expire = getattr(getattr(pipeline, "executor", None), "expire_stale_pending_orders", None)
+    if not callable(expire):
+        return 0
+    try:
+        return int(expire(max_age_sec=timeout) or 0)
+    except Exception:
+        log.exception("pending order timeout sweep failed")
+        return 0
 
 
 def _record_stale_feed_poll(pipeline: ProductionPipeline, idle_polls: int) -> None:
@@ -654,6 +785,7 @@ def _looks_like_api_error(reason: str) -> bool:
             "api",
             "exchange error",
             "exchange exception",
+            "exchange metadata",
             "timeout",
             "rate limit",
             "connection",

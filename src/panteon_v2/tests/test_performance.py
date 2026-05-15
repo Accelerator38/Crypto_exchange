@@ -71,6 +71,25 @@ class TestPerformanceMemoryBasic(unittest.TestCase):
         with self.assertRaises(ValueError):
             perf.update_from_trade(bad_trade, sig)
 
+    def test_actor_failure_is_visible_to_scoring_metrics(self):
+        perf = PerformanceMemory()
+
+        perf.record_execution_outcome(
+            _open_signal(1, "BTC", Regime.BULLISH, by_agent="BrokenAgent", by_player="BrokenPlayer"),
+            status="rejected",
+            reason="exchange rejected",
+        )
+
+        metrics = perf.get("BrokenAgent", Regime.BULLISH)
+        self.assertEqual(metrics.signals, 1)
+        self.assertEqual(metrics.closed_trades, 0)
+        self.assertEqual(metrics.losses, 0)
+        self.assertAlmostEqual(metrics.pnl_pct, 0.0)
+        self.assertEqual(metrics.rejected_signals, 1)
+        self.assertEqual(metrics.execution_failures, 1)
+        player_metrics = perf.get("BrokenPlayer", Regime.BULLISH)
+        self.assertEqual(player_metrics.rejected_signals, 1)
+
 
 class TestPerformanceMemoryOpenClose(unittest.TestCase):
     def test_long_winning_trade(self):

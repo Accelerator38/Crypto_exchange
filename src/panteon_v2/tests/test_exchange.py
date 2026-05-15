@@ -72,6 +72,30 @@ class TestFakeExchange(unittest.TestCase):
         self.assertIn("FAKE-PENDING", result.exchange_order_id)
         self.assertIsNone(result.trade)
 
+    def test_pending_can_fill_on_poll(self):
+        ex = FakeExchange()
+        ex.configure_pending_fill("BTC", after_polls=1)
+        sig = _make_signal()
+
+        pending = ex.send_order(sig, qty=0.1)
+        filled = ex.poll_order(pending.exchange_order_id, sig)
+
+        self.assertEqual(pending.status, OrderStatus.PENDING)
+        self.assertEqual(filled.status, OrderStatus.FILLED)
+        self.assertIsNotNone(ex.get_position("BTC"))
+
+    def test_pending_can_reject_on_poll(self):
+        ex = FakeExchange()
+        ex.configure_pending_reject("BTC", after_polls=1)
+        sig = _make_signal()
+
+        pending = ex.send_order(sig, qty=0.1)
+        rejected = ex.poll_order(pending.exchange_order_id, sig)
+
+        self.assertEqual(pending.status, OrderStatus.PENDING)
+        self.assertEqual(rejected.status, OrderStatus.REJECTED)
+        self.assertIsNone(rejected.trade)
+
     def test_slippage_long(self):
         ex = FakeExchange()
         ex.set_slippage_pct(0.001)  # 0.1%

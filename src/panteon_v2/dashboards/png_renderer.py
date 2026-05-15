@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Mapping, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 
 DARK = "#0D1117"
@@ -16,6 +16,7 @@ RED = "#F85149"
 BLUE = "#58A6FF"
 GOLD = "#F0C040"
 PURPLE = "#BC8CFF"
+INACTIVE_STATUSES = frozenset({"quarantine", "shadow_only", "purgatory"})
 
 
 def write_operator_pngs(
@@ -198,20 +199,28 @@ def _draw_barh(
     benchmark: bool = True,
 ) -> None:
     _style_ax(ax, title)
-    if not rows:
+    rows, virtual_panteon_pnl_pct = _split_virtual_panteon(rows)
+    if not rows and virtual_panteon_pnl_pct is None:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "No data yet", transform=ax.transAxes,
                 ha="center", va="center", color=MUTED, fontsize=11)
         return
-    labels = [_short(name) for name, _ in rows]
-    values = [float(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)) or 0.0) for _, data in rows]
-    colors = [GREEN if value >= 0 else RED for value in values]
-    if all(abs(value) < 1e-12 for value in values):
-        colors = [color for _ in values]
-    ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
+    labels = [
+        _short(name) + (" [Q]" if _is_inactive_status(data.get("status")) else "")
+        for name, data in rows
+    ]
+    values = [_row_pnl_value(data) for _, data in rows]
+    colors = _bar_colors_for_rows(rows, fallback_color=color)
+    if rows:
+        ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
     ax.axvline(0, color=GRID, linewidth=0.8)
     if benchmark:
-        _draw_panteon_benchmark(ax, values, panteon_pnl_pct)
+        _draw_panteon_benchmark(
+            ax,
+            values,
+            panteon_pnl_pct,
+            virtual_panteon_pnl_pct=virtual_panteon_pnl_pct,
+        )
     source = next(
         (str(data.get("display_pnl_source")) for _, data in rows
          if data.get("display_pnl_source")),
@@ -221,6 +230,52 @@ def _draw_barh(
     ax.set_xlabel(x_label or default_label, color=MUTED, fontsize=8)
     for idx, value in enumerate(values[::-1]):
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
+
+
+def _is_inactive_status(status: object) -> bool:
+    return str(status or "").strip().lower() in INACTIVE_STATUSES
+
+
+def _is_virtual_panteon_name(name: object) -> bool:
+    text = str(name or "").strip()
+    if text.startswith("V_"):
+        text = text[2:]
+    return text == "Virtual_Panteon"
+
+
+def _row_pnl_value(data: Mapping[str, object]) -> float:
+    return _float_value(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)))
+
+
+def _split_virtual_panteon(
+    rows: List[Tuple[str, dict]],
+) -> Tuple[List[Tuple[str, dict]], Optional[float]]:
+    bar_rows: List[Tuple[str, dict]] = []
+    virtual_panteon_pnl_pct: Optional[float] = None
+    for name, data in rows:
+        if _is_virtual_panteon_name(name):
+            virtual_panteon_pnl_pct = _row_pnl_value(data)
+            continue
+        bar_rows.append((name, data))
+    return bar_rows, virtual_panteon_pnl_pct
+
+
+def _bar_colors_for_rows(rows: List[Tuple[str, dict]], *, fallback_color: str) -> List[str]:
+    values = [_row_pnl_value(data) for _, data in rows]
+    all_flat = bool(values) and all(abs(value) < 1e-12 for value in values)
+    colors = []
+    for value, (_, data) in zip(values, rows):
+        if _is_inactive_status(data.get("status")):
+            colors.append(MUTED)
+        elif all_flat:
+            colors.append(fallback_color)
+        elif value > 0:
+            colors.append(GREEN)
+        elif value < 0:
+            colors.append(RED)
+        else:
+            colors.append(MUTED)
+    return colors
 
 
 def _render_leaderboard(
@@ -564,11 +619,22 @@ def _draw_equity_curves(
         curve = _equity_curve(data)
         if len(curve) < 2:
             continue
-        color = palette(idx % 20) if palette is not None else fallback_color
-        lw = 1.7 if plotted < 4 else 0.9
-        alpha = 0.9 if plotted < 4 else 0.35
-        label = f"{_short(name, 16)} {_pct(data.get('display_pnl_pct', data.get('pnl_pct', 0.0)))}" if plotted < 6 else None
-        ax.plot(range(len(curve)), curve, color=color, linewidth=lw, alpha=alpha, label=label)
+        is_virtual_panteon = _is_virtual_panteon_name(name)
+        color = MUTED if is_virtual_panteon else (
+            palette(idx % 20) if palette is not None else fallback_color
+        )
+        lw = 2.1 if is_virtual_panteon else (1.7 if plotted < 4 else 0.9)
+        alpha = 0.95 if is_virtual_panteon else (0.9 if plotted < 4 else 0.35)
+        label = (
+            f"Virtual_Panteon {_pct(data.get('display_pnl_pct', data.get('pnl_pct', 0.0)))}"
+            if is_virtual_panteon
+            else f"{_short(name, 16)} {_pct(data.get('display_pnl_pct', data.get('pnl_pct', 0.0)))}"
+            if plotted < 6
+            else None
+        )
+        linestyle = (0, (2, 3)) if is_virtual_panteon else "-"
+        ax.plot(range(len(curve)), curve, color=color, linewidth=lw,
+                alpha=alpha, linestyle=linestyle, label=label)
         plotted += 1
     if plotted == 0:
         ax.text(0.5, 0.5, "No equity history yet", transform=ax.transAxes,
@@ -631,9 +697,17 @@ def _panteon_pnl_pct(status: Mapping[str, object]) -> float:
     return 0.0
 
 
-def _draw_panteon_benchmark(ax, shadow_values: Iterable[float], panteon_pnl_pct: float) -> None:
+def _draw_panteon_benchmark(
+    ax,
+    shadow_values: Iterable[float],
+    panteon_pnl_pct: float,
+    *,
+    virtual_panteon_pnl_pct: Optional[float] = None,
+) -> None:
     values = list(shadow_values)
     all_values = values + [panteon_pnl_pct, 0.0]
+    if virtual_panteon_pnl_pct is not None:
+        all_values.append(virtual_panteon_pnl_pct)
     min_x = min(all_values)
     max_x = max(all_values)
     span = max(max_x - min_x, 1.0)
@@ -658,6 +732,25 @@ def _draw_panteon_benchmark(ax, shadow_values: Iterable[float], panteon_pnl_pct:
         va="top",
         fontweight="bold",
     )
+    if virtual_panteon_pnl_pct is not None:
+        ax.axvline(
+            virtual_panteon_pnl_pct,
+            color=MUTED,
+            linestyle=(0, (2, 3)),
+            linewidth=1.8,
+            label=f"Virtual_Panteon {_pct(virtual_panteon_pnl_pct)}",
+            zorder=4,
+        )
+        ax.text(
+            virtual_panteon_pnl_pct,
+            0.88,
+            f" Virtual_Panteon {_pct(virtual_panteon_pnl_pct)}",
+            transform=ax.get_xaxis_transform(),
+            color=MUTED,
+            fontsize=8,
+            ha="left",
+            va="top",
+        )
     ax.legend(loc="lower right", frameon=False, labelcolor=TEXT, fontsize=8)
 
 

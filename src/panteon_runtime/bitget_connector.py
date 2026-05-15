@@ -427,6 +427,8 @@ class BitgetFuturesClient:
             "takerFeeRate": float(market.get("taker", 0.0006) or 0.0006),
             "apiAllowed": bool(market.get("active", True)),
             "state": 0 if market.get("active", True) else 1,
+            "metadataFallback": False,
+            "metadataSource": "exchange",
         }
         self._contract_meta_cache[symbol] = meta
         return meta

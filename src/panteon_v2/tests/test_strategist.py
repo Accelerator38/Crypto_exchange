@@ -54,6 +54,26 @@ class TestStrategistBootstrap(unittest.TestCase):
         with self.assertRaises(ValueError):
             st.consider_switch(Regime.BULLISH, current_bar=1)
 
+    def test_zero_score_candidates_are_penalized_and_ranked_deterministically(self):
+        perf = PerformanceMemory()
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[
+                _make_player("Zeta", ["Z"]),
+                _make_player("Alpha", ["A"]),
+            ],
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "Alpha")
+        self.assertLess(decision.score, 0.0)
+        self.assertEqual([row.label for row in decision.candidate_scores], ["Alpha", "Zeta"])
+        self.assertTrue(all(row.score_source == "no_data" for row in decision.candidate_scores))
+        self.assertTrue(all(row.uncertainty_penalty > 0 for row in decision.candidate_scores))
+
 
 class TestStrategistQuarantineFilter(unittest.TestCase):
     def test_quarantined_player_disqualified(self):

@@ -41,6 +41,11 @@ from typing import Dict, List, Optional, Tuple
 from env_bootstrap import load_local_env
 from exchange_registry import load_exchange_runtime
 from project_paths import PROJECT_ROOT, RUNTIME_DIR, add_runtime_paths
+from virtual_panteon import (
+    VIRTUAL_PANTEON_NAME,
+    VirtualPanteonMirror,
+    is_virtual_panteon_name,
+)
 
 
 def _bootstrap_project_paths():
@@ -1200,6 +1205,18 @@ def _create_shadow_players(initial_capital: float) -> Dict[str, tuple]:
     return players
 
 
+def _attach_virtual_panteon_shadow(shadow_players: Dict[str, tuple],
+                                   source,
+                                   initial_capital: float) -> None:
+    """Attach a virtual mirror of the real Panteon planned actions."""
+    if shadow_players is None or VIRTUAL_PANTEON_NAME in shadow_players:
+        return
+    shadow_players[VIRTUAL_PANTEON_NAME] = (
+        VirtualPanteonMirror(source),
+        VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE),
+    )
+
+
 class EnhancedSignalCapture:
     """
     Обёртка для реального Panteon с расширенным логированием.
@@ -1219,6 +1236,10 @@ class EnhancedSignalCapture:
         self._label = type(inner).__name__
         self._warmup_end = 0
         self._capture_enabled = False
+        self._last_actions = {}
+        self._last_actions_bar = -1
+        self._last_risk_multipliers = {}
+        self._last_regime = "neutral"
 
     def __getattr__(self, item):
         return getattr(self._inner, item)
@@ -1286,6 +1307,11 @@ class EnhancedSignalCapture:
                 )
 
         # Логируем каждый ненулевой сигнал
+        self._last_actions = dict(acts or {})
+        self._last_actions_bar = int(bar_index or 0)
+        self._last_risk_multipliers = dict(_risk_multipliers or {})
+        self._last_regime = str(_regime or "neutral")
+
         if acts:
             n_active = sum(1 for a in acts.values() if a and a != 0)
             if n_active > 0:
@@ -1547,7 +1573,9 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
         return list(range(eq_len))
 
     # Ранжируем по P&L%
-    ranked = sorted(vp_map.items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+    ranked_all = sorted(vp_map.items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+    virtual_ranked = [(name, vp) for name, vp in ranked_all if is_virtual_panteon_name(name)]
+    ranked = [(name, vp) for name, vp in ranked_all if not is_virtual_panteon_name(name)]
     real_ic = float(getattr(stats, 'initial_capital', 0.0) or 0.0)
     real_pnl = ((real_bar_eq[-1] / real_ic) - 1.0) * 100.0 if real_bar_eq and real_ic > 0 else (
         stats.pnl_pct if hasattr(stats, 'pnl_pct') else 0.0
@@ -1571,13 +1599,21 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
         ax_eq.plot(_shadow_x(len(eq)), eq, color=palette[i % 20],
                    alpha=alpha, lw=lw, label=label)
 
+    for name, vp in virtual_ranked[:1]:
+        eq = _repair_curve_spikes(vp.equity_history)
+        if len(eq) >= 2:
+            ax_eq.plot(_shadow_x(len(eq)), eq, color=GRY, lw=2.3,
+                       alpha=0.95, linestyle=(0, (2, 3)),
+                       label=f'Virtual_Panteon ({vp.pnl_pct:+.1f}%)')
+
     # Реальный агент
     if real_bar_eq:
         ax_eq.plot(real_bar_x, real_bar_eq,
                    color=YLW, lw=2.5, alpha=1.0, linestyle='--',
                    label=f'★ REAL ({real_pnl:+.1f}%)')
 
-    ic = ranked[0][1].initial_capital if ranked else 100
+    ic_source = ranked or virtual_ranked
+    ic = ic_source[0][1].initial_capital if ic_source else 100
     ax_eq.axhline(ic, color=WHT, lw=0.8, alpha=0.3, linestyle=':')
     ax_eq.set_ylabel('Equity ($)', color=GRY, fontsize=8)
     ax_eq.set_xlabel('Bar', color=GRY, fontsize=8)
@@ -1623,6 +1659,11 @@ def save_shadow_dashboard(vp_map: Dict[str, 'VirtualPortfolio'],
     # Линия реального агента
     ax_bar.axvline(real_pnl, color=YLW, lw=2, linestyle='--',
                    label=f'REAL {real_pnl:+.1f}%')
+    if virtual_ranked:
+        vp = virtual_ranked[0][1]
+        ax_bar.axvline(vp.pnl_pct, color=GRY, lw=1.8,
+                       linestyle=(0, (2, 3)),
+                       label=f'Virtual_Panteon {vp.pnl_pct:+.1f}%')
     ax_bar.axvline(0, color=WHT, lw=0.5, alpha=0.4)
     ax_bar.set_yticks(y_pos)
     ax_bar.set_yticklabels(names, fontsize=6.5, color=WHT)
@@ -2012,7 +2053,9 @@ def save_combined_shadow_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
                         ha='center', va='center', color=GRY, fontsize=11)
             return
 
-        ranked = sorted(vp_map.items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+        ranked_all = sorted(vp_map.items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+        virtual_ranked = [(name, vp) for name, vp in ranked_all if is_virtual_panteon_name(name)]
+        ranked = [(name, vp) for name, vp in ranked_all if not is_virtual_panteon_name(name)]
         palette = plt.cm.tab20(np.linspace(0, 1, max(len(ranked), 1)))
         for idx, (name, vp) in enumerate(ranked[:18]):
             eq = _repair_curve(getattr(vp, 'equity_history', []) or [])
@@ -2023,10 +2066,18 @@ def save_combined_shadow_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
                        lw=1.8 if idx < 4 else 0.9,
                        alpha=0.9 if idx < 4 else 0.35,
                        label=label)
+        for name, vp in virtual_ranked[:1]:
+            eq = _repair_curve(getattr(vp, 'equity_history', []) or [])
+            if len(eq) < 2:
+                continue
+            ax_eq.plot(_curve_x(len(eq)), eq, color=GRY, lw=2.2,
+                       alpha=0.95, linestyle=(0, (2, 3)),
+                       label=f'Virtual_Panteon ({vp.pnl_pct:+.1f}%)')
         if real_eq:
             ax_eq.plot(real_x, real_eq, color=YLW, lw=2.4, alpha=1.0,
                        linestyle='--', label=f'REAL ({real_pnl:+.1f}%)')
-        ic = ranked[0][1].initial_capital if ranked else real_ic or 100.0
+        ic_source = ranked or virtual_ranked
+        ic = ic_source[0][1].initial_capital if ic_source else real_ic or 100.0
         ax_eq.axhline(ic, color=WHT, lw=0.8, alpha=0.28, linestyle=':')
         ax_eq.set_ylabel('Equity ($)', color=GRY, fontsize=8)
         ax_eq.set_xlabel('Bar', color=GRY, fontsize=8)
@@ -2059,6 +2110,11 @@ def save_combined_shadow_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
         ax_rank.axvline(0, color=WHT, lw=0.6, alpha=0.45)
         ax_rank.axvline(real_pnl, color=YLW, lw=2, linestyle='--',
                         label=f'REAL {real_pnl:+.1f}%')
+        if virtual_ranked:
+            vp = virtual_ranked[0][1]
+            ax_rank.axvline(vp.pnl_pct, color=GRY, lw=1.8,
+                            linestyle=(0, (2, 3)),
+                            label=f'Virtual_Panteon {vp.pnl_pct:+.1f}%')
         ax_rank.set_yticks(y_pos)
         ax_rank.set_yticklabels(labels, fontsize=6.7, color=WHT)
         try:
@@ -2211,8 +2267,10 @@ def save_combined_regime_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
 
     def _draw_equity(ax, title: str, vp_map: Dict[str, 'VirtualPortfolio']):
         _style(ax, title)
-        ranked = sorted((vp_map or {}).items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
-        if not ranked:
+        ranked_all = sorted((vp_map or {}).items(), key=lambda kv: kv[1].pnl_pct, reverse=True)
+        virtual_ranked = [(name, vp) for name, vp in ranked_all if is_virtual_panteon_name(name)]
+        ranked = [(name, vp) for name, vp in ranked_all if not is_virtual_panteon_name(name)]
+        if not ranked and not virtual_ranked:
             ax.text(0.5, 0.5, 'No equity history yet', transform=ax.transAxes,
                     ha='center', va='center', color=GRY, fontsize=11)
             return
@@ -2233,11 +2291,25 @@ def save_combined_regime_dashboard(agent_vp_map: Dict[str, 'VirtualPortfolio'],
                     alpha=0.9 if plotted < 4 else 0.35,
                     label=label)
             plotted += 1
+        for name, vp in virtual_ranked[:1]:
+            eq = []
+            for value in list(getattr(vp, 'equity_history', []) or []):
+                try:
+                    eq.append(float(value))
+                except Exception:
+                    continue
+            if len(eq) < 2:
+                continue
+            ax.plot(range(len(eq)), eq, color=GRY, lw=2.2,
+                    alpha=0.95, linestyle=(0, (2, 3)),
+                    label=f'Virtual_Panteon ({vp.pnl_pct:+.1f}%)')
+            plotted += 1
         if plotted == 0:
             ax.text(0.5, 0.5, 'No equity history yet', transform=ax.transAxes,
                     ha='center', va='center', color=GRY, fontsize=11)
             return
-        first_ic = float(getattr(ranked[0][1], 'initial_capital', 0.0) or 0.0)
+        ic_source = ranked or virtual_ranked
+        first_ic = float(getattr(ic_source[0][1], 'initial_capital', 0.0) or 0.0)
         if first_ic > 0:
             ax.axhline(first_ic, color=WHT, lw=0.8, alpha=0.28, linestyle=':')
         ax.set_xlabel('Bar', color=GRY, fontsize=8)
@@ -2918,6 +2990,11 @@ class ComboMonitorThread(threading.Thread):
         quarantine снимается, и участник возвращается к live-выбору.
         """
         try:
+            if is_virtual_panteon_name(name):
+                return {
+                    "status": "shadow_only",
+                    "status_reason": "virtual mirror of real Panteon planned actions",
+                }
             inner = self._get_panteon_inner()
             label_clean = name.replace("V_", "")
             per_regime = self._per_regime_summary(vp) if vp is not None else {}
@@ -3364,6 +3441,17 @@ def _orphan_position_guardian(real_player, prices: dict, futures_client,
 # ОБЁРТКА BRIDGE._run_cycle ДЛЯ SHADOW-АГЕНТОВ
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _split_virtual_panteon_shadows(shadows: Optional[Dict[str, tuple]]):
+    regular = OrderedDict()
+    virtual = OrderedDict()
+    for name, item in (shadows or {}).items():
+        if is_virtual_panteon_name(name):
+            virtual[name] = item
+        else:
+            regular[name] = item
+    return regular, virtual
+
+
 def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tracker,
                               real_player=None, shadow_players=None):
     """
@@ -3453,8 +3541,9 @@ def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tra
             )
             _publish_agent_perf(prices)
             if shadow_players:
+                prefetch_players, _virtual_players = _split_virtual_panteon_shadows(shadow_players)
                 player_actions = run_shadow_tick(
-                    shadow_players, prices, volumes,
+                    prefetch_players, prices, volumes,
                     bar, live_bar, month,
                     csv_logger, agreement, regime,
                 )
@@ -3514,6 +3603,14 @@ def _patch_bridge_for_shadows(bridge, shadows, csv_logger, agreement, regime_tra
                     csv_logger, agreement, regime,
                 )
                 _publish_player_perf(prices)
+        elif shadow_players:
+            _regular_players, virtual_players = _split_virtual_panteon_shadows(shadow_players)
+            if virtual_players:
+                run_shadow_tick(
+                    virtual_players, prices, volumes,
+                    bar, live_bar, month,
+                    csv_logger, agreement, regime,
+                )
 
         # Flush agreement tracker
         agreement.flush_tick()
@@ -3757,10 +3854,15 @@ def _instantiate_real_player_by_name(player_name: str):
     return player_cls()
 
 
-def _build_shadow_perf_from_shadows(shadows: Dict[str, tuple], prices: Optional[dict] = None) -> Dict[str, dict]:
+def _build_shadow_perf_from_shadows(shadows: Dict[str, tuple],
+                                    prices: Optional[dict] = None,
+                                    *,
+                                    include_virtual_panteon: bool = False) -> Dict[str, dict]:
     prices = prices or {}
     perf = {}
     for name, (_, vp) in shadows.items():
+        if is_virtual_panteon_name(name) and not include_virtual_panteon:
+            continue
         perf[name] = {
             'pnl_pct': vp.pnl_pct,
             'win_rate': vp.win_rate,
@@ -4016,6 +4118,7 @@ def main():
     log.info("\n  👻 Создаём shadow-агентов (виртуальная торговля)...")
     shadows = _create_shadow_agents(detected_capital)
     shadow_players = _create_shadow_players(detected_capital)
+    _attach_virtual_panteon_shadow(shadow_players, capturing_agent, detected_capital)
 
     # ── Bridge ─────────────────────────────────────────────────────────────
     bridge_cls = _resolve_bridge_class(mc)

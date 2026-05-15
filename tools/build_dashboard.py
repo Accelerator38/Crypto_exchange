@@ -120,6 +120,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .pos { color: #76e6a3; }
   .neg { color: #ff7986; }
   .muted { color: #8c9bb1; }
+  tbody tr.inactive-row td,
+  tbody tr.inactive-row .pos,
+  tbody tr.inactive-row .neg { color: #8c9bb1; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
   th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid #1d2837; }
   th:first-child, td:first-child { text-align: left; }
@@ -190,7 +193,13 @@ function pill(status) {
   return `<span class="pill ${cls}">${s}</span>`;
 }
 
-function pnlCls(v) {
+function isInactiveStatus(status) {
+  const s = String(status || "").toLowerCase();
+  return ["quarantine", "shadow_only", "purgatory"].includes(s);
+}
+
+function pnlCls(v, status) {
+  if (isInactiveStatus(status)) return "muted";
   v = parseFloat(v) || 0;
   return v > 0.05 ? "pos" : v < -0.05 ? "neg" : "muted";
 }
@@ -291,12 +300,12 @@ function buildTable(kind, session) {
     };
   });
   tbl.querySelector("tbody").innerHTML = filtered.map(r => {
-    return `<tr>
+    return `<tr class="${isInactiveStatus(r.status) ? "inactive-row" : ""}">
       <td>${escape((r.name || "").replace("V_", ""))}
         ${r.status_reason ? `<div class="reason">${escape(r.status_reason)}</div>` : ""}
       </td>
       <td>${pill(r.status)}</td>
-      <td class="${pnlCls(r.pnl_pct)}">${fmt(r.pnl_pct, 3)}%</td>
+      <td class="${pnlCls(r.pnl_pct, r.status)}">${fmt(r.pnl_pct, 3)}%</td>
       <td>${fmt(r.win_rate, 1)}%</td>
       <td>${fmt(r.sharpe, 2)}</td>
       <td>${r.closed_trades ?? 0}</td>
@@ -362,7 +371,7 @@ function renderCross() {
       <td>${pill(status)}</td>` +
       ex.map(e => {
         const c = r[e] || {};
-        return `<td class="${pnlCls(c.pnl_pct)}">${fmt(c.pnl_pct, 3)}</td>
+        return `<td class="${pnlCls(c.pnl_pct, c.status)}">${fmt(c.pnl_pct, 3)}</td>
                 <td>${fmt(c.win_rate, 1)}%</td>
                 <td>${fmt(c.sharpe, 2)}</td>
                 <td class="muted">${c.closed_trades ?? 0}</td>`;

@@ -18,8 +18,10 @@ from panteon_v2.domain.types import Action, Regime, Signal
 from panteon_v2.execution import (
     ExecutionStatus,
     FakeExchange,
+    OrderLedger,
     OrderResult,
     OrderStatus,
+    OrderStage,
     PositionTracker,
     RiskLimits,
     RiskLimitsConfig,
@@ -114,6 +116,8 @@ class TestExecuteBlocked(unittest.TestCase):
         self.assertIn("blocklist", result.reason)
         # Биржа НЕ вызывалась
         self.assertEqual(len(self.deps["exchange"].orders_log), 0)
+        self.assertEqual(self.deps["perf"].get("A", Regime.BULLISH).blocked_signals, 1)
+        self.assertAlmostEqual(self.deps["perf"].get("A", Regime.BULLISH).pnl_pct, 0.0)
 
     def test_close_not_blocked_by_health(self):
         """Health-block не должен блокировать close (можно закрыть всегда)."""
@@ -128,12 +132,38 @@ class TestExecuteBlocked(unittest.TestCase):
         result = self.exec.execute(cl_sig, balance_usd=1000.0)
         self.assertEqual(result.status, ExecutionStatus.FILLED)
 
+    def test_close_does_not_require_min_notional_metadata(self):
+        class MetadataFlakyExchange(FakeExchange):
+            fail_metadata = False
+
+            def get_min_notional(self, sym: str) -> float:
+                if self.fail_metadata:
+                    raise RuntimeError("metadata API down")
+                return super().get_min_notional(sym)
+
+        deps = _make_executor()
+        deps["exchange"] = MetadataFlakyExchange()
+        ex = TradeExecutor(**deps)
+
+        ex.execute(_make_signal(sid=1), balance_usd=1000.0)
+        deps["exchange"].fail_metadata = True
+
+        result = ex.execute(
+            _make_signal(sid=2, action=Action.FUT_CLOSE_ALL, price=110.0),
+            balance_usd=1000.0,
+        )
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        self.assertFalse(deps["position_tracker"].has("BTC"))
+
     def test_risk_limit_blocked(self):
         # Создаём с очень малым балансом — notional ниже min
         sig = _make_signal()
         result = self.exec.execute(sig, balance_usd=1.0)
         self.assertEqual(result.status, ExecutionStatus.BLOCKED)
         self.assertIn("risk_limits", result.reason)
+        self.assertEqual(self.deps["perf"].get("A", Regime.BULLISH).blocked_signals, 1)
+        self.assertAlmostEqual(self.deps["perf"].get("A", Regime.BULLISH).pnl_pct, 0.0)
 
 
 class TestExecuteRejected(unittest.TestCase):
@@ -148,6 +178,8 @@ class TestExecuteRejected(unittest.TestCase):
         self.assertEqual(result.status, ExecutionStatus.REJECTED)
         rejected = list(self.deps["event_log"].query(event_types=[OrderRejected]))
         self.assertEqual(len(rejected), 1)
+        self.assertEqual(self.deps["perf"].get("A", Regime.BULLISH).rejected_signals, 1)
+        self.assertAlmostEqual(self.deps["perf"].get("A", Regime.BULLISH).pnl_pct, 0.0)
 
     def test_reject_increments_health(self):
         self.deps["exchange"].configure_reject("BTC", count=2)
@@ -180,6 +212,31 @@ class TestExecuteRejected(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("API down", rejected[0].reason)
 
+    def test_open_metadata_exception_is_rejected_without_sending_order(self):
+        class MetadataDownExchange(FakeExchange):
+            def __init__(self):
+                super().__init__()
+                self.sent = 0
+
+            def get_min_notional(self, sym: str) -> float:
+                raise RuntimeError("metadata API down")
+
+            def send_order(self, signal, *, qty):
+                self.sent += 1
+                return super().send_order(signal, qty=qty)
+
+        deps = self.deps.copy()
+        deps["exchange"] = MetadataDownExchange()
+        ex = TradeExecutor(**deps)
+
+        result = ex.execute(_make_signal(), balance_usd=1000.0)
+
+        self.assertEqual(result.status, ExecutionStatus.REJECTED)
+        self.assertEqual(deps["exchange"].sent, 0)
+        rejected = list(deps["event_log"].query(event_types=[OrderRejected]))
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("metadata API down", rejected[0].reason)
+
 
 class TestExecutePending(unittest.TestCase):
     def setUp(self):
@@ -193,6 +250,8 @@ class TestExecutePending(unittest.TestCase):
         self.assertIsNone(result.trade)
         st = self.deps["health"].status("BTC")
         self.assertEqual(st.failures_in_window, 1)
+        self.assertEqual(self.deps["perf"].get("A", Regime.BULLISH).pending_signals, 1)
+        self.assertAlmostEqual(self.deps["perf"].get("A", Regime.BULLISH).pnl_pct, 0.0)
 
     def test_pending_order_is_polled_and_accounted_when_fill_is_available(self):
         class PollingExchange(FakeExchange):
@@ -225,6 +284,28 @@ class TestExecutePending(unittest.TestCase):
         self.assertEqual(deps["exchange"].polled, ["PENDING-1"])
         self.assertTrue(deps["position_tracker"].has("BTC"))
         self.assertEqual(deps["perf"].get("A").entries, 1)
+
+    def test_pending_order_timeout_marks_ledger_and_rejects_once(self):
+        ledger = OrderLedger()
+        deps = _make_executor()
+        deps["order_ledger"] = ledger
+        ex = TradeExecutor(**deps)
+
+        deps["exchange"].configure_pending("BTC")
+        result = ex.execute(_make_signal(), balance_usd=1000.0)
+        timed_out = ex.expire_stale_pending_orders(max_age_sec=0.0)
+
+        self.assertEqual(result.status, ExecutionStatus.PENDING)
+        self.assertEqual(timed_out, 1)
+        record = ledger.pending_records()
+        self.assertEqual(record, [])
+        all_records = ledger.snapshot()
+        self.assertEqual(len(all_records), 1)
+        stored = next(iter(all_records.values()))
+        self.assertEqual(stored["stage"], OrderStage.TIMED_OUT.value)
+        rejected = list(deps["event_log"].query(event_types=[OrderRejected]))
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("pending timeout", rejected[0].reason)
 
 
 class TestExecuteRiskQuantization(unittest.TestCase):

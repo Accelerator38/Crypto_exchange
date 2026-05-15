@@ -62,6 +62,7 @@ class LiveExecutionConfig:
     max_stale_feed_polls: int = 0
     max_slippage_pct: float = 0.0
     max_api_error_streak: int = 5
+    pending_order_timeout_sec: float = 180.0
 
     def __post_init__(self) -> None:
         if self.max_new_opens_per_bar < 0:
@@ -69,6 +70,7 @@ class LiveExecutionConfig:
         for name in (
             "max_daily_loss_pct",
             "max_slippage_pct",
+            "pending_order_timeout_sec",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")

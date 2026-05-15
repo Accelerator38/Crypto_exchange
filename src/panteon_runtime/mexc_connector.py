@@ -852,6 +852,8 @@ class MexcFuturesClient:
             "takerFeeRate": 0.0006,
             "apiAllowed": True,
             "state": 0,
+            "metadataFallback": True,
+            "metadataSource": "fallback",
         }
         contract = self._contract_name(symbol)
         if contract is None:
@@ -884,6 +886,8 @@ class MexcFuturesClient:
                 "takerFeeRate": float(raw.get("takerFeeRate", fallback["takerFeeRate"]) or fallback["takerFeeRate"]),
                 "apiAllowed": bool(raw.get("apiAllowed", True)),
                 "state": int(raw.get("state", 0) or 0),
+                "metadataFallback": False,
+                "metadataSource": "exchange",
             }
             self._contract_meta_cache[symbol] = meta
             return meta

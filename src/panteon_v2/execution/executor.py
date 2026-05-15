@@ -126,6 +126,7 @@ class TradeExecutor:
         """
         # 0. Hold actions — игнорируем явно
         if signal.action.is_hold:
+            self._record_execution_outcome(signal, ExecutionStatus.BLOCKED, "hold action")
             return ExecutionResult(
                 status=ExecutionStatus.BLOCKED,
                 signal=signal,
@@ -136,24 +137,48 @@ class TradeExecutor:
 
         # 1. Pre-flight: SymbolHealthMonitor (только для open)
         if signal.action.is_open and self._health.is_blocked(signal.sym):
+            reason = f"symbol {signal.sym} is in health blocklist"
+            self._record_execution_outcome(signal, ExecutionStatus.BLOCKED, reason)
             return ExecutionResult(
                 status=ExecutionStatus.BLOCKED,
                 signal=signal,
-                reason=f"symbol {signal.sym} is in health blocklist",
+                reason=reason,
             )
+
+        min_notional_for_sym = 0.0
+        if signal.action.is_open:
+            try:
+                min_notional_for_sym = self._exchange.get_min_notional(signal.sym)
+            except Exception as exc:
+                self._health.record_pending_failure(signal.sym)
+                self._log.emit(OrderRejected(
+                    bar=signal.bar,
+                    trace_id=trace_id,
+                    signal_id=signal.id,
+                    sym=signal.sym,
+                    reason=f"exchange metadata exception: {type(exc).__name__}: {exc}",
+                ))
+                self._record_execution_outcome(signal, ExecutionStatus.REJECTED, str(exc))
+                return ExecutionResult(
+                    status=ExecutionStatus.REJECTED,
+                    signal=signal,
+                    reason=f"exchange metadata error: {exc}",
+                )
 
         # 2. Pre-flight: RiskLimits
         risk_check = self._risk.evaluate(
             signal,
             balance_usd=balance_usd,
             open_positions=self._tracker.all_open(),
-            min_notional_for_sym=self._exchange.get_min_notional(signal.sym),
+            min_notional_for_sym=min_notional_for_sym,
         )
         if not risk_check.allowed:
+            reason = f"risk_limits: {risk_check.reason}"
+            self._record_execution_outcome(signal, ExecutionStatus.BLOCKED, reason)
             return ExecutionResult(
                 status=ExecutionStatus.BLOCKED,
                 signal=signal,
-                reason=f"risk_limits: {risk_check.reason}",
+                reason=reason,
             )
 
         # Вычисляем qty:
@@ -163,6 +188,11 @@ class TradeExecutor:
             existing = self._tracker.get(signal.sym)
             if existing is None:
                 # double-check (RiskLimits должен был отфильтровать)
+                self._record_execution_outcome(
+                    signal,
+                    ExecutionStatus.BLOCKED,
+                    "no position to close (post-risk)",
+                )
                 return ExecutionResult(
                     status=ExecutionStatus.BLOCKED,
                     signal=signal,
@@ -172,6 +202,11 @@ class TradeExecutor:
         else:
             qty = self._quantize_open_qty(signal, risk_check.qty)
             if qty <= 0:
+                self._record_execution_outcome(
+                    signal,
+                    ExecutionStatus.BLOCKED,
+                    "risk_limits: quantized qty is below exchange minimum",
+                )
                 return ExecutionResult(
                     status=ExecutionStatus.BLOCKED,
                     signal=signal,
@@ -187,14 +222,16 @@ class TradeExecutor:
                     and upscale <= float(cfg.max_min_notional_upscale) + 1e-9
                 )
                 if not can_accept_quantized_floor:
+                    reason = (
+                        "risk_limits: quantized notional "
+                        f"${quantized_notional:.2f} exceeds approved "
+                        f"${allowed_notional:.2f}"
+                    )
+                    self._record_execution_outcome(signal, ExecutionStatus.BLOCKED, reason)
                     return ExecutionResult(
                         status=ExecutionStatus.BLOCKED,
                         signal=signal,
-                        reason=(
-                            "risk_limits: quantized notional "
-                            f"${quantized_notional:.2f} exceeds approved "
-                            f"${allowed_notional:.2f}"
-                        ),
+                        reason=reason,
                     )
 
         # 3. Эмитим OrderSent ДО send_order, чтобы в логе была попытка
@@ -221,6 +258,7 @@ class TradeExecutor:
                 sym=signal.sym,
                 reason=f"exchange exception: {type(exc).__name__}: {exc}",
             ))
+            self._record_execution_outcome(signal, ExecutionStatus.REJECTED, str(exc))
             return ExecutionResult(
                 status=ExecutionStatus.REJECTED,
                 signal=signal,
@@ -251,6 +289,11 @@ class TradeExecutor:
         if polled is None or polled.status == OrderStatus.PENDING:
             if polled is not None:
                 self._order_ledger.record_result(signal, polled)
+            self._record_execution_outcome(
+                signal,
+                ExecutionStatus.PENDING,
+                "restored order is still pending",
+            )
             return ExecutionResult(
                 status=ExecutionStatus.PENDING,
                 signal=signal,
@@ -260,6 +303,50 @@ class TradeExecutor:
         if polled.status == OrderStatus.FILLED:
             return self._handle_filled(signal, polled, trace_id)
         return self._handle_rejected(signal, polled, trace_id)
+
+    def expire_stale_pending_orders(self, *, max_age_sec: float) -> int:
+        """Mark accepted/submitted orders as timed out after the configured age."""
+        expired = self._order_ledger.expire_pending(max_age_sec=max_age_sec)
+        for record in expired:
+            cancel_reason = self._cancel_pending_if_supported(record.exchange_order_id, record.sym)
+            trace_id = (
+                f"{record.sym}-{record.signal.bar}-{record.signal_id}-timeout"
+                if record.signal is not None
+                else f"{record.sym}-{record.signal_id}-timeout"
+            )
+            self._log.emit(OrderRejected(
+                bar=(record.signal.bar if record.signal is not None else -1),
+                trace_id=trace_id,
+                signal_id=record.signal_id,
+                sym=record.sym,
+                reason=(
+                    f"pending timeout: {record.exchange_order_id or record.signal_id}"
+                    + (f" ({cancel_reason})" if cancel_reason else "")
+                ),
+            ))
+            if record.signal is not None:
+                self._record_execution_outcome(
+                    record.signal,
+                    ExecutionStatus.REJECTED,
+                    "pending timeout",
+                )
+        return len(expired)
+
+    def _cancel_pending_if_supported(self, order_id: str, sym: str) -> str:
+        if not order_id:
+            return ""
+        cancel = getattr(self._exchange, "cancel_order", None)
+        if not callable(cancel):
+            return "cancel unsupported"
+        for args in ((order_id, sym), (order_id,), (sym, order_id)):
+            try:
+                cancel(*args)
+                return "cancel requested"
+            except TypeError:
+                continue
+            except Exception as exc:
+                return f"cancel failed: {type(exc).__name__}: {exc}"
+        return "cancel signature unsupported"
 
     def _handle_filled(
         self,
@@ -326,6 +413,11 @@ class TradeExecutor:
             sym=signal.sym,
             reason=result.message or "rejected by exchange",
         ))
+        self._record_execution_outcome(
+            signal,
+            ExecutionStatus.REJECTED,
+            result.message or "rejected by exchange",
+        )
         if newly_blocked:
             status = self._health.status(signal.sym)
             self._log.emit(SymbolBlocked(
@@ -370,6 +462,11 @@ class TradeExecutor:
                 blocked_until_ts=status.blocked_until_ts or 0.0,
                 reason="pending_failures_threshold",
             ))
+        self._record_execution_outcome(
+            signal,
+            ExecutionStatus.PENDING,
+            result.message or "pending",
+        )
         return ExecutionResult(
             status=ExecutionStatus.PENDING,
             signal=signal,
@@ -381,6 +478,27 @@ class TradeExecutor:
     @staticmethod
     def _trace_id(signal: Signal) -> str:
         return f"{signal.sym}-{signal.bar}-{signal.id}"
+
+    def _record_execution_outcome(
+        self,
+        signal: Signal,
+        status: ExecutionStatus,
+        reason: str,
+    ) -> None:
+        try:
+            self._perf.record_execution_outcome(
+                signal,
+                status=status.value,
+                reason=reason,
+            )
+        except Exception as exc:
+            self._log.emit(MemoryUpdateFailed(
+                bar=signal.bar,
+                trace_id=self._trace_id(signal),
+                signal_id=signal.id,
+                sym=signal.sym,
+                reason=f"execution outcome memory update failed: {type(exc).__name__}: {exc}",
+            ))
 
     def _quantize_open_qty(self, signal: Signal, qty: float) -> float:
         quantize = getattr(self._exchange, "quantize_order_qty", None)
