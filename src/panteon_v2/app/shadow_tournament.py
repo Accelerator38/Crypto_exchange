@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -105,6 +106,9 @@ class _VirtualActorRuntime:
                 log.debug("shadow execute failed for %s", self.actor_label, exc_info=True)
         return out
 
+    def open_positions(self) -> Dict[str, object]:
+        return self._executor._tracker.all_open()
+
 
 class ProductionShadowTournament:
     """Stateful virtual tournament used by the live production loop."""
@@ -158,8 +162,14 @@ class ProductionShadowTournament:
         counts = _empty_counts()
         for agent in self._registry.all_agents():
             signals = self._signals_from_agent(agent, market)
+            runtime = self._runtime(f"agent:{agent.label}")
+            signals = _filter_position_aware_signals(
+                signals,
+                runtime.open_positions(),
+                self._risk_config.max_open_positions,
+            )
             counts["signals"] += len(signals)
-            results = self._runtime(f"agent:{agent.label}").execute_many(
+            results = runtime.execute_many(
                 signals,
                 balance_usd=balance_usd,
             )
@@ -204,8 +214,14 @@ class ProductionShadowTournament:
                 )
                 for signal in raw_signals
             ]
+            runtime = self._runtime(f"player:{player.label}")
+            signals = _filter_position_aware_signals(
+                signals,
+                runtime.open_positions(),
+                self._risk_config.max_open_positions,
+            )
             counts["signals"] += len(signals)
-            results = self._runtime(f"player:{player.label}").execute_many(
+            results = runtime.execute_many(
                 signals,
                 balance_usd=balance_usd,
             )
@@ -453,11 +469,40 @@ class ProductionShadowTournament:
             filled=counts["filled"],
             rejected=counts["rejected"],
             blocked=counts["blocked"],
+            rejected_reasons=_reason_counts(results, ExecutionStatus.REJECTED),
+            blocked_reasons=_reason_counts(results, ExecutionStatus.BLOCKED),
+            agent_outcomes=_agent_outcome_counts(results),
+            agent_rejected_reasons=_agent_reason_counts(results, ExecutionStatus.REJECTED),
+            agent_blocked_reasons=_agent_reason_counts(results, ExecutionStatus.BLOCKED),
         ))
 
 
 def _empty_counts() -> Dict[str, int]:
     return {"signals": 0, "filled": 0, "rejected": 0, "blocked": 0}
+
+
+def _filter_position_aware_signals(
+    signals: Sequence[Signal],
+    open_positions: Dict[str, object],
+    max_open_positions: int,
+) -> List[Signal]:
+    max_positions = max(0, int(max_open_positions))
+    planned_symbols = {str(sym).upper() for sym in open_positions.keys()}
+    planned_count = len(planned_symbols)
+    kept: List[Signal] = []
+    for signal in signals:
+        if not signal.action.is_open:
+            kept.append(signal)
+            continue
+        sym = str(signal.sym).upper()
+        if sym in planned_symbols:
+            continue
+        if planned_count >= max_positions:
+            continue
+        kept.append(signal)
+        planned_symbols.add(sym)
+        planned_count += 1
+    return kept
 
 
 def _add_execution_counts(counts: Dict[str, int], results: Iterable[ExecutionResult]) -> None:
@@ -468,3 +513,74 @@ def _add_execution_counts(counts: Dict[str, int], results: Iterable[ExecutionRes
             counts["rejected"] += 1
         elif result.status == ExecutionStatus.BLOCKED:
             counts["blocked"] += 1
+
+
+def _reason_counts(
+    results: Iterable[ExecutionResult],
+    status: ExecutionStatus,
+) -> Tuple[Tuple[str, int], ...]:
+    counts: Counter[str] = Counter()
+    for result in results:
+        if result.status != status:
+            continue
+        reason = str(result.reason or "unspecified")
+        counts[reason] += 1
+    return tuple(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def _agent_outcome_counts(
+    results: Iterable[ExecutionResult],
+) -> Tuple[Tuple[str, int, int, int, int], ...]:
+    counts: Dict[str, Dict[str, int]] = {}
+    for result in results:
+        label = _result_agent_label(result)
+        if not label:
+            continue
+        bucket = counts.setdefault(
+            label,
+            {"signals": 0, "filled": 0, "rejected": 0, "blocked": 0},
+        )
+        bucket["signals"] += 1
+        if result.status == ExecutionStatus.FILLED:
+            bucket["filled"] += 1
+        elif result.status == ExecutionStatus.REJECTED:
+            bucket["rejected"] += 1
+        elif result.status == ExecutionStatus.BLOCKED:
+            bucket["blocked"] += 1
+    return tuple(
+        (
+            label,
+            bucket["signals"],
+            bucket["filled"],
+            bucket["rejected"],
+            bucket["blocked"],
+        )
+        for label, bucket in sorted(counts.items())
+    )
+
+
+def _agent_reason_counts(
+    results: Iterable[ExecutionResult],
+    status: ExecutionStatus,
+) -> Tuple[Tuple[str, str, int], ...]:
+    counts: Counter[Tuple[str, str]] = Counter()
+    for result in results:
+        if result.status != status:
+            continue
+        label = _result_agent_label(result)
+        if not label:
+            continue
+        reason = str(result.reason or "unspecified")
+        counts[(label, reason)] += 1
+    return tuple(
+        (label, reason, count)
+        for (label, reason), count in sorted(
+            counts.items(),
+            key=lambda item: (-item[1], item[0][0], item[0][1]),
+        )
+    )
+
+
+def _result_agent_label(result: ExecutionResult) -> str:
+    signal = result.signal
+    return str(getattr(signal, "by_agent", "") or getattr(signal, "by_player", "") or "")

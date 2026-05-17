@@ -18,7 +18,7 @@ EnsemblePlayer, который собирается через PlayerComposer.co
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..domain.types import Regime
 from .player import EnsemblePlayer
@@ -70,8 +70,10 @@ class PlayerProfile:
     # Это мягкий аналог BOOTSTRAP_WEIGHTS из v1 — но не блокирует
     # выбор Selector-а, а только корректирует веса post-selection.
     bias:         Dict[str, float] = field(default_factory=dict)
+    allowed_labels: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "allowed_labels", tuple(self.allowed_labels))
         if not self.label:
             raise ValueError("PlayerProfile.label must be non-empty")
         if self.max_agents < self.min_agents:
@@ -80,6 +82,10 @@ class PlayerProfile:
             )
         if self.max_agents <= 0:
             raise ValueError("max_agents must be positive")
+        if any(not str(label) for label in self.allowed_labels):
+            raise ValueError("allowed_labels must not contain empty labels")
+        if len(set(self.allowed_labels)) != len(self.allowed_labels):
+            raise ValueError("allowed_labels must not contain duplicates")
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -179,6 +185,37 @@ PROFILE_BOMBERMAN_STRONG = PlayerProfile(
     min_agents=2,
 )
 
+GENETICS_AGENT_LABELS: Tuple[str, ...] = (
+    "GeneticsGenomeEnsemble",
+    "GeneticsCore",
+    "GeneticsBullish",
+    "GeneticsBearish",
+    "GeneticsNeutral",
+)
+
+PROFILE_GENETICS_RESEARCH = PlayerProfile(
+    label="GeneticsResearch",
+    voting=WeightedConsensus(),
+    thresholds=ThresholdProfile(
+        open_single=0.30,
+        open_multi=0.24,
+        open_floor=0.18,
+        close_single=0.26,
+        close_multi=0.20,
+    ),
+    affinity=None,
+    max_agents=5,
+    min_agents=1,
+    allowed_labels=GENETICS_AGENT_LABELS,
+    bias={
+        "GeneticsGenomeEnsemble": 0.25,
+        "GeneticsCore": 0.12,
+        "GeneticsBullish": 0.08,
+        "GeneticsBearish": 0.08,
+        "GeneticsNeutral": 0.08,
+    },
+)
+
 
 # ────────────────────────────────────────────────────────────────────
 # PlayerComposer
@@ -206,7 +243,7 @@ class PlayerComposer:
         regime: Regime,
     ) -> Optional[EnsemblePlayer]:
         """Создаёт EnsemblePlayer для текущего регима по профилю."""
-        scored = self._selector.select(regime, k=profile.max_agents)
+        scored = self._select_for_profile(profile, regime, fallback=False)
         if len(scored) < profile.min_agents:
             return None
         return self._build(profile, scored)
@@ -220,10 +257,33 @@ class PlayerComposer:
         использует AgentSelector.select_with_fallback (понижает порог
         scoring).
         """
-        scored = self._selector.select_with_fallback(regime, k=profile.max_agents)
+        scored = self._select_for_profile(profile, regime, fallback=True)
         if len(scored) < profile.min_agents:
             return None
         return self._build(profile, scored)
+
+    def _select_for_profile(
+        self,
+        profile: PlayerProfile,
+        regime: Regime,
+        *,
+        fallback: bool,
+    ) -> List[ScoredAgent]:
+        k = profile.max_agents
+        if profile.allowed_labels:
+            k = max(k, len(profile.allowed_labels), 1000)
+        if fallback:
+            scored = self._selector.select_with_fallback(
+                regime,
+                k=k,
+                min_count=profile.min_agents,
+            )
+        else:
+            scored = self._selector.select(regime, k=k)
+        if profile.allowed_labels:
+            allowed = set(profile.allowed_labels)
+            scored = [row for row in scored if row.label in allowed]
+        return list(scored[:profile.max_agents])
 
     def _build(
         self,

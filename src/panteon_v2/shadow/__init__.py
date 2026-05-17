@@ -13,7 +13,9 @@
 """
 
 from .adapters import (
+    GeneticsV2AgentAdapter,
     V1AgentAdapter,
+    map_genetics_legacy_action,
     make_market_snapshot,
     regime_to_v1_string,
 )
@@ -36,7 +38,9 @@ from .runner import (
 
 __all__ = [
     # adapters
+    "GeneticsV2AgentAdapter",
     "V1AgentAdapter",
+    "map_genetics_legacy_action",
     "make_market_snapshot",
     "regime_to_v1_string",
     # feed

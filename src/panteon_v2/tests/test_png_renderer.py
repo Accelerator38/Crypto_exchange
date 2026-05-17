@@ -8,6 +8,49 @@ from unittest.mock import patch
 
 
 class TestPngRenderer(unittest.TestCase):
+    def test_status_panel_shows_real_trade_outcomes(self):
+        from panteon_v2.dashboards import png_renderer
+
+        class FakeAxis:
+            transAxes = object()
+
+            def __init__(self):
+                self.texts = []
+
+            def set_axis_off(self):
+                pass
+
+            def set_facecolor(self, color):
+                pass
+
+            def text(self, *args, **kwargs):
+                if len(args) >= 3:
+                    self.texts.append(str(args[2]))
+
+        axis = FakeAxis()
+
+        png_renderer._draw_status_panel(axis, {
+            "exchange": "BITGET",
+            "run_state": "running",
+            "feed_status": "active",
+            "live_session": {
+                "panteon_owned_total_pnl_usd": 0.0,
+                "panteon_owned_pnl_pct": 0.0,
+            },
+            "real_trades": {
+                "total": 4,
+                "closed": 2,
+                "successful": 1,
+                "unsuccessful": 1,
+                "unresolved": 2,
+            },
+        })
+
+        self.assertIn("Real trades", axis.texts)
+        self.assertIn("4 (closed 2, open 2)", axis.texts)
+        self.assertIn("Real W/L/Open", axis.texts)
+        self.assertIn("1 / 1 / 2", axis.texts)
+
     def test_write_operator_pngs_uses_combined_visual_dashboards(self):
         from panteon_v2.dashboards import png_renderer
 

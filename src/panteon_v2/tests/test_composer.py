@@ -8,6 +8,7 @@ from panteon_v2.domain.types import Action, Regime
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import (
     PROFILE_DEFAULT_ENSEMBLE,
+    PROFILE_GENETICS_RESEARCH,
     PROFILE_TREND_RESEARCH,
     AgentRegistry,
     AgentSelector,
@@ -126,6 +127,40 @@ class TestPlayerComposer(unittest.TestCase):
                 PROFILE_DEFAULT_ENSEMBLE, Regime.NEUTRAL,
             )
             self.assertIsNotNone(fb)
+
+
+    def test_genetics_profile_only_composes_genetics_agents(self):
+        registry = AgentRegistry()
+        for label in [
+            "LiveTrendFollow",
+            "GeneticsCore",
+            "GeneticsBullish",
+            "GeneticsGenomeEnsemble",
+        ]:
+            registry.register(FakeAgent(label, {"BTC": Action.FUT_LONG_FULL}))
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "LiveTrendFollow", Regime.BULLISH, 10, 5.0, start_id=1)
+        _add_perf(perf, "GeneticsCore", Regime.BULLISH, 10, 0.6, start_id=500)
+        _add_perf(perf, "GeneticsBullish", Regime.BULLISH, 10, 0.5, start_id=900)
+        _add_perf(perf, "GeneticsGenomeEnsemble", Regime.BULLISH, 10, 0.4, start_id=1300)
+        composer = PlayerComposer(
+            AgentSelector(registry, perf, QuarantineManager(seed=set()))
+        )
+
+        player = composer.compose_from_profile_with_fallback(
+            PROFILE_GENETICS_RESEARCH,
+            Regime.BULLISH,
+        )
+
+        self.assertIsNotNone(player)
+        self.assertNotIn("LiveTrendFollow", player.agent_labels)
+        self.assertTrue(
+            all(label.startswith("Genetics") for label in player.agent_labels)
+        )
+        self.assertLessEqual(
+            len(player.agent_labels),
+            PROFILE_GENETICS_RESEARCH.max_agents,
+        )
 
 
 class TestComposerCarantineGuarantee(unittest.TestCase):

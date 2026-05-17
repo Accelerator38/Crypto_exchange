@@ -15,10 +15,38 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, ClassVar, Dict, Optional, Tuple
 
 from ..domain.types import Action, MarketSnapshot, Regime
 from ..selection.agent import Agent
+
+
+ActionMapper = Callable[[Any], Optional[Action]]
+
+
+def _coerce_v2_action(value: Any) -> Optional[Action]:
+    try:
+        return Action(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+_GENETICS_LEGACY_ACTION_MAP: Dict[int, Action] = {
+    0: Action.HOLD,
+    1: Action.SPOT_BUY_FULL,
+    2: Action.SPOT_SELL_ALL,
+    3: Action.FUT_LONG_FULL,
+    4: Action.FUT_SHORT_FULL,
+    5: Action.FUT_CLOSE_ALL,
+}
+
+
+def map_genetics_legacy_action(value: Any) -> Optional[Action]:
+    """Map collapsed GeneticsAgent live actions into the v2 Action enum."""
+    try:
+        return _GENETICS_LEGACY_ACTION_MAP.get(int(value))
+    except (TypeError, ValueError):
+        return None
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -42,6 +70,7 @@ class V1AgentAdapter:
     label:    str
     v1_agent: Any              # любой объект с .act(...)
     portfolio_value_fn: Optional[Callable[[], float]] = None
+    action_mapper: ActionMapper = _coerce_v2_action
 
     def clone_for_shadow(self) -> "V1AgentAdapter":
         clone_fn = getattr(self.v1_agent, "clone_for_shadow", None)
@@ -56,6 +85,7 @@ class V1AgentAdapter:
             label=self.label,
             v1_agent=cloned_v1,
             portfolio_value_fn=self.portfolio_value_fn,
+            action_mapper=self.action_mapper,
         )
 
     def act(self, market: MarketSnapshot) -> Dict[str, Action]:
@@ -82,11 +112,59 @@ class V1AgentAdapter:
             sym = str(sym).upper()
             if sym not in market.prices:
                 continue
-            try:
-                out[sym] = Action(int(value))
-            except (TypeError, ValueError):
+            action = self.action_mapper(value)
+            if action is None:
                 continue
+            out[sym] = action
         return out
+
+
+class GeneticsV2AgentAdapter(V1AgentAdapter):
+    """Adapter for GeneticsAgent collapsed live actions."""
+
+    _act_cache: ClassVar[Dict[Tuple[object, ...], Dict[str, Action]]] = {}
+    _act_cache_max_size: ClassVar[int] = 512
+
+    def __init__(
+        self,
+        label: str,
+        v1_agent: Any,
+        portfolio_value_fn: Optional[Callable[[], float]] = None,
+    ) -> None:
+        super().__init__(
+            label=label,
+            v1_agent=v1_agent,
+            portfolio_value_fn=portfolio_value_fn,
+            action_mapper=map_genetics_legacy_action,
+        )
+
+    def clone_for_shadow(self) -> "GeneticsV2AgentAdapter":
+        return GeneticsV2AgentAdapter(
+            label=self.label,
+            v1_agent=self.v1_agent,
+            portfolio_value_fn=self.portfolio_value_fn,
+        )
+
+    def act(self, market: MarketSnapshot) -> Dict[str, Action]:
+        key = self._cache_key(market)
+        cached = self._act_cache.get(key)
+        if cached is not None:
+            return dict(cached)
+        result = super().act(market)
+        self._act_cache[key] = dict(result)
+        if len(self._act_cache) > self._act_cache_max_size:
+            self._act_cache.pop(next(iter(self._act_cache)))
+        return result
+
+    def _cache_key(self, market: MarketSnapshot) -> Tuple[object, ...]:
+        return (
+            self.label,
+            int(market.bar),
+            getattr(market.timestamp, "isoformat", lambda: "")(),
+            market.regime.label,
+            tuple(sorted((str(sym), round(float(price), 10)) for sym, price in market.prices.items())),
+            tuple(sorted((str(sym), round(float(volume), 10)) for sym, volume in market.volumes.items())),
+        )
 
 
 # ────────────────────────────────────────────────────────────────────

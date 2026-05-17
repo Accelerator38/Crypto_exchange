@@ -224,6 +224,7 @@ class V1FuturesExchangeAdapter:
                 try:
                     normalized = self._snapshot_from_full_snapshot(snapshot())
                     if normalized.get("current_balance", 0.0) > 0:
+                        self._attach_source_data_health(normalized, source)
                         return normalized
                 except Exception:
                     pass
@@ -236,6 +237,7 @@ class V1FuturesExchangeAdapter:
                 try:
                     normalized = self._snapshot_from_assets(getter())
                     if normalized.get("current_balance", 0.0) > 0:
+                        self._attach_source_data_health(normalized, source)
                         return normalized
                 except Exception:
                     pass
@@ -888,7 +890,7 @@ class V1FuturesExchangeAdapter:
             raw.get("total_assets"),
             futures_equity + spot_assets,
         )
-        return {
+        out = {
             "current_balance": futures_equity,
             "futures_equity": futures_equity,
             "available_balance": available,
@@ -896,6 +898,24 @@ class V1FuturesExchangeAdapter:
             "total_assets": total_assets,
             "unrealized_pnl": unrealized,
         }
+        if isinstance(raw.get("data_health"), dict):
+            out["data_health"] = dict(raw["data_health"])
+        return out
+
+    @staticmethod
+    def _attach_source_data_health(snapshot: Dict[str, float], source: Any) -> None:
+        probe = getattr(source, "recent_data_error", None)
+        if not callable(probe):
+            return
+        try:
+            reason = str(probe() or "")
+        except Exception:
+            return
+        if not reason:
+            return
+        health = dict(snapshot.get("data_health") or {})
+        health["recent_data_error"] = reason
+        snapshot["data_health"] = health
 
     @staticmethod
     def _first_positive(*values: Any) -> float:

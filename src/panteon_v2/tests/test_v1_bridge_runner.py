@@ -6,6 +6,7 @@ import os
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 from panteon_v2.domain.types import Regime
 
@@ -145,6 +146,50 @@ class V1BridgeRunnerTests(unittest.TestCase):
         snap = feed.next_bar()
 
         self.assertEqual(snap.regime, Regime.BULLISH)
+
+    def test_bitget_bridge_feed_excludes_non_contract_symbols_before_snapshot(self):
+        from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
+
+        class FakeFuturesClient:
+            def __init__(self):
+                self._bad_symbols = set()
+
+            def _get_contract_meta(self, symbol):
+                if symbol == "SPOTONLY":
+                    return {
+                        "apiAllowed": False,
+                        "state": "offline",
+                        "amountStep": 1.0,
+                        "metadataSource": "exchange",
+                    }
+                return {
+                    "apiAllowed": True,
+                    "state": "normal",
+                    "amountStep": 1.0,
+                    "metadataSource": "exchange",
+                }
+
+        class BitgetBridge(FakeBridge):
+            mode = "live_futures"
+
+            def __init__(self):
+                super().__init__()
+                self.futures_client = FakeFuturesClient()
+
+            def _fetch_market(self):
+                self.fetch_calls += 1
+                return {"BTC": 100.0, "SPOTONLY": 1.0}, {"BTC": 42.0, "SPOTONLY": 99.0}
+
+        bridge = BitgetBridge()
+        feed = V1BridgeFeed(bridge, exchange_name="BITGET")
+
+        with self.assertLogs("panteon_v2.app.v1_bridge_runner", level="WARNING") as logs:
+            snap = feed.next_bar()
+
+        self.assertEqual(snap.prices, {"BTC": 100.0})
+        self.assertEqual(snap.volumes, {"BTC": 42.0})
+        self.assertIn("SPOTONLY", bridge.futures_client._bad_symbols)
+        self.assertTrue(any("excluded before selector/risk" in line for line in logs.output))
 
     def test_warmup_replays_bridge_history_into_v2_agents(self):
         from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
@@ -367,6 +412,66 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertIn("12 historical bars", writer.heartbeats[0]["message"])
         self.assertEqual(len(writer.steps), 1)
         self.assertTrue(writer.closed)
+
+    def test_run_with_v1_bridge_reports_processed_steps_after_keyboard_interrupt(self):
+        from panteon_v2.app.v1_bridge_runner import run_with_v1_bridge
+        from panteon_v2.app.bootstrap import build_production_pipeline
+        from panteon_v2.execution import FakeExchange
+        from panteon_v2.selection import AgentRegistry
+        from panteon_v2.tests._helpers import FakeAgent
+
+        class Writer:
+            output_dir = "out-dir"
+
+            def __init__(self):
+                self.steps = []
+                self.closed = False
+
+            def write_heartbeat(self, **kwargs):
+                pass
+
+            def write(self, step):
+                self.steps.append(step)
+
+            def close(self):
+                self.closed = True
+
+        def interrupted_loop(*args, on_step=None, **kwargs):
+            if on_step:
+                on_step(types.SimpleNamespace(
+                    bar=11,
+                    leader="DefaultEnsemble",
+                    n_signals=0,
+                    n_filled=0,
+                    n_rejected=0,
+                    n_blocked=0,
+                    n_filtered_real_signals=0,
+                ))
+            raise KeyboardInterrupt()
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        writer = Writer()
+
+        with patch("panteon_v2.app.v1_bridge_runner.main_loop", side_effect=interrupted_loop):
+            with self.assertLogs("panteon_v2.app.v1_bridge_runner", level="INFO") as logs:
+                rc = run_with_v1_bridge(
+                    pipeline,
+                    exchange_name="MEXC",
+                    bridge=FakeBridge(),
+                    output_writer=writer,
+                    sleep_between_polls_sec=0.0,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertTrue(writer.closed)
+        self.assertEqual(len(writer.steps), 1)
+        self.assertTrue(any("processed 1 bars" in line for line in logs.output))
 
 
 if __name__ == "__main__":

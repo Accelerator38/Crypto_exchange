@@ -157,6 +157,43 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
         self.assertAlmostEqual(m.pnl_pct, 1.0, places=5)
 
 
+    def test_cash_flat_close_is_attributed_to_original_opener(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(
+            1,
+            "BTC",
+            Regime.BULLISH,
+            by_agent="OpenerAgent",
+            by_player="OpenerPlayer",
+            price=100.0,
+        )
+        cs = _close_signal(
+            2,
+            "BTC",
+            Regime.BULLISH,
+            by_agent="CashFlat",
+            by_player="NoTrade",
+            price=110.0,
+            bar=2,
+        )
+
+        perf.update_from_trade(_open_trade(os), os)
+        perf.record_signal(cs)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        agent = perf.get("OpenerAgent", regime=Regime.BULLISH)
+        player = perf.get("OpenerPlayer", regime=Regime.BULLISH)
+        self.assertEqual(agent.closed_trades, 1)
+        self.assertEqual(player.closed_trades, 1)
+        self.assertEqual(agent.signals, 2)
+        self.assertEqual(player.signals, 2)
+        self.assertAlmostEqual(agent.pnl_pct, 10.0, places=5)
+        self.assertAlmostEqual(player.pnl_pct, 10.0, places=5)
+
+        self.assertFalse(perf.get("CashFlat", regime=Regime.BULLISH).has_data)
+        self.assertFalse(perf.get("NoTrade", regime=Regime.BULLISH).has_data)
+
+
 class TestPerRegimeIsolation(unittest.TestCase):
     def test_regimes_isolated(self):
         perf = PerformanceMemory(trade_fraction=1.0)

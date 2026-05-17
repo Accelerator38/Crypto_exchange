@@ -118,6 +118,8 @@ class _OpenPosition:
 # Используется чтобы абсолютный pnl_pct совпадал с тем, что видит
 # Пантеон в реальной торговле. Конфигурируется через __init__.
 _DEFAULT_TRADE_FRACTION = 0.10
+_CASH_FLAT_AGENT = "CashFlat"
+_NO_TRADE_PLAYER = "NoTrade"
 
 
 class PerformanceMemory:
@@ -160,12 +162,7 @@ class PerformanceMemory:
         диагностики, но `update_from_trade` НЕ требует предварительного
         вызова record_signal.
         """
-        if signal.id in self._seen_signal_ids:
-            return
-        self._seen_signal_ids.add(signal.id)
-        # Считаем сигналы для агента и игрока
-        for label in self._labels_from_signal(signal):
-            self._get_or_create(label, signal.regime).signals += 1
+        self._record_signal_for_labels(signal, self._labels_for_signal(signal))
 
     def record_actor_failure(
         self,
@@ -195,8 +192,9 @@ class PerformanceMemory:
         normalized = str(status or "").strip().lower()
         if normalized not in {"blocked", "rejected", "pending"}:
             return
-        self.record_signal(signal)
-        for label in self._labels_from_signal(signal):
+        labels = self._labels_for_signal(signal)
+        self._record_signal_for_labels(signal, labels)
+        for label in labels:
             self._record_execution_status(
                 label,
                 signal.regime,
@@ -217,9 +215,9 @@ class PerformanceMemory:
             )
 
         # Учитываем signal как increment если ещё не учли
-        self.record_signal(signal)
+        labels = self._labels_for_signal(signal, trade=trade)
+        self._record_signal_for_labels(signal, labels)
 
-        labels = self._labels_from_signal(signal)
         regime = signal.regime
 
         # Open vs close
@@ -344,6 +342,38 @@ class PerformanceMemory:
             labels.append(signal.by_agent)
         if signal.by_player and signal.by_player not in labels:
             labels.append(signal.by_player)
+        return labels
+
+    def _record_signal_for_labels(self, signal: Signal, labels: List[str]) -> None:
+        if signal.id in self._seen_signal_ids:
+            return
+        self._seen_signal_ids.add(signal.id)
+        for label in labels:
+            self._get_or_create(label, signal.regime).signals += 1
+
+    def _labels_for_signal(self, signal: Signal, *, trade: Optional[Trade] = None) -> List[str]:
+        if self._is_cash_flat_close(signal):
+            sym = trade.sym if trade is not None else signal.sym
+            opener_labels = self._open_labels_for(signal.position_scope, sym)
+            if opener_labels:
+                return opener_labels
+        return self._labels_from_signal(signal)
+
+    @staticmethod
+    def _is_cash_flat_close(signal: Signal) -> bool:
+        return (
+            signal.action.is_close
+            and (
+                signal.by_agent == _CASH_FLAT_AGENT
+                or signal.by_player == _NO_TRADE_PLAYER
+            )
+        )
+
+    def _open_labels_for(self, position_scope: str, sym: str) -> List[str]:
+        labels: List[str] = []
+        for scope, label, open_sym in self._open.keys():
+            if scope == position_scope and open_sym == sym and label not in labels:
+                labels.append(label)
         return labels
 
     def _record_execution_status(

@@ -160,7 +160,8 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         ("State", f"{status.get('run_state', '-')}/{status.get('feed_status', '-')}"),
         ("Regime", status.get("regime", "-")),
         ("Bar", status.get("bar_count", 0)),
-        ("Leader", status.get("current_leader", "-") or "-"),
+        ("Selected", status.get("selected_leader", status.get("current_leader", "-")) or "-"),
+        ("Executed", status.get("executed_leader", status.get("current_leader", "-")) or "-"),
         ("Balance", _usd(status.get("current_balance", 0.0))),
         ("Futures equity", _usd(status.get("futures_equity_usd", status.get("current_balance", 0.0)))),
         ("Available", _usd(status.get("available_balance_usd", 0.0))),
@@ -170,22 +171,45 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         ("Account PnL", _pct(status.get("pnl_pct", 0.0))),
         ("Positions", status.get("n_positions", 0)),
     ]
+    real_trades = status.get("real_trades") if isinstance(status.get("real_trades"), Mapping) else {}
+    if isinstance(real_trades, Mapping):
+        total = int(_float_value(real_trades.get("total", 0)))
+        closed = int(_float_value(real_trades.get("closed", 0)))
+        successful = int(_float_value(real_trades.get("successful", 0)))
+        unsuccessful = int(_float_value(real_trades.get("unsuccessful", 0)))
+        unresolved = int(_float_value(real_trades.get("unresolved", 0)))
+        lines.extend([
+            ("Real trades", f"{total} (closed {closed}, open {unresolved})"),
+            ("Real W/L/Open", f"{successful} / {unsuccessful} / {unresolved}"),
+        ])
+    decision_debug = status.get("decision_debug") if isinstance(status.get("decision_debug"), Mapping) else {}
+    if isinstance(decision_debug, Mapping):
+        fallback_session = (
+            decision_debug.get("fallback_session")
+            if isinstance(decision_debug.get("fallback_session"), Mapping)
+            else {}
+        )
+        if decision_debug.get("fallback_used") or decision_debug.get("fallback_skipped") or fallback_session:
+            used = int(_float_value(fallback_session.get("used", 0))) if isinstance(fallback_session, Mapping) else 0
+            skipped = int(_float_value(fallback_session.get("skipped", 0))) if isinstance(fallback_session, Mapping) else 0
+            lines.append(("Fallback", f"used {used}, skipped {skipped}"))
     shadow = status.get("shadow") if isinstance(status.get("shadow"), Mapping) else {}
     if isinstance(shadow, Mapping):
         lines.extend([
             ("Shadow actors", shadow.get("actors", 0)),
-            ("Shadow signals", shadow.get("signals", 0)),
-            ("Shadow filled", shadow.get("filled", 0)),
+            ("Shadow signals", _shadow_counter(shadow, "signals")),
+            ("Shadow filled", _shadow_counter(shadow, "filled")),
         ])
 
     y = 0.95
     ax.text(0.03, y, "ACCOUNT / RUNTIME", transform=ax.transAxes,
             color=TEXT, fontsize=12, fontweight="bold", va="top")
     y -= 0.07
+    line_step = min(0.055, 0.86 / max(len(lines), 1))
     for label, value in lines:
         ax.text(0.04, y, str(label), transform=ax.transAxes, color=MUTED, fontsize=9, va="top")
         ax.text(0.54, y, str(value), transform=ax.transAxes, color=TEXT, fontsize=9, va="top")
-        y -= 0.055
+        y -= line_step
 
 
 def _draw_barh(
@@ -667,6 +691,15 @@ def _usd(value: object) -> str:
         return f"${float(value):,.2f}"
     except (TypeError, ValueError):
         return "$0.00"
+
+
+def _shadow_counter(shadow: Mapping[str, object], key: str) -> str:
+    total = int(_float_value(shadow.get(key, 0)))
+    bar_key = f"{key}_bar"
+    if bar_key not in shadow:
+        return str(total)
+    bar_value = int(_float_value(shadow.get(bar_key, 0)))
+    return f"{total} (bar {bar_value})"
 
 
 def _float_value(value: object) -> float:

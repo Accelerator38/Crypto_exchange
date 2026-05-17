@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from ..domain.types import Metrics, Regime
 from ..memory import PerformanceMemory, QuarantineManager
@@ -54,6 +54,60 @@ def _default_scorer_factory(config: ScoringConfig) -> ScorerFn:
     return scorer
 
 
+@dataclass(frozen=True)
+class SessionOverlayConfig:
+    """Optional current-session overlay for selector scores.
+
+    The baseline is captured lazily from restored memory on the first select()
+    call, so persisted all-time memory does not masquerade as current-session
+    performance.
+    """
+
+    enabled: bool = False
+    overlay_weight: float = 0.50
+    stale_penalty: float = 0.10
+    underperformance_weight: float = 0.25
+    session_pnl_cap_pct: float = 3.0
+    min_session_activity: int = 1
+
+    def __post_init__(self) -> None:
+        if self.min_session_activity < 0:
+            raise ValueError("min_session_activity must be >= 0")
+        if self.session_pnl_cap_pct < 0:
+            raise ValueError("session_pnl_cap_pct must be >= 0")
+
+
+def _metrics_delta(current: Metrics, baseline: Metrics) -> Metrics:
+    return Metrics(
+        pnl_pct=current.pnl_pct - baseline.pnl_pct,
+        closed_trades=max(0, current.closed_trades - baseline.closed_trades),
+        entries=max(0, current.entries - baseline.entries),
+        signals=max(0, current.signals - baseline.signals),
+        wins=max(0, current.wins - baseline.wins),
+        losses=max(0, current.losses - baseline.losses),
+        max_dd_pct=max(0.0, current.max_dd_pct - baseline.max_dd_pct),
+        blocked_signals=max(0, current.blocked_signals - baseline.blocked_signals),
+        rejected_signals=max(0, current.rejected_signals - baseline.rejected_signals),
+        pending_signals=max(0, current.pending_signals - baseline.pending_signals),
+        execution_failures=max(0, current.execution_failures - baseline.execution_failures),
+    )
+
+
+def _session_activity(metrics: Metrics) -> int:
+    return (
+        int(metrics.closed_trades)
+        + int(metrics.entries)
+        + int(metrics.signals)
+        + int(metrics.execution_failures)
+    )
+
+
+def _cap_abs(value: float, cap: float) -> float:
+    if cap <= 0:
+        return float(value)
+    return max(-cap, min(cap, float(value)))
+
+
 # ────────────────────────────────────────────────────────────────────
 # AgentSelector
 # ────────────────────────────────────────────────────────────────────
@@ -83,12 +137,15 @@ class AgentSelector:
         *,
         config:   ScoringConfig = DEFAULT_SCORING,
         scorer:   Optional[ScorerFn] = None,
+        session_overlay: SessionOverlayConfig = SessionOverlayConfig(),
     ):
         self._registry = registry
         self._perf = perf
         self._qm = qm
         self._config = config
         self._scorer: ScorerFn = scorer or _default_scorer_factory(config)
+        self._session_overlay = session_overlay
+        self._session_baseline: Dict[Tuple[str, Regime], Metrics] = {}
 
     def select(
         self,
@@ -117,6 +174,7 @@ class AgentSelector:
         )
 
         scored: List[ScoredAgent] = []
+        self._ensure_session_baseline(regime)
         for label in self._registry.all_labels():
             # SYNCHRONIZATION POINT: фильтруем карантин ДО скоринга.
             if self._qm.is_quarantined(label):
@@ -126,10 +184,18 @@ class AgentSelector:
                 continue
             metrics = self._perf.get(label, regime=regime)
             score = float(self._scorer(metrics, regime))
+            score = self._apply_session_overlay(label, regime, metrics, score)
             if score > threshold:
                 scored.append(ScoredAgent(agent=agent, score=score, metrics=metrics))
 
-        scored.sort(key=lambda sa: -sa.score)
+        scored.sort(
+            key=lambda sa: (
+                -sa.score,
+                -sa.metrics.closed_trades,
+                -sa.metrics.signals,
+                sa.label,
+            )
+        )
         return scored[:k]
 
     def select_with_fallback(
@@ -138,14 +204,54 @@ class AgentSelector:
         k: int,
         *,
         fallback_threshold: float = -10.0,
+        min_count: int = 1,
     ) -> List[ScoredAgent]:
-        """Как select, но если ни один агент не прошёл базовый порог,
+        """Как select, но если базовый порог дал меньше нужного числа агентов,
         мы всё равно возвращаем top-k (с пониженным cutoff) чтобы система
         не оставалась без сигналов.
 
         Используется в Strategist для cold-start ситуации.
         """
         result = self.select(regime, k)
-        if result:
+        if len(result) >= max(1, int(min_count)):
             return result
         return self.select(regime, k, min_score=fallback_threshold)
+
+    def capture_session_baseline(self, regime: Optional[Regime] = None) -> None:
+        """Capture current memory as the start-of-session baseline."""
+        regimes = [regime] if regime is not None else list(Regime)
+        for reg in regimes:
+            for label in self._registry.all_labels():
+                self._session_baseline[(label, reg)] = self._perf.get(label, regime=reg)
+
+    def _ensure_session_baseline(self, regime: Regime) -> None:
+        if not self._session_overlay.enabled:
+            return
+        for label in self._registry.all_labels():
+            key = (label, regime)
+            if key not in self._session_baseline:
+                self._session_baseline[key] = self._perf.get(label, regime=regime)
+
+    def _apply_session_overlay(
+        self,
+        label: str,
+        regime: Regime,
+        metrics: Metrics,
+        base_score: float,
+    ) -> float:
+        overlay = self._session_overlay
+        if not overlay.enabled:
+            return float(base_score)
+
+        baseline = self._session_baseline.get((label, regime), Metrics.empty())
+        session = _metrics_delta(metrics, baseline)
+        session_pnl = _cap_abs(session.pnl_pct, overlay.session_pnl_cap_pct)
+        activity = _session_activity(session)
+
+        adjusted = float(base_score)
+        if activity >= overlay.min_session_activity or abs(session_pnl) > 1e-12:
+            adjusted += float(overlay.overlay_weight) * session_pnl
+            adjusted -= max(0.0, -session_pnl) * float(overlay.underperformance_weight)
+        else:
+            adjusted -= float(overlay.stale_penalty)
+        return adjusted

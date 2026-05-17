@@ -135,6 +135,9 @@ class TestStrategistSwitching(unittest.TestCase):
         # Bar 2 — current уже New, всё то же
         d2 = st.consider_switch(Regime.BULLISH, current_bar=2)
         self.assertFalse(d2.switched)
+        self.assertEqual(d2.switch_gate_reason, "current is still best")
+        self.assertEqual(d2.best_label, "NewLeader")
+        self.assertEqual(d2.current_label, "NewLeader")
 
     def test_urgent_switch_bypasses_cooldown(self):
         """Если current скатывается до hard_negative — switch урgent."""
@@ -176,19 +179,20 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(st.current_leader().label, "PA")
 
 
-    def test_consider_switch_forces_new_leader_when_current_not_in_candidates(self):
+    def test_current_valid_leader_is_retained_when_temporarily_missing_from_candidates(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         _add_perf(perf, "A", Regime.BULLISH, 5, 1.0)
-        _add_perf(perf, "B", Regime.BULLISH, 5, 1.0, start_id=200)
+        _add_perf(perf, "B", Regime.BULLISH, 5, 5.0, start_id=200)
         qm = QuarantineManager(seed=set())
         st = Strategist(
             perf,
             qm,
             candidates=[_make_player("PA", ["A"])],
             config=StrategistConfig(
+                candidate_ttl_bars=5,
                 cooldown_bars=1000,
-                switch_margin=10.0,
-                urgent_gap=10.0,
+                switch_margin=0.1,
+                urgent_gap=100.0,
                 hard_negative=-100.0,
             ),
         )
@@ -197,9 +201,17 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
 
         decision = st.consider_switch(Regime.BULLISH, current_bar=2)
 
-        self.assertTrue(decision.switched)
-        self.assertEqual(decision.new_leader.label, "PB")
-        self.assertIn("not in candidates", decision.reason)
+        self.assertFalse(decision.switched)
+        self.assertEqual(decision.new_leader.label, "PA")
+        self.assertEqual(decision.best_label, "PB")
+        self.assertEqual(decision.current_label, "PA")
+        self.assertEqual(decision.switch_gate_reason, "cooldown not yet passed")
+
+        expired = st.consider_switch(Regime.BULLISH, current_bar=8)
+
+        self.assertTrue(expired.switched)
+        self.assertEqual(expired.new_leader.label, "PB")
+        self.assertIn("not in candidates", expired.reason)
 
     def test_affinity_breaks_ties_for_current_regime(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -239,6 +251,265 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         decision = st.consider_switch(Regime.NEUTRAL, current_bar=1)
 
         self.assertEqual(decision.new_leader.label, "PlayerB")
+
+    def test_v3_rolling_score_prefers_real_edge_over_virtual_only_edge(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "VirtualAgent", Regime.BULLISH, 10, 2.0, start_id=1)
+        _add_perf(virtual_perf, "RealAgent", Regime.BULLISH, 10, 0.2, start_id=300)
+        _add_perf(real_perf, "RealPlayer", Regime.BULLISH, 6, 0.7, start_id=700)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("VirtualPlayer", ["VirtualAgent"]),
+                _make_player("RealPlayer", ["RealAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "RealPlayer")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertEqual(by_label["RealPlayer"].score_source, "v3_rolling")
+        self.assertGreater(by_label["RealPlayer"].score, by_label["VirtualPlayer"].score)
+
+    def test_v3_rolling_score_selects_no_trade_when_all_candidates_are_negative(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "A", Regime.BEARISH, 8, 0.1, start_id=1)
+        _add_perf(virtual_perf, "B", Regime.BEARISH, 8, 0.2, start_id=300)
+        _add_perf(real_perf, "PlayerA", Regime.BEARISH, 5, -0.8, start_id=700)
+        _add_perf(real_perf, "PlayerB", Regime.BEARISH, 5, -0.6, start_id=900)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("PlayerA", ["A"]),
+                _make_player("PlayerB", ["B"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BEARISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "NoTrade")
+        self.assertIn("v3 rolling score", decision.reason)
+
+    def test_v3_rolling_score_is_opt_in_and_preserves_default_virtual_ranking(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "VirtualAgent", Regime.BULLISH, 10, 2.0, start_id=1)
+        _add_perf(virtual_perf, "RealAgent", Regime.BULLISH, 10, 0.2, start_id=300)
+        _add_perf(real_perf, "RealPlayer", Regime.BULLISH, 6, 0.7, start_id=700)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("VirtualPlayer", ["VirtualAgent"]),
+                _make_player("RealPlayer", ["RealAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=False,
+                real_score_weight=0.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "VirtualPlayer")
+
+    def test_v3_virtual_only_score_is_capped_below_real_positive_edge(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "VirtualAgent", Regime.BULLISH, 30, 3.0, start_id=1)
+        _add_perf(virtual_perf, "RealAgent", Regime.BULLISH, 10, 0.05, start_id=1000)
+        _add_perf(real_perf, "RealPlayer", Regime.BULLISH, 3, 0.20, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("VirtualPlayer", ["VirtualAgent"]),
+                _make_player("RealPlayer", ["RealAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_virtual_only_score_cap=0.25,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "RealPlayer")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertLessEqual(by_label["VirtualPlayer"].score, 0.25)
+
+    def test_v3_real_loss_kill_blocks_candidate_before_slow_promotion_gate(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, 2.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        _add_perf(real_perf, "BadPlayer", Regime.BULLISH, 3, -0.35, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("BadPlayer", ["BadAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=3,
+                v3_real_loss_kill_pnl_pct=-0.5,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 real-loss kill", reasons)
+
+    def test_player_session_overlay_penalizes_current_session_underperformance(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "DefaultEnsemble", Regime.NEUTRAL, 8, 0.40, start_id=1)
+        _add_perf(perf, "TrendResearch", Regime.NEUTRAL, 8, 0.15, start_id=500)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[
+                _make_player("DefaultEnsemble", ["A"]),
+                _make_player("TrendResearch", ["B"]),
+            ],
+            config=StrategistConfig(
+                player_session_overlay_weight=1.0,
+                player_session_underperformance_weight=2.0,
+                player_session_stale_penalty=0.0,
+                player_session_pnl_cap_pct=5.0,
+                player_session_min_activity=1,
+            ),
+        )
+        st.capture_session_baseline()
+        _add_perf(perf, "DefaultEnsemble", Regime.NEUTRAL, 3, -0.70, start_id=1000)
+        _add_perf(perf, "TrendResearch", Regime.NEUTRAL, 3, 0.35, start_id=2000)
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "TrendResearch")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertLess(by_label["DefaultEnsemble"].session_score_delta, 0.0)
+        self.assertGreater(by_label["DefaultEnsemble"].session_underperformance_penalty, 0.0)
+
+    def test_switch_gate_diagnostics_explain_small_margin(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "CurrentAgent", Regime.NEUTRAL, 8, 0.50, start_id=1)
+        _add_perf(perf, "BetterAgent", Regime.NEUTRAL, 8, 0.45, start_id=500)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[
+                _make_player("Current", ["CurrentAgent"]),
+                _make_player("Better", ["BetterAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                switch_margin=10.0,
+                urgent_gap=100.0,
+                hard_negative=-100.0,
+            ),
+        )
+        st.consider_switch(Regime.NEUTRAL, current_bar=1)
+        _add_perf(perf, "CurrentAgent", Regime.NEUTRAL, 1, -2.00, start_id=1000)
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=2)
+
+        self.assertFalse(decision.switched)
+        self.assertEqual(decision.switch_gate_reason, "margin too small and not urgent")
+        self.assertEqual(decision.best_label, "Better")
+        self.assertEqual(decision.current_label, "Current")
+        self.assertGreater(decision.best_score, decision.current_score)
+        self.assertFalse(decision.cooldown_blocked)
+        self.assertEqual(decision.required_margin, 10.0)
+
+
+class TestStrategistRealPromotionGate(unittest.TestCase):
+    def test_real_promotion_gate_selects_no_trade_after_loss_budget_breach(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "RiskyAgent", Regime.BULLISH, 12, 1.2, start_id=1)
+        _add_perf(real_perf, "RiskyPlayer", Regime.BULLISH, 3, -1.0, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[_make_player("RiskyPlayer", ["RiskyAgent"])],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=1,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-0.5,
+                real_promotion_probation_min_score=0.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertTrue(decision.switched)
+        self.assertEqual(decision.new_leader.label, "NoTrade")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("real promotion gate", reasons)
+        self.assertIn("loss budget", reasons)
+
+    def test_real_promotion_gate_allows_probation_without_real_sample(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "StrongAgent", Regime.BULLISH, 12, 1.5, start_id=1)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[_make_player("StrongPlayer", ["StrongAgent"])],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=5,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-0.5,
+                real_promotion_probation_min_score=0.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "StrongPlayer")
+        self.assertEqual(decision.candidate_rejections, ())
 
 
 if __name__ == "__main__":

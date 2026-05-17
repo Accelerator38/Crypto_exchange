@@ -29,7 +29,7 @@ from ..execution.position_tracker import TrackedPosition
 from ..selection import AgentRegistry, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
-from .agent_bootstrap import register_all_v1_agents
+from .agent_bootstrap import optional_labels, register_all_v1_agents
 from .bootstrap import LiveExecutionConfig, PRODUCTION_PROFILES, build_production_pipeline
 from .main_loop import main_loop
 from .migration import (
@@ -119,6 +119,14 @@ def _resolve_trade_fraction(exchange_name: str) -> float:
         return 0.10
 
 
+def _resolve_timeframe(exchange_name: str) -> str:
+    return (
+        os.getenv(f"{exchange_name.upper()}_TIMEFRAME")
+        or os.getenv("PANTEON_TIMEFRAME")
+        or "bridge_poll"
+    )
+
+
 def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
     try:
         from .exchange_profile import load_exchange_profile
@@ -150,6 +158,14 @@ def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
         min_live_score=num("player_min_live_score", 0.0),
         max_live_drawdown_pct=num("player_max_live_drawdown_pct", 100.0),
         min_regime_confidence=num("regime_min_confidence", 0.0),
+        player_session_overlay_weight=num("player_session_overlay_weight", 0.25),
+        player_session_underperformance_weight=num(
+            "player_session_underperformance_weight",
+            0.35,
+        ),
+        player_session_stale_penalty=num("player_session_stale_penalty", 0.10),
+        player_session_pnl_cap_pct=num("player_session_pnl_cap_pct", 3.0),
+        player_session_min_activity=int(num("player_session_min_activity", 1)),
     )
 
 
@@ -202,6 +218,63 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if raw is None:
         return bool(default)
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_include_genetics(value: Optional[bool]) -> bool:
+    if value is not None:
+        return bool(value)
+    return _env_flag("PANTEON_V2_LOAD_GENETICS", False)
+
+
+def _resolve_genetics_shadow_only(value: Optional[bool]) -> bool:
+    if value is not None:
+        return bool(value)
+    return _env_flag("PANTEON_V2_GENETICS_SHADOW_ONLY", True)
+
+
+def _seed_quarantine_with_shadow_only_genetics(
+    seed_quarantine: Sequence[str],
+    registered: Sequence[str],
+    *,
+    include_genetics: bool,
+    genetics_shadow_only: bool,
+) -> tuple:
+    if not include_genetics or not genetics_shadow_only:
+        return tuple(seed_quarantine)
+
+    optional = set(optional_labels())
+    merged = []
+    seen = set()
+    for label in list(seed_quarantine) + [
+        label for label in registered
+        if label in optional or str(label).startswith("Genetics")
+    ]:
+        if label in seen:
+            continue
+        merged.append(label)
+        seen.add(label)
+    return tuple(merged)
+
+
+def _apply_genetics_position_limit(
+    registry: AgentRegistry,
+    *,
+    max_open_positions: int,
+) -> List[str]:
+    max_pos = int(max_open_positions)
+    changed: List[str] = []
+    for agent in registry.all_agents():
+        label = str(getattr(agent, "label", "") or "")
+        if not label.startswith("Genetics"):
+            continue
+        target = getattr(agent, "v1_agent", agent)
+        try:
+            setattr(target, "MAX_POS", max_pos)
+        except Exception:
+            log.warning("Failed to apply genetics MAX_POS=%s to %s", max_pos, label, exc_info=True)
+            continue
+        changed.append(label)
+    return changed
 
 
 def _should_fail_closed_after_bridge_error(
@@ -536,6 +609,8 @@ def start_production(
     results_root:       str = "Results",
     warmup_bars:        Optional[int] = None,
     allow_live_feed_fallback: Optional[bool] = None,
+    include_genetics:   Optional[bool] = None,
+    genetics_shadow_only: Optional[bool] = None,
 ) -> int:
     """Запустить production main_loop для указанной биржи.
 
@@ -553,6 +628,8 @@ def start_production(
     os.environ[f"{exchange.upper()}_TRADING_MODE"] = mode
     if allow_live_feed_fallback is None:
         allow_live_feed_fallback = _env_flag("PANTEON_ALLOW_LIVE_FEED_FALLBACK", False)
+    include_genetics = _resolve_include_genetics(include_genetics)
+    genetics_shadow_only = _resolve_genetics_shadow_only(genetics_shadow_only)
 
     # 1. Exchange adapter + capital base
     exchange_adapter = resolve_exchange(exchange, mode=mode)
@@ -592,6 +669,7 @@ def start_production(
         registry,
         portfolio_value_fn=_portfolio_value,
         skip_on_error=True,
+        include_optional=include_genetics,
     )
     log.info("Registered %d v1-agents: %s", len(registered),
              ", ".join(registered[:5]) + ("…" if len(registered) > 5 else ""))
@@ -600,13 +678,41 @@ def start_production(
             "No v1-agents registered. Check sys.path / panteon_runtime presence."
         )
         return 2
+    genetics_limit_labels = _apply_genetics_position_limit(
+        registry,
+        max_open_positions=risk_config.max_open_positions,
+    )
+    if genetics_limit_labels:
+        log.info(
+            "[%s] genetics MAX_POS aligned to runtime max_open_positions=%d: %s",
+            exchange,
+            risk_config.max_open_positions,
+            ", ".join(genetics_limit_labels),
+        )
+    effective_seed_quarantine = _seed_quarantine_with_shadow_only_genetics(
+        seed_quarantine,
+        registered,
+        include_genetics=include_genetics,
+        genetics_shadow_only=genetics_shadow_only,
+    )
+    if include_genetics:
+        genetics_registered = [
+            label for label in registered
+            if label in set(optional_labels()) or label.startswith("Genetics")
+        ]
+        log.info(
+            "[%s] genetics agents loaded: %s%s",
+            exchange,
+            ", ".join(genetics_registered) if genetics_registered else "none",
+            " (shadow-only quarantine)" if genetics_shadow_only else "",
+        )
 
     # 3. ProductionPipeline
     pipeline = build_production_pipeline(
         registry=registry,
         exchange=exchange_adapter,
         initial_capital=resolved_initial_capital,
-        seed_quarantine=seed_quarantine,
+        seed_quarantine=effective_seed_quarantine,
         profiles=profiles or PRODUCTION_PROFILES,
         strategist_config=strategist_config,
         risk_config=risk_config,
@@ -614,6 +720,8 @@ def start_production(
         perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
     )
+    pipeline.mode = mode
+    pipeline.timeframe = _resolve_timeframe(exchange)
     pipeline_holder["pipeline"] = pipeline
     log.info("Pipeline built: %d profiles, capital=$%.2f",
              len(pipeline.profiles), pipeline.initial_capital)
@@ -626,6 +734,12 @@ def start_production(
         snapshot_path=snapshot_path,
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
+    )
+    pipeline.selector.capture_session_baseline()
+    pipeline.strategist.capture_session_baseline()
+    pipeline.degradation_gate.capture_baseline(
+        pipeline.perf,
+        labels=pipeline.registry.all_labels(),
     )
     pipeline.shadow_tournament = ProductionShadowTournament(
         registry=pipeline.registry,
@@ -781,7 +895,7 @@ def start_production(
         )
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt — saving state and exit")
-        steps = []
+        steps = None
 
     writer.close()
     if snapshot_path:
@@ -792,5 +906,6 @@ def start_production(
             order_ledger=pipeline.order_ledger,
         )
         log.info("Saved snapshot → %s", snapshot_path)
-    log.info("Shutdown. Processed %d bars.", len(steps))
+    processed = len(steps) if steps is not None else n_step[0]
+    log.info("Shutdown. Processed %d bars.", processed)
     return 0

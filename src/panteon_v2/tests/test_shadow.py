@@ -11,6 +11,7 @@ from panteon_v2.replay.v1_parser import V1Session, V1Signal
 from panteon_v2.selection import AgentRegistry
 from panteon_v2.shadow import (
     CallableFeed,
+    GeneticsV2AgentAdapter,
     ReplayFeed,
     ShadowRunner,
     V1AgentAdapter,
@@ -115,6 +116,95 @@ class TestV1AgentAdapter(unittest.TestCase):
         snap = make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish")
         result = wrapped.act(snap)
         self.assertEqual(result, {})
+
+
+class TestGeneticsV2AgentAdapter(unittest.TestCase):
+    def test_maps_collapsed_genetics_actions_to_v2_actions(self):
+        class GeneticsLikeAgent:
+            def act(self, prices, volumes, **kw):
+                return {
+                    "BTC": 0,
+                    "ETH": 1,
+                    "SOL": 2,
+                    "XRP": 3,
+                    "DOGE": 4,
+                    "ADA": 5,
+                }
+
+        wrapped = GeneticsV2AgentAdapter(
+            label="GeneticsNeutral",
+            v1_agent=GeneticsLikeAgent(),
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={
+                "BTC": 100.0,
+                "ETH": 50.0,
+                "SOL": 20.0,
+                "XRP": 1.0,
+                "DOGE": 0.2,
+                "ADA": 0.4,
+            },
+            regime="neutral",
+        )
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["BTC"], Action.HOLD)
+        self.assertEqual(result["ETH"], Action.SPOT_BUY_FULL)
+        self.assertEqual(result["SOL"], Action.SPOT_SELL_ALL)
+        self.assertEqual(result["XRP"], Action.FUT_LONG_FULL)
+        self.assertEqual(result["DOGE"], Action.FUT_SHORT_FULL)
+        self.assertEqual(result["ADA"], Action.FUT_CLOSE_ALL)
+
+    def test_does_not_treat_genetics_short_as_v2_long_half(self):
+        class GeneticsLikeAgent:
+            def act(self, prices, volumes, **kw):
+                return {"DOGE": 4}
+
+        wrapped = GeneticsV2AgentAdapter(
+            label="GeneticsBearish",
+            v1_agent=GeneticsLikeAgent(),
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={"DOGE": 0.2},
+            regime="bearish",
+        )
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["DOGE"], Action.FUT_SHORT_FULL)
+
+    def test_reuses_cached_genetics_action_for_same_bar_across_shadow_clone(self):
+        class GeneticsLikeAgent:
+            total_calls = 0
+
+            def __init__(self):
+                self.calls = 0
+
+            def act(self, prices, volumes, **kw):
+                self.calls += 1
+                type(self).total_calls += 1
+                return {"BTC": 3}
+
+        agent = GeneticsLikeAgent()
+        wrapped = GeneticsV2AgentAdapter(
+            label="GeneticsCacheProbe",
+            v1_agent=agent,
+        )
+        clone = wrapped.clone_for_shadow()
+        snap = make_market_snapshot(
+            bar=777,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        )
+
+        self.assertEqual(wrapped.act(snap)["BTC"], Action.FUT_LONG_FULL)
+        self.assertEqual(clone.act(snap)["BTC"], Action.FUT_LONG_FULL)
+
+        self.assertEqual(agent.calls, 1)
+        self.assertEqual(GeneticsLikeAgent.total_calls, 1)
 
 
 # ════════════════════════════════════════════════════════════════════

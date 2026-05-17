@@ -31,6 +31,7 @@ class OrderRecord:
     message: str = ""
     signal: Optional[Signal] = None
     trade: Optional[Trade] = None
+    execution_key: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -40,8 +41,9 @@ class OrderLedger:
 
     def __init__(self) -> None:
         self._records: Dict[str, OrderRecord] = {}
+        self._execution_keys: Dict[str, str] = {}
 
-    def record_submitted(self, signal: Signal) -> OrderRecord:
+    def record_submitted(self, signal: Signal, *, execution_key: str = "") -> OrderRecord:
         key = self._signal_key(signal)
         record = OrderRecord(
             signal_id=signal.id,
@@ -49,15 +51,27 @@ class OrderLedger:
             action=signal.action.name,
             stage=OrderStage.SUBMITTED,
             signal=signal,
+            execution_key=str(execution_key or ""),
         )
         self._records[key] = record
+        self._remember_execution_key(record, key)
         return record
 
-    def record_result(self, signal: Signal, result: OrderResult) -> OrderRecord:
+    def record_result(
+        self,
+        signal: Signal,
+        result: OrderResult,
+        *,
+        execution_key: str = "",
+    ) -> OrderRecord:
         stage = _stage_from_status(result.status)
         key = result.exchange_order_id or self._signal_key(signal)
         previous = self._records.get(key) or self._records.get(self._signal_key(signal))
         created_at = previous.created_at if previous is not None else datetime.now(timezone.utc)
+        resolved_execution_key = (
+            str(execution_key or "")
+            or (previous.execution_key if previous is not None else "")
+        )
         record = OrderRecord(
             signal_id=signal.id,
             sym=result.sym or signal.sym,
@@ -67,16 +81,21 @@ class OrderLedger:
             message=result.message,
             signal=(previous.signal if previous is not None and previous.signal is not None else signal),
             trade=result.trade,
+            execution_key=resolved_execution_key,
             created_at=created_at,
             updated_at=datetime.now(timezone.utc),
         )
         self._records[key] = record
         if key != self._signal_key(signal):
             self._records.pop(self._signal_key(signal), None)
+        self._remember_execution_key(record, key)
         return record
 
     def get(self, key: str) -> Optional[OrderRecord]:
         return self._records.get(str(key))
+
+    def has_execution_key(self, execution_key: str) -> bool:
+        return str(execution_key or "") in self._execution_keys
 
     def pending_records(self) -> list[OrderRecord]:
         return [
@@ -115,10 +134,12 @@ class OrderLedger:
             message=message,
             signal=record.signal,
             trade=record.trade,
+            execution_key=record.execution_key,
             created_at=record.created_at,
             updated_at=datetime.now(timezone.utc),
         )
         self._records[key] = updated
+        self._remember_execution_key(updated, key)
         return updated
 
     def snapshot(self) -> dict:
@@ -130,6 +151,7 @@ class OrderLedger:
                 "stage": record.stage.value,
                 "exchange_order_id": record.exchange_order_id,
                 "message": record.message,
+                "execution_key": record.execution_key,
                 "signal": _signal_to_dict(record.signal),
                 "created_at": record.created_at.isoformat(),
                 "updated_at": record.updated_at.isoformat(),
@@ -139,6 +161,7 @@ class OrderLedger:
 
     def restore(self, snapshot: dict) -> None:
         self._records.clear()
+        self._execution_keys.clear()
         for key, payload in (snapshot or {}).items():
             try:
                 stage = OrderStage(str(payload.get("stage")))
@@ -152,13 +175,20 @@ class OrderLedger:
                 exchange_order_id=str(payload.get("exchange_order_id", "") or ""),
                 message=str(payload.get("message", "") or ""),
                 signal=_signal_from_dict(payload.get("signal")),
+                execution_key=str(payload.get("execution_key", "") or ""),
                 created_at=_parse_ts(payload.get("created_at")),
                 updated_at=_parse_ts(payload.get("updated_at")),
             )
+            self._remember_execution_key(self._records[str(key)], str(key))
 
     @staticmethod
     def _signal_key(signal: Signal) -> str:
         return f"signal:{signal.id}"
+
+    def _remember_execution_key(self, record: OrderRecord, record_key: str) -> None:
+        execution_key = str(record.execution_key or "")
+        if execution_key:
+            self._execution_keys[execution_key] = str(record_key)
 
 
 def _stage_from_status(status: OrderStatus) -> OrderStage:

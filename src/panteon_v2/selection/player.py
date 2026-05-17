@@ -64,6 +64,26 @@ class VoteError:
 # ────────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class NoTradePlayer:
+    """Cash leader used when no real-promoted candidate is allowed to trade."""
+
+    label: str = "NoTrade"
+    affinity: Optional[Regime] = None
+
+    @property
+    def agent_labels(self) -> List[str]:
+        return []
+
+    def vote(
+        self,
+        market: MarketSnapshot,
+        *,
+        signal_id_start: int,
+    ) -> List[Signal]:
+        return []
+
+
 @dataclass
 class EnsemblePlayer:
     """Игрок-ансамбль из набора агентов и voting policy.

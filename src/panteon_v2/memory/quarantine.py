@@ -143,11 +143,22 @@ class QuarantineManager:
 
         with self._lock:
             previous = set(self._dynamic)
-            new_set: Set[str] = set()
+            forced = {
+                label
+                for label, record in self._records.items()
+                if (
+                    record.state == "quarantined"
+                    and label in self._dynamic
+                    and record.reason not in {"seed", "hopeless_in_all_regimes"}
+                )
+            }
+            new_set: Set[str] = set(forced)
 
             # 1. Seed: для каждого seed-label решаем оставить или выпустить
             all_labels = set(self._seed) | set(perf.all_labels())
             for label in all_labels:
+                if label in forced:
+                    continue
                 per_regime = perf.per_regime_for_label(label)
                 proven = is_locally_proven(per_regime, config=cfg)
                 hopeless = is_hopeless_in_all_regimes(per_regime, config=cfg)

@@ -18,12 +18,13 @@ from .voting import (
     VotingPolicy,
     WeightedConsensus,
 )
-from .player import EnsemblePlayer, Player
-from .selector import AgentSelector, ScoredAgent
+from .player import EnsemblePlayer, NoTradePlayer, Player
+from .selector import AgentSelector, ScoredAgent, SessionOverlayConfig
 from .composer import (
     PROFILE_BOMBERMAN_STRONG,
     PROFILE_DEFAULT_ENSEMBLE,
     PROFILE_DEFENSIVE_RESEARCH,
+    PROFILE_GENETICS_RESEARCH,
     PROFILE_MEAN_REV_RESEARCH,
     PROFILE_NEUTRAL_EDGE_RESEARCH,
     PROFILE_TREND_RESEARCH,
@@ -50,14 +51,17 @@ __all__ = [
     "WeightedConsensus",
     # player
     "EnsemblePlayer",
+    "NoTradePlayer",
     "Player",
     # selector
     "AgentSelector",
     "ScoredAgent",
+    "SessionOverlayConfig",
     # composer
     "PROFILE_BOMBERMAN_STRONG",
     "PROFILE_DEFAULT_ENSEMBLE",
     "PROFILE_DEFENSIVE_RESEARCH",
+    "PROFILE_GENETICS_RESEARCH",
     "PROFILE_MEAN_REV_RESEARCH",
     "PROFILE_NEUTRAL_EDGE_RESEARCH",
     "PROFILE_TREND_RESEARCH",

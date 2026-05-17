@@ -197,6 +197,7 @@ class BitgetDirectClient:
             and self._last_good_futures_snapshot
             and (time.time() - self._last_good_futures_snapshot_at) <= 300
         ):
+            cache_age = time.time() - self._last_good_futures_snapshot_at
             cached = dict(self._last_good_futures_snapshot)
             current_unrealized = float(snap["futures"]["unrealized"] or 0.0)
             if current_unrealized == 0.0 and not snap["futures"]["positions"]:
@@ -211,9 +212,14 @@ class BitgetDirectClient:
             log.warning(
                 "bitget snapshot: futures equity/available returned zero -> reuse cached core "
                 "(age=%.1fs, positions=%d)",
-                time.time() - self._last_good_futures_snapshot_at,
+                cache_age,
                 len(snap["futures"]["positions"]),
             )
+            snap["data_health"] = {
+                "uses_cached_balance": True,
+                "cache_age_sec": round(cache_age, 1),
+                "last_data_error_reason": "cached_equity",
+            }
 
         if snap["futures"]["equity"] > 0 or snap["futures"]["available"] > 0:
             self._last_good_futures_snapshot = {

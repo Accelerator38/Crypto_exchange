@@ -79,6 +79,17 @@ class TestRiskLimits(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertIn("already open", result.reason)
 
+    def test_external_recovered_position_cannot_be_closed_by_panteon_signal(self):
+        positions = {
+            "BTC": SimpleNamespace(by_player="RecoveredExchangePosition"),
+        }
+        sig = _make_signal(sym="BTC", action=Action.FUT_CLOSE_ALL)
+
+        result = self.rl.evaluate(sig, balance_usd=1000.0, open_positions=positions)
+
+        self.assertFalse(result.allowed)
+        self.assertIn("external", result.reason)
+
     def test_position_already_open(self):
         sig = _make_signal()
         positions = {"BTC": object()}

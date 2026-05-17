@@ -28,7 +28,24 @@ class RealSignalGuardResult:
     stale_closes: int = 0
     duplicate_opens: int = 0
     rate_limited_opens: int = 0
+    max_position_saturated_opens: int = 0
+    external_position_signals: int = 0
     details: List[str] = field(default_factory=list)
+
+
+EXTERNAL_POSITION_PLAYER_LABELS = {"", "RecoveredExchangePosition"}
+
+
+def is_external_position(pos: Dict[str, Any] | Any) -> bool:
+    if isinstance(pos, dict):
+        owner = pos.get("by_player", "")
+    else:
+        owner = getattr(pos, "by_player", "")
+    return str(owner or "") in EXTERNAL_POSITION_PLAYER_LABELS
+
+
+def _agent_sync_positions(positions: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [pos for pos in positions if not is_external_position(pos)]
 
 
 def prepare_v2_agents_for_live_after_warmup(
@@ -41,10 +58,11 @@ def prepare_v2_agents_for_live_after_warmup(
     registry = getattr(pipeline, "registry", None)
     agents = list(registry.all_agents()) if callable(getattr(registry, "all_agents", None)) else []
     real_positions = real_positions_for_agent_sync(pipeline)
+    agent_positions = _agent_sync_positions(real_positions)
 
     for agent in agents:
         reset_actor_for_live(agent, bar_index=bar_index, seen=set())
-        for pos in real_positions:
+        for pos in agent_positions:
             inject_actor_position(
                 agent,
                 sym=pos["sym"],
@@ -57,14 +75,18 @@ def prepare_v2_agents_for_live_after_warmup(
     summary = {
         "agents": len(agents),
         "real_positions": len(real_positions),
+        "agent_positions": len(agent_positions),
+        "external_positions_skipped": len(real_positions) - len(agent_positions),
         "bar_index": int(bar_index or 0),
     }
     _set_live_state_sync(pipeline, summary)
     log.info(
-        "[%s] v2-agent live state synchronized: agents=%d real_positions=%d bar=%d",
+        "[%s] v2-agent live state synchronized: agents=%d real_positions=%d agent_positions=%d external_skipped=%d bar=%d",
         exchange_name,
         summary["agents"],
         summary["real_positions"],
+        summary["agent_positions"],
+        summary["external_positions_skipped"],
         summary["bar_index"],
     )
     return summary
@@ -80,16 +102,17 @@ def sync_player_agents_to_real_positions(
     """Reconcile selected live player agents with current tracker positions."""
     agents = list(getattr(player, "agents", []) or [])
     real_positions = tracker_positions_for_agent_sync(pipeline)
-    real_by_sym = {pos["sym"]: pos for pos in real_positions}
+    agent_positions = _agent_sync_positions(real_positions)
+    agent_by_sym = {pos["sym"]: pos for pos in agent_positions}
     market_set = {str(sym).upper() for sym in market_symbols}
-    stale_symbols = sorted(sym for sym in market_set if sym not in real_by_sym)
+    stale_symbols = sorted(sym for sym in market_set if sym not in agent_by_sym)
 
     cleared = 0
     injected = 0
     for agent in agents:
         for sym in stale_symbols:
             cleared += clear_actor_position_symbols(agent, [sym], seen=set())
-        for pos in real_positions:
+        for pos in agent_positions:
             injected += inject_actor_position(
                 agent,
                 sym=pos["sym"],
@@ -102,6 +125,8 @@ def sync_player_agents_to_real_positions(
     summary = {
         "agents": len(agents),
         "real_positions": len(real_positions),
+        "agent_positions": len(agent_positions),
+        "external_positions_skipped": len(real_positions) - len(agent_positions),
         "bar_index": int(bar_index or 0),
         "cleared_symbols": len(stale_symbols),
         "cleared_fields": cleared,
@@ -118,6 +143,7 @@ def filter_real_signals_against_tracker(
     pipeline: Any,
     bar_index: int,
     max_new_opens_per_bar: Optional[int] = None,
+    max_open_positions: Optional[int] = None,
 ) -> RealSignalGuardResult:
     """Drop real signals that are impossible according to PositionTracker."""
     tracker_positions = {
@@ -130,12 +156,29 @@ def filter_real_signals_against_tracker(
     stale_closes = 0
     duplicate_opens = 0
     rate_limited_opens = 0
+    max_position_saturated_opens = 0
+    external_position_signals = 0
     kept_new_opens = 0
     details: List[str] = []
+    owned_open_count = sum(
+        1 for pos in tracker_positions.values()
+        if not is_external_position(pos)
+    )
+    planned_open_symbols = {
+        str(sym).upper()
+        for sym, pos in tracker_positions.items()
+        if not is_external_position(pos)
+    }
 
     for signal in signals:
         sym = str(signal.sym).upper()
         tracked = tracker_positions.get(sym)
+        if tracked is not None and is_external_position(tracked):
+            external_position_signals += 1
+            details.append(f"external_position_signal:{sym}:{signal.by_agent or '-'}")
+            for agent in agents:
+                clear_actor_position_symbols(agent, [sym], seen=set())
+            continue
         if signal.action.is_close and tracked is None:
             stale_closes += 1
             details.append(f"stale_close:{sym}:{signal.by_agent or '-'}")
@@ -169,6 +212,18 @@ def filter_real_signals_against_tracker(
                     seen=set(),
             )
             continue
+        if signal.action.is_open and sym in planned_open_symbols:
+            duplicate_opens += 1
+            details.append(f"duplicate_open:{sym}:{signal.by_agent or '-'}")
+            continue
+        if (
+            signal.action.is_open
+            and max_open_positions is not None
+            and owned_open_count + kept_new_opens >= max(0, int(max_open_positions))
+        ):
+            max_position_saturated_opens += 1
+            details.append(f"max_position_saturated:{sym}:{signal.by_agent or '-'}")
+            continue
         if (
             signal.action.is_open
             and max_new_opens_per_bar is not None
@@ -180,15 +235,24 @@ def filter_real_signals_against_tracker(
         kept.append(signal)
         if signal.action.is_open:
             kept_new_opens += 1
+            planned_open_symbols.add(sym)
 
-    filtered = stale_closes + duplicate_opens + rate_limited_opens
+    filtered = (
+        stale_closes
+        + duplicate_opens
+        + rate_limited_opens
+        + max_position_saturated_opens
+        + external_position_signals
+    )
     if filtered:
         log.info(
-            "real signal guard filtered=%d stale_closes=%d duplicate_opens=%d rate_limited_opens=%d details=%s",
+            "real signal guard filtered=%d stale_closes=%d duplicate_opens=%d rate_limited_opens=%d max_position_saturated_opens=%d external_position_signals=%d details=%s",
             filtered,
             stale_closes,
             duplicate_opens,
             rate_limited_opens,
+            max_position_saturated_opens,
+            external_position_signals,
             ", ".join(details[:8]),
         )
     return RealSignalGuardResult(
@@ -197,6 +261,8 @@ def filter_real_signals_against_tracker(
         stale_closes=stale_closes,
         duplicate_opens=duplicate_opens,
         rate_limited_opens=rate_limited_opens,
+        max_position_saturated_opens=max_position_saturated_opens,
+        external_position_signals=external_position_signals,
         details=details,
     )
 
@@ -222,6 +288,12 @@ def reconcile_tracker_with_exchange(
     added = 0
     updated = 0
     removed = 0
+    owned_added = 0
+    owned_updated = 0
+    owned_removed = 0
+    external_added = 0
+    external_updated = 0
+    external_removed = 0
     seen = 0
     exchange_seen_symbols: Set[str] = set()
     for key, raw_pos in exchange_positions.items():
@@ -254,6 +326,10 @@ def reconcile_tracker_with_exchange(
         if existing is None:
             added += 1
             tracker.force_set(replacement)
+            if is_external_position(replacement):
+                external_added += 1
+            else:
+                owned_added += 1
             continue
         changed = (
             existing.side != replacement.side
@@ -263,6 +339,10 @@ def reconcile_tracker_with_exchange(
         if changed:
             updated += 1
             tracker.force_set(replacement)
+            if is_external_position(existing):
+                external_updated += 1
+            else:
+                owned_updated += 1
 
     for sym, existing in list((tracker.all_open() or {}).items()):
         normalized_sym = str(getattr(existing, "sym", sym) or sym).upper()
@@ -274,12 +354,22 @@ def reconcile_tracker_with_exchange(
         if removed_pos is None:
             continue
         removed += 1
+        if is_external_position(removed_pos):
+            external_removed += 1
+        else:
+            owned_removed += 1
         _emit_external_close_event(pipeline, removed_pos, bar_index=bar_index)
 
     summary = {
         "added": added,
         "updated": updated,
         "removed": removed,
+        "owned_added": owned_added,
+        "owned_updated": owned_updated,
+        "owned_removed": owned_removed,
+        "external_added": external_added,
+        "external_updated": external_updated,
+        "external_removed": external_removed,
         "seen": seen,
         "bar_index": int(bar_index or 0),
     }
@@ -298,10 +388,11 @@ def _emit_external_close_event(pipeline: Any, pos: TrackedPosition, *, bar_index
     emit = getattr(event_log, "emit", None)
     if not callable(emit):
         return
+    trace_id = f"exchange-reconcile-{bar_index}-{pos.sym}"
     try:
         emit(PositionClosed(
             bar=int(bar_index or 0),
-            trace_id=f"exchange-reconcile-{bar_index}-{pos.sym}",
+            trace_id=trace_id,
             open_signal_id=int(pos.open_signal_id or 0),
             close_signal_id=0,
             sym=pos.sym,
@@ -312,6 +403,13 @@ def _emit_external_close_event(pipeline: Any, pos: TrackedPosition, *, bar_index
             realized_pnl=0.0,
             by_player=pos.by_player,
             by_agent=pos.by_agent,
+            decision_id=trace_id,
+            exchange=str(getattr(pipeline, "exchange_name", "") or ""),
+            symbol=str(pos.sym or ""),
+            timeframe=str(getattr(pipeline, "timeframe", "") or ""),
+            mode=str(getattr(pipeline, "mode", "") or ""),
+            run_id=str(getattr(pipeline, "run_id", "") or ""),
+            session_id=str(getattr(pipeline, "session_id", "") or ""),
         ))
     except Exception:
         log.debug("external close event emit failed", exc_info=True)
@@ -323,7 +421,11 @@ def tracker_positions_for_agent_sync(pipeline: Any) -> List[Dict[str, Any]]:
     if tracker is not None and hasattr(tracker, "all_open"):
         try:
             for key, pos in (tracker.all_open() or {}).items():
-                normalized = normalize_position_for_sync(key, pos)
+                normalized = normalize_position_for_sync(
+                    key,
+                    pos,
+                    default_by_player="UnknownTrackerPosition",
+                )
                 if normalized:
                     positions[normalized["sym"]] = normalized
         except Exception:
@@ -351,7 +453,12 @@ def real_positions_for_agent_sync(pipeline: Any) -> List[Dict[str, Any]]:
     return list(positions.values())
 
 
-def normalize_position_for_sync(key: Any, pos: Any) -> Optional[Dict[str, Any]]:
+def normalize_position_for_sync(
+    key: Any,
+    pos: Any,
+    *,
+    default_by_player: str = "",
+) -> Optional[Dict[str, Any]]:
     sym = str(getattr(pos, "sym", key) or "").upper()
     side = normalize_side(getattr(pos, "side", ""))
     entry = getattr(pos, "entry_price", None)
@@ -364,6 +471,8 @@ def normalize_position_for_sync(key: Any, pos: Any) -> Optional[Dict[str, Any]]:
         "side": side,
         "entry_price": float_or_zero(entry),
         "qty": float_or_zero(getattr(pos, "qty", 0.0)),
+        "by_player": str(getattr(pos, "by_player", default_by_player) or default_by_player),
+        "by_agent": str(getattr(pos, "by_agent", "") or ""),
     }
 
 

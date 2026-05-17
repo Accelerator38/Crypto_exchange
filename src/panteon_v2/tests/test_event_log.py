@@ -12,6 +12,7 @@ from panteon_v2.attribution import (
     CandidateScored,
     EventLog,
     EventLogPersistenceError,
+    ExecutionAttributed,
     LeaderSelected,
     QuarantineRecomputed,
     RegimeDetected,
@@ -93,6 +94,22 @@ class TestEventLog(unittest.TestCase):
             with self.assertRaises(EventLogPersistenceError):
                 log.emit(BarStarted(bar=1, trace_id="t1"))
 
+    def test_jsonl_write_failure_can_be_non_fatal_for_live(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "events.jsonl")
+            log = EventLog(
+                jsonl_path=path,
+                raise_on_persist_error=False,
+                persist_retry_attempts=0,
+            )
+            log._jsonl_path = os.path.join(td, "missing", "events.jsonl")  # type: ignore[attr-defined]
+
+            log.emit(BarStarted(bar=1, trace_id="t1"))
+
+            self.assertEqual(len(log), 1)
+            self.assertEqual(log.persistence_dropped, 1)
+            self.assertIn("BarStarted", log.persistence_errors[-1])
+
     def test_candidate_scored_event_serializes_full_audit_fields(self):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "events.jsonl")
@@ -115,6 +132,40 @@ class TestEventLog(unittest.TestCase):
             self.assertIn("CandidateScored", payload)
             self.assertIn("memory_keys_read", payload)
             self.assertIn("selected_by_pantheon", payload)
+
+    def test_execution_attributed_event_serializes_outcome_bucket(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "events.jsonl")
+            log = EventLog(jsonl_path=path)
+            log.emit(ExecutionAttributed(
+                bar=8,
+                trace_id="decision-8",
+                decision_id="decision-8",
+                exchange="BITGET",
+                symbol="BTC",
+                timeframe="bridge_poll",
+                mode="live_futures",
+                run_id="run-8",
+                session_id="session-8",
+                signal_id=42,
+                sym="BTC",
+                action="FUT_LONG_FULL",
+                status="blocked",
+                attribution_bucket="BLOCKED",
+                reason="risk_limits: external recovered position",
+                realized_pnl=0.0,
+                fees=0.0,
+                slippage_pct=0.0,
+                latency_ms=12.5,
+                order_id="BITGET:BTC:long:decision-8:8",
+                owner_scope="panteon_owned",
+            ))
+
+            with open(path, "r", encoding="utf-8") as f:
+                payload = f.read()
+            self.assertIn("ExecutionAttributed", payload)
+            self.assertIn("attribution_bucket", payload)
+            self.assertIn("BLOCKED", payload)
 
     def test_signal_emitted_event(self):
         log = EventLog()

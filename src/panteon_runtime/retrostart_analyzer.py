@@ -44,6 +44,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 MIN_DURATION_HOURS = 3.0
+COMBINE_MAX_GAP_HOURS = 2.0
 DUP_OPEN_WINDOW_BARS = 5  # окно между сигналами одной стороны для подсчёта стэкинга
 OPEN_ACTIONS = (1, 2, 4, 5)
 CLOSE_ACTIONS = (3, 8)
@@ -124,6 +125,100 @@ def _parse_log_times(log_path: Path) -> List[datetime]:
     return times
 
 
+def _parse_iso_time(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _naive_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _parse_session_name_time(name: str) -> Optional[datetime]:
+    match = re.match(r"(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})", name or "")
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d_%H-%M-%S")
+    except ValueError:
+        return None
+
+
+def _infer_session_bounds(
+    session_dir: Path,
+    duration_hours: float,
+    status: Optional[dict],
+    log_path: Path,
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Infer comparable session bounds for multi-period retro grouping."""
+    started: Optional[datetime] = None
+    ended: Optional[datetime] = None
+    if status:
+        started = _naive_datetime(_parse_iso_time(
+            status.get("started_at")
+            or status.get("start_time")
+            or status.get("session_start")
+        ))
+        ended = _naive_datetime(_parse_iso_time(
+            status.get("timestamp")
+            or status.get("updated_at")
+            or status.get("last_update")
+        ))
+
+    times = _parse_log_times(log_path)
+    if len(times) >= 2:
+        started = started or times[0]
+        ended = ended or times[-1]
+
+    started = started or _parse_session_name_time(session_dir.name)
+    if started and not ended and duration_hours > 0:
+        ended = started + timedelta(hours=duration_hours)
+    if ended and not started and duration_hours > 0:
+        started = ended - timedelta(hours=duration_hours)
+    return started, ended
+
+
+def _infer_status_duration_hours(status_path: Path) -> float:
+    status = _load_json(status_path)
+    if not status:
+        return 0.0
+    for key in ("uptime", "duration", "runtime"):
+        duration = _parse_duration(status.get(key))
+        if duration > 0:
+            return duration
+
+    started = _parse_iso_time(
+        status.get("started_at")
+        or status.get("start_time")
+        or status.get("session_start")
+    )
+    ended = _parse_iso_time(
+        status.get("timestamp")
+        or status.get("updated_at")
+        or status.get("last_update")
+    )
+    if not started or not ended:
+        return 0.0
+    if started.tzinfo is not None:
+        started = started.replace(tzinfo=None)
+    if ended.tzinfo is not None:
+        ended = ended.replace(tzinfo=None)
+    return max(0.0, (ended - started).total_seconds() / 3600.0)
+
+
 def _parse_runtime_config(log_path: Path) -> Dict[str, float]:
     """Extract trade sizing and exchange drag settings from trading.log."""
     cfg = {
@@ -152,11 +247,18 @@ def _parse_runtime_config(log_path: Path) -> Dict[str, float]:
     return cfg
 
 
-def _infer_duration_hours(report: Optional[dict], csv_path: Path, log_path: Path) -> Tuple[float, Dict[str, float]]:
+def _infer_duration_hours(
+    report: Optional[dict],
+    csv_path: Path,
+    log_path: Path,
+    status_path: Optional[Path] = None,
+) -> Tuple[float, Dict[str, float]]:
     """Infer live trading duration from report, real signal bars and log timestamps."""
     sources: Dict[str, float] = {}
     if report is not None:
         sources["report"] = _parse_duration(report.get("duration"))
+    if status_path is not None:
+        sources["status_uptime"] = _infer_status_duration_hours(status_path)
 
     bars: List[int] = []
     for row in _iter_signals(csv_path):
@@ -175,7 +277,7 @@ def _infer_duration_hours(report: Optional[dict], csv_path: Path, log_path: Path
     if len(times) >= 2:
         sources["log_wall_clock"] = max(0.0, (times[-1] - times[0]).total_seconds() / 3600.0)
 
-    for key in ("report", "log_wall_clock", "signals_live_bar"):
+    for key in ("report", "status_uptime", "log_wall_clock", "signals_live_bar"):
         duration = float(sources.get(key, 0.0) or 0.0)
         if duration > 0:
             return duration, sources
@@ -558,6 +660,87 @@ def _analyze_shadow_perf(report: dict) -> Dict[str, Any]:
     }
 
 
+def _status_real_pnl_pct(status: Optional[dict]) -> Optional[float]:
+    if not isinstance(status, dict):
+        return None
+    live = status.get("live_session")
+    if isinstance(live, dict):
+        for key in (
+            "panteon_owned_pnl_pct",
+            "panteon_pnl_pct",
+            "account_pnl_pct",
+        ):
+            try:
+                value = live.get(key)
+                if value is not None and value != "":
+                    return float(value)
+            except (TypeError, ValueError):
+                continue
+    for key in ("real_pnl_pct", "pnl_pct"):
+        try:
+            value = status.get(key)
+            if value is not None and value != "":
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _analyze_live_consistency(status: Optional[dict]) -> Dict[str, Any]:
+    if not isinstance(status, dict):
+        return {"checked": False, "reason": "no status.json"}
+    live = status.get("live_session")
+    if not isinstance(live, dict):
+        live = {}
+
+    account_pnl = _float_or_none(live.get("account_pnl_pct"))
+    if account_pnl is None:
+        account_pnl = _float_or_none(status.get("account_pnl_pct"))
+    if account_pnl is None:
+        account_pnl = _float_or_none(status.get("pnl_pct"))
+
+    panteon_pnl = _float_or_none(live.get("panteon_owned_pnl_pct"))
+    if panteon_pnl is None:
+        panteon_pnl = _float_or_none(live.get("panteon_pnl_pct"))
+    if panteon_pnl is None:
+        panteon_pnl = _float_or_none(status.get("panteon_owned_pnl_pct"))
+
+    external_count = _int_or_zero(live.get("external_positions_count"))
+    panteon_count = _int_or_zero(live.get("panteon_owned_positions_count"))
+    external_unrealized = _float_or_none(live.get("external_unrealized_pnl_usd"))
+    delta = None
+    if account_pnl is not None and panteon_pnl is not None:
+        delta = round(account_pnl - panteon_pnl, 3)
+
+    return {
+        "checked": True,
+        "comparison_scope": "panteon_owned",
+        "account_pnl_pct": account_pnl,
+        "panteon_owned_pnl_pct": panteon_pnl,
+        "account_vs_panteon_delta_pct": delta,
+        "panteon_owned_positions_count": panteon_count,
+        "external_positions_count": external_count,
+        "external_unrealized_pnl_usd": external_unrealized,
+        "has_external_positions": external_count > 0,
+    }
+
+
 def _analyze_regime_consistency(session_dir: Path) -> Dict[str, Any]:
     """
     Сравнивает заполненность per_regime в leaderboard_agents vs leaderboard_players.
@@ -742,6 +925,19 @@ def _build_verdict(diag: Dict[str, Any]) -> List[str]:
                 "review delegated player state if this persists."
             )
 
+    live_consistency = diag.get("live_consistency", {})
+    if live_consistency.get("checked"):
+        delta = live_consistency.get("account_vs_panteon_delta_pct")
+        if live_consistency.get("has_external_positions"):
+            notes.append(
+                f"WARN Live account includes {live_consistency.get('external_positions_count', 0)} "
+                "external/recovered positions; compare retro to panteon_owned scope only."
+            )
+        if delta is not None and abs(float(delta)) > 0.5:
+            notes.append(
+                f"WARN live account vs panteon-owned PnL delta is {float(delta):+.3f}%."
+            )
+
     return notes or ["OK"]
 
 
@@ -753,24 +949,40 @@ OUTLIER_PNL_THRESHOLD = 50.0  # |pnl_pct| выше этого — коррапт
 def analyze_session(session_dir: Path) -> Optional[Dict[str, Any]]:
     """Возвращает diagnostic dict или None если сессия не содержит нужных артефактов."""
     report = _load_json(session_dir / "final_combo_report.json")
+    had_report = report is not None
     csv_path = session_dir / "all_signals.csv"
     log_path = session_dir / "trading.log"
+    status_path = session_dir / "status.json"
+    status = _load_json(status_path)
     if report is None and not csv_path.exists() and not log_path.exists():
         return None
-    duration_h, duration_sources = _infer_duration_hours(report, csv_path, log_path)
-    if duration_h < MIN_DURATION_HOURS:
-        return {
-            "session": session_dir.name,
-            "duration_hours": duration_h,
-            "duration_sources": duration_sources,
-            "skipped": True,
-            "reason": f"duration {duration_h:.2f}h < {MIN_DURATION_HOURS}h",
-        }
+    duration_h, duration_sources = _infer_duration_hours(
+        report,
+        csv_path,
+        log_path,
+        status_path,
+    )
+    period_start, period_end = _infer_session_bounds(
+        session_dir,
+        duration_h,
+        status,
+        log_path,
+    )
+    short_duration = duration_h < MIN_DURATION_HOURS
 
     if report is None:
         report = {}
 
     perf = _analyze_shadow_perf(report)
+    status_real_pnl = _status_real_pnl_pct(status)
+    if status_real_pnl is not None and (
+        not had_report or "real_pnl_pct" not in report
+    ):
+        perf["real_pnl_pct"] = status_real_pnl
+        perf["delta_real_vs_shadow_panteon"] = (
+            status_real_pnl
+            - float(perf.get("panteon_shadow_pnl_pct", 0.0) or 0.0)
+        )
     replay = _replay_real_trade_log(csv_path, log_path, report)
     risk_neutral_replay = _replay_real_trade_log(
         csv_path, log_path, report, apply_risk_multiplier=False
@@ -781,7 +993,7 @@ def analyze_session(session_dir: Path) -> Optional[Dict[str, Any]]:
         replay["risk_multiplier_pnl_impact"] = (
             float(replay.get("replay_pnl_pct", 0.0) or 0.0) - neutral_pnl
         )
-    if replay.get("checked") and not report.get("real_pnl_pct"):
+    if replay.get("checked") and status_real_pnl is None and not report.get("real_pnl_pct"):
         perf["real_pnl_pct"] = float(replay.get("replay_pnl_pct", 0.0) or 0.0)
         perf["delta_real_vs_shadow_panteon"] = (
             float(perf.get("real_pnl_pct", 0.0) or 0.0)
@@ -791,6 +1003,7 @@ def analyze_session(session_dir: Path) -> Optional[Dict[str, Any]]:
     signal_alignment = _analyze_signal_alignment(csv_path)
     regime_consistency = _analyze_regime_consistency(session_dir)
     regime_flapping = _analyze_regime_flapping(log_path)
+    live_consistency = _analyze_live_consistency(status)
 
     # Outlier-flag: если real PnL невозможно высокий или 0 сигналов с большим PnL —
     # это корраптный отчёт (paper-режим с битым equity, тестовые прогоны и т.п.).
@@ -809,6 +1022,9 @@ def analyze_session(session_dir: Path) -> Optional[Dict[str, Any]]:
         "duration": str(report.get("duration", "")),
         "duration_hours": duration_h,
         "duration_sources": duration_sources,
+        "period_start": period_start.isoformat() if period_start else "",
+        "period_end": period_end.isoformat() if period_end else "",
+        "short_duration": short_duration,
         "real_player": report.get("real_player"),
         "real_signals": real_signals,
         "real_trades": report.get("real_trades"),
@@ -821,6 +1037,7 @@ def analyze_session(session_dir: Path) -> Optional[Dict[str, Any]]:
         "dup_opens": dup,
         "regime_consistency": regime_consistency,
         "regime_flapping": regime_flapping,
+        "live_consistency": live_consistency,
     }
     diag["verdict"] = _build_verdict(diag)
     if is_outlier:
@@ -843,7 +1060,8 @@ def _print_session(diag: Dict[str, Any]) -> None:
         return
 
     perf = diag["perf"]
-    print(f"\n  📂 {diag['session']}  ({diag['duration']}, {diag['duration_hours']:.1f}h)")
+    duration_note = " short/combined-only" if diag.get("short_duration") else ""
+    print(f"\n  📂 {diag['session']}  ({diag['duration']}, {diag['duration_hours']:.1f}h{duration_note})")
     print(
         f"     real {perf['real_pnl_pct']:+.2f}%  "
         f"panteon_shadow {perf['panteon_shadow_pnl_pct']:+.2f}%  "
@@ -888,14 +1106,144 @@ def _print_session(diag: Dict[str, Any]) -> None:
         print(f"     • {note}")
 
 
+def _diag_time(diag: Dict[str, Any], key: str) -> Optional[datetime]:
+    value = diag.get(key)
+    if isinstance(value, datetime):
+        return _naive_datetime(value)
+    return _naive_datetime(_parse_iso_time(value))
+
+
+def _round_float(value: float) -> float:
+    return round(float(value), 10)
+
+
+def _summarize_combined_period(rows: List[Dict[str, Any]], gaps: List[float]) -> Dict[str, Any]:
+    total_hours = sum(float(d.get("duration_hours", 0.0) or 0.0) for d in rows)
+    cumulative_real = sum(float(d["perf"].get("real_pnl_pct", 0.0) or 0.0) for d in rows)
+    cumulative_shadow = sum(float(d["perf"].get("panteon_shadow_pnl_pct", 0.0) or 0.0) for d in rows)
+    cumulative_delta = sum(float(d["perf"].get("delta_real_vs_shadow_panteon", 0.0) or 0.0) for d in rows)
+    replay_rows = [d for d in rows if d.get("replay", {}).get("checked")]
+    cumulative_replay = sum(
+        float(d["replay"].get("replay_pnl_pct", 0.0) or 0.0)
+        for d in replay_rows
+    )
+    first_start = _diag_time(rows[0], "period_start")
+    last_end = _diag_time(rows[-1], "period_end")
+    return {
+        "sessions": [str(d.get("session", "")) for d in rows],
+        "n_sessions": len(rows),
+        "start": first_start.isoformat() if first_start else "",
+        "end": last_end.isoformat() if last_end else "",
+        "total_hours": _round_float(total_hours),
+        "gap_hours": [_round_float(v) for v in gaps],
+        "max_gap_hours": _round_float(max(gaps) if gaps else 0.0),
+        "cumulative_real_pnl_pct": _round_float(cumulative_real),
+        "cumulative_panteon_shadow_pnl_pct": _round_float(cumulative_shadow),
+        "cumulative_delta_real_vs_shadow_pct": _round_float(cumulative_delta),
+        "cumulative_replay_pnl_pct": _round_float(cumulative_replay),
+        "replay_sessions": len(replay_rows),
+        "replay_duplicate_opens_rejected": sum(
+            int(d.get("replay", {}).get("rejected_duplicate_opens", 0) or 0)
+            for d in replay_rows
+        ),
+        "sessions_with_duplicate_opens": sum(
+            1
+            for d in rows
+            if d.get("dup_opens", {}).get("checked")
+            and int(d.get("dup_opens", {}).get("duplicate_open_events", 0) or 0) > 0
+        ),
+        "sessions_with_inconsistent_regime": sum(
+            1 for d in rows if not d.get("regime_consistency", {}).get("consistent", True)
+        ),
+    }
+
+
+def _combined_periods(
+    diags: List[Dict[str, Any]],
+    *,
+    max_gap_hours: float = COMBINE_MAX_GAP_HOURS,
+    min_total_hours: float = MIN_DURATION_HOURS,
+) -> Dict[str, Any]:
+    candidates = []
+    for diag in diags:
+        if diag.get("skipped") or diag.get("is_outlier"):
+            continue
+        start = _diag_time(diag, "period_start")
+        end = _diag_time(diag, "period_end")
+        duration = float(diag.get("duration_hours", 0.0) or 0.0)
+        if not start or not end or duration <= 0:
+            continue
+        candidates.append((start, end, diag))
+
+    candidates.sort(key=lambda item: (item[0], item[1], str(item[2].get("session", ""))))
+    periods: List[Dict[str, Any]] = []
+    current: List[Dict[str, Any]] = []
+    gaps: List[float] = []
+    current_end: Optional[datetime] = None
+
+    def flush() -> None:
+        if not current:
+            return
+        total_hours = sum(float(d.get("duration_hours", 0.0) or 0.0) for d in current)
+        if total_hours >= min_total_hours:
+            periods.append(_summarize_combined_period(current, gaps))
+
+    for start, end, diag in candidates:
+        if not current:
+            current = [diag]
+            gaps = []
+            current_end = end
+            continue
+        assert current_end is not None
+        gap = max(0.0, (start - current_end).total_seconds() / 3600.0)
+        if gap <= max_gap_hours:
+            current.append(diag)
+            gaps.append(gap)
+            current_end = max(current_end, end)
+            continue
+        flush()
+        current = [diag]
+        gaps = []
+        current_end = end
+    flush()
+
+    total_sessions = sum(int(p["n_sessions"]) for p in periods)
+    total_hours = sum(float(p["total_hours"]) for p in periods)
+    cumulative_real = sum(float(p["cumulative_real_pnl_pct"]) for p in periods)
+    cumulative_shadow = sum(float(p["cumulative_panteon_shadow_pnl_pct"]) for p in periods)
+    cumulative_replay = sum(float(p["cumulative_replay_pnl_pct"]) for p in periods)
+    return {
+        "max_gap_hours": float(max_gap_hours),
+        "min_total_hours": float(min_total_hours),
+        "n_periods": len(periods),
+        "n_sessions": total_sessions,
+        "total_hours": _round_float(total_hours),
+        "cumulative_real_pnl_pct": _round_float(cumulative_real),
+        "cumulative_panteon_shadow_pnl_pct": _round_float(cumulative_shadow),
+        "cumulative_delta_real_vs_shadow_pct": _round_float(cumulative_real - cumulative_shadow),
+        "cumulative_replay_pnl_pct": _round_float(cumulative_replay),
+        "periods": periods,
+    }
+
+
 def _aggregate(diags: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Агрегирует по не-skipped и не-outlier сессиям."""
-    rows = [d for d in diags if not d.get("skipped") and not d.get("is_outlier")]
+    combined = _combined_periods(diags)
+    rows = [
+        d for d in diags
+        if not d.get("skipped")
+        and not d.get("short_duration")
+        and not d.get("is_outlier")
+    ]
     n_outliers = sum(
         1 for d in diags if not d.get("skipped") and d.get("is_outlier")
     )
     if not rows:
-        return {"n_sessions": 0, "n_outliers_excluded": n_outliers}
+        return {
+            "n_sessions": 0,
+            "n_outliers_excluded": n_outliers,
+            "combined_periods": combined,
+        }
     total_h = sum(d["duration_hours"] for d in rows)
     avg_real = sum(d["perf"]["real_pnl_pct"] for d in rows) / len(rows)
 
@@ -962,6 +1310,7 @@ def _aggregate(diags: List[Dict[str, Any]]) -> Dict[str, Any]:
         "avg_delta_real_vs_shadow": avg_delta,
         "sessions_with_dup_opens": n_with_dup,
         "sessions_with_inconsistent_regime": n_inconsistent_regime,
+        "combined_periods": combined,
     }
 
 
@@ -1022,6 +1371,19 @@ def run_retrostart(exchange: str, project_root: Optional[Path] = None) -> int:
             print(f"  средняя дельта (drag):      {agg['avg_delta_real_vs_shadow']:+.2f}%")
         print(f"  сессий с duplicate-opens:   {agg['sessions_with_dup_opens']}")
         print(f"  сессий с inconsistent regime: {agg['sessions_with_inconsistent_regime']}")
+        combined = agg.get("combined_periods", {})
+        if combined.get("n_periods", 0) > 0:
+            print(
+                f"  combined periods ≤{combined.get('max_gap_hours', COMBINE_MAX_GAP_HOURS):.1f}h gap: "
+                f"{combined['n_periods']} periods / {combined['n_sessions']} sessions / "
+                f"{combined['total_hours']:.1f}h"
+            )
+            print(
+                f"  combined cumulative real/replay/shadow: "
+                f"{combined['cumulative_real_pnl_pct']:+.2f}% / "
+                f"{combined['cumulative_replay_pnl_pct']:+.2f}% / "
+                f"{combined['cumulative_panteon_shadow_pnl_pct']:+.2f}%"
+            )
 
         # Финальный вердикт
         print()

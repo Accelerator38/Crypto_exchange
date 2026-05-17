@@ -33,7 +33,12 @@ from ..execution import (
     SymbolHealthMonitor,
     TradeExecutor,
 )
-from ..memory import PerformanceMemory, QuarantineManager
+from ..memory import (
+    DegradationGate,
+    DegradationGateConfig,
+    PerformanceMemory,
+    QuarantineManager,
+)
 from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import (
     AgentRegistry,
@@ -41,11 +46,13 @@ from ..selection import (
     PROFILE_BOMBERMAN_STRONG,
     PROFILE_DEFAULT_ENSEMBLE,
     PROFILE_DEFENSIVE_RESEARCH,
+    PROFILE_GENETICS_RESEARCH,
     PROFILE_MEAN_REV_RESEARCH,
     PROFILE_NEUTRAL_EDGE_RESEARCH,
     PROFILE_TREND_RESEARCH,
     PlayerComposer,
     PlayerProfile,
+    SessionOverlayConfig,
     Strategist,
     StrategistConfig,
 )
@@ -103,6 +110,7 @@ PRODUCTION_PROFILES: List[PlayerProfile] = [
     PROFILE_TREND_RESEARCH,
     PROFILE_MEAN_REV_RESEARCH,
     PROFILE_DEFENSIVE_RESEARCH,
+    PROFILE_GENETICS_RESEARCH,
     PROFILE_BOMBERMAN_STRONG,
 ]
 
@@ -125,6 +133,7 @@ class ProductionPipeline:
     virtual_perf: PerformanceMemory
     real_perf:   PerformanceMemory
     qm:          QuarantineManager
+    degradation_gate: DegradationGate
     selector:    AgentSelector
     composer:    PlayerComposer
     strategist:  Strategist
@@ -133,11 +142,16 @@ class ProductionPipeline:
     ledger:      AttributionLedger
     order_ledger: OrderLedger
     renderer:    DashboardRenderer
+    risk_config: RiskLimitsConfig
 
     # Метаданные
     profiles:        List[PlayerProfile]
     initial_capital: float
     exchange_name:   str
+    mode:            str = ""
+    timeframe:       str = ""
+    run_id:          str = ""
+    session_id:      str = ""
 
     # Состояние loop
     current_balance: float = 0.0
@@ -165,6 +179,7 @@ def build_production_pipeline(
     risk_config:        Optional[RiskLimitsConfig] = None,
     health_config:      Optional[SymbolHealthConfig] = None,
     live_execution_config: Optional[LiveExecutionConfig] = None,
+    degradation_config: Optional[DegradationGateConfig] = None,
     perf_trade_fraction: float = 0.10,
     jsonl_event_log:    Optional[str] = None,
 ) -> ProductionPipeline:
@@ -196,12 +211,25 @@ def build_production_pipeline(
     risk_config = risk_config or RiskLimitsConfig()
     health_config = health_config or SymbolHealthConfig()
     live_execution_config = live_execution_config or LiveExecutionConfig()
+    degradation_config = degradation_config or DegradationGateConfig()
 
-    event_log = EventLog(jsonl_path=jsonl_event_log)
+    event_log = EventLog(
+        jsonl_path=jsonl_event_log,
+        raise_on_persist_error=False,
+        persist_retry_attempts=3,
+        persist_retry_delay_sec=0.05,
+    )
     virtual_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
     real_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
     qm = QuarantineManager(seed=set(seed_quarantine), config=scoring_config)
-    selector = AgentSelector(registry, virtual_perf, qm, config=scoring_config)
+    degradation_gate = DegradationGate(degradation_config)
+    selector = AgentSelector(
+        registry,
+        virtual_perf,
+        qm,
+        config=scoring_config,
+        session_overlay=SessionOverlayConfig(enabled=True),
+    )
     composer = PlayerComposer(selector)
     health = SymbolHealthMonitor(config=health_config)
     risk_limits = RiskLimits(config=risk_config)
@@ -237,6 +265,7 @@ def build_production_pipeline(
         virtual_perf=virtual_perf,
         real_perf=real_perf,
         qm=qm,
+        degradation_gate=degradation_gate,
         selector=selector,
         composer=composer,
         strategist=strategist,
@@ -245,6 +274,7 @@ def build_production_pipeline(
         ledger=ledger,
         order_ledger=order_ledger,
         renderer=renderer,
+        risk_config=risk_config,
         profiles=profiles,
         initial_capital=initial_capital,
         exchange_name=getattr(exchange, "name", "UNKNOWN"),

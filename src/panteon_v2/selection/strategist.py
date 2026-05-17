@@ -32,7 +32,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from ..domain.types import Metrics, Regime
 from ..memory import PerformanceMemory, QuarantineManager
 from ..scoring import DEFAULT_SCORING, ScoringConfig, regime_score
-from .player import Player
+from .player import NoTradePlayer, Player
+from .rolling_score import (
+    RollingDecisionScoreConfig,
+    RollingDecisionScoreInput,
+    score_rolling_decision,
+)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -65,6 +70,27 @@ class StrategistConfig:
     real_min_closed_trades: int = 3
     zero_score_uncertainty_penalty: float = 0.05
     execution_failure_score_penalty: float = 0.02
+    player_session_overlay_weight: float = 0.25
+    player_session_underperformance_weight: float = 0.35
+    player_session_stale_penalty: float = 0.10
+    player_session_pnl_cap_pct: float = 3.0
+    player_session_min_activity: int = 1
+    candidate_ttl_bars: int = 30
+    real_promotion_gate_enabled: bool = False
+    no_trade_when_all_rejected: bool = True
+    real_promotion_min_closed_trades: int = 20
+    real_promotion_min_pnl_pct: float = 0.0
+    real_promotion_max_drawdown_pct: float = 25.0
+    real_promotion_loss_budget_pct: float = -1.0
+    real_promotion_probation_min_score: float = 0.0
+    use_v3_rolling_score: bool = False
+    v3_min_score_to_trade: float = 0.0
+    v3_virtual_only_score_cap: float = 0.35
+    v3_real_loss_kill_min_closed_trades: int = 3
+    v3_real_loss_kill_pnl_pct: float = -1.0
+    v3_score_config: RollingDecisionScoreConfig = field(
+        default_factory=RollingDecisionScoreConfig
+    )
 
     def __post_init__(self) -> None:
         if self.cooldown_bars < 0:
@@ -89,6 +115,28 @@ class StrategistConfig:
             raise ValueError("zero_score_uncertainty_penalty must be >= 0")
         if self.execution_failure_score_penalty < 0:
             raise ValueError("execution_failure_score_penalty must be >= 0")
+        if self.player_session_overlay_weight < 0:
+            raise ValueError("player_session_overlay_weight must be >= 0")
+        if self.player_session_underperformance_weight < 0:
+            raise ValueError("player_session_underperformance_weight must be >= 0")
+        if self.player_session_stale_penalty < 0:
+            raise ValueError("player_session_stale_penalty must be >= 0")
+        if self.player_session_pnl_cap_pct < 0:
+            raise ValueError("player_session_pnl_cap_pct must be >= 0")
+        if self.player_session_min_activity < 0:
+            raise ValueError("player_session_min_activity must be >= 0")
+        if self.candidate_ttl_bars < 0:
+            raise ValueError("candidate_ttl_bars must be >= 0")
+        if self.real_promotion_min_closed_trades < 0:
+            raise ValueError("real_promotion_min_closed_trades must be >= 0")
+        if self.real_promotion_max_drawdown_pct < 0:
+            raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
+        if self.v3_virtual_only_score_cap < self.v3_min_score_to_trade:
+            raise ValueError("v3_virtual_only_score_cap must be >= v3_min_score_to_trade")
+        if self.v3_real_loss_kill_min_closed_trades < 0:
+            raise ValueError("v3_real_loss_kill_min_closed_trades must be >= 0")
+        if not isinstance(self.v3_score_config, RollingDecisionScoreConfig):
+            raise ValueError("v3_score_config must be RollingDecisionScoreConfig")
 
 
 DEFAULT_STRATEGIST = StrategistConfig()
@@ -112,6 +160,10 @@ class CandidateScore:
     uncertainty_penalty: float
     agent_labels: Tuple[str, ...]
     memory_keys_read: Tuple[str, ...]
+    session_score_delta: float = 0.0
+    session_pnl_pct: float = 0.0
+    session_underperformance_penalty: float = 0.0
+    session_stale_penalty: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -133,6 +185,16 @@ class SwitchDecision:
     switched:    bool   # True если сменили; False если оставили текущего
     candidate_scores: Tuple[CandidateScore, ...] = ()
     candidate_rejections: Tuple[CandidateRejection, ...] = ()
+    switch_gate_reason: str = ""
+    best_label: str = ""
+    current_label: str = ""
+    best_score: float = 0.0
+    current_score: float = 0.0
+    required_margin: float = 0.0
+    cooldown_passed: bool = True
+    cooldown_blocked: bool = False
+    streak_count: int = 0
+    streak_needed: int = 1
 
     @property
     def label(self) -> str:
@@ -186,6 +248,10 @@ class Strategist:
         # streak tracking: какой кандидат был best на прошлых барах
         self._streak_label: str = ""
         self._streak_count: int = 0
+        self._session_baseline: Dict[Tuple[str, Regime], Metrics] = {}
+        self._real_session_baseline: Dict[Tuple[str, Regime], Metrics] = {}
+        self._candidate_cache: Dict[str, Tuple[Player, int]] = {}
+        self._no_trade: Player = NoTradePlayer()
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -193,6 +259,21 @@ class Strategist:
         """Обновить список кандидатов. Если current не в новом списке —
         он всё равно остаётся current до следующего switch."""
         self._candidates = list(candidates)
+
+    def capture_session_baseline(self, regime: Optional[Regime] = None) -> None:
+        regimes = [regime] if regime is not None else list(Regime)
+        labels = set()
+        for player in self._candidates:
+            labels.add(player.label)
+            labels.update(player.agent_labels)
+        for reg in regimes:
+            for label in labels:
+                self._session_baseline[(label, reg)] = self._perf.get(label, regime=reg)
+                if self._real_perf is not None:
+                    self._real_session_baseline[(label, reg)] = self._real_perf.get(
+                        label,
+                        regime=reg,
+                    )
 
     def current_leader(self) -> Optional[Player]:
         return self._current
@@ -209,9 +290,10 @@ class Strategist:
         (или того же самого, если switched=False).
         """
         # 1. Фильтруем кандидатов: убираем тех, кто использует карантинных
+        candidates = self._candidate_pool_for_bar(current_bar)
         eligible: List[Player] = []
         disqualified: List[_DisqualificationReason] = []
-        for cand in self._candidates:
+        for cand in candidates:
             issue = self._validate(cand)
             if issue is None:
                 issue = self._validate_promotion(
@@ -229,6 +311,18 @@ class Strategist:
         )
 
         if not eligible:
+            if (
+                (
+                    self._config.real_promotion_gate_enabled
+                    or self._config.use_v3_rolling_score
+                )
+                and self._config.no_trade_when_all_rejected
+            ):
+                return self._select_no_trade(
+                    current_bar=current_bar,
+                    candidate_rejections=candidate_rejections,
+                    reason="no real-promoted candidates; selecting NoTrade",
+                )
             # Нет валидных кандидатов. Если есть current, оставляем.
             # Но если current тоже не валиден — возвращаем "no leader".
             if self._current is not None and self._validate(self._current) is None:
@@ -241,6 +335,10 @@ class Strategist:
                     reason="no eligible candidates; keeping current",
                     switched=False,
                     candidate_rejections=candidate_rejections,
+                    switch_gate_reason="no eligible candidates; keeping current",
+                    current_label=self._current.label,
+                    current_score=0.0,
+                    required_margin=self._config.switch_margin,
                 )
             raise ValueError(
                 "No eligible candidates and current leader is invalid; "
@@ -248,11 +346,25 @@ class Strategist:
             )
 
         # 2. Скорим каждого
+        self._ensure_session_baseline(eligible, regime)
         scored_rows = self._rank_candidates(eligible, regime)
         by_label = {cand.label: cand for cand in eligible}
         best_row = scored_rows[0]
         best_score = best_row.score
         best_player = by_label[best_row.label]
+        if (
+            self._config.use_v3_rolling_score
+            and best_score < self._config.v3_min_score_to_trade
+        ):
+            return self._select_no_trade(
+                current_bar=current_bar,
+                candidate_rejections=candidate_rejections,
+                candidate_scores=scored_rows,
+                reason=(
+                    f"v3 rolling score {best_score:.4f} below trade threshold "
+                    f"{self._config.v3_min_score_to_trade:.4f}"
+                ),
+            )
 
         # 3. Если current нет — выбираем best
         if self._current is None:
@@ -270,6 +382,16 @@ class Strategist:
                 switched=True,
                 candidate_scores=scored_rows,
                 candidate_rejections=candidate_rejections,
+                switch_gate_reason="bootstrap (no current)",
+                best_label=best_player.label,
+                current_label="",
+                best_score=best_score,
+                current_score=0.0,
+                required_margin=self._config.switch_margin,
+                cooldown_passed=True,
+                cooldown_blocked=False,
+                streak_count=self._streak_count,
+                streak_needed=self._config.streak_needed,
             )
 
         # 4. Current есть — оцениваем нужно ли менять
@@ -292,6 +414,14 @@ class Strategist:
                 switched=True,
                 candidate_scores=scored_rows,
                 candidate_rejections=candidate_rejections,
+                switch_gate_reason="current not in candidates",
+                best_label=best_player.label,
+                current_label=previous.label,
+                best_score=best_score,
+                current_score=0.0,
+                required_margin=self._config.switch_margin,
+                cooldown_passed=True,
+                cooldown_blocked=False,
             )
 
         current_score = self._score_player(self._current, regime)
@@ -319,6 +449,16 @@ class Strategist:
                 switched=False,
                 candidate_scores=scored_rows,
                 candidate_rejections=candidate_rejections,
+                switch_gate_reason="current is still best",
+                best_label=best_player.label,
+                current_label=self._current.label,
+                best_score=best_score,
+                current_score=current_score,
+                required_margin=self._config.switch_margin,
+                cooldown_passed=cooldown_passed,
+                cooldown_blocked=False,
+                streak_count=self._streak_count,
+                streak_needed=self._config.streak_needed,
             )
 
         # 5. Best ≠ current. Проверяем margin и cooldown.
@@ -341,6 +481,16 @@ class Strategist:
                 switched=False,
                 candidate_scores=scored_rows,
                 candidate_rejections=candidate_rejections,
+                switch_gate_reason="margin too small and not urgent",
+                best_label=best_player.label,
+                current_label=self._current.label,
+                best_score=best_score,
+                current_score=current_score,
+                required_margin=self._config.switch_margin,
+                cooldown_passed=cooldown_passed,
+                cooldown_blocked=False,
+                streak_count=self._streak_count,
+                streak_needed=self._config.streak_needed,
             )
 
         # 6. Урgent или прошёл cooldown? Иначе streak-ловим.
@@ -368,6 +518,16 @@ class Strategist:
                     switched=True,
                     candidate_scores=scored_rows,
                     candidate_rejections=candidate_rejections,
+                    switch_gate_reason="urgent" if urgent else "streak confirmed",
+                    best_label=best_player.label,
+                    current_label=previous.label,
+                    best_score=best_score,
+                    current_score=current_score,
+                    required_margin=self._config.switch_margin,
+                    cooldown_passed=cooldown_passed,
+                    cooldown_blocked=False,
+                    streak_count=self._streak_count,
+                    streak_needed=self._config.streak_needed,
                 )
             # Streak ещё не подтверждён, ждём.
             return SwitchDecision(
@@ -380,6 +540,18 @@ class Strategist:
                 switched=False,
                 candidate_scores=scored_rows,
                 candidate_rejections=candidate_rejections,
+                switch_gate_reason=(
+                    f"awaiting streak confirmation ({self._streak_count}/{self._config.streak_needed})"
+                ),
+                best_label=best_player.label,
+                current_label=self._current.label,
+                best_score=best_score,
+                current_score=current_score,
+                required_margin=self._config.switch_margin,
+                cooldown_passed=cooldown_passed,
+                cooldown_blocked=False,
+                streak_count=self._streak_count,
+                streak_needed=self._config.streak_needed,
             )
 
         # 7. Не урgent и cooldown не прошёл — ждём.
@@ -393,9 +565,88 @@ class Strategist:
             switched=False,
             candidate_scores=scored_rows,
             candidate_rejections=candidate_rejections,
+            switch_gate_reason="cooldown not yet passed",
+            best_label=best_player.label,
+            current_label=self._current.label,
+            best_score=best_score,
+            current_score=current_score,
+            required_margin=self._config.switch_margin,
+            cooldown_passed=cooldown_passed,
+            cooldown_blocked=True,
+            streak_count=self._streak_count,
+            streak_needed=self._config.streak_needed,
         )
 
     # ── Internal ────────────────────────────────────────────────────
+
+    def _select_no_trade(
+        self,
+        *,
+        current_bar: int,
+        candidate_rejections: Tuple[CandidateRejection, ...],
+        candidate_scores: Tuple[CandidateScore, ...] = (),
+        reason: str,
+    ) -> SwitchDecision:
+        previous = self._current
+        switched = previous is None or previous.label != self._no_trade.label
+        self._current = self._no_trade
+        self._last_switch_bar = int(current_bar)
+        self._streak_label = ""
+        self._streak_count = 0
+        return SwitchDecision(
+            new_leader=self._no_trade,
+            previous=previous,
+            score=0.0,
+            margin=0.0,
+            is_urgent=True,
+            reason=reason,
+            switched=switched,
+            candidate_scores=candidate_scores,
+            candidate_rejections=candidate_rejections,
+            switch_gate_reason=reason,
+            best_label=self._no_trade.label,
+            current_label=previous.label if previous is not None else "",
+            best_score=0.0,
+            current_score=0.0,
+            required_margin=self._config.switch_margin,
+            cooldown_passed=True,
+            cooldown_blocked=False,
+            streak_count=0,
+            streak_needed=self._config.streak_needed,
+        )
+
+    def _candidate_pool_for_bar(self, current_bar: int) -> List[Player]:
+        bar = int(current_bar)
+        ttl = int(self._config.candidate_ttl_bars)
+        out: List[Player] = []
+        seen: set[str] = set()
+
+        for cand in self._candidates:
+            label = str(getattr(cand, "label", "") or "")
+            if not label:
+                continue
+            self._candidate_cache[label] = (cand, bar)
+            if label not in seen:
+                out.append(cand)
+                seen.add(label)
+
+        if ttl > 0:
+            min_seen_bar = bar - ttl
+            for label, (cand, last_seen_bar) in sorted(self._candidate_cache.items()):
+                if label in seen:
+                    continue
+                if int(last_seen_bar) < min_seen_bar:
+                    continue
+                out.append(cand)
+                seen.add(label)
+
+        min_seen_bar = bar - ttl if ttl > 0 else bar
+        self._candidate_cache = {
+            label: (cand, last_seen_bar)
+            for label, (cand, last_seen_bar) in self._candidate_cache.items()
+            if label in seen or (ttl > 0 and int(last_seen_bar) >= min_seen_bar)
+        }
+        return out
 
     def _validate(self, player: Player) -> Optional[_DisqualificationReason]:
         """Q4 sanity check: лидер не должен использовать карантинных."""
@@ -415,6 +666,12 @@ class Strategist:
         regime_confidence: float,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
+        if player.label == self._no_trade.label:
+            return None
+        if cfg.use_v3_rolling_score:
+            issue = self._validate_v3_real_loss(player, regime)
+            if issue is not None:
+                return issue
         if regime_confidence < cfg.min_regime_confidence:
             return _DisqualificationReason(
                 label=player.label,
@@ -423,36 +680,213 @@ class Strategist:
                     f"{cfg.min_regime_confidence:.2f}"
                 ),
             )
-        if (
+        score: Optional[float] = None
+        virtual_gate_enabled = not (
             cfg.min_live_closed_trades <= 0
             and cfg.min_live_score <= -999_999.0
             and cfg.max_live_drawdown_pct >= 100.0
-        ):
+        )
+        if virtual_gate_enabled:
+            metrics = self._promotion_metrics(player, regime)
+            score = self._score_player(player, regime)
+            if metrics.closed_trades < cfg.min_live_closed_trades:
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=(
+                        f"promotion gate: closed_trades "
+                        f"{metrics.closed_trades} < {cfg.min_live_closed_trades}"
+                    ),
+                )
+            if score < cfg.min_live_score:
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=f"promotion gate: score {score:.4f} < {cfg.min_live_score:.4f}",
+                )
+            if metrics.max_dd_pct > cfg.max_live_drawdown_pct:
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=(
+                        f"promotion gate: max_dd_pct {metrics.max_dd_pct:.2f} > "
+                        f"{cfg.max_live_drawdown_pct:.2f}"
+                    ),
+                )
+        if cfg.real_promotion_gate_enabled:
+            if score is None:
+                score = self._score_player(player, regime)
+            return self._validate_real_promotion(player, regime, score)
+        return None
+
+    def _validate_v3_real_loss(
+        self,
+        player: Player,
+        regime: Regime,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        if cfg.v3_real_loss_kill_min_closed_trades <= 0:
             return None
-        metrics = self._promotion_metrics(player, regime)
-        score = self._score_player(player, regime)
-        if metrics.closed_trades < cfg.min_live_closed_trades:
+        metrics = self._real_promotion_metrics(player, regime)
+        if metrics.closed_trades < cfg.v3_real_loss_kill_min_closed_trades:
+            return None
+        if metrics.pnl_pct > cfg.v3_real_loss_kill_pnl_pct:
+            return None
+        return _DisqualificationReason(
+            label=player.label,
+            reason=(
+                f"v3 real-loss kill: pnl_pct {metrics.pnl_pct:.2f} <= "
+                f"{cfg.v3_real_loss_kill_pnl_pct:.2f} with "
+                f"{metrics.closed_trades} real closed trades"
+            ),
+        )
+
+    def _validate_real_promotion(
+        self,
+        player: Player,
+        regime: Regime,
+        score: float,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        metrics = self._real_promotion_metrics(player, regime)
+        if metrics.pnl_pct < cfg.real_promotion_loss_budget_pct:
             return _DisqualificationReason(
                 label=player.label,
                 reason=(
-                    f"promotion gate: closed_trades "
-                    f"{metrics.closed_trades} < {cfg.min_live_closed_trades}"
+                    f"real promotion gate: pnl_pct {metrics.pnl_pct:.2f} "
+                    f"below loss budget {cfg.real_promotion_loss_budget_pct:.2f}"
                 ),
             )
-        if score < cfg.min_live_score:
-            return _DisqualificationReason(
-                label=player.label,
-                reason=f"promotion gate: score {score:.4f} < {cfg.min_live_score:.4f}",
-            )
-        if metrics.max_dd_pct > cfg.max_live_drawdown_pct:
+        if metrics.closed_trades < cfg.real_promotion_min_closed_trades:
+            if score >= cfg.real_promotion_probation_min_score:
+                return None
             return _DisqualificationReason(
                 label=player.label,
                 reason=(
-                    f"promotion gate: max_dd_pct {metrics.max_dd_pct:.2f} > "
-                    f"{cfg.max_live_drawdown_pct:.2f}"
+                    f"real promotion gate: probation score {score:.4f} < "
+                    f"{cfg.real_promotion_probation_min_score:.4f} with "
+                    f"{metrics.closed_trades} real closed trades"
+                ),
+            )
+        if metrics.pnl_pct < cfg.real_promotion_min_pnl_pct:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    f"real promotion gate: pnl_pct {metrics.pnl_pct:.2f} < "
+                    f"{cfg.real_promotion_min_pnl_pct:.2f}"
+                ),
+            )
+        if metrics.max_dd_pct > cfg.real_promotion_max_drawdown_pct:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    f"real promotion gate: max_dd_pct {metrics.max_dd_pct:.2f} > "
+                    f"{cfg.real_promotion_max_drawdown_pct:.2f}"
                 ),
             )
         return None
+
+    def _real_promotion_metrics(self, player: Player, regime: Regime) -> Metrics:
+        real_perf = getattr(self, "_real_perf", None)
+        if real_perf is None:
+            return Metrics.empty()
+        own = real_perf.get(player.label, regime=regime)
+        if own.has_data:
+            return own
+        own_all = real_perf.get(player.label)
+        if own_all.has_data:
+            return own_all
+
+        closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            metrics = real_perf.get(label, regime=regime)
+            if not metrics.has_data:
+                metrics = real_perf.get(label)
+            if not metrics.has_data:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            blocked += metrics.blocked_signals
+            rejected += metrics.rejected_signals
+            pending += metrics.pending_signals
+            execution_failures += metrics.execution_failures
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == execution_failures == 0:
+            return Metrics.empty()
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=(sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0),
+            max_dd_pct=max_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
+        )
+
+    def _real_session_metrics_for_player(self, player: Player, regime: Regime) -> Metrics:
+        real_perf = getattr(self, "_real_perf", None)
+        if real_perf is None:
+            return Metrics.empty()
+        if not self._real_session_baseline:
+            return self._real_promotion_metrics(player, regime)
+
+        own = self._metrics_delta_from_baseline(
+            real_perf.get(player.label, regime=regime),
+            self._real_session_baseline.get((player.label, regime), Metrics.empty()),
+        )
+        if own.has_data:
+            return own
+
+        closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            current = real_perf.get(label, regime=regime)
+            baseline = self._real_session_baseline.get((label, regime), Metrics.empty())
+            metrics = self._metrics_delta_from_baseline(current, baseline)
+            if not metrics.has_data:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            blocked += metrics.blocked_signals
+            rejected += metrics.rejected_signals
+            pending += metrics.pending_signals
+            execution_failures += metrics.execution_failures
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == execution_failures == 0:
+            return Metrics.empty()
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=(sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0),
+            max_dd_pct=max_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
+        )
 
     def _promotion_metrics(self, player: Player, regime: Regime) -> Metrics:
         own = self._perf.get(player.label, regime=regime)
@@ -497,6 +931,147 @@ class Strategist:
             execution_failures=execution_failures,
         )
 
+    @staticmethod
+    def _v3_metrics_view(
+        recent_real: Metrics,
+        long_real: Metrics,
+        virtual: Metrics,
+    ) -> Metrics:
+        for metrics in (recent_real, long_real, virtual):
+            if metrics.has_data:
+                return Metrics(
+                    closed_trades=metrics.closed_trades,
+                    entries=metrics.entries,
+                    signals=metrics.signals,
+                    execution_failures=metrics.execution_failures,
+                )
+        return Metrics.empty()
+
+    @staticmethod
+    def _metrics_delta_from_baseline(current: Metrics, baseline: Metrics) -> Metrics:
+        return Metrics(
+            pnl_pct=current.pnl_pct - baseline.pnl_pct,
+            closed_trades=max(0, current.closed_trades - baseline.closed_trades),
+            entries=max(0, current.entries - baseline.entries),
+            signals=max(0, current.signals - baseline.signals),
+            wins=max(0, current.wins - baseline.wins),
+            losses=max(0, current.losses - baseline.losses),
+            max_dd_pct=max(0.0, current.max_dd_pct - baseline.max_dd_pct),
+            blocked_signals=max(0, current.blocked_signals - baseline.blocked_signals),
+            rejected_signals=max(0, current.rejected_signals - baseline.rejected_signals),
+            pending_signals=max(0, current.pending_signals - baseline.pending_signals),
+            execution_failures=max(
+                0,
+                current.execution_failures - baseline.execution_failures,
+            ),
+        )
+
+    def _ensure_session_baseline(
+        self,
+        players: Sequence[Player],
+        regime: Regime,
+    ) -> None:
+        for player in players:
+            for label in (player.label, *tuple(player.agent_labels)):
+                key = (label, regime)
+                if key not in self._session_baseline:
+                    self._session_baseline[key] = self._perf.get(label, regime=regime)
+
+    def _session_metrics_for_player(self, player: Player, regime: Regime) -> Metrics:
+        own = self._session_delta(player.label, regime)
+        if self._metrics_activity(own) > 0:
+            return own
+        closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            metrics = self._session_delta(label, regime)
+            if self._metrics_activity(metrics) <= 0:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            blocked += metrics.blocked_signals
+            rejected += metrics.rejected_signals
+            pending += metrics.pending_signals
+            execution_failures += metrics.execution_failures
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == execution_failures == 0:
+            return Metrics.empty()
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=(sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0),
+            max_dd_pct=max_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
+        )
+
+    def _session_delta(self, label: str, regime: Regime) -> Metrics:
+        current = self._perf.get(label, regime=regime)
+        baseline = self._session_baseline.get((label, regime), Metrics.empty())
+        return Metrics(
+            pnl_pct=current.pnl_pct - baseline.pnl_pct,
+            closed_trades=max(0, current.closed_trades - baseline.closed_trades),
+            entries=max(0, current.entries - baseline.entries),
+            signals=max(0, current.signals - baseline.signals),
+            wins=max(0, current.wins - baseline.wins),
+            losses=max(0, current.losses - baseline.losses),
+            max_dd_pct=max(0.0, current.max_dd_pct - baseline.max_dd_pct),
+            blocked_signals=max(0, current.blocked_signals - baseline.blocked_signals),
+            rejected_signals=max(0, current.rejected_signals - baseline.rejected_signals),
+            pending_signals=max(0, current.pending_signals - baseline.pending_signals),
+            execution_failures=max(0, current.execution_failures - baseline.execution_failures),
+        )
+
+    @staticmethod
+    def _metrics_activity(metrics: Metrics) -> int:
+        return (
+            int(metrics.closed_trades)
+            + int(metrics.entries)
+            + int(metrics.signals)
+            + int(metrics.execution_failures)
+        )
+
+    @staticmethod
+    def _cap_abs(value: float, cap: float) -> float:
+        if cap <= 0:
+            return float(value)
+        return max(-cap, min(cap, float(value)))
+
+    def _apply_player_session_overlay(
+        self,
+        player: Player,
+        regime: Regime,
+        score: float,
+    ) -> Tuple[float, float, float, float, float]:
+        cfg = self._config
+        metrics = self._session_metrics_for_player(player, regime)
+        activity = self._metrics_activity(metrics)
+        session_pnl = self._cap_abs(metrics.pnl_pct, cfg.player_session_pnl_cap_pct)
+        stale_penalty = 0.0
+        underperformance_penalty = 0.0
+        if activity >= cfg.player_session_min_activity or abs(session_pnl) > 1e-12:
+            delta = cfg.player_session_overlay_weight * session_pnl
+            underperformance_penalty = max(0.0, -session_pnl) * cfg.player_session_underperformance_weight
+        else:
+            delta = 0.0
+            stale_penalty = cfg.player_session_stale_penalty
+        adjusted = float(score) + delta - underperformance_penalty - stale_penalty
+        return adjusted, adjusted - float(score), session_pnl, underperformance_penalty, stale_penalty
+
     def _rank_candidates(
         self,
         candidates: Sequence[Player],
@@ -519,6 +1094,9 @@ class Strategist:
 
     def _score_player_detail(self, player: Player, regime: Regime) -> CandidateScore:
         """Score для игрока plus forensic details."""
+        if self._config.use_v3_rolling_score:
+            return self._score_player_detail_v3(player, regime)
+
         agent_labels = tuple(player.agent_labels)
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
             self._memory_key(label, regime) for label in agent_labels
@@ -531,6 +1109,13 @@ class Strategist:
             if own_metrics.closed_trades > 0:
                 score = self._apply_affinity(player, regime, score)
             score = self._apply_real_overlay(player, regime, score)
+            (
+                score,
+                session_delta,
+                session_pnl,
+                session_underperformance,
+                session_stale,
+            ) = self._apply_player_session_overlay(player, regime, score)
             score, penalty = self._apply_uncertainty_penalty(score, own_metrics)
             score = self._apply_execution_penalty(score, own_metrics)
             return CandidateScore(
@@ -545,6 +1130,10 @@ class Strategist:
                 uncertainty_penalty=penalty,
                 agent_labels=agent_labels,
                 memory_keys_read=memory_keys,
+                session_score_delta=session_delta,
+                session_pnl_pct=session_pnl,
+                session_underperformance_penalty=session_underperformance,
+                session_stale_penalty=session_stale,
             )
 
         agent_scores = []
@@ -580,6 +1169,13 @@ class Strategist:
         if has_closed_experience:
             base_score = self._apply_affinity(player, regime, base_score)
         score = self._apply_real_overlay(player, regime, base_score)
+        (
+            score,
+            session_delta,
+            session_pnl,
+            session_underperformance,
+            session_stale,
+        ) = self._apply_player_session_overlay(player, regime, score)
         metrics_view = Metrics(
             closed_trades=agg_closed,
             signals=agg_signals,
@@ -598,6 +1194,51 @@ class Strategist:
             uncertainty_penalty=penalty,
             agent_labels=agent_labels,
             memory_keys_read=memory_keys,
+            session_score_delta=session_delta,
+            session_pnl_pct=session_pnl,
+            session_underperformance_penalty=session_underperformance,
+            session_stale_penalty=session_stale,
+        )
+
+    def _score_player_detail_v3(self, player: Player, regime: Regime) -> CandidateScore:
+        agent_labels = tuple(player.agent_labels)
+        memory_keys = (self._memory_key(player.label, regime),) + tuple(
+            self._memory_key(label, regime) for label in agent_labels
+        )
+        long_real = self._real_promotion_metrics(player, regime)
+        recent_real = self._real_session_metrics_for_player(player, regime)
+        virtual = self._promotion_metrics(player, regime)
+        result = score_rolling_decision(
+            RollingDecisionScoreInput(
+                recent_real_metrics=recent_real,
+                long_real_metrics=long_real,
+                virtual_metrics=virtual,
+            ),
+            config=self._config.v3_score_config,
+        )
+        metrics_view = self._v3_metrics_view(recent_real, long_real, virtual)
+        score = result.score
+        if result.source == "virtual":
+            score = min(score, self._config.v3_virtual_only_score_cap)
+        if metrics_view.closed_trades > 0:
+            score = self._apply_affinity(player, regime, score)
+        score = self._apply_execution_penalty(score, metrics_view)
+        return CandidateScore(
+            label=player.label,
+            score=score,
+            rank=0,
+            has_data=metrics_view.has_data,
+            closed_trades=metrics_view.closed_trades,
+            signals=metrics_view.signals,
+            execution_failures=metrics_view.execution_failures,
+            score_source="v3_rolling",
+            uncertainty_penalty=0.0,
+            agent_labels=agent_labels,
+            memory_keys_read=memory_keys,
+            session_score_delta=result.recent_real_component,
+            session_pnl_pct=recent_real.pnl_pct,
+            session_underperformance_penalty=result.negative_real_penalty,
+            session_stale_penalty=0.0,
         )
 
     @staticmethod

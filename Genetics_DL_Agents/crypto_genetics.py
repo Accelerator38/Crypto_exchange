@@ -253,6 +253,22 @@ FITNESS_ETA             = _gscfg_f(_GS, 'fitness_eta',              0.08)
 FITNESS_THETA           = _gscfg_f(_GS, 'fitness_theta',            0.18)
 TRADE_REWARD_W          = _gscfg_f(_GS, 'trade_reward_w',           0.30)
 TRADE_REWARD_REF        = _gscfg_f(_GS, 'trade_reward_ref',         0.01)
+TURNOVER_TARGET_RATE    = _gscfg_f(_GS, 'turnover_target_rate',     0.10)
+TURNOVER_PENALTY_W      = _gscfg_f(_GS, 'turnover_penalty_w',       3.00)
+MAX_POSITION_SATURATION_PENALTY_W = _gscfg_f(_GS, 'max_position_saturation_penalty_w', 8.00)
+INVALID_OPEN_LOGIT_MARGIN = _gscfg_f(_GS, 'invalid_open_logit_margin', 0.25)
+INVALID_OPEN_LOGIT_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_penalty_w', 2.00)
+POSITION_STATE_FEATURES_ENABLED = _gscfg_b(_GS, 'position_state_features_enabled', True)
+POSITION_STATE_FEATURES_LIVE_DEFAULT = _gscfg_b(_GS, 'position_state_features_live_default', False)
+ROBUST_FITNESS_ENABLED  = _gscfg_b(_GS, 'robust_fitness_enabled',  True)
+ROBUST_TRIM_FRACTION    = _gscfg_f(_GS, 'robust_trim_fraction',     0.10)
+ROBUST_MEDIAN_RET_W     = _gscfg_f(_GS, 'robust_median_ret_w',      0.80)
+ROBUST_TRIMMED_MEAN_W   = _gscfg_f(_GS, 'robust_trimmed_mean_w',    0.60)
+ROBUST_CVAR5_RET_W      = _gscfg_f(_GS, 'robust_cvar5_ret_w',       0.20)
+ROBUST_CONC_MAX_PCT     = _gscfg_f(_GS, 'robust_concentration_max_pct', 30.0)
+ROBUST_CONC_PENALTY_W   = _gscfg_f(_GS, 'robust_concentration_penalty_w', 0.25)
+ROBUST_POS_PERIOD_TARGET = _gscfg_f(_GS, 'robust_positive_period_target', 0.55)
+ROBUST_POS_PERIOD_PENALTY_W = _gscfg_f(_GS, 'robust_positive_period_penalty_w', 5.0)
 
 # ── [6] Пороги вознаграждения за период ───────────────────────────────────────
 WIN1_PROFIT_THRESH  = _gscfg_f(_GS, 'win1_profit_thresh',  1.0)   # мини-победа ≥1%
@@ -428,6 +444,29 @@ SWAP_ENABLED               = _gscfg_b(_GS, 'swap_enabled',               True)
 # Агент обучается злоупотреблять одновременными sell+buy, получая нечестное
 # преимущество. Установлено 0.30 = 30% от стандартной комиссии (скидка за агрегацию).
 SWAP_FEE_MULTIPLIER        = _gscfg_f(_GS, 'swap_fee_multiplier',        0.30)
+TRAIN_EXECUTION_LAG_BARS   = max(0, _gscfg_i(_GS, 'train_execution_lag_bars', 1))
+
+
+def _spot_fee_total() -> float:
+    return float(TRAIN_FEE + TRAIN_SLIPPAGE)
+
+
+def _futures_fee_total() -> float:
+    return float(TRAIN_FUTURES_FEE + TRAIN_SLIPPAGE)
+
+
+def _swap_fee_total() -> float:
+    return float(_spot_fee_total() * SWAP_FEE_MULTIPLIER)
+
+
+def _apply_execution_lag(actions_arr: np.ndarray, lag_bars: int) -> np.ndarray:
+    lag = int(max(0, lag_bars))
+    if lag <= 0:
+        return actions_arr
+    shifted = np.zeros_like(actions_arr)
+    if lag < actions_arr.shape[1]:
+        shifted[:, lag:, :] = actions_arr[:, :-lag, :]
+    return shifted
 
 # РЕЖИМНЫЕ ВЕСА ДЛЯ ВЗВЕШЕННОГО ФИТНЕСА
 # 3-label режимы: bearish / neutral / bullish
@@ -1003,7 +1042,7 @@ def precompute_features(dfp, dfv, month: int):
 if _NUMBA_OK:
     @njit(parallel=True, cache=True, fastmath=True)
     def _sim_core(actions_arr, prices, initial_capital, snap_every,
-                  fee_total, fraction, leverage, stop_pct, max_pos, n_snaps,
+                  spot_fee_total, futures_fee_total, fraction, leverage, stop_pct, max_pos, n_snaps,
                   swap_fee_total, funding_rate, stop_from_peak, apy_per_step,
                   liq_fee, bar_int):
         """
@@ -1100,12 +1139,12 @@ if _NUMBA_OK:
                     if triggered:
                         for c in range(NC):
                             if has_spot[c]:
-                                cash += s_qty[c] * prices[t, c] * (1.0 - fee_total)
+                                cash += s_qty[c] * prices[t, c] * (1.0 - spot_fee_total)
                                 s_qty[c] = 0.0; has_spot[c] = False
                             if has_fut[c]:
                                 mg   = abs(f_qty[c] * f_entry[c]) / leverage
                                 pnl  = f_qty[c] * (prices[t, c] - f_entry[c])
-                                cash += (mg + pnl) * (1.0 - fee_total)
+                                cash += (mg + pnl) * (1.0 - futures_fee_total)
                                 f_qty[c] = 0.0; f_entry[c] = 0.0; has_fut[c] = False
                         stopped = True
 
@@ -1141,12 +1180,12 @@ if _NUMBA_OK:
                         if not has_spot[c]:
                             if n_pos >= max_pos: continue
                             n_pos += 1
-                        qty = ts_a / (prices[t, c] * (1.0 + fee_total))
+                        qty = ts_a / (prices[t, c] * (1.0 + spot_fee_total))
                         cash -= ts_a; s_qty[c] += qty; has_spot[c] = True; trade_cnt += 1
 
                     elif a == 3 and has_spot[c]:
                         # sell_spot: закрываем всё
-                        cash += s_qty[c] * prices[t, c] * (1.0 - fee_total)
+                        cash += s_qty[c] * prices[t, c] * (1.0 - spot_fee_total)
                         s_qty[c] = 0.0; has_spot[c] = False
                         if not has_fut[c]: n_pos -= 1
                         trade_cnt += 1
@@ -1158,7 +1197,7 @@ if _NUMBA_OK:
                         if not has_fut[c]:
                             if n_pos >= max_pos: continue
                             n_pos += 1
-                        new_qty = ts_a * leverage / (prices[t, c] * (1.0 + fee_total))
+                        new_qty = ts_a * leverage / (prices[t, c] * (1.0 + futures_fee_total))
                         old_abs = abs(f_qty[c])
                         if old_abs > 0.0:
                             f_entry[c] = (f_entry[c]*old_abs + prices[t,c]*new_qty)/(old_abs+new_qty)
@@ -1173,7 +1212,7 @@ if _NUMBA_OK:
                         if not has_fut[c]:
                             if n_pos >= max_pos: continue
                             n_pos += 1
-                        new_qty = ts_a * leverage / (prices[t, c] * (1.0 + fee_total))
+                        new_qty = ts_a * leverage / (prices[t, c] * (1.0 + futures_fee_total))
                         old_abs = abs(f_qty[c])
                         if old_abs > 0.0:
                             f_entry[c] = (f_entry[c]*old_abs + prices[t,c]*new_qty)/(old_abs+new_qty)
@@ -1185,7 +1224,7 @@ if _NUMBA_OK:
                         # close_fut
                         mg  = abs(f_qty[c] * f_entry[c]) / leverage
                         pnl = f_qty[c] * (prices[t, c] - f_entry[c])
-                        cash += (mg + pnl) * (1.0 - fee_total)
+                        cash += (mg + pnl) * (1.0 - futures_fee_total)
                         f_qty[c] = 0.0; f_entry[c] = 0.0; has_fut[c] = False
                         if not has_spot[c]: n_pos -= 1
                         trade_cnt += 1
@@ -1201,11 +1240,11 @@ if _NUMBA_OK:
             # ── Финальная ликвидация ─────────────────────────────────────────────
             for c in range(NC):
                 if has_spot[c]:
-                    cash += s_qty[c] * prices[T-1, c] * (1.0 - fee_total)
+                    cash += s_qty[c] * prices[T-1, c] * (1.0 - spot_fee_total)
                 if has_fut[c]:
                     mg   = abs(f_qty[c] * f_entry[c]) / leverage
                     pnl  = f_qty[c] * (prices[T-1, c] - f_entry[c])
-                    cash += (mg + pnl) * (1.0 - fee_total)
+                    cash += (mg + pnl) * (1.0 - futures_fee_total)
 
             final_pv         = max(cash, 0.0)
             final_rets[g]    = (final_pv / initial_capital - 1.0) * 100.0
@@ -1221,12 +1260,13 @@ if _NUMBA_OK:
         _sim_core(
             dummy_act, dummy_p,
             float(TRAIN_INITIAL_CAPITAL), 5,
-            float(TRAIN_FEE + TRAIN_SLIPPAGE),
+            _spot_fee_total(),
+            _futures_fee_total(),
             float(TRAIN_FRACTION),
             float(TRAIN_LEVERAGE),
             float(TRAIN_STOP_PCT),
             int(TRAIN_MAX_POS), 2,
-            float((TRAIN_FEE + TRAIN_SLIPPAGE) * SWAP_FEE_MULTIPLIER),
+            _swap_fee_total(),
             float(TRAIN_FUNDING_RATE),
             int(1 if TRAIN_STOP_MODE == 'from_peak' else 0),
             # FIX BUG6: APY делится на BAR (баров в часе), а не только на 365*24
@@ -1286,9 +1326,382 @@ def _preprocess_swaps(actions_arr: np.ndarray) -> np.ndarray:
     return result
 
 
+def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
+    """Measure action-policy contracts before execution cost simulation."""
+    actions = np.asarray(actions_arr, dtype=np.int32)
+    if actions.ndim != 3:
+        raise ValueError("actions_arr must have shape (G, T, NC)")
+    G, T, NC = actions.shape
+    denom = max(T * NC, 1)
+    turnover = np.zeros(G, dtype=np.float64)
+    saturated = np.zeros(G, dtype=np.float64)
+    spot_open = np.zeros((G, NC), dtype=bool)
+    fut_side = np.zeros((G, NC), dtype=np.int8)
+    occupied = np.zeros((G, NC), dtype=bool)
+    n_pos = np.zeros(G, dtype=np.int32)
+    max_positions = max(0, int(TRAIN_MAX_POS))
+
+    for g in range(G):
+        for t in range(T):
+            for c in range(NC):
+                action = int(actions[g, t, c])
+                if action in (1, 2, 4, 5, 6, 7, 9):
+                    turnover[g] += 1.0
+                    if occupied[g, c] or n_pos[g] >= max_positions:
+                        saturated[g] += 1.0
+                        continue
+                    occupied[g, c] = True
+                    n_pos[g] += 1
+                    if action in (1, 2, 9):
+                        spot_open[g, c] = True
+                    elif action in (4, 5):
+                        fut_side[g, c] = 1
+                    else:
+                        fut_side[g, c] = -1
+                elif action == 3 and spot_open[g, c]:
+                    spot_open[g, c] = False
+                    if fut_side[g, c] == 0:
+                        occupied[g, c] = False
+                        n_pos[g] = max(0, n_pos[g] - 1)
+                elif action == 8 and fut_side[g, c] != 0:
+                    fut_side[g, c] = 0
+                    if not spot_open[g, c]:
+                        occupied[g, c] = False
+                        n_pos[g] = max(0, n_pos[g] - 1)
+
+    return {
+        "turnover_rates": turnover / denom,
+        "saturation_rates": saturated / denom,
+    }
+
+
+def _apply_position_aware_action_policy(actions_arr: np.ndarray) -> np.ndarray:
+    """Suppress new open intents that cannot pass the one-position-per-symbol contract."""
+    actions = np.asarray(actions_arr, dtype=np.int32)
+    if actions.ndim != 3:
+        raise ValueError("actions_arr must have shape (G, T, NC)")
+    adjusted = actions.copy()
+    G, T, NC = adjusted.shape
+    spot_open = np.zeros((G, NC), dtype=bool)
+    fut_side = np.zeros((G, NC), dtype=np.int8)
+    occupied = np.zeros((G, NC), dtype=bool)
+    n_pos = np.zeros(G, dtype=np.int32)
+    max_positions = max(0, int(TRAIN_MAX_POS))
+
+    for g in range(G):
+        for t in range(T):
+            for c in range(NC):
+                action = int(adjusted[g, t, c])
+                if action in (1, 2, 4, 5, 6, 7, 9):
+                    if occupied[g, c] or n_pos[g] >= max_positions:
+                        adjusted[g, t, c] = 0
+                        continue
+                    occupied[g, c] = True
+                    n_pos[g] += 1
+                    if action in (1, 2, 9):
+                        spot_open[g, c] = True
+                    elif action in (4, 5):
+                        fut_side[g, c] = 1
+                    else:
+                        fut_side[g, c] = -1
+                elif action == 3 and spot_open[g, c]:
+                    spot_open[g, c] = False
+                    if fut_side[g, c] == 0:
+                        occupied[g, c] = False
+                        n_pos[g] = max(0, n_pos[g] - 1)
+                elif action == 8 and fut_side[g, c] != 0:
+                    fut_side[g, c] = 0
+                    if not spot_open[g, c]:
+                        occupied[g, c] = False
+                        n_pos[g] = max(0, n_pos[g] - 1)
+    return adjusted.astype(actions_arr.dtype, copy=False)
+
+
+_OPEN_ACTION_CODES = (1, 2, 4, 5, 6, 7, 9)
+
+
+def _inject_position_state_features(
+    x: np.ndarray,
+    prices_t: np.ndarray,
+    spot_open: np.ndarray,
+    spot_entry: np.ndarray,
+    fut_side: np.ndarray,
+    fut_entry: np.ndarray,
+    n_pos: np.ndarray,
+) -> np.ndarray:
+    """Inject virtual position state into features 12-15 before action selection."""
+    if x.ndim != 3:
+        raise ValueError("x must have shape (G, NC, NF)")
+    prices = np.asarray(prices_t, dtype=np.float64).reshape(1, -1)
+    max_positions = max(1, int(TRAIN_MAX_POS))
+    occupied = spot_open | (fut_side != 0)
+
+    if x.shape[2] > 12:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            spot_pnl = np.where(
+                spot_open & (spot_entry > 0.0),
+                (prices / (spot_entry + 1e-9) - 1.0) * 5.0,
+                0.0,
+            )
+        x[:, :, 12] = np.clip(spot_pnl, -1.0, 1.0).astype(np.float32)
+
+    if x.shape[2] > 13:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fut_pnl = np.where(
+                (fut_side != 0) & (fut_entry > 0.0),
+                fut_side.astype(np.float64) * (prices - fut_entry) / (fut_entry * 0.10 + 1e-9),
+                0.0,
+            )
+        x[:, :, 13] = np.clip(fut_pnl, -1.0, 1.0).astype(np.float32)
+
+    if x.shape[2] > 14:
+        x[:, :, 14] = occupied.astype(np.float32)
+
+    if x.shape[2] > 15:
+        capacity = np.clip(n_pos.astype(np.float32) / float(max_positions), 0.0, 1.0)
+        x[:, :, 15] = capacity[:, None]
+
+    return x
+
+
+def _resolve_position_aware_selected_actions(
+    selected: np.ndarray,
+    prices_t: np.ndarray,
+    spot_open: np.ndarray,
+    spot_entry: np.ndarray,
+    fut_side: np.ndarray,
+    fut_entry: np.ndarray,
+    n_pos: np.ndarray,
+) -> np.ndarray:
+    """Apply same-symbol and max-position contracts to one bar of selected actions."""
+    adjusted = np.asarray(selected, dtype=np.int8).copy()
+    prices = np.asarray(prices_t, dtype=np.float64)
+    G, NC = adjusted.shape
+    max_positions = max(0, int(TRAIN_MAX_POS))
+    for g in range(G):
+        for c in range(NC):
+            action = int(adjusted[g, c])
+            occupied = bool(spot_open[g, c] or fut_side[g, c] != 0)
+            if action in _OPEN_ACTION_CODES:
+                if occupied or n_pos[g] >= max_positions:
+                    adjusted[g, c] = 0
+                    continue
+                n_pos[g] += 1
+                price = float(prices[c])
+                if action in (1, 2, 9):
+                    spot_open[g, c] = True
+                    spot_entry[g, c] = price
+                elif action in (4, 5):
+                    fut_side[g, c] = 1
+                    fut_entry[g, c] = price
+                else:
+                    fut_side[g, c] = -1
+                    fut_entry[g, c] = price
+            elif action == 3:
+                if not spot_open[g, c]:
+                    adjusted[g, c] = 0
+                    continue
+                spot_open[g, c] = False
+                spot_entry[g, c] = 0.0
+                if fut_side[g, c] == 0:
+                    n_pos[g] = max(0, n_pos[g] - 1)
+            elif action == 8:
+                if fut_side[g, c] == 0:
+                    adjusted[g, c] = 0
+                    continue
+                fut_side[g, c] = 0
+                fut_entry[g, c] = 0.0
+                if not spot_open[g, c]:
+                    n_pos[g] = max(0, n_pos[g] - 1)
+    return adjusted
+
+
+def _mask_invalid_position_logits(
+    logits: np.ndarray,
+    spot_open: np.ndarray,
+    fut_side: np.ndarray,
+    n_pos: np.ndarray,
+) -> None:
+    """Mask impossible actions before argmax so selected actions are position-aware."""
+    max_positions = max(0, int(TRAIN_MAX_POS))
+    occupied = spot_open | (fut_side != 0)
+    at_capacity = n_pos[:, None] >= max_positions
+    invalid_opens = occupied | at_capacity
+    open_logits = [code for code in _OPEN_ACTION_CODES if code < logits.shape[2]]
+    if invalid_opens.any():
+        logits[:, :, open_logits] = np.where(
+            invalid_opens[:, :, None],
+            -np.inf,
+            logits[:, :, open_logits],
+        )
+    no_spot = ~spot_open
+    if no_spot.any():
+        logits[:, :, 3] = np.where(no_spot, -np.inf, logits[:, :, 3])
+    no_fut = fut_side == 0
+    if no_fut.any():
+        logits[:, :, 8] = np.where(no_fut, -np.inf, logits[:, :, 8])
+
+
+def _unpack_population(population: np.ndarray):
+    pop = np.asarray(population, dtype=np.float32)
+    G = len(pop)
+    i = 0
+    W1 = pop[:, i:i+_W1s].reshape(G, N_INPUT,   N_HIDDEN1); i += _W1s
+    b1 = pop[:, i:i+_b1s];                                    i += _b1s
+    W2 = pop[:, i:i+_W2s].reshape(G, N_HIDDEN1, N_HIDDEN2);  i += _W2s
+    b2 = pop[:, i:i+_b2s];                                    i += _b2s
+    W3 = pop[:, i:i+_W3s].reshape(G, N_HIDDEN2, N_HIDDEN3);  i += _W3s
+    b3 = pop[:, i:i+_b3s];                                    i += _b3s
+    W4 = pop[:, i:i+_W4s].reshape(G, N_HIDDEN3, N_ACTIONS);  i += _W4s
+    b4 = pop[:, i:i+_b4s]
+    return W1, b1, W2, b2, W3, b3, W4, b4
+
+
+def _forward_logits_population_numpy(x: np.ndarray, weights) -> np.ndarray:
+    W1, b1, W2, b2, W3, b3, W4, b4 = weights
+    h1_r = np.einsum('gnf,gfh->gnh', x, W1) + b1[:, None, :]
+    h1 = np.where(h1_r >= 0, h1_r, np.expm1(np.clip(h1_r, -20.0, 0.0)))
+    h2_r = np.einsum('gnh,ghk->gnk', h1, W2) + b2[:, None, :]
+    h2 = np.where(h2_r >= 0, h2_r, np.expm1(np.clip(h2_r, -20.0, 0.0)))
+    h3_r = np.einsum('gnk,gkm->gnm', h2, W3) + b3[:, None, :]
+    h3 = np.where(h3_r >= 0, h3_r, np.expm1(np.clip(h3_r, -20.0, 0.0)))
+    return np.einsum('gnm,gma->gna', h3, W4) + b4[:, None, :]
+
+
+def _batch_forward_numpy_vectorized(population: np.ndarray, feat: np.ndarray) -> np.ndarray:
+    """Fast stateless numpy forward pass used for legacy/non-state-aware evaluation."""
+    G = len(population)
+    T, NC, NF = feat.shape
+    weights = _unpack_population(population)
+    CHUNK = 64
+    feat_2d = feat.reshape(T * NC, NF).astype(np.float32)
+    all_acts = []
+
+    for t0 in range(0, T, CHUNK):
+        t1 = min(t0 + CHUNK, T)
+        tc = t1 - t0
+        x = feat_2d[t0*NC : t1*NC]
+
+        h1_r = np.einsum('nf,gfh->gnh', x, weights[0]) + weights[1][:, None, :]
+        h1 = np.where(h1_r >= 0, h1_r, np.expm1(np.clip(h1_r, -20.0, 0.0)))
+        h2_r = np.einsum('gnh,ghk->gnk', h1, weights[2]) + weights[3][:, None, :]
+        h2 = np.where(h2_r >= 0, h2_r, np.expm1(np.clip(h2_r, -20.0, 0.0)))
+        h3_r = np.einsum('gnk,gkm->gnm', h2, weights[4]) + weights[5][:, None, :]
+        h3 = np.where(h3_r >= 0, h3_r, np.expm1(np.clip(h3_r, -20.0, 0.0)))
+        out = np.einsum('gnm,gma->gna', h3, weights[6]) + weights[7][:, None, :]
+        acts = out.argmax(axis=-1).reshape(G, tc, NC).astype(np.int8)
+        all_acts.append(acts)
+
+    return np.concatenate(all_acts, axis=1)
+
+
+def _batch_forward_position_aware_numpy(
+    population: np.ndarray,
+    feat: np.ndarray,
+    prices: np.ndarray,
+    return_suppression_metrics: bool = False,
+) -> np.ndarray:
+    """Stateful numpy forward pass with virtual position features and action masking."""
+    pop = np.asarray(population, dtype=np.float32)
+    base_feat = np.asarray(feat, dtype=np.float32)
+    price_arr = np.asarray(prices, dtype=np.float64)
+    if base_feat.ndim != 3:
+        raise ValueError("feat must have shape (T, NC, NF)")
+    if price_arr.shape[:2] != base_feat.shape[:2]:
+        raise ValueError("prices must have shape (T, NC)")
+
+    G = len(pop)
+    T, NC, NF = base_feat.shape
+    weights = _unpack_population(pop)
+    actions = np.zeros((G, T, NC), dtype=np.int8)
+    spot_open = np.zeros((G, NC), dtype=bool)
+    spot_entry = np.zeros((G, NC), dtype=np.float64)
+    fut_side = np.zeros((G, NC), dtype=np.int8)
+    fut_entry = np.zeros((G, NC), dtype=np.float64)
+    n_pos = np.zeros(G, dtype=np.int32)
+    suppressed_saturation = np.zeros(G, dtype=np.float64)
+    invalid_open_logit_pressure = np.zeros(G, dtype=np.float64)
+    open_logits = [code for code in _OPEN_ACTION_CODES if code < N_ACTIONS]
+
+    for t in range(T):
+        x = np.broadcast_to(base_feat[t], (G, NC, NF)).astype(np.float32, copy=True)
+        _inject_position_state_features(
+            x,
+            price_arr[t],
+            spot_open,
+            spot_entry,
+            fut_side,
+            fut_entry,
+            n_pos,
+        )
+        logits = _forward_logits_population_numpy(x, weights)
+        raw_selected = logits.argmax(axis=-1).astype(np.int8)
+        invalid_before_mask = (spot_open | (fut_side != 0)) | (n_pos[:, None] >= max(0, int(TRAIN_MAX_POS)))
+        if open_logits:
+            open_logit_max = logits[:, :, open_logits].max(axis=-1)
+            valid_logits = logits.copy()
+            for code in open_logits:
+                valid_logits[:, :, code] = np.where(
+                    invalid_before_mask,
+                    -np.inf,
+                    valid_logits[:, :, code],
+                )
+            best_valid_logit = valid_logits.max(axis=-1)
+            margin_pressure = np.maximum(
+                0.0,
+                open_logit_max - best_valid_logit + float(INVALID_OPEN_LOGIT_MARGIN),
+            )
+            invalid_open_logit_pressure += (
+                margin_pressure * invalid_before_mask.astype(np.float64)
+            ).sum(axis=1)
+        raw_open = np.isin(raw_selected, open_logits)
+        suppressed_saturation += (raw_open & invalid_before_mask).sum(axis=1).astype(np.float64)
+        _mask_invalid_position_logits(logits, spot_open, fut_side, n_pos)
+        selected = logits.argmax(axis=-1).astype(np.int8)
+        adjusted = _resolve_position_aware_selected_actions(
+            selected,
+            price_arr[t],
+            spot_open,
+            spot_entry,
+            fut_side,
+            fut_entry,
+            n_pos,
+        )
+        selected_open = np.isin(selected, open_logits)
+        suppressed_saturation += (selected_open & (adjusted == 0)).sum(axis=1).astype(np.float64)
+        if open_logits:
+            same_bar_suppressed_open = selected_open & (adjusted == 0)
+            selected_idx = np.clip(selected.astype(np.int64), 0, N_ACTIONS - 1)
+            selected_logit = np.take_along_axis(
+                logits,
+                selected_idx[:, :, None],
+                axis=-1,
+            )[:, :, 0]
+            hold_logit = logits[:, :, 0]
+            same_bar_pressure = np.maximum(
+                0.0,
+                selected_logit - hold_logit + float(INVALID_OPEN_LOGIT_MARGIN),
+            )
+            invalid_open_logit_pressure += (
+                same_bar_pressure * same_bar_suppressed_open.astype(np.float64)
+            ).sum(axis=1)
+        actions[:, t, :] = adjusted
+
+    if return_suppression_metrics:
+        denom = max(T * NC, 1)
+        return actions, {
+            "saturation_rates": suppressed_saturation / denom,
+            "invalid_open_logit_pressures": invalid_open_logit_pressure / denom,
+        }
+    return actions
+
+
 def simulate_batch(actions_arr: np.ndarray, prices: np.ndarray,
                    initial_capital: float,
-                   snap_every: int = 0
+                   snap_every: int = 0,
+                   *,
+                   execution_lag_bars: Optional[int] = None,
+                   use_numba: bool = True,
                    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]:
     """
     Обёртка: если Numba доступна — JIT, иначе fallback на Python.
@@ -1305,8 +1718,12 @@ def simulate_batch(actions_arr: np.ndarray, prices: np.ndarray,
     n_snaps = T // snap_every if snap_every > 0 else 0
 
     # Применяем оптимизацию свопов: buy → swap_buy при наличии sell на том же шаге
-    processed = _preprocess_swaps(actions_arr)
-    swap_fee  = float((TRAIN_FEE + TRAIN_SLIPPAGE) * SWAP_FEE_MULTIPLIER)
+    lag = TRAIN_EXECUTION_LAG_BARS if execution_lag_bars is None else execution_lag_bars
+    lagged = _apply_execution_lag(actions_arr, int(lag))
+    processed = _preprocess_swaps(lagged)
+    spot_fee = _spot_fee_total()
+    futures_fee = _futures_fee_total()
+    swap_fee = _swap_fee_total()
 
     # FIX BUG6: APY за один бар = APY_RATE / (365 * 24 * BAR).
     # Биржа: _apy_per_bar = APY_RATE / (365 * 24 * BAR).
@@ -1315,13 +1732,14 @@ def simulate_batch(actions_arr: np.ndarray, prices: np.ndarray,
     _stop_from_peak = int(1 if TRAIN_STOP_MODE == 'from_peak' else 0)
     _bar_int = int(TRAIN_BAR)   # FIX BUG5: для funding interval = 8*BAR
 
-    if _NUMBA_OK:
+    if _NUMBA_OK and use_numba:
         fr, md, tr, dpv = _sim_core(
             processed.astype(np.int8),
             prices.astype(np.float64),
             float(initial_capital),
             int(snap_every),
-            float(TRAIN_FEE + TRAIN_SLIPPAGE),
+            spot_fee,
+            futures_fee,
             float(TRAIN_FRACTION),
             float(TRAIN_LEVERAGE),
             float(TRAIN_STOP_PCT),
@@ -1349,7 +1767,8 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
     Синхронизирована с Numba-ядром и crypto_exchange: лик-штраф, funding, from_peak стоп, APY."""
     G, T, NC = actions_arr.shape
     IC  = float(initial_capital)
-    FEE = TRAIN_FEE + TRAIN_SLIPPAGE
+    SPOT_FEE = _spot_fee_total()
+    FUTURES_FEE = _futures_fee_total()
     FR  = TRAIN_FRACTION
     LEV = TRAIN_LEVERAGE
     STP = TRAIN_STOP_PCT          # положительный: 0.20 = 20%
@@ -1358,7 +1777,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
     # FIX BUG6: APY за один бар = APY / (365 * 24 * BAR), как в Exchange.run()
     APY_STEP = TRAIN_APY_RATE / (365 * 24 * max(1, TRAIN_BAR))
     LIQ = TRAIN_LIQ_FEE
-    SWAP_FEE = FEE * SWAP_FEE_MULTIPLIER
+    SWAP_FEE = _swap_fee_total()
     # FIX BUG5: funding каждые 8*BAR баров = 8 часов, как в Exchange.step()
     FUND_INTERVAL = 8 * max(1, TRAIN_BAR)
 
@@ -1422,10 +1841,10 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
             newly_stop = ~stopped & (pv < IC * (1.0 - STP))
         if newly_stop.any():
             for g in np.where(newly_stop)[0]:
-                cash[g] += (s_qty[g] * p * (1 - FEE)).sum()
+                cash[g] += (s_qty[g] * p * (1 - SPOT_FEE)).sum()
                 mg_g  = np.abs(f_qty[g] * f_entry[g]) / LEV
                 pnl_g = f_qty[g] * (p - f_entry[g])
-                cash[g] += ((mg_g + pnl_g) * (1 - FEE) * has_fut[g]).sum()
+                cash[g] += ((mg_g + pnl_g) * (1 - FUTURES_FEE) * has_fut[g]).sum()
                 s_qty[g] = 0.0; has_spot[g] = False
                 f_qty[g] = 0.0; has_fut[g]  = False
             stopped[newly_stop] = True
@@ -1459,7 +1878,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
                 valid = m_ok.copy(); valid[m_ok] = ts_c > 0.0
                 if not valid.any(): continue
                 ts_v = ts_c[ts_c > 0.0]
-                qty = ts_v / (p[c] * (1 + FEE))
+                qty = ts_v / (p[c] * (1 + SPOT_FEE))
                 cash[valid] -= ts_v; s_qty[valid,c] += qty
                 newly_opened = valid & ~has_spot[:,c]
                 has_spot[valid,c] = True
@@ -1473,7 +1892,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
             for c in range(NC):
                 m = sm[:, c]
                 if not m.any(): continue
-                cash[m] += s_qty[m,c] * p[c] * (1-FEE)
+                cash[m] += s_qty[m,c] * p[c] * (1-SPOT_FEE)
                 s_qty[m,c] = 0.0; has_spot[m,c] = False
                 closed = m & ~has_fut[:,c]
                 n_pos[closed] -= 1
@@ -1509,7 +1928,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
                 valid = m_ok.copy(); valid[m_ok] = ts_c > 0.0
                 if not valid.any(): continue
                 ts_v = ts_c[ts_c > 0.0]
-                new_qty = ts_v * LEV / (p[c] * (1+FEE))
+                new_qty = ts_v * LEV / (p[c] * (1+FUTURES_FEE))
                 old_abs = np.abs(f_qty[valid,c])
                 avg_entry = np.where(
                     old_abs > 0,
@@ -1537,7 +1956,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
                 valid = m_ok.copy(); valid[m_ok] = ts_c > 0.0
                 if not valid.any(): continue
                 ts_v = ts_c[ts_c > 0.0]
-                new_qty = ts_v * LEV / (p[c] * (1+FEE))
+                new_qty = ts_v * LEV / (p[c] * (1+FUTURES_FEE))
                 old_abs = np.abs(f_qty[valid,c])
                 avg_entry = np.where(
                     old_abs > 0,
@@ -1560,7 +1979,7 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
                 if not m.any(): continue
                 pnl = f_qty[m,c] * (p[c] - f_entry[m,c])
                 mg  = np.abs(f_qty[m,c] * f_entry[m,c]) / LEV
-                cash[m] += (mg + pnl) * (1 - FEE)
+                cash[m] += (mg + pnl) * (1 - FUTURES_FEE)
                 f_qty[m,c] = 0.0; f_entry[m,c] = 0.0; has_fut[m,c] = False
                 closed = m & ~has_spot[:,c]
                 n_pos[closed] -= 1
@@ -1568,10 +1987,10 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
                 trade_count[m] += 1
 
     fp = prices[-1].astype(np.float64)
-    cash += (s_qty * fp * (1-FEE)).sum(axis=1)
+    cash += (s_qty * fp * (1-SPOT_FEE)).sum(axis=1)
     mg_f  = np.abs(f_qty * f_entry) / LEV
     pnl_f = f_qty * (fp - f_entry)
-    cash += ((mg_f + pnl_f) * (1-FEE) * has_fut).sum(axis=1)
+    cash += ((mg_f + pnl_f) * (1-FUTURES_FEE) * has_fut).sum(axis=1)
     final_pv = np.maximum(cash, 0.0)
     trade_rate = trade_count.astype(np.float64) / max(T * NC, 1)
     return (final_pv / IC - 1.0) * 100.0, max_dd, trade_rate, daily_pv
@@ -1581,11 +2000,65 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
 # FITNESS FUNCTION v8 — 3-ФАЗНЫЙ АДАПТИВНЫЙ
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _compute_robust_fitness_adjustment(period_rets: np.ndarray) -> np.ndarray:
+    """Vectorized anti-overfit adjustment for period-return distributions."""
+    if period_rets.ndim != 2:
+        raise ValueError("period_rets must be a 2D array")
+    G, P = period_rets.shape
+    if P == 0:
+        return np.zeros(G, dtype=np.float64)
+
+    arr = np.asarray(period_rets, dtype=np.float64)
+    arr = np.where(np.isfinite(arr), arr, 0.0)
+    sorted_arr = np.sort(arr, axis=1)
+
+    trim_fraction = max(0.0, min(float(ROBUST_TRIM_FRACTION), 0.45))
+    trim_n = int(np.floor(P * trim_fraction))
+    if trim_n > 0 and P - 2 * trim_n > 0:
+        trimmed = sorted_arr[:, trim_n:P - trim_n]
+    else:
+        trimmed = sorted_arr
+
+    median_ret = np.median(arr, axis=1)
+    trimmed_mean_ret = trimmed.mean(axis=1)
+    tail_n = max(1, int(np.ceil(P * 0.05)))
+    cvar_5_ret = sorted_arr[:, :tail_n].mean(axis=1)
+
+    positives = np.where(arr > 0.0, arr, 0.0)
+    positive_sum = positives.sum(axis=1)
+    max_positive = positives.max(axis=1)
+    max_positive_contribution_pct = np.where(
+        positive_sum > 0.0,
+        max_positive / (positive_sum + 1e-12) * 100.0,
+        0.0,
+    )
+    concentration_excess = np.maximum(
+        0.0,
+        max_positive_contribution_pct - float(ROBUST_CONC_MAX_PCT),
+    )
+
+    positive_period_rate = (arr > 0.0).mean(axis=1)
+    positive_period_shortfall = np.maximum(
+        0.0,
+        float(ROBUST_POS_PERIOD_TARGET) - positive_period_rate,
+    )
+
+    return (
+        float(ROBUST_MEDIAN_RET_W) * median_ret
+        + float(ROBUST_TRIMMED_MEAN_W) * trimmed_mean_ret
+        + float(ROBUST_CVAR5_RET_W) * cvar_5_ret
+        - float(ROBUST_CONC_PENALTY_W) * concentration_excess
+        - float(ROBUST_POS_PERIOD_PENALTY_W) * positive_period_shortfall
+    )
+
+
 def _compute_fitness(period_rets: np.ndarray,
                      period_dds: np.ndarray,
                      period_trade_rates: np.ndarray,
                      period_daily_pvs: Optional[List[np.ndarray]] = None,
-                     period_regime_weights: Optional[np.ndarray] = None
+                     period_regime_weights: Optional[np.ndarray] = None,
+                     period_saturation_rates: Optional[np.ndarray] = None,
+                     period_invalid_open_logit_pressures: Optional[np.ndarray] = None
                      ) -> np.ndarray:
     """
     3-фазный адаптивный фитнес v8.
@@ -1634,6 +2107,36 @@ def _compute_fitness(period_rets: np.ndarray,
         mean_trade_rate < INACTIVITY_THRESH,
         (INACTIVITY_THRESH - mean_trade_rate) / INACTIVITY_THRESH * 5.0,
         0.0
+    )
+    turnover_excess = np.maximum(0.0, mean_trade_rate - TURNOVER_TARGET_RATE)
+    turnover_pen = (
+        turnover_excess
+        / max(float(TURNOVER_TARGET_RATE), 1e-9)
+        * float(TURNOVER_PENALTY_W)
+    )
+    if period_saturation_rates is not None:
+        saturation_arr = np.asarray(period_saturation_rates, dtype=np.float64)
+        if saturation_arr.shape == period_rets.shape:
+            mean_saturation_rate = saturation_arr.mean(axis=1)
+        elif saturation_arr.shape == (G,):
+            mean_saturation_rate = saturation_arr
+        else:
+            mean_saturation_rate = np.zeros(G, dtype=np.float64)
+    else:
+        mean_saturation_rate = np.zeros(G, dtype=np.float64)
+    saturation_pen = mean_saturation_rate * float(MAX_POSITION_SATURATION_PENALTY_W)
+    if period_invalid_open_logit_pressures is not None:
+        pressure_arr = np.asarray(period_invalid_open_logit_pressures, dtype=np.float64)
+        if pressure_arr.shape == period_rets.shape:
+            mean_invalid_open_pressure = pressure_arr.mean(axis=1)
+        elif pressure_arr.shape == (G,):
+            mean_invalid_open_pressure = pressure_arr
+        else:
+            mean_invalid_open_pressure = np.zeros(G, dtype=np.float64)
+    else:
+        mean_invalid_open_pressure = np.zeros(G, dtype=np.float64)
+    invalid_open_logit_pen = (
+        mean_invalid_open_pressure * float(INVALID_OPEN_LOGIT_PENALTY_W)
     )
 
     # ── Daily snapshot metrics ────────────────────────────────────────────────
@@ -1774,7 +2277,7 @@ def _compute_fitness(period_rets: np.ndarray,
     # Прогрессивный бонус за доходность
     progressive_return_bonus = np.tanh(np.maximum(0.0, mean_r_weighted - 0.5) / 3.0) * 0.40
 
-    return (2.5    * mean_r_weighted                      # сильный сигнал возврата
+    fitness = (2.5    * mean_r_weighted                   # сильный сигнал возврата
           + 1.5    * calmar_scaled * CALMAR_WEIGHT_ADJ    # risk-adjusted (drawdown), снижен
           + 0.5    * sharpe_scaled                        # risk-adjusted (volatility)
           + 0.35   * daily_sharpe_scores                  # внутридневная стабильность
@@ -1791,8 +2294,15 @@ def _compute_fitness(period_rets: np.ndarray,
           - FITNESS_DELTA * 0.35 * worst_pen              # штраф за катастрофы
           - FITNESS_THETA * 0.4  * bear_regime_pen        # штраф за слабые режимы
           - FITNESS_EPSILON * 0.25 * inactivity_pen       # штраф за бездействие
+          - turnover_pen                                  # penalty for excessive open turnover
+          - saturation_pen                                # penalty for impossible/saturated opens
+          - invalid_open_logit_pen                        # penalty for preferring impossible opens
           - 0.20            * stop_pen                    # штраф за частые стопы
           - neg_streak_pen)                               # FIX 4: штраф за серию убытков
+
+    if ROBUST_FITNESS_ENABLED:
+        fitness = fitness + _compute_robust_fitness_adjustment(period_rets)
+    return fitness
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1887,7 +2397,7 @@ class GPUEvaluator:
 
     def evaluate(self, population, precomp, rw_override: Optional[Dict[str, float]] = None):
         G = len(population)
-        rl, dl, trl = [], [], []
+        rl, dl, trl, satl, pressurel = [], [], [], [], []
         daily_pvs: List[Optional[np.ndarray]] = []
         regime_weights = []
 
@@ -1900,21 +2410,40 @@ class GPUEvaluator:
             if rw_override is not None and regime in rw_override:
                 rw = rw_override[regime]
             regime_weights.append(float(rw))
-            actions = self._batch_forward(population, feat)
+            suppression_metrics = None
+            if POSITION_STATE_FEATURES_ENABLED and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED):
+                actions, suppression_metrics = _batch_forward_position_aware_numpy(
+                    population, feat, prices, return_suppression_metrics=True)
+            else:
+                actions = self._batch_forward(population, feat, prices)
             # Выбор оптимальных валют: маскируем открытие позиций для не-топ монет
             if CURRENCY_SELECTION_ENABLED:
                 actions = _apply_currency_selection(
                     actions, feat, regime, TOP_CURRENCIES_N)
+            contract_metrics = _action_contract_metrics(actions.astype(np.int32))
+            exec_actions = _apply_position_aware_action_policy(actions)
             rets, dds, trs, dpv = simulate_batch(
-                actions.astype(np.int32), prices, _cx.INITIAL_CAPITAL, snap_every)
+                exec_actions.astype(np.int32), prices, _cx.INITIAL_CAPITAL, snap_every)
             rl.append(rets); dl.append(dds); trl.append(trs)
+            satl.append(
+                suppression_metrics["saturation_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["saturation_rates"]
+            )
+            pressurel.append(
+                suppression_metrics["invalid_open_logit_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
             daily_pvs.append(dpv)
 
         ret_mat = np.column_stack(rl)
         dd_mat  = np.column_stack(dl)
         tr_mat  = np.column_stack(trl)
+        sat_mat = np.column_stack(satl)
+        pressure_mat = np.column_stack(pressurel)
         rw_arr  = np.array(regime_weights, dtype=np.float64)
-        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, daily_pvs, rw_arr)
+        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, daily_pvs, rw_arr, sat_mat, pressure_mat)
 
         # ── Pareto-ranking бонус по режимам ────────────────────────────────────
         if PARETO_REGIME_RANKING:
@@ -1927,7 +2456,9 @@ class GPUEvaluator:
 
         return fits, [ret_mat[g].tolist() for g in range(G)]
 
-    def _batch_forward(self, population, feat):
+    def _batch_forward(self, population, feat, prices=None):
+        if POSITION_STATE_FEATURES_ENABLED and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED) and prices is not None:
+            return _batch_forward_position_aware_numpy(population, feat, prices)
         import torch
         dev = self.device
         G   = len(population)
@@ -2060,7 +2591,7 @@ def _worker_task(gbytes: bytes):
     W1, b1, W2, b2, W3, b3, W4, b4 = _unpack(genome)
     IC = _W_IC or 100_000.0
     snap_every = _get_snap_every()
-    rl, dl, trl = [], [], []
+    rl, dl, trl, satl, pressurel = [], [], [], [], []
     dpv_list = []
     rw_list  = []
     for entry in _W_PRECOMP:
@@ -2068,31 +2599,52 @@ def _worker_task(gbytes: bytes):
         rw     = entry[5] if len(entry) > 5 else 1.0
         regime = map_regime_3(entry[6]) if len(entry) > 6 else 'neutral'
         rw_list.append(float(rw))
-        T, NC, _ = feat.shape
-        actions = np.zeros((T, NC), dtype=np.int8)
-        for t in range(T):
-            actions[t] = _fwd_np(feat[t], W1, b1, W2, b2, W3, b3, W4, b4).argmax(axis=-1).astype(np.int8)
+        suppression_metrics = None
+        if POSITION_STATE_FEATURES_ENABLED and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED):
+            actions_3d, suppression_metrics = _batch_forward_position_aware_numpy(
+                genome[None], feat, prices, return_suppression_metrics=True)
+            actions = actions_3d[0]
+        else:
+            T, NC, _ = feat.shape
+            actions = np.zeros((T, NC), dtype=np.int8)
+            for t in range(T):
+                actions[t] = _fwd_np(feat[t], W1, b1, W2, b2, W3, b3, W4, b4).argmax(axis=-1).astype(np.int8)
         # Выбор оптимальных валют перед симуляцией
         if CURRENCY_SELECTION_ENABLED:
             actions_3d = _apply_currency_selection(
                 actions[np.newaxis].astype(np.int32), feat, regime, TOP_CURRENCIES_N)
             actions = actions_3d[0].astype(np.int8)
+        contract_metrics = _action_contract_metrics(actions[None].astype(np.int32))
+        exec_actions = _apply_position_aware_action_policy(actions[None].astype(np.int32))
         rets, dds, trs, dpv = simulate_batch(
-            actions[None].astype(np.int32), prices, IC, snap_every)
+            exec_actions, prices, IC, snap_every)
         rl.append(float(rets[0])); dl.append(float(dds[0])); trl.append(float(trs[0]))
+        satl.append(float(
+            suppression_metrics["saturation_rates"][0]
+            if suppression_metrics is not None
+            else contract_metrics["saturation_rates"][0]
+        ))
+        pressurel.append(float(
+            suppression_metrics["invalid_open_logit_pressures"][0]
+            if suppression_metrics is not None
+            else 0.0
+        ))
         dpv_list.append(dpv)
     if not rl:
         return -100.0, []
     r_arr  = np.array(rl,  dtype=np.float64)[None]
     d_arr  = np.array(dl,  dtype=np.float64)[None]
     tr_arr = np.array(trl, dtype=np.float64)[None]
+    sat_arr = np.array(satl, dtype=np.float64)[None]
+    pressure_arr = np.array(pressurel, dtype=np.float64)[None]
     rw_arr = np.array(rw_list, dtype=np.float64)
-    return float(_compute_fitness(r_arr, d_arr, tr_arr, dpv_list, rw_arr)[0]), rl
+    return float(_compute_fitness(r_arr, d_arr, tr_arr, dpv_list, rw_arr, sat_arr, pressure_arr)[0]), rl
 
 
 class CPUEvaluator:
     def __init__(self, precomp, n_workers):
         import concurrent.futures as cfu
+        global _W_PRECOMP, _W_IC
         self.n   = n_workers
         self._ex = None
         tmp = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
@@ -2101,6 +2653,9 @@ class CPUEvaluator:
         with open(self._pkl, 'wb') as f:
             pickle.dump(precomp, f, protocol=4)
         print(f"  Данные -> tmp файл ({os.path.getsize(self._pkl)/1024**2:.1f} MB)")
+        if n_workers <= 1:
+            _W_PRECOMP = precomp
+            _W_IC = _cx.INITIAL_CAPITAL
         if n_workers > 1:
             # Устанавливаем флаг ДО spawn — дочерние процессы наследуют его
             # и подавляют module-level prints (settings/exchange spam).
@@ -2131,7 +2686,8 @@ class CPUEvaluator:
                 idx = futs[fut]; done += 1
                 try:
                     fits[idx], rets[idx] = fut.result(timeout=600)
-                except Exception:
+                except Exception as exc:
+                    print(f"  [CPU-worker-error] genome={idx}: {type(exc).__name__}: {exc}")
                     fits[idx] = -50.0
                 _pbar(done, G, fits)
         else:
@@ -3180,7 +3736,17 @@ class GeneticTrainer:
                 self.regime_ret_history[reg].append(float(np.mean(vals)))
 
     @staticmethod
-    def _batch_forward_numpy(population: np.ndarray, feat: np.ndarray) -> np.ndarray:
+    def _batch_forward_numpy(
+        population: np.ndarray,
+        feat: np.ndarray,
+        prices: Optional[np.ndarray] = None,
+        position_state_features: Optional[bool] = None,
+    ) -> np.ndarray:
+        use_state = POSITION_STATE_FEATURES_ENABLED if position_state_features is None else bool(position_state_features)
+        use_state = use_state and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED)
+        if use_state and prices is not None:
+            return _batch_forward_position_aware_numpy(population, feat, prices)
+        return _batch_forward_numpy_vectorized(population, feat)
         """
         Векторизованный numpy forward pass (CPU Phase 1).
         Аналог GPUEvaluator._batch_forward, но без CUDA.
@@ -3250,7 +3816,7 @@ class GeneticTrainer:
             return self.ev.evaluate(island_pop, island_precomp, rw_override=rw_override)
 
         # ── CPU path: батчевый numpy forward ──────────────────────────────
-        rl_all, dl_all, trl_all = [], [], []
+        rl_all, dl_all, trl_all, sat_all, pressure_all = [], [], [], [], []
         dpv_all: List[Optional[np.ndarray]] = []
         rw_list: List[float] = []
 
@@ -3261,18 +3827,35 @@ class GeneticTrainer:
             rw_list.append(rw)
 
             # Векторизованный forward pass для всего острова
-            actions_all = self._batch_forward_numpy(island_pop, feat)  # (G,T,NC)
+            suppression_metrics = None
+            if POSITION_STATE_FEATURES_ENABLED and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED):
+                actions_all, suppression_metrics = _batch_forward_position_aware_numpy(
+                    island_pop, feat, prices, return_suppression_metrics=True)
+            else:
+                actions_all = self._batch_forward_numpy(island_pop, feat, prices=prices)  # (G,T,NC)
             # Выбор оптимальных валют
             if CURRENCY_SELECTION_ENABLED:
                 actions_all = _apply_currency_selection(
                     actions_all.astype(np.int32), feat, regime, TOP_CURRENCIES_N
                 ).astype(np.int8)
 
+            contract_metrics = _action_contract_metrics(actions_all.astype(np.int32))
+            exec_actions = _apply_position_aware_action_policy(actions_all)
             rets_g, dds_g, trs_g, dpv_g = simulate_batch(
-                actions_all.astype(np.int32), prices, IC, snap_every)
+                exec_actions.astype(np.int32), prices, IC, snap_every)
             rl_all.append(rets_g)
             dl_all.append(dds_g)
             trl_all.append(trs_g)
+            sat_all.append(
+                suppression_metrics["saturation_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["saturation_rates"]
+            )
+            pressure_all.append(
+                suppression_metrics["invalid_open_logit_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
             dpv_all.append(dpv_g)
 
         if not rl_all:
@@ -3281,8 +3864,10 @@ class GeneticTrainer:
         ret_mat = np.column_stack(rl_all)   # (G, P)
         dd_mat  = np.column_stack(dl_all)
         tr_mat  = np.column_stack(trl_all)
+        sat_mat = np.column_stack(sat_all)
+        pressure_mat = np.column_stack(pressure_all)
         rw_arr  = np.array(rw_list, dtype=np.float64)
-        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, dpv_all, rw_arr)
+        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, dpv_all, rw_arr, sat_mat, pressure_mat)
         rets_list = [ret_mat[g].tolist() for g in range(G)]
         return fits, rets_list
 
@@ -3409,6 +3994,7 @@ class GeneticTrainer:
                     'island_id':   island_id,
                     'max_pos':     int(TRAIN_MAX_POS),
                     'genome_size': int(GENOME_SIZE),
+                    'position_state_features_enabled': bool(POSITION_STATE_FEATURES_ENABLED),
                 }
                 try:
                     _meta_path = os.path.join(AGENTS_DIR, f"best_island_{regime}_meta.json")
@@ -4216,7 +4802,12 @@ class GeneticTrainer:
 
     # ── Главный цикл ──────────────────────────────────────────────────────────
     def run(self):
-        _results_dir = os.path.join(os.path.dirname(AGENTS_DIR), "..", "results")
+        _agents_abs = os.path.abspath(AGENTS_DIR)
+        _agents_parts = [part.lower() for part in os.path.normpath(_agents_abs).split(os.sep)]
+        if "neiro_genetics" in _agents_parts:
+            _results_dir = _agents_abs
+        else:
+            _results_dir = os.path.join(os.path.dirname(AGENTS_DIR), "..", "results")
         os.makedirs(_results_dir, exist_ok=True)
         _run_tag  = time.strftime("%Y%m%d_%H%M%S")
         _log_path = os.path.join(_results_dir, f"genetics_run_{_run_tag}.log")
@@ -4461,7 +5052,8 @@ class GeneticTrainer:
                     np.save(best_path, self.best_g)
                     # Сохраняем метаданные: поколение и фитнес — для GeneticsAgent
                     _meta = {'gen': self.gen, 'fitness': float(bf),
-                             'max_pos': int(TRAIN_MAX_POS), 'genome_size': int(GENOME_SIZE)}
+                             'max_pos': int(TRAIN_MAX_POS), 'genome_size': int(GENOME_SIZE),
+                             'position_state_features_enabled': bool(POSITION_STATE_FEATURES_ENABLED)}
                     try:
                         import json as _json
                         with open(os.path.join(AGENTS_DIR, "best_genome_meta.json"), 'w') as _mf:
@@ -4639,7 +5231,8 @@ class GeneticTrainer:
                 if self.gen % CHART_EVERY == 0 or self.gen == N_GENERATIONS:
                     self._chart()
 
-                self.pop = self._next(fits)
+                if self.gen < N_GENERATIONS:
+                    self.pop = self._next(fits)
 
         finally:
             if self.mode == 'cpu':
@@ -5382,6 +5975,7 @@ class GeneticsAgent:
         # Обратная совместимость: self.pos используется некоторыми агентами-обёртками
         self.pos: Dict[str, Optional[str]] = {}
         self.t = 0; self._regime = 'unknown'; self._breadth = 0.5; self._regime_conf = 0.0
+        self._position_state_features_enabled = bool(POSITION_STATE_FEATURES_LIVE_DEFAULT)
         self._ema_breadth = 0.5   # EMA-сглаженный брэдт (feat 17), как в precompute_features
 
         # Метаданные печатаем только один раз во всём процессе (не 4x при создании игроков)
@@ -5396,6 +5990,9 @@ class GeneticsAgent:
                     _gen  = int(_meta.get('gen', 0))
                     _fit  = float(_meta.get('fitness', 0))
                     _mpos = int(_meta.get('max_pos', TRAIN_MAX_POS))
+                    self._position_state_features_enabled = bool(
+                        _meta.get('position_state_features_enabled', POSITION_STATE_FEATURES_LIVE_DEFAULT)
+                    )
                     if _gen < 30:
                         print(f"  [GeneticsAgent] ⚠ ВНИМАНИЕ: геном обучен только {_gen} "
                               f"ген. из рекомендуемых 100+. Бэктест будет ненадёжным! "
@@ -5418,6 +6015,9 @@ class GeneticsAgent:
                 _mpos = int(_meta.get('max_pos', TRAIN_MAX_POS))
                 if _mpos != self.MAX_POS:
                     self.MAX_POS = _mpos
+                self._position_state_features_enabled = bool(
+                    _meta.get('position_state_features_enabled', POSITION_STATE_FEATURES_LIVE_DEFAULT)
+                )
         except Exception:
             pass
 
@@ -5651,6 +6251,10 @@ class GeneticsAgent:
             _cs_ranks27 = np.argsort(np.argsort(vol_tr_live)).astype(np.float32)
             x[:, 27] = _cs_ranks27 / (NC - 1 + 1e-9)
 
+        if self._position_state_features_enabled and N_INPUT > 15:
+            current_n = sum(1 for s in syms if self.spot_qty.get(s, 0.0) > 0 or self.fut_qty.get(s, 0.0) != 0)
+            x[:, 15] = np.float32(np.clip(current_n / max(1, self.MAX_POS), 0.0, 1.0))
+
         W1,b1,W2,b2,W3,b3,W4,b4 = self._w
         raw  = _fwd_np(x, W1, b1, W2, b2, W3, b3, W4, b4).argmax(axis=1)
         acts = {s: 0 for s in prices}
@@ -5859,6 +6463,9 @@ class _RegimeGeneticsAgent(GeneticsAgent):
                 _gen  = int(_meta.get('gen', 0))
                 _fit  = float(_meta.get('fitness', 0.0))
                 _mpos = int(_meta.get('max_pos', TRAIN_MAX_POS))
+                self._position_state_features_enabled = bool(
+                    _meta.get('position_state_features_enabled', POSITION_STATE_FEATURES_LIVE_DEFAULT)
+                )
                 _print_once(
                     f"regime-agent-meta:{type(self).__name__}:{self._REGIME_LABEL}",
                     f"  [{type(self).__name__}] regime={self._REGIME_LABEL}  "

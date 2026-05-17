@@ -88,10 +88,16 @@ class RiskLimits:
 
         # 2. Close-actions: не нужно проверять risk-лимиты, кроме наличия позиции
         if signal.action.is_close:
-            if signal.sym not in open_positions:
+            position = open_positions.get(signal.sym)
+            if position is None:
                 return RiskCheckResult(
                     allowed=False,
                     reason="no position to close",
+                )
+            if self._is_external_position(position, set(cfg.external_position_player_labels)):
+                return RiskCheckResult(
+                    allowed=False,
+                    reason=f"external recovered position on {signal.sym} is not panteon-owned",
                 )
             return RiskCheckResult(
                 allowed=True,
@@ -177,7 +183,14 @@ class RiskLimits:
         position: "object",
         external_labels: Set[str],
     ) -> bool:
+        return not RiskLimits._is_external_position(position, external_labels)
+
+    @staticmethod
+    def _is_external_position(
+        position: "object",
+        external_labels: Set[str],
+    ) -> bool:
         owner = getattr(position, "by_player", None)
         if owner is None:
-            return True
-        return str(owner or "") not in external_labels
+            return False
+        return str(owner or "") in external_labels

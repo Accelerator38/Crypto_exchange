@@ -91,6 +91,12 @@ class LeaderSelected(Event):
     is_urgent:     bool  = False
     reason:        str   = ""
     decision_id:   str   = ""
+    exchange:      str   = ""
+    symbol:        str   = ""
+    timeframe:     str   = ""
+    mode:          str   = ""
+    run_id:        str   = ""
+    session_id:    str   = ""
 
 
 @dataclass(frozen=True)
@@ -116,6 +122,12 @@ class CandidateScored(Event):
     """One candidate score row from the full selector candidate list."""
 
     decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
     player_label: str = ""
     rank: int = 0
     score: float = 0.0
@@ -128,6 +140,10 @@ class CandidateScored(Event):
     uncertainty_penalty: float = 0.0
     memory_keys_read: Tuple[str, ...] = ()
     agent_labels: Tuple[str, ...] = ()
+    session_score_delta: float = 0.0
+    session_pnl_pct: float = 0.0
+    session_underperformance_penalty: float = 0.0
+    session_stale_penalty: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -135,7 +151,41 @@ class CandidateRejected(Event):
     """Candidate filtered out before scoring."""
 
     decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
     player_label: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class SwitchGateEvaluated(Event):
+    """Selector switch gate diagnostics for session-aware overlay decisions."""
+
+    decision_id: str = ""
+    exchange: str = ""
+    symbol: str = ""
+    timeframe: str = ""
+    mode: str = ""
+    run_id: str = ""
+    session_id: str = ""
+    previous_label: str = ""
+    current_label: str = ""
+    best_label: str = ""
+    selected_label: str = ""
+    best_score: float = 0.0
+    current_score: float = 0.0
+    margin: float = 0.0
+    required_margin: float = 0.0
+    cooldown_passed: bool = True
+    cooldown_blocked: bool = False
+    streak_count: int = 0
+    streak_needed: int = 1
+    is_urgent: bool = False
+    switched: bool = False
     reason: str = ""
 
 
@@ -149,6 +199,11 @@ class ShadowActorUpdated(Event):
     filled: int = 0
     rejected: int = 0
     blocked: int = 0
+    rejected_reasons: Tuple[Tuple[str, int], ...] = ()
+    blocked_reasons: Tuple[Tuple[str, int], ...] = ()
+    agent_outcomes: Tuple[Tuple[str, int, int, int, int], ...] = ()
+    agent_rejected_reasons: Tuple[Tuple[str, str, int], ...] = ()
+    agent_blocked_reasons: Tuple[Tuple[str, str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -178,6 +233,20 @@ class SignalEmitted(Event):
     """Игрок сгенерировал сигнал."""
 
     signal: Optional[Signal] = None  # Optional только для дефолтного значения dataclass
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -188,6 +257,20 @@ class OrderSent(Event):
     sym:       str = ""
     action:    Action = Action.HOLD
     exchange_order_id: str = ""
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -195,6 +278,20 @@ class OrderFilled(Event):
     """Биржа подтвердила исполнение."""
 
     trade: Optional[Trade] = None
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -204,6 +301,47 @@ class OrderRejected(Event):
     signal_id: int  = -1
     sym:       str  = ""
     reason:    str  = ""
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
+
+
+@dataclass(frozen=True)
+class ExecutionAttributed(Event):
+    """Normalized outcome row for per-decision execution attribution."""
+
+    signal_id: int = -1
+    sym: str = ""
+    action: str = ""
+    status: str = ""
+    attribution_bucket: str = ""
+    reason: str = ""
+    realized_pnl: float = 0.0
+    decision_id: str = ""
+    exchange: str = ""
+    symbol: str = ""
+    timeframe: str = ""
+    mode: str = ""
+    run_id: str = ""
+    session_id: str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -218,6 +356,20 @@ class MemoryUpdateFailed(Event):
     signal_id: int = -1
     sym:       str = ""
     reason:    str = ""
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -229,6 +381,20 @@ class PositionOpened(Event):
     side:      str   = "long"     # "long" | "short"
     entry:     float = 0.0
     qty:       float = 0.0
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -245,6 +411,20 @@ class PositionClosed(Event):
     realized_pnl:    float = 0.0   # net of fees
     by_player:       str   = ""    # с открывающего сигнала
     by_agent:        str   = ""
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -260,3 +440,17 @@ class SymbolBlocked(Event):
     failures_in_window: int = 0
     blocked_until_ts:  float = 0.0
     reason:            str = "pending_failures_threshold"
+    decision_id: str = ""
+    exchange:    str = ""
+    symbol:      str = ""
+    timeframe:   str = ""
+    mode:        str = ""
+    run_id:      str = ""
+    session_id:  str = ""
+    fees: float = 0.0
+    slippage_pct: float = 0.0
+    latency_ms: float = 0.0
+    order_id: str = ""
+    pending_age_sec: float = 0.0
+    owner_scope: str = "panteon_owned"
+    exchange_health_reason: str = ""

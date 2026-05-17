@@ -14,10 +14,10 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from ..selection import AgentRegistry
-from ..shadow.adapters import V1AgentAdapter
+from ..shadow.adapters import GeneticsV2AgentAdapter, V1AgentAdapter
 
 
 log = logging.getLogger(__name__)
@@ -59,10 +59,21 @@ KNOWN_V1_AGENTS: List[Tuple[str, str]] = [
 # Подключаются ТОЛЬКО если PANTEON_V2_LOAD_GENETICS=1 в env, или явно
 # через register_optional_agents(). Иначе зависают на startup-е.
 OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
+    ("GeneticsGenomeEnsemble", "agents_v2:GenomeEnsembleAgent"),
+    ("GeneticsCore",        "crypto_genetics:GeneticsAgent"),
     ("GeneticsBullish",     "crypto_genetics:GeneticsBullishAgent"),
     ("GeneticsBearish",     "crypto_genetics:GeneticsBearishAgent"),
     ("GeneticsNeutral",     "crypto_genetics:GeneticsNeutralAgent"),
 ]
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    import os as _os
+
+    raw = _os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ensure_paths():
@@ -93,7 +104,12 @@ def _register_from_list(
             module = __import__(module_path, fromlist=[class_name])
             cls = getattr(module, class_name)
             instance = cls()
-            adapter = V1AgentAdapter(
+            adapter_cls = (
+                GeneticsV2AgentAdapter
+                if module_path == "crypto_genetics" or label.startswith("Genetics")
+                else V1AgentAdapter
+            )
+            adapter = adapter_cls(
                 label=label,
                 v1_agent=instance,
                 portfolio_value_fn=portfolio_value_fn,
@@ -117,6 +133,7 @@ def register_all_v1_agents(
     portfolio_value_fn: Optional[callable] = None,
     skip_on_error: bool = True,
     include_optional: Optional[bool] = None,
+    optional_agent_labels: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """Регистрирует базовые v1-агенты в registry.
 
@@ -126,10 +143,9 @@ def register_all_v1_agents(
     Это сделано потому что Genetics при импорте поднимают
     numba/settings/datasets и могут зависнуть на старте.
     """
-    import os as _os
     _ensure_paths()
     if include_optional is None:
-        include_optional = bool(_os.environ.get("PANTEON_V2_LOAD_GENETICS"))
+        include_optional = _env_flag("PANTEON_V2_LOAD_GENETICS", False)
     registered = _register_from_list(
         registry, KNOWN_V1_AGENTS,
         portfolio_value_fn=portfolio_value_fn,
@@ -137,8 +153,9 @@ def register_all_v1_agents(
     )
     if include_optional:
         log.info("Loading optional agents (Genetics) — may take a while…")
+        optional_items = _filter_optional_agent_items(optional_agent_labels)
         registered += _register_from_list(
-            registry, OPTIONAL_V1_AGENTS,
+            registry, optional_items,
             portfolio_value_fn=portfolio_value_fn,
             skip_on_error=skip_on_error,
         )
@@ -150,15 +167,33 @@ def register_optional_agents(
     *,
     portfolio_value_fn: Optional[callable] = None,
     skip_on_error: bool = True,
+    optional_agent_labels: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """Явная регистрация опциональных тяжёлых агентов (Genetics)."""
     _ensure_paths()
     return _register_from_list(
-        registry, OPTIONAL_V1_AGENTS,
+        registry, _filter_optional_agent_items(optional_agent_labels),
         portfolio_value_fn=portfolio_value_fn,
         skip_on_error=skip_on_error,
     )
 
 
+def _filter_optional_agent_items(
+    labels: Optional[Sequence[str]],
+) -> List[Tuple[str, str]]:
+    if labels is None:
+        return list(OPTIONAL_V1_AGENTS)
+    allowed = {str(label) for label in labels}
+    return [item for item in OPTIONAL_V1_AGENTS if item[0] in allowed]
+
+
 def known_labels() -> List[str]:
     return [label for label, _ in KNOWN_V1_AGENTS]
+
+
+def optional_labels() -> List[str]:
+    return [label for label, _ in OPTIONAL_V1_AGENTS]
+
+
+def genetics_labels() -> List[str]:
+    return optional_labels()

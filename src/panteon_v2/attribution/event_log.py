@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import threading
+import time
 from dataclasses import is_dataclass, fields
 from datetime import datetime
 from enum import Enum
@@ -38,9 +39,21 @@ class EventLog:
             ...
     """
 
-    def __init__(self, *, jsonl_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        *,
+        jsonl_path: Optional[Union[str, Path]] = None,
+        raise_on_persist_error: bool = True,
+        persist_retry_attempts: int = 2,
+        persist_retry_delay_sec: float = 0.05,
+    ):
         self._events: List[Event] = []
         self._lock = threading.Lock()
+        self._raise_on_persist_error = bool(raise_on_persist_error)
+        self._persist_retry_attempts = max(0, int(persist_retry_attempts))
+        self._persist_retry_delay_sec = max(0.0, float(persist_retry_delay_sec))
+        self._persistence_dropped = 0
+        self._persistence_errors: List[str] = []
         self._jsonl_path: Optional[Path] = (
             Path(jsonl_path) if jsonl_path else None
         )
@@ -113,19 +126,45 @@ class EventLog:
         with self._lock:
             return list(self._events)
 
+    @property
+    def persistence_dropped(self) -> int:
+        with self._lock:
+            return self._persistence_dropped
+
+    @property
+    def persistence_errors(self) -> List[str]:
+        with self._lock:
+            return list(self._persistence_errors)
+
     # ── Persistence ────────────────────────────────────────────────
 
     def _append_jsonl(self, event: Event) -> None:
         """Запись одного события в JSONL (вызывается под self._lock)."""
-        try:
-            payload = self._event_to_dict(event)
-            path = Path(self._jsonl_path)
-            with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(payload, default=_json_default) + "\n")
-        except Exception as exc:
-            raise EventLogPersistenceError(
-                f"failed to append {type(event).__name__} to {self._jsonl_path}: {exc}"
-            ) from exc
+        payload = self._event_to_dict(event)
+        path = Path(self._jsonl_path)
+        attempts = self._persist_retry_attempts + 1
+        last_exc: Optional[Exception] = None
+        for attempt in range(attempts):
+            try:
+                with path.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(payload, default=_json_default) + "\n")
+                return
+            except Exception as exc:
+                last_exc = exc
+                if attempt < attempts - 1 and self._persist_retry_delay_sec > 0.0:
+                    time.sleep(self._persist_retry_delay_sec)
+        error = EventLogPersistenceError(
+            f"failed to append {type(event).__name__} to {self._jsonl_path}: {last_exc}"
+        )
+        if self._raise_on_persist_error:
+            raise error from last_exc
+        self._record_persistence_drop(error)
+
+    def _record_persistence_drop(self, error: EventLogPersistenceError) -> None:
+        self._persistence_dropped += 1
+        if len(self._persistence_errors) >= 20:
+            self._persistence_errors.pop(0)
+        self._persistence_errors.append(str(error))
 
     @staticmethod
     def _event_to_dict(event: Event) -> dict:

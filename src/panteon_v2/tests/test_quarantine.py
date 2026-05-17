@@ -202,6 +202,30 @@ class TestForceOps(unittest.TestCase):
         qm.force_quarantine("X")  # уже в карантине
         self.assertEqual(len(events), 0, "no event for no-op")
 
+    def test_force_quarantine_survives_recompute_until_release(self):
+        qm = QuarantineManager(seed=set())
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _seal_trade_for_label(
+            perf,
+            "GeneticsBullish",
+            Regime.BULLISH,
+            pnl_pct=5.0,
+            closed_trades=5,
+        )
+
+        qm.force_quarantine(
+            "GeneticsBullish",
+            reason="degradation_gate:blocked_signal_rate",
+            bar=10,
+        )
+        result = qm.recompute(perf)
+
+        self.assertTrue(qm.is_quarantined("GeneticsBullish"))
+        self.assertNotIn("GeneticsBullish", result.removed)
+        record = qm.record_for("GeneticsBullish")
+        self.assertIsNotNone(record)
+        self.assertEqual(record.reason, "degradation_gate:blocked_signal_rate")
+
     def test_force_release(self):
         qm = QuarantineManager(seed={"X"})
         self.assertTrue(qm.is_quarantined("X"))

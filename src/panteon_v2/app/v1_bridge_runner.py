@@ -79,6 +79,43 @@ def _is_usable_bridge(candidate: Any) -> bool:
     )
 
 
+def _bitget_contract_reject_reason(futures_client: Any, sym: str) -> str:
+    bad = getattr(futures_client, "_bad_symbols", None)
+    if isinstance(bad, set) and sym in bad:
+        return "runtime_bad_symbol"
+    getter = getattr(futures_client, "_get_contract_meta", None)
+    if not callable(getter):
+        return ""
+    try:
+        meta = getter(sym)
+    except Exception as exc:
+        return f"contract metadata unavailable: {type(exc).__name__}: {exc}"
+    if not isinstance(meta, dict) or not meta:
+        return "empty contract metadata"
+    if bool(meta.get("metadataFallback")):
+        return "fallback contract metadata"
+    source = str(meta.get("metadataSource") or "").strip().lower()
+    if source in {"fallback", "default", "synthetic"}:
+        return "fallback contract metadata"
+    if meta.get("apiAllowed") is False:
+        return "contract API disabled"
+    state = meta.get("state")
+    if state not in (None, "", 0, "0", "online", "enabled", "normal", "live", "trading"):
+        return f"contract state {state!r}"
+    try:
+        step = float(
+            meta.get("contractSize")
+            or meta.get("amountStep")
+            or meta.get("sizeIncrement")
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        step = 0.0
+    if step <= 0:
+        return "invalid contract size"
+    return ""
+
+
 def _ensure_v1_paths():
     project_root = Path(__file__).resolve().parents[3]
     for p in (
@@ -180,6 +217,7 @@ class V1BridgeFeed:
         except Exception:
             log.exception("[%s] failed to extract prices", self._exchange)
 
+        prices, volumes = self._filter_contract_symbols(prices, volumes)
         if not prices:
             return None
 
@@ -203,6 +241,44 @@ class V1BridgeFeed:
             regime=regime.label,
             regime_confidence=self._regime_detector.confidence,
         )
+
+    def _filter_contract_symbols(
+        self,
+        prices: Dict[str, float],
+        volumes: Dict[str, float],
+    ) -> tuple[Dict[str, float], Dict[str, float]]:
+        if self._exchange.upper() != "BITGET":
+            return prices, volumes
+        bridge_mode = str(getattr(self._bridge, "mode", "") or "").lower()
+        if bridge_mode and bridge_mode != "live_futures":
+            return prices, volumes
+        futures_client = getattr(self._bridge, "futures_client", None)
+        if futures_client is None:
+            return prices, volumes
+
+        kept_prices: Dict[str, float] = {}
+        kept_volumes: Dict[str, float] = {}
+        for sym, price in prices.items():
+            reason = _bitget_contract_reject_reason(futures_client, sym)
+            if reason:
+                bad = getattr(futures_client, "_bad_symbols", None)
+                if isinstance(bad, set):
+                    bad.add(sym)
+                logged = getattr(self, "_contract_filter_logged", set())
+                key = (sym, reason)
+                if key not in logged:
+                    log.warning(
+                        "[BITGET] symbol %s excluded before selector/risk: %s",
+                        sym,
+                        reason,
+                    )
+                    logged.add(key)
+                    setattr(self, "_contract_filter_logged", logged)
+                continue
+            kept_prices[sym] = price
+            if sym in volumes:
+                kept_volumes[sym] = volumes[sym]
+        return kept_prices, kept_volumes
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -551,10 +627,11 @@ def run_with_v1_bridge(
         )
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt — graceful shutdown")
-        steps = []
+        steps = None
 
     if output_writer:
         output_writer.close()
 
-    log.info("Run finished, processed %d bars", len(steps))
+    processed = len(steps) if steps is not None else n_step
+    log.info("Run finished, processed %d bars", processed)
     return 0

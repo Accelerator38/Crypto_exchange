@@ -33,20 +33,23 @@ from ..attribution import (
     QuarantineRecomputed,
     RegimeDetected,
     SignalEmitted,
+    SwitchGateEvaluated,
 )
-from ..domain.types import MarketSnapshot, Regime, Signal
+from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from ..execution import ExecutionResult, ExecutionStatus
-from ..selection import EnsemblePlayer, SwitchDecision
+from ..selection import EnsemblePlayer, SwitchDecision, ThresholdProfile, WeightedConsensus
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
 from .live_state import (
     filter_real_signals_against_tracker,
+    is_external_position,
     reconcile_tracker_with_exchange,
     sync_player_agents_to_real_positions,
 )
 
 
 log = logging.getLogger(__name__)
+_SOLO_AGENT_CANDIDATE_LIMIT = 3
 
 
 def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
@@ -83,7 +86,7 @@ def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
         return None
 
 
-def _normalize_account_snapshot(raw: Any) -> Dict[str, float]:
+def _normalize_account_snapshot(raw: Any) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
     out: Dict[str, float] = {}
@@ -116,6 +119,9 @@ def _normalize_account_snapshot(raw: Any) -> Dict[str, float]:
         out["available_balance"] = out.get("current_balance", 0.0)
     if "unrealized_pnl" not in out:
         out["unrealized_pnl"] = 0.0
+    data_health = raw.get("data_health")
+    if isinstance(data_health, dict):
+        out["data_health"] = dict(data_health)
     return out
 
 
@@ -125,6 +131,82 @@ def _snapshot_balance(snapshot: Dict[str, float]) -> Optional[float]:
         if value > 0:
             return value
     return None
+
+
+def _decision_context(pipeline: ProductionPipeline, market: MarketSnapshot) -> Dict[str, str]:
+    return {
+        "exchange": str(getattr(pipeline, "exchange_name", "") or ""),
+        "symbol": ",".join(sorted(str(sym) for sym in market.prices.keys())),
+        "timeframe": str(getattr(pipeline, "timeframe", "") or ""),
+        "mode": str(getattr(pipeline, "mode", "") or ""),
+        "run_id": str(getattr(pipeline, "run_id", "") or ""),
+        "session_id": str(getattr(pipeline, "session_id", "") or ""),
+    }
+
+
+def _signal_context(context: Dict[str, str], *, decision_id: str, signal: Signal) -> Dict[str, str]:
+    event_context = dict(context)
+    event_context["decision_id"] = str(decision_id or "")
+    event_context["symbol"] = str(signal.sym)
+    return event_context
+
+
+def _ensure_degradation_baseline(pipeline: ProductionPipeline) -> None:
+    gate = getattr(pipeline, "degradation_gate", None)
+    if gate is None or getattr(gate, "baseline_captured", False):
+        return
+    try:
+        gate.capture_baseline(
+            pipeline.perf,
+            labels=pipeline.registry.all_labels(),
+        )
+    except Exception:
+        log.exception("degradation baseline capture failed")
+
+
+def _apply_degradation_gate(
+    pipeline: ProductionPipeline,
+    *,
+    bar: int,
+    trace_id: str,
+):
+    gate = getattr(pipeline, "degradation_gate", None)
+    if gate is None:
+        return None
+    try:
+        result = gate.apply(
+            pipeline.perf,
+            pipeline.qm,
+            labels=pipeline.registry.all_labels(),
+            bar=bar,
+        )
+    except Exception:
+        log.exception("degradation gate failed on bar %d", bar)
+        return None
+    if result is not None and not result.is_no_op:
+        pipeline.event_log.emit(QuarantineRecomputed(
+            bar=bar,
+            trace_id=trace_id,
+            added=result.added,
+            removed=result.removed,
+            current=result.current,
+        ))
+    return result
+
+
+def _drop_quarantined_candidates(
+    pipeline: ProductionPipeline,
+    candidates: List[EnsemblePlayer],
+) -> List[EnsemblePlayer]:
+    filtered: List[EnsemblePlayer] = []
+    for player in candidates:
+        if pipeline.qm.is_quarantined(getattr(player, "label", "")):
+            continue
+        agents = getattr(player, "agents", ()) or ()
+        if any(pipeline.qm.is_quarantined(getattr(agent, "label", "")) for agent in agents):
+            continue
+        filtered.append(player)
+    return filtered
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -153,6 +235,18 @@ class StepResult:
     n_stale_close_signals: int = 0
     n_duplicate_open_signals: int = 0
     n_rate_limited_open_signals: int = 0
+    n_max_position_saturated_open_signals: int = 0
+    n_external_position_signals: int = 0
+    n_raw_signals: int = 0
+    leader_vote_errors: int = 0
+    leader_agent_labels: tuple[str, ...] = ()
+    signal_filter_details: tuple[str, ...] = ()
+    selected_leader: Optional[str] = None
+    executed_leader: Optional[str] = None
+    fallback_used: bool = False
+    fallback_skipped: bool = False
+    fallback_candidate: str = ""
+    fallback_reason: str = ""
     blocked_reasons: Dict[str, int] = field(default_factory=dict)
     error:         Optional[str] = None
 
@@ -289,9 +383,11 @@ def _run_one_bar(
     ))
     last_regime = market.regime
 
-    # 2. Shadow tournament: all agents/players learn virtually before real selection.
-    shadow_candidates = _compose_candidates(pipeline, market.regime)
-    shadow_summary = _run_shadow_tournament(pipeline, market, shadow_candidates)
+    # 2. Compose once before shadow updates. Real selection reuses this snapshot,
+    # so current-bar shadow results cannot leak into selector scores.
+    _ensure_degradation_baseline(pipeline)
+    candidates = _compose_candidates(pipeline, market.regime)
+    shadow_summary = _run_shadow_tournament(pipeline, market, candidates)
 
     # 3. Карантин (раз в N bar-ов) после shadow-обновлений perf
     if market.bar - last_qm_bar >= recompute_every:
@@ -305,6 +401,14 @@ def _run_one_bar(
             ))
 
     # 4. Composer → candidates for real leader selection
+    degradation_result = _apply_degradation_gate(
+        pipeline,
+        bar=market.bar,
+        trace_id=trace,
+    )
+    if degradation_result is not None and not degradation_result.is_no_op:
+        candidates = _drop_quarantined_candidates(pipeline, candidates)
+
     kill_reason = _kill_switch_reason(pipeline)
     if kill_reason:
         return (
@@ -322,7 +426,6 @@ def _run_one_bar(
             signal_id_counter, last_qm_bar, last_regime,
         )
 
-    candidates = _compose_candidates(pipeline, market.regime)
     decision_id = trace
 
     if not candidates:
@@ -342,15 +445,13 @@ def _run_one_bar(
         )
 
     # 5. Strategist
+    context = _decision_context(pipeline, market)
+    health_reason = _exchange_health_open_block_reason(pipeline)
     pipeline.event_log.emit(DecisionStarted(
         bar=market.bar,
         trace_id=trace,
         decision_id=decision_id,
-        exchange=str(getattr(pipeline, "exchange_name", "") or ""),
-        timeframe=str(getattr(pipeline, "timeframe", "") or ""),
-        mode=str(getattr(pipeline, "mode", "") or ""),
-        run_id=str(getattr(pipeline, "run_id", "") or ""),
-        session_id=str(getattr(pipeline, "session_id", "") or ""),
+        **context,
         candidate_labels=tuple(getattr(c, "label", "") for c in candidates),
         shadow_total_signals=shadow_summary.total_signals,
         shadow_total_filled=shadow_summary.total_filled,
@@ -386,7 +487,31 @@ def _run_one_bar(
         decision,
         decision_id=decision_id,
         trace_id=trace,
+        context=context,
     )
+    pipeline.event_log.emit(SwitchGateEvaluated(
+        bar=market.bar,
+        trace_id=trace,
+        decision_id=decision_id,
+        **context,
+        previous_label=(decision.previous.label if decision.previous else ""),
+        current_label=getattr(decision, "current_label", "") or (
+            decision.previous.label if decision.previous else ""
+        ),
+        best_label=getattr(decision, "best_label", ""),
+        selected_label=decision.new_leader.label,
+        best_score=float(getattr(decision, "best_score", 0.0) or 0.0),
+        current_score=float(getattr(decision, "current_score", 0.0) or 0.0),
+        margin=decision.margin,
+        required_margin=float(getattr(decision, "required_margin", 0.0) or 0.0),
+        cooldown_passed=bool(getattr(decision, "cooldown_passed", True)),
+        cooldown_blocked=bool(getattr(decision, "cooldown_blocked", False)),
+        streak_count=int(getattr(decision, "streak_count", 0) or 0),
+        streak_needed=int(getattr(decision, "streak_needed", 1) or 1),
+        is_urgent=decision.is_urgent,
+        switched=decision.switched,
+        reason=getattr(decision, "switch_gate_reason", "") or decision.reason,
+    ))
 
     if decision.switched:
         pipeline.event_log.emit(LeaderSelected(
@@ -398,42 +523,80 @@ def _run_one_bar(
             is_urgent=decision.is_urgent,
             reason=decision.reason,
             decision_id=decision_id,
+            **context,
         ))
 
     # 6. Vote → real signals from selected leader only
     leader = decision.new_leader
-    sync_player_agents_to_real_positions(
-        leader,
+    selected_leader = leader
+    executed_leader = selected_leader
+    vote_attempt = _vote_candidate_for_real_signals(
         pipeline,
-        bar_index=market.bar,
-        market_symbols=market.prices.keys(),
+        market,
+        selected_leader,
+        signal_id_counter=signal_id_counter,
+        trace_id=trace,
     )
-    try:
-        raw_signals = leader.vote(market, signal_id_start=signal_id_counter)
-    except Exception as exc:
-        _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace)
-        raw_signals = []
-    _record_agent_vote_failures(pipeline, market, leader, trace_id=trace)
-    if raw_signals:
-        signal_id_counter = max(s.id for s in raw_signals) + 1
-    signal_guard = filter_real_signals_against_tracker(
-        raw_signals,
-        player=leader,
-        pipeline=pipeline,
-        bar_index=market.bar,
-        max_new_opens_per_bar=getattr(
-            getattr(pipeline, "live_execution", None),
-            "max_new_opens_per_bar",
-            1,
-        ),
-    )
+    if selected_leader.label == "NoTrade" and vote_attempt["raw_signal_count"] == 0:
+        cash_flat_signals = _cash_flat_close_signals(
+            pipeline,
+            market,
+            signal_id_start=signal_id_counter,
+        )
+        if cash_flat_signals:
+            signal_id_counter = max(signal.id for signal in cash_flat_signals) + 1
+            signal_guard = filter_real_signals_against_tracker(
+                cash_flat_signals,
+                player=selected_leader,
+                pipeline=pipeline,
+                bar_index=market.bar,
+                max_new_opens_per_bar=getattr(
+                    getattr(pipeline, "live_execution", None),
+                    "max_new_opens_per_bar",
+                    1,
+                ),
+                max_open_positions=getattr(
+                    getattr(pipeline, "risk_config", None),
+                    "max_open_positions",
+                    None,
+                ),
+            )
+            vote_attempt = {
+                "leader": selected_leader,
+                "raw_signals": cash_flat_signals,
+                "raw_signal_count": len(cash_flat_signals),
+                "leader_vote_error_count": 0,
+                "signal_guard": signal_guard,
+                "signal_id_counter": signal_id_counter,
+            }
+    fallback_used = False
+    fallback_skipped = False
+    fallback_candidate = ""
+    fallback_reason = ""
+    if vote_attempt["raw_signal_count"] == 0:
+        fallback_skipped = any(
+            candidate.label != selected_leader.label for candidate in candidates
+        )
+        if fallback_skipped:
+            fallback_reason = (
+                "actionable fallback disabled: selected leader emitted no raw signals"
+            )
+    raw_signals = vote_attempt["raw_signals"]
+    raw_signal_count = vote_attempt["raw_signal_count"]
+    leader_vote_error_count = vote_attempt["leader_vote_error_count"]
+    signal_guard = vote_attempt["signal_guard"]
+    signal_id_counter = vote_attempt["signal_id_counter"]
     signals = signal_guard.signals
     if signals:
         for sig in signals:
+            signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+            if sig.action.is_open and health_reason:
+                signal_context["exchange_health_reason"] = health_reason
             pipeline.event_log.emit(SignalEmitted(
                 bar=market.bar,
                 trace_id=trace,
                 signal=sig,
+                **signal_context,
             ))
             getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
 
@@ -442,6 +605,12 @@ def _run_one_bar(
     blocked_reasons: Dict[str, int] = {}
     for sig in signals:
         try:
+            set_event_context = getattr(pipeline.executor, "set_event_context", None)
+            if callable(set_event_context):
+                signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+                if sig.action.is_open and health_reason:
+                    signal_context["exchange_health_reason"] = health_reason
+                set_event_context(signal_context)
             res: ExecutionResult = pipeline.executor.execute(
                 sig, balance_usd=pipeline.current_balance,
             )
@@ -472,7 +641,7 @@ def _run_one_bar(
     return (
         StepResult(
             bar=market.bar, regime=market.regime,
-            leader=leader.label,
+            leader=executed_leader.label,
             leader_changed=decision.switched,
             n_signals=len(signals),
             n_filled=n_filled,
@@ -487,6 +656,18 @@ def _run_one_bar(
             n_stale_close_signals=signal_guard.stale_closes,
             n_duplicate_open_signals=signal_guard.duplicate_opens,
             n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            n_max_position_saturated_open_signals=signal_guard.max_position_saturated_opens,
+            n_external_position_signals=signal_guard.external_position_signals,
+            n_raw_signals=raw_signal_count,
+            leader_vote_errors=leader_vote_error_count,
+            leader_agent_labels=tuple(getattr(executed_leader, "agent_labels", ()) or ()),
+            signal_filter_details=tuple(signal_guard.details),
+            selected_leader=selected_leader.label,
+            executed_leader=executed_leader.label,
+            fallback_used=fallback_used,
+            fallback_skipped=fallback_skipped,
+            fallback_candidate=fallback_candidate,
+            fallback_reason=fallback_reason,
             blocked_reasons=blocked_reasons,
             error=(
                 f"kill switch active: {kill_reason_after_execution}"
@@ -512,7 +693,168 @@ def _compose_candidates(
                 candidates.append(player)
         except Exception:
             log.exception("compose failed for profile %s", profile.label)
+    candidates.extend(_compose_solo_agent_candidates(pipeline, regime, candidates))
     return candidates
+
+
+def _compose_solo_agent_candidates(
+    pipeline: ProductionPipeline,
+    regime: Regime,
+    existing: List[EnsemblePlayer],
+) -> List[EnsemblePlayer]:
+    """Expose top solo shadow performers as real player candidates."""
+    existing_labels = {player.label for player in existing}
+    solo: List[EnsemblePlayer] = []
+    try:
+        scored = pipeline.selector.select(regime, k=_SOLO_AGENT_CANDIDATE_LIMIT)
+        if not scored and hasattr(pipeline.selector, "select_with_fallback"):
+            scored = pipeline.selector.select_with_fallback(
+                regime,
+                k=_SOLO_AGENT_CANDIDATE_LIMIT,
+                fallback_threshold=-10.0,
+                min_count=1,
+            )
+    except Exception:
+        log.exception("solo agent candidate selection failed")
+        return solo
+    for row in scored:
+        if float(getattr(row.metrics, "pnl_pct", 0.0) or 0.0) <= 0.0:
+            continue
+        label = f"Solo_{row.label}"
+        if label in existing_labels:
+            continue
+        solo.append(EnsemblePlayer(
+            label=label,
+            agents=[row.agent],
+            weights={row.label: 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            affinity=None,
+        ))
+    return solo
+
+
+def _vote_candidate_for_real_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    leader: EnsemblePlayer,
+    *,
+    signal_id_counter: int,
+    trace_id: str,
+) -> Dict[str, Any]:
+    sync_player_agents_to_real_positions(
+        leader,
+        pipeline,
+        bar_index=market.bar,
+        market_symbols=market.prices.keys(),
+    )
+    try:
+        raw_signals = leader.vote(market, signal_id_start=signal_id_counter)
+    except Exception as exc:
+        _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace_id)
+        raw_signals = []
+    _record_agent_vote_failures(pipeline, market, leader, trace_id=trace_id)
+    raw_signal_count = len(raw_signals)
+    leader_vote_error_count = len(getattr(leader, "last_vote_errors", []) or [])
+    next_signal_id = signal_id_counter
+    if raw_signals:
+        next_signal_id = max(s.id for s in raw_signals) + 1
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=leader,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=getattr(
+            getattr(pipeline, "live_execution", None),
+            "max_new_opens_per_bar",
+            1,
+        ),
+        max_open_positions=getattr(
+            getattr(pipeline, "risk_config", None),
+            "max_open_positions",
+            None,
+        ),
+    )
+    return {
+        "leader": leader,
+        "raw_signals": raw_signals,
+        "raw_signal_count": raw_signal_count,
+        "leader_vote_error_count": leader_vote_error_count,
+        "signal_guard": signal_guard,
+        "signal_id_counter": next_signal_id,
+    }
+
+
+def _cash_flat_close_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_start: int,
+) -> List[Signal]:
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return []
+    signals: List[Signal] = []
+    sid = int(signal_id_start)
+    for sym, pos in sorted((tracker.all_open() or {}).items()):
+        if is_external_position(pos):
+            continue
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if price <= 0:
+            continue
+        signals.append(Signal(
+            id=sid,
+            bar=market.bar,
+            sym=symbol,
+            action=Action.FUT_CLOSE_ALL,
+            price=price,
+            regime=market.regime,
+            by_player="NoTrade",
+            by_agent="CashFlat",
+            timestamp=market.timestamp,
+        ))
+        sid += 1
+    return signals
+
+
+def _find_actionable_candidate_vote(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    candidates: List[EnsemblePlayer],
+    decision: SwitchDecision,
+    *,
+    skip_label: str,
+    signal_id_counter: int,
+    trace_id: str,
+) -> Optional[Dict[str, Any]]:
+    candidates_by_label = {candidate.label: candidate for candidate in candidates}
+    ordered_labels = [
+        row.label
+        for row in getattr(decision, "candidate_scores", ()) or ()
+        if row.label in candidates_by_label
+    ]
+    ordered_labels.extend(
+        candidate.label
+        for candidate in candidates
+        if candidate.label not in ordered_labels
+    )
+    for label in ordered_labels:
+        if label == skip_label:
+            continue
+        candidate = candidates_by_label.get(label)
+        if candidate is None:
+            continue
+        attempt = _vote_candidate_for_real_signals(
+            pipeline,
+            market,
+            candidate,
+            signal_id_counter=signal_id_counter,
+            trace_id=trace_id,
+        )
+        if attempt["raw_signal_count"] > 0:
+            return attempt
+    return None
 
 
 def _run_shadow_tournament(
@@ -549,6 +891,7 @@ def _emit_candidate_audit_events(
     *,
     decision_id: str,
     trace_id: str,
+    context: Dict[str, str],
 ) -> None:
     selected_label = getattr(decision.new_leader, "label", "")
     for row in getattr(decision, "candidate_scores", ()) or ():
@@ -556,6 +899,7 @@ def _emit_candidate_audit_events(
             bar=market.bar,
             trace_id=trace_id,
             decision_id=decision_id,
+            **context,
             player_label=row.label,
             rank=row.rank,
             score=row.score,
@@ -568,12 +912,21 @@ def _emit_candidate_audit_events(
             uncertainty_penalty=row.uncertainty_penalty,
             memory_keys_read=row.memory_keys_read,
             agent_labels=row.agent_labels,
+            session_score_delta=getattr(row, "session_score_delta", 0.0),
+            session_pnl_pct=getattr(row, "session_pnl_pct", 0.0),
+            session_underperformance_penalty=getattr(
+                row,
+                "session_underperformance_penalty",
+                0.0,
+            ),
+            session_stale_penalty=getattr(row, "session_stale_penalty", 0.0),
         ))
     for row in getattr(decision, "candidate_rejections", ()) or ():
         pipeline.event_log.emit(CandidateRejected(
             bar=market.bar,
             trace_id=trace_id,
             decision_id=decision_id,
+            **context,
             player_label=row.label,
             reason=row.reason,
         ))
@@ -662,14 +1015,51 @@ def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
     return ""
 
 
+def _exchange_health_open_block_reason(pipeline: ProductionPipeline) -> str:
+    snapshot = getattr(pipeline, "account_snapshot", None) or {}
+    if not isinstance(snapshot, dict):
+        return ""
+    health = snapshot.get("data_health") or {}
+    if not isinstance(health, dict):
+        return ""
+
+    reason = str(
+        health.get("recent_data_error")
+        or health.get("last_data_error_reason")
+        or health.get("reason")
+        or ""
+    ).strip()
+    if reason:
+        return reason
+
+    if bool(health.get("uses_cached_balance") or health.get("cached_equity")):
+        return "cached exchange equity snapshot"
+
+    try:
+        if float(health.get("api_errors_10m", 0) or 0) > 0:
+            return f"api_errors_10m={int(float(health.get('api_errors_10m') or 0))}"
+    except (TypeError, ValueError):
+        pass
+
+    snapshot_healthy = health.get("snapshot_healthy")
+    if snapshot_healthy is False:
+        return "snapshot unhealthy"
+    return ""
+
+
 def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
     cfg = _live_config(pipeline)
     limit = int(getattr(cfg, "max_exchange_desync_events", 0) or 0)
     if limit <= 0 or not isinstance(summary, dict):
         return
-    events = int(summary.get("added", 0) or 0)
-    events += int(summary.get("updated", 0) or 0)
-    events += int(summary.get("removed", 0) or 0)
+    if any(key.startswith("owned_") for key in summary):
+        events = int(summary.get("owned_added", 0) or 0)
+        events += int(summary.get("owned_updated", 0) or 0)
+        events += int(summary.get("owned_removed", 0) or 0)
+    else:
+        events = int(summary.get("added", 0) or 0)
+        events += int(summary.get("updated", 0) or 0)
+        events += int(summary.get("removed", 0) or 0)
     if events <= 0:
         return
     state = _kill_state(pipeline)

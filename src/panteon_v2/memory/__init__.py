@@ -4,6 +4,7 @@ Single sources of truth для метрик и карантина. Всё ост
 читает только через их API.
 """
 
+from .degradation import DegradationDecision, DegradationGate, DegradationGateConfig
 from .performance import PerformanceMemory
 from .quarantine import (
     QuarantineManager,
@@ -13,6 +14,9 @@ from .quarantine import (
 
 __all__ = [
     "PerformanceMemory",
+    "DegradationDecision",
+    "DegradationGate",
+    "DegradationGateConfig",
     "QuarantineManager",
     "QuarantineObserver",
     "RecomputeResult",

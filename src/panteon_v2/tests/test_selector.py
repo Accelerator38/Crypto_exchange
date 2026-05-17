@@ -6,7 +6,7 @@ import unittest
 
 from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
-from panteon_v2.selection import AgentRegistry, AgentSelector
+from panteon_v2.selection import AgentRegistry, AgentSelector, SessionOverlayConfig
 from panteon_v2.tests._helpers import FakeAgent
 
 
@@ -96,6 +96,22 @@ class TestAgentSelector(unittest.TestCase):
         # Fallback должен вернуть хоть что-то
         self.assertGreater(len(fallback), 0)
 
+    def test_select_with_fallback_respects_min_count_shortfall(self):
+        _add_perf(self.perf, "AlphaGood", Regime.NEUTRAL, 5, 1.0, start_id=1)
+        _add_perf(self.perf, "BetaBad", Regime.NEUTRAL, 5, -1.0, start_id=100)
+
+        normal = self.sel.select(Regime.NEUTRAL, k=5)
+        self.assertEqual([r.label for r in normal], ["AlphaGood"])
+
+        fallback = self.sel.select_with_fallback(
+            Regime.NEUTRAL,
+            k=5,
+            min_count=2,
+        )
+        labels = [r.label for r in fallback]
+        self.assertIn("AlphaGood", labels)
+        self.assertIn("BetaBad", labels)
+
     def test_excludes_param(self):
         _add_perf(self.perf, "AlphaGood", Regime.BULLISH, 5, 1.0, start_id=1)
         # Используем top_k через MEM
@@ -111,6 +127,41 @@ class TestAgentSelector(unittest.TestCase):
             # Должен быть объект ScoredAgent с агентом
             self.assertTrue(hasattr(sa.agent, "act"))
             self.assertTrue(hasattr(sa.agent, "label"))
+
+
+    def test_session_overlay_promotes_current_session_winner(self):
+        registry = AgentRegistry()
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        for label in ["MemoryLeader", "SessionWinner"]:
+            registry.register(FakeAgent(label))
+
+        _add_perf(perf, "MemoryLeader", Regime.NEUTRAL, 8, 1.0, start_id=1)
+        _add_perf(perf, "SessionWinner", Regime.NEUTRAL, 8, 0.1, start_id=100)
+        selector = AgentSelector(
+            registry,
+            perf,
+            qm,
+            session_overlay=SessionOverlayConfig(
+                enabled=True,
+                overlay_weight=1.0,
+                stale_penalty=0.25,
+                underperformance_weight=0.5,
+            ),
+        )
+
+        before = selector.select(Regime.NEUTRAL, k=2)
+        self.assertEqual(before[0].label, "MemoryLeader")
+
+        _add_perf(perf, "MemoryLeader", Regime.NEUTRAL, 2, -2.0, start_id=300)
+        _add_perf(perf, "SessionWinner", Regime.NEUTRAL, 2, 3.0, start_id=400)
+        after = selector.select(Regime.NEUTRAL, k=2)
+
+        self.assertEqual(after[0].label, "SessionWinner")
+        if len(after) > 1:
+            self.assertGreater(after[0].score, after[1].score)
+        else:
+            self.assertEqual([sa.label for sa in after], ["SessionWinner"])
 
 
 class TestQuarantineDoesNotLeak(unittest.TestCase):

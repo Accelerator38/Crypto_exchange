@@ -89,7 +89,18 @@ class OutputWriter:
         self._last_status_data: Dict[str, object] = {}
         self._last_agents_payload: Dict[str, object] = {"metadata": {}, "agents": {}}
         self._last_players_payload: Dict[str, object] = {"metadata": {}, "players": {}}
+        self._wrote_first_live_dashboard = False
         self._assets_history: List[float] = []
+        self._shadow_session_counts = {
+            "signals": 0,
+            "filled": 0,
+            "rejected": 0,
+            "blocked": 0,
+        }
+        self._fallback_session_counts = {
+            "used": 0,
+            "skipped": 0,
+        }
         self._session_perf_baseline = self._capture_session_perf_baseline()
         # Создаём output dir
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
@@ -99,6 +110,10 @@ class OutputWriter:
             f.write(f"\n{'='*70}\n")
             f.write(f"Panteon v2 started: {datetime.now(timezone.utc).isoformat()}\n")
             f.write(f"  exchange: {pipeline.exchange_name}\n")
+            f.write(f"  run_id: {getattr(pipeline, 'run_id', '')}\n")
+            f.write(f"  session_id: {getattr(pipeline, 'session_id', '')}\n")
+            f.write(f"  mode: {getattr(pipeline, 'mode', '')}\n")
+            f.write(f"  timeframe: {getattr(pipeline, 'timeframe', '')}\n")
             f.write(f"  initial_capital: ${pipeline.initial_capital:.4f}\n")
             f.write(f"  profiles: {len(pipeline.profiles)}\n")
             f.write(f"  registered_agents: {len(pipeline.registry)}\n")
@@ -128,6 +143,11 @@ class OutputWriter:
             results_root, pipeline.exchange_name.upper().replace("-DRYRUN","").replace("-PAPER",""),
             ts + "_v2",
         )
+        session_id = os.path.basename(output_dir)
+        if not getattr(pipeline, "session_id", ""):
+            pipeline.session_id = session_id
+        if not getattr(pipeline, "run_id", ""):
+            pipeline.run_id = pipeline.session_id
         kwargs.setdefault("latest_dir", results_root)
         cfg = OutputWriterConfig(output_dir=output_dir, **kwargs)
         return cls(pipeline, cfg)
@@ -135,6 +155,8 @@ class OutputWriter:
     def write(self, step: StepResult) -> None:
         """Вызывается после каждого bar (через on_step callback)."""
         self._last_step = step
+        self._accumulate_shadow_counts(step)
+        self._accumulate_fallback_counts(step)
         self._log_step(step)
 
         # каждый bar — status.json
@@ -142,9 +164,14 @@ class OutputWriter:
             self._write_status(step, run_state="running", feed_status="active")
 
         # реже — leaderboards + dashboard
-        if step.bar % self._config.full_snapshot_every == 0:
+        snapshot_due = (
+            self._config.full_snapshot_every > 0
+            and step.bar % self._config.full_snapshot_every == 0
+        )
+        if not self._wrote_first_live_dashboard or snapshot_due:
             self._write_leaderboards()
             self._write_dashboard()
+            self._wrote_first_live_dashboard = True
 
     def write_heartbeat(
         self,
@@ -166,27 +193,45 @@ class OutputWriter:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         self._refresh_account_view()
         position_counts = self._position_counts()
+        selected_leader = step.selected_leader or step.leader or "-"
+        executed_leader = step.executed_leader or step.leader or "-"
         parts = [
             ts,
             f"bar={step.bar}",
             f"regime={step.regime.label}",
             f"leader={step.leader or '-'}",
+            f"selected_leader={selected_leader}",
+            f"executed_leader={executed_leader}",
             f"balance=${self._current_balance:.2f}",
             f"positions={position_counts['n_positions']}",
+            f"raw_signals={step.n_raw_signals}",
             f"signals={step.n_signals}",
             f"filled={step.n_filled}",
             f"rejected={step.n_rejected}",
             f"blocked={step.n_blocked}",
             f"shadow_signals={step.n_shadow_signals}",
             f"shadow_filled={step.n_shadow_filled}",
+            f"shadow_session_signals={self._shadow_session_counts['signals']}",
+            f"shadow_session_filled={self._shadow_session_counts['filled']}",
         ]
+        if step.leader_vote_errors:
+            parts.append(f"leader_vote_errors={step.leader_vote_errors}")
         if step.n_filtered_real_signals:
             parts.append(f"filtered={step.n_filtered_real_signals}")
             parts.append(f"stale_closes={step.n_stale_close_signals}")
             parts.append(f"duplicate_opens={step.n_duplicate_open_signals}")
             parts.append(f"rate_limited_opens={step.n_rate_limited_open_signals}")
+            parts.append(f"max_position_saturated_opens={step.n_max_position_saturated_open_signals}")
+            parts.append(f"external_position_signals={step.n_external_position_signals}")
         if step.blocked_reasons:
             parts.append(f"blocked_reasons={self._format_reason_counts(step.blocked_reasons)}")
+        if step.fallback_used or step.fallback_skipped or step.fallback_candidate or step.fallback_reason:
+            parts.append(f"fallback_used={step.fallback_used}")
+            parts.append(f"fallback_skipped={step.fallback_skipped}")
+            if step.fallback_candidate:
+                parts.append(f"fallback_candidate={step.fallback_candidate}")
+            if step.fallback_reason:
+                parts.append(f"fallback_reason={step.fallback_reason}")
         if step.leader_changed:
             parts.append("LEADER_CHANGED")
         if step.error:
@@ -243,8 +288,17 @@ class OutputWriter:
         n_stale_closes = step.n_stale_close_signals if step is not None else 0
         n_duplicate_opens = step.n_duplicate_open_signals if step is not None else 0
         n_rate_limited_opens = step.n_rate_limited_open_signals if step is not None else 0
+        n_max_position_saturated_opens = step.n_max_position_saturated_open_signals if step is not None else 0
+        n_external_position_signals = step.n_external_position_signals if step is not None else 0
         blocked_reasons = dict(step.blocked_reasons) if step is not None else {}
-        leader = step.leader if step is not None else None
+        raw_leader = step.leader if step is not None else None
+        selected_leader = (
+            step.selected_leader if step is not None and step.selected_leader else raw_leader
+        )
+        executed_leader = (
+            step.executed_leader if step is not None and step.executed_leader else raw_leader
+        )
+        leader = selected_leader
         leader_session = self._session_metrics_for(leader) if leader else {
             "pnl_pct": 0.0,
             "closed_trades": 0,
@@ -261,6 +315,9 @@ class OutputWriter:
             if not _is_external_player(player)
         )
         leader_realized_pnl = player_pnl.get(leader, 0.0) if leader else 0.0
+        executed_leader_realized_pnl = (
+            player_pnl.get(executed_leader, 0.0) if executed_leader else 0.0
+        )
         panteon_owned_total_pnl = (
             panteon_owned_realized_pnl
             + position_pnl["panteon_owned_unrealized_pnl_usd"]
@@ -269,6 +326,7 @@ class OutputWriter:
             panteon_owned_total_pnl / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
+        real_trades = self._real_trade_summary(position_pnl=position_pnl)
         live_session = {
             "account_equity_pnl_usd": total_assets - self._initial_capital,
             "account_realized_pnl_usd": realized_pnl,
@@ -290,23 +348,57 @@ class OutputWriter:
             "handoff_positions_count": position_pnl["handoff_positions_count"],
             "comparison_scope": "panteon_owned",
             "leader": leader,
+            "selected_leader": selected_leader,
+            "executed_leader": executed_leader,
             "leader_virtual_session_pnl_pct": leader_session["pnl_pct"],
             "leader_virtual_session_closed_trades": leader_session["closed_trades"],
             "leader_virtual_session_win_rate": leader_session["win_rate"],
+            "executed_leader_realized_pnl_usd": executed_leader_realized_pnl,
+            "real_total_trades": real_trades["total"],
+            "real_closed_trades": real_trades["closed"],
+            "real_successful_trades": real_trades["successful"],
+            "real_unsuccessful_trades": real_trades["unsuccessful"],
+            "real_unresolved_trades": real_trades["unresolved"],
+            "external_closed_trades": real_trades["external_closed"],
+            "external_unresolved_trades": real_trades["external_unresolved"],
         }
-        shadow = {
+        shadow_bar = {
             "actors": step.n_shadow_actors if step is not None else 0,
             "signals": step.n_shadow_signals if step is not None else 0,
             "filled": step.n_shadow_filled if step is not None else 0,
             "rejected": step.n_shadow_rejected if step is not None else 0,
             "blocked": step.n_shadow_blocked if step is not None else 0,
+        }
+        shadow_session = dict(self._shadow_session_counts)
+        shadow = {
+            "actors": shadow_bar["actors"],
+            "signals": shadow_session["signals"],
+            "filled": shadow_session["filled"],
+            "rejected": shadow_session["rejected"],
+            "blocked": shadow_session["blocked"],
+            "signals_bar": shadow_bar["signals"],
+            "filled_bar": shadow_bar["filled"],
+            "rejected_bar": shadow_bar["rejected"],
+            "blocked_bar": shadow_bar["blocked"],
+            "session": shadow_session,
+            "last_bar": shadow_bar,
             "last_summary": getattr(self._pipeline, "shadow_last_summary", None),
         }
+        decision_debug = self._decision_debug(
+            step=step,
+            shadow_bar=shadow_bar,
+            shadow_session=shadow_session,
+            blocked_reasons=blocked_reasons,
+        )
 
         data = {
             "version":          "v2",
             "timestamp":        datetime.now(timezone.utc).isoformat(),
             "exchange":         self._pipeline.exchange_name,
+            "run_id":           getattr(self._pipeline, "run_id", ""),
+            "session_id":       getattr(self._pipeline, "session_id", ""),
+            "mode":             getattr(self._pipeline, "mode", ""),
+            "timeframe":        getattr(self._pipeline, "timeframe", ""),
             "run_state":        run_state,
             "feed_status":      feed_status,
             "message":          message,
@@ -331,21 +423,113 @@ class OutputWriter:
             "n_stale_close_signals_bar": n_stale_closes,
             "n_duplicate_open_signals_bar": n_duplicate_opens,
             "n_rate_limited_open_signals_bar": n_rate_limited_opens,
+            "n_max_position_saturated_open_signals_bar": n_max_position_saturated_opens,
+            "n_external_position_signals_bar": n_external_position_signals,
             "blocked_reasons_bar": blocked_reasons,
             "n_positions":      position_counts["n_positions"],
             "tracked_positions_count": position_counts["tracked_positions_count"],
             "exchange_positions_count": position_counts["exchange_positions_count"],
             "current_leader":   leader,
+            "selected_leader":  selected_leader,
+            "executed_leader":  executed_leader,
             "live_session":     live_session,
+            "real_trades":      real_trades,
             "live_state_sync":  getattr(self._pipeline, "live_state_sync", None),
             "shadow":           shadow,
+            "decision_debug":   decision_debug,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
+            "quarantine_records": self._quarantine_records(),
+            "degradation_gate":  self._degradation_gate_snapshot(),
             "open_positions":   open_positions,
             "ledger_closed_count": self._pipeline.ledger.closed_count,
         }
         self._last_status_data = data
         path = os.path.join(self._config.output_dir, self._config.status_filename)
         self._write_json_atomic(path, data)
+
+    def _accumulate_shadow_counts(self, step: StepResult) -> None:
+        self._shadow_session_counts["signals"] += int(step.n_shadow_signals or 0)
+        self._shadow_session_counts["filled"] += int(step.n_shadow_filled or 0)
+        self._shadow_session_counts["rejected"] += int(step.n_shadow_rejected or 0)
+        self._shadow_session_counts["blocked"] += int(step.n_shadow_blocked or 0)
+
+    def _accumulate_fallback_counts(self, step: StepResult) -> None:
+        if step.fallback_used:
+            self._fallback_session_counts["used"] += 1
+        if step.fallback_skipped:
+            self._fallback_session_counts["skipped"] += 1
+
+    def _decision_debug(
+        self,
+        *,
+        step: Optional[StepResult],
+        shadow_bar: Dict[str, int],
+        shadow_session: Dict[str, int],
+        blocked_reasons: Dict[str, int],
+    ) -> Dict[str, object]:
+        kill_switch = getattr(self._pipeline, "kill_switch", None)
+        debug: Dict[str, object] = {
+            "kill_switch_reason": str(getattr(kill_switch, "disabled_reason", "") or ""),
+            "shadow_last_bar": dict(shadow_bar),
+            "shadow_session": dict(shadow_session),
+        }
+        if step is None:
+            debug.update({
+                "leader": "",
+                "selected_leader": "",
+                "executed_leader": "",
+                "leader_execution_mismatch": False,
+                "leader_agents": [],
+                "leader_raw_signals_bar": 0,
+                "leader_vote_errors_bar": 0,
+                "real_signals_after_guard_bar": 0,
+                "filtered_real_signals_bar": 0,
+                "fallback_used": False,
+                "fallback_skipped": False,
+                "fallback_candidate": "",
+                "fallback_reason": "",
+                "fallback_session": dict(self._fallback_session_counts),
+                "signal_filter_details": [],
+                "blocked_reasons_bar": {},
+                "step_error": "",
+            })
+            return debug
+        selected_leader = step.selected_leader or step.leader or ""
+        executed_leader = step.executed_leader or step.leader or ""
+        debug.update({
+            "leader": step.leader or "",
+            "selected_leader": selected_leader,
+            "executed_leader": executed_leader,
+            "leader_execution_mismatch": (
+                bool(selected_leader)
+                and bool(executed_leader)
+                and selected_leader != executed_leader
+            ),
+            "leader_agents": list(step.leader_agent_labels),
+            "leader_raw_signals_bar": int(step.n_raw_signals or 0),
+            "leader_vote_errors_bar": int(step.leader_vote_errors or 0),
+            "real_signals_after_guard_bar": int(step.n_signals or 0),
+            "filled_real_signals_bar": int(step.n_filled or 0),
+            "rejected_real_signals_bar": int(step.n_rejected or 0),
+            "blocked_real_signals_bar": int(step.n_blocked or 0),
+            "filtered_real_signals_bar": int(step.n_filtered_real_signals or 0),
+            "stale_close_signals_bar": int(step.n_stale_close_signals or 0),
+            "duplicate_open_signals_bar": int(step.n_duplicate_open_signals or 0),
+            "rate_limited_open_signals_bar": int(step.n_rate_limited_open_signals or 0),
+            "max_position_saturated_open_signals_bar": int(
+                step.n_max_position_saturated_open_signals or 0
+            ),
+            "external_position_signals_bar": int(step.n_external_position_signals or 0),
+            "fallback_used": bool(step.fallback_used),
+            "fallback_skipped": bool(step.fallback_skipped),
+            "fallback_candidate": step.fallback_candidate or "",
+            "fallback_reason": step.fallback_reason or "",
+            "fallback_session": dict(self._fallback_session_counts),
+            "signal_filter_details": list(step.signal_filter_details[:20]),
+            "blocked_reasons_bar": dict(blocked_reasons),
+            "step_error": step.error or "",
+        })
+        return debug
 
     def _refresh_account_view(self, *, realized_pnl: float = 0.0) -> Dict[str, float]:
         try:
@@ -437,6 +621,36 @@ class OutputWriter:
                 summary["handoff_positions_count"] += 1
         return summary
 
+    def _real_trade_summary(self, *, position_pnl: Dict[str, float]) -> Dict[str, int]:
+        panteon_closed = 0
+        successful = 0
+        unsuccessful = 0
+        external_closed = 0
+        try:
+            closed = self._pipeline.ledger.realized_attributions()
+        except Exception:
+            closed = []
+        for attr in closed:
+            if _is_external_player(getattr(attr, "by_player", "")):
+                external_closed += 1
+                continue
+            panteon_closed += 1
+            if float(getattr(attr, "realized_pnl", 0.0) or 0.0) > 0:
+                successful += 1
+            else:
+                unsuccessful += 1
+        unresolved = int(position_pnl.get("panteon_owned_positions_count", 0) or 0)
+        external_unresolved = int(position_pnl.get("external_positions_count", 0) or 0)
+        return {
+            "total": panteon_closed + unresolved,
+            "closed": panteon_closed,
+            "successful": successful,
+            "unsuccessful": unsuccessful,
+            "unresolved": unresolved,
+            "external_closed": external_closed,
+            "external_unresolved": external_unresolved,
+        }
+
     def _position_counts(self, *, tracked_count: Optional[int] = None) -> Dict[str, int]:
         if tracked_count is None:
             tracked_count = len(self._tracked_open_positions())
@@ -445,6 +659,63 @@ class OutputWriter:
             "n_positions": max(int(tracked_count), int(exchange_count)),
             "tracked_positions_count": int(tracked_count),
             "exchange_positions_count": int(exchange_count),
+        }
+
+    def _quarantine_records(self) -> Dict[str, dict]:
+        records: Dict[str, dict] = {}
+        for label in sorted(self._pipeline.qm.all_quarantined()):
+            record = self._pipeline.qm.record_for(label)
+            if record is None:
+                records[label] = {"state": "quarantined", "reason": ""}
+                continue
+            records[label] = {
+                "state": record.state,
+                "reason": record.reason,
+                "entered_bar": record.entered_bar,
+                "updated_bar": record.updated_bar,
+            }
+        return records
+
+    def _degradation_gate_snapshot(self) -> Dict[str, object]:
+        gate = getattr(self._pipeline, "degradation_gate", None)
+        if gate is None:
+            return {"enabled": False}
+        cfg = getattr(gate, "config", None)
+        config = {}
+        if cfg is not None:
+            config = {
+                "enabled": bool(cfg.enabled),
+                "label_prefixes": list(cfg.label_prefixes),
+                "min_session_signals": int(cfg.min_session_signals),
+                "min_session_closed_trades": int(cfg.min_session_closed_trades),
+                "max_session_loss_pct": float(cfg.max_session_loss_pct),
+                "max_session_drawdown_pct": float(cfg.max_session_drawdown_pct),
+                "max_execution_failure_rate": float(cfg.max_execution_failure_rate),
+                "max_blocked_signal_rate": float(cfg.max_blocked_signal_rate),
+            }
+        decisions = []
+        for decision in getattr(gate, "last_decisions", ()) or ():
+            metrics = decision.session_metrics
+            decisions.append({
+                "label": decision.label,
+                "should_disable": bool(decision.should_disable),
+                "reasons": list(decision.reasons),
+                "session_pnl_pct": metrics.pnl_pct,
+                "session_closed_trades": metrics.closed_trades,
+                "session_signals": metrics.signals,
+                "session_execution_failures": metrics.rejected_signals,
+                "session_unexecuted_signals": metrics.execution_failures,
+                "session_blocked_signals": metrics.blocked_signals,
+                "session_rejected_signals": metrics.rejected_signals,
+                "session_max_drawdown_pct": metrics.max_dd_pct,
+                "execution_failure_rate": decision.execution_failure_rate,
+                "blocked_signal_rate": decision.blocked_signal_rate,
+            })
+        return {
+            "enabled": bool(config.get("enabled", True)),
+            "baseline_captured": bool(getattr(gate, "baseline_captured", False)),
+            "config": config,
+            "last_decisions": decisions,
         }
 
     def _capture_session_perf_baseline(self) -> Dict[str, dict]:
@@ -553,6 +824,7 @@ class OutputWriter:
                         "sharpe":         rm.sharpe,
                         "max_drawdown_pct": rm.max_dd_pct,
                     }
+            quarantine_record = self._pipeline.qm.record_for(label)
             agents["V_" + label] = {
                 "pnl_pct":        metrics_agg.pnl_pct,
                 "session_pnl_pct": session["pnl_pct"],
@@ -571,6 +843,7 @@ class OutputWriter:
                 "sharpe":         metrics_agg.sharpe,
                 "max_drawdown_pct": metrics_agg.max_dd_pct,
                 "is_quarantined": self._pipeline.qm.is_quarantined(label),
+                "quarantine_reason": quarantine_record.reason if quarantine_record else "",
                 "per_regime":     per_regime,
             }
 

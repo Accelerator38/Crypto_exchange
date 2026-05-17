@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import unittest
+import json
+import os
+import tempfile
+from dataclasses import fields
 
 from panteon_v2.attribution import (
     EventLog,
+    ExecutionAttributed,
     MemoryUpdateFailed,
     OrderFilled,
     OrderRejected,
     OrderSent,
     PositionClosed,
     PositionOpened,
+    SignalEmitted,
     SymbolBlocked,
 )
 from panteon_v2.domain.types import Action, Regime, Signal
@@ -33,9 +39,10 @@ from panteon_v2.memory import PerformanceMemory
 
 def _make_signal(sid: int = 1, sym: str = "BTC",
                  action: Action = Action.FUT_LONG_FULL,
-                 price: float = 100.0) -> Signal:
+                 price: float = 100.0,
+                 bar: int = 1) -> Signal:
     return Signal(
-        id=sid, bar=1, sym=sym, action=action, price=price,
+        id=sid, bar=bar, sym=sym, action=action, price=price,
         regime=Regime.BULLISH, by_player="P", by_agent="A",
     )
 
@@ -74,6 +81,158 @@ class TestExecuteSuccess(unittest.TestCase):
         self.assertEqual(len(events_sent), 1)
         self.assertEqual(len(events_filled), 1)
         self.assertEqual(len(events_opened), 1)
+
+    def test_events_include_forensic_runtime_context(self):
+        self.exec.set_event_context({
+            "decision_id": "BITGET-1",
+            "exchange": "BITGET",
+            "symbol": "BTC",
+            "timeframe": "1m",
+            "mode": "live",
+            "run_id": "run-1",
+            "session_id": "session-1",
+        })
+
+        self.exec.execute(_make_signal(), balance_usd=1000.0)
+
+        log = self.deps["event_log"]
+        sent = list(log.query(event_types=[OrderSent]))[0]
+        filled = list(log.query(event_types=[OrderFilled]))[0]
+        opened = list(log.query(event_types=[PositionOpened]))[0]
+        for event in (sent, filled, opened):
+            self.assertEqual(event.decision_id, "BITGET-1")
+            self.assertEqual(event.exchange, "BITGET")
+            self.assertEqual(event.symbol, "BTC")
+            self.assertEqual(event.timeframe, "1m")
+            self.assertEqual(event.mode, "live")
+            self.assertEqual(event.run_id, "run-1")
+            self.assertEqual(event.session_id, "session-1")
+
+    def test_execution_event_classes_define_audit_fields(self):
+        required = {
+            "fees",
+            "slippage_pct",
+            "latency_ms",
+            "order_id",
+            "pending_age_sec",
+            "owner_scope",
+        }
+        for cls in (
+            SignalEmitted,
+            OrderSent,
+            OrderFilled,
+            OrderRejected,
+            PositionOpened,
+            PositionClosed,
+            SymbolBlocked,
+            MemoryUpdateFailed,
+            ExecutionAttributed,
+        ):
+            with self.subTest(event=cls.__name__):
+                self.assertTrue(required.issubset({f.name for f in fields(cls)}))
+
+    def test_execution_events_include_audit_values(self):
+        self.deps["exchange"].set_slippage_pct(0.01)
+        self.deps["exchange"].set_fee_rate(0.001)
+        self.exec.set_event_context({
+            "decision_id": "MEXC-1",
+            "exchange": "MEXC",
+            "symbol": "BTC",
+            "timeframe": "1m",
+            "mode": "live",
+            "run_id": "run-2",
+            "session_id": "session-2",
+        })
+
+        result = self.exec.execute(_make_signal(price=100.0), balance_usd=1000.0)
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        log = self.deps["event_log"]
+        sent = list(log.query(event_types=[OrderSent]))[0]
+        filled = list(log.query(event_types=[OrderFilled]))[0]
+        opened = list(log.query(event_types=[PositionOpened]))[0]
+        self.assertTrue(sent.order_id.startswith("MEXC:BTC:long:MEXC-1:1"))
+        self.assertEqual(sent.owner_scope, "panteon_owned")
+        self.assertGreaterEqual(sent.latency_ms, 0.0)
+        self.assertEqual(filled.order_id, result.trade.exchange_order_id)
+        self.assertAlmostEqual(filled.fees, result.trade.fee)
+        self.assertAlmostEqual(filled.slippage_pct, 1.0, places=6)
+        self.assertGreaterEqual(filled.latency_ms, 0.0)
+        self.assertEqual(filled.owner_scope, "panteon_owned")
+        self.assertEqual(opened.order_id, result.trade.exchange_order_id)
+        self.assertAlmostEqual(opened.fees, result.trade.fee)
+        self.assertAlmostEqual(opened.slippage_pct, 1.0, places=6)
+
+    def test_execution_attribution_is_emitted_for_filled_and_blocked_outcomes(self):
+        self.exec.set_event_context({
+            "decision_id": "MEXC-ATTR",
+            "exchange": "MEXC",
+            "symbol": "BTC",
+            "timeframe": "1m",
+            "mode": "live",
+            "run_id": "run-attr",
+            "session_id": "session-attr",
+        })
+
+        filled = self.exec.execute(_make_signal(sid=10), balance_usd=1000.0)
+        blocked = self.exec.execute(
+            _make_signal(sid=11, action=Action.HOLD, bar=2),
+            balance_usd=1000.0,
+        )
+
+        self.assertEqual(filled.status, ExecutionStatus.FILLED)
+        self.assertEqual(blocked.status, ExecutionStatus.BLOCKED)
+        attrs = list(self.deps["event_log"].query(event_types=[ExecutionAttributed]))
+        self.assertEqual([a.attribution_bucket for a in attrs], ["MARKET_PNL", "BLOCKED"])
+        self.assertEqual(attrs[0].decision_id, "MEXC-ATTR")
+        self.assertEqual(attrs[0].status, "filled")
+        self.assertGreaterEqual(attrs[0].fees, 0.0)
+        self.assertEqual(attrs[1].reason, "hold action")
+        self.assertEqual(attrs[1].order_id, "")
+
+    def test_live_jsonl_execution_events_include_mandatory_audit_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "events.jsonl")
+            deps = _make_executor()
+            deps["event_log"] = EventLog(jsonl_path=path)
+            ex = TradeExecutor(**deps)
+            ex.set_event_context({
+                "decision_id": "AUDIT-1",
+                "exchange": "BITGET",
+                "symbol": "BTC",
+                "timeframe": "1m",
+                "mode": "live",
+                "run_id": "run-audit",
+                "session_id": "session-audit",
+            })
+
+            ex.execute(_make_signal(price=100.0), balance_usd=1000.0)
+
+            mandatory = {
+                "decision_id",
+                "exchange",
+                "symbol",
+                "timeframe",
+                "mode",
+                "run_id",
+                "session_id",
+                "fees",
+                "slippage_pct",
+                "latency_ms",
+                "order_id",
+                "pending_age_sec",
+                "owner_scope",
+            }
+            with open(path, "r", encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            execution_rows = [
+                row for row in rows
+                if row.get("_type") in {"OrderSent", "OrderFilled", "PositionOpened"}
+            ]
+            self.assertEqual({row["_type"] for row in execution_rows},
+                             {"OrderSent", "OrderFilled", "PositionOpened"})
+            for row in execution_rows:
+                self.assertTrue(mandatory.issubset(row.keys()), row)
 
     def test_open_then_close(self):
         op_sig = _make_signal(sid=1)
@@ -306,6 +465,40 @@ class TestExecutePending(unittest.TestCase):
         rejected = list(deps["event_log"].query(event_types=[OrderRejected]))
         self.assertEqual(len(rejected), 1)
         self.assertIn("pending timeout", rejected[0].reason)
+        self.assertEqual(rejected[0].order_id, "FAKE-PENDING-1")
+        self.assertGreaterEqual(rejected[0].pending_age_sec, 0.0)
+
+
+class TestExecutionIdempotency(unittest.TestCase):
+    def test_duplicate_execution_key_is_blocked_before_second_exchange_send(self):
+        deps = _make_executor()
+        ex = TradeExecutor(**deps)
+        context = {
+            "decision_id": "BITGET-DUP",
+            "exchange": "BITGET",
+            "symbol": "BTC",
+            "timeframe": "1m",
+            "mode": "live",
+            "run_id": "run-dup",
+            "session_id": "session-dup",
+        }
+        ex.set_event_context(context)
+        ex.execute(_make_signal(sid=1, action=Action.FUT_LONG_FULL), balance_usd=1000.0)
+
+        deps["exchange"].configure_pending("BTC")
+        close_one = _make_signal(sid=2, action=Action.FUT_CLOSE_ALL, price=101.0, bar=9)
+        close_two = _make_signal(sid=3, action=Action.FUT_CLOSE_ALL, price=101.0, bar=9)
+        first = ex.execute(close_one, balance_usd=1000.0)
+        second = ex.execute(close_two, balance_usd=1000.0)
+
+        self.assertEqual(first.status, ExecutionStatus.PENDING)
+        self.assertEqual(second.status, ExecutionStatus.BLOCKED)
+        self.assertIn("duplicate execution key", second.reason)
+        self.assertEqual(len(deps["exchange"].orders_log), 2)
+        rejected = list(deps["event_log"].query(event_types=[OrderRejected]))
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("duplicate execution key", rejected[0].reason)
+        self.assertEqual(rejected[0].owner_scope, "panteon_owned")
 
 
 class TestExecuteRiskQuantization(unittest.TestCase):
