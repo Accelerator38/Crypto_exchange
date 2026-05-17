@@ -18,6 +18,46 @@ if str(GENETICS_DIR) not in sys.path:
 import crypto_genetics as cg  # noqa: E402
 
 
+def _open_output_bias_indices() -> np.ndarray:
+    b4_start = cg.GENOME_SIZE - cg.N_ACTIONS
+    actions = [code for code in cg._OPEN_ACTION_CODES if 0 <= code < cg.N_ACTIONS]
+    return np.asarray([b4_start + code for code in actions], dtype=np.int64)
+
+
+def _seed_feasible_best_population(
+    population: np.ndarray,
+    best_genome: np.ndarray,
+    rng: np.random.Generator,
+    *,
+    start_slot: int,
+    seed_frac: float,
+    sigma: float,
+    open_logit_bias: float,
+) -> int:
+    if population.ndim != 2 or population.shape[1] != cg.GENOME_SIZE:
+        raise ValueError(f"population must have shape (N, {cg.GENOME_SIZE})")
+    best = np.asarray(best_genome, dtype=np.float32).ravel()
+    if best.shape[0] != cg.GENOME_SIZE:
+        raise ValueError(f"best genome size {best.shape[0]} != {cg.GENOME_SIZE}")
+
+    slot0 = max(0, int(start_slot))
+    available = max(0, population.shape[0] - slot0)
+    n_seed = min(available, max(0, int(round(population.shape[0] * float(seed_frac)))))
+    if n_seed <= 0:
+        return 0
+
+    seeded = np.broadcast_to(best, (n_seed, cg.GENOME_SIZE)).astype(np.float32, copy=True)
+    if sigma > 0:
+        seeded += rng.normal(0.0, float(sigma), size=seeded.shape).astype(np.float32)
+
+    bias_idx = _open_output_bias_indices()
+    if bias_idx.size and open_logit_bias:
+        seeded[:, bias_idx] -= np.float32(open_logit_bias)
+
+    population[slot0:slot0 + n_seed] = np.clip(seeded, -5.0, 5.0)
+    return n_seed
+
+
 def _force_torch_cpu_evaluator() -> None:
     try:
         import torch
@@ -60,6 +100,24 @@ def main() -> int:
     parser.add_argument(
         "--out-dir",
         default=str(ROOT / "Results" / "neiro_genetics" / f"genetics_smoke_train_{time.strftime('%Y%m%d_%H%M%S')}"),
+    )
+    parser.add_argument(
+        "--feasible-best-seed-frac",
+        type=float,
+        default=0.0,
+        help="Fraction of population to seed as best-genome micro-mutants with damped open-action logits.",
+    )
+    parser.add_argument(
+        "--feasible-best-seed-sigma",
+        type=float,
+        default=0.03,
+        help="Gaussian sigma for feasible best-genome micro-mutants.",
+    )
+    parser.add_argument(
+        "--feasible-open-logit-bias",
+        type=float,
+        default=1.5,
+        help="Amount subtracted from final-layer open-action biases in feasible warm seeds.",
     )
     args = parser.parse_args()
 
@@ -126,6 +184,21 @@ def main() -> int:
         trainer.pop[0] = best_genome
         trainer.best_g = best_genome.copy()
         trainer.best_fit = -np.inf
+        feasible_seeded = _seed_feasible_best_population(
+            trainer.pop,
+            best_genome,
+            trainer.rng,
+            start_slot=1,
+            seed_frac=args.feasible_best_seed_frac,
+            sigma=args.feasible_best_seed_sigma,
+            open_logit_bias=args.feasible_open_logit_bias,
+        )
+        if feasible_seeded:
+            print(
+                "[smoke] feasible-best seeds="
+                f"{feasible_seeded} sigma={args.feasible_best_seed_sigma:.4f} "
+                f"open_bias={args.feasible_open_logit_bias:.3f}"
+            )
 
         print(
             f"[smoke] training pop={cg.POP_SIZE} gens={cg.N_GENERATIONS} "
@@ -144,6 +217,10 @@ def main() -> int:
             "end_date": args.end_date,
             "periods": len(precomp),
             "execution_lag_bars": cg.TRAIN_EXECUTION_LAG_BARS,
+            "feasible_best_seeded": feasible_seeded,
+            "feasible_best_seed_frac": args.feasible_best_seed_frac,
+            "feasible_best_seed_sigma": args.feasible_best_seed_sigma,
+            "feasible_open_logit_bias": args.feasible_open_logit_bias,
             "elapsed_sec": elapsed,
             "best_fit": float(trainer.best_fit),
         }

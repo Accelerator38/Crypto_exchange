@@ -309,6 +309,90 @@ def test_compute_fitness_penalizes_invalid_open_logit_pressure(monkeypatch):
     assert fits[0] > fits[1] + 7.0
 
 
+def test_compute_fitness_penalizes_spiky_max_saturation(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[3.0, 3.0, 3.0, 3.0],
+                            [3.0, 3.0, 3.0, 3.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    saturation_rates = np.array([[0.25, 0.25, 0.25, 0.25],
+                                 [1.00, 0.00, 0.00, 0.00]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_MAX_PENALTY_W", 8.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_saturation_rates=saturation_rates,
+    )
+
+    assert fits[0] > fits[1] + 5.0
+
+
+def test_compute_fitness_penalizes_spiky_invalid_open_pressure(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[3.0, 3.0, 3.0, 3.0],
+                            [3.0, 3.0, 3.0, 3.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    invalid_open_pressure = np.array([[0.20, 0.20, 0.20, 0.20],
+                                      [0.80, 0.00, 0.00, 0.00]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_MAX_PENALTY_W", 6.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_invalid_open_logit_pressures=invalid_open_pressure,
+    )
+
+    assert fits[0] > fits[1] + 3.0
+
+
+def test_compute_fitness_prefers_executable_policy_over_high_return_invalid_policy(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[1.0, 1.0, 1.0, 1.0],
+                            [8.0, 8.0, 8.0, 8.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    saturation_rates = np.array([[0.02, 0.02, 0.02, 0.02],
+                                 [0.70, 0.70, 0.70, 0.70]], dtype=np.float64)
+    invalid_open_pressure = np.array([[0.00, 0.00, 0.00, 0.00],
+                                      [0.80, 0.80, 0.80, 0.80]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_MAX_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_MAX_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 60.0, raising=False)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_SATURATION_TARGET", 0.25, raising=False)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_INVALID_OPEN_TARGET", 0.05, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_saturation_rates=saturation_rates,
+        period_invalid_open_logit_pressures=invalid_open_pressure,
+    )
+
+    assert fits[0] > fits[1]
+
+
 def test_contract_evaluator_reports_action_contract_metrics(monkeypatch):
     tool = _load_contract_eval_tool()
     cg = tool.cg
@@ -401,3 +485,31 @@ def test_contract_metrics_report_effective_turnover_after_position_policy(monkey
     assert metrics["mean_saturation_rate"] == 3 / 6
     assert metrics["mean_effective_turnover_rate"] == 2 / 6
     assert metrics["mean_invalid_open_logit_pressure"] == 0.0
+
+
+def test_smoke_training_feasible_best_seed_biases_open_action_logits():
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    cg = tool.cg
+    best = np.zeros(cg.GENOME_SIZE, dtype=np.float32)
+    b4_start = cg.GENOME_SIZE - cg.N_ACTIONS
+    best[b4_start:b4_start + cg.N_ACTIONS] = 1.0
+    population = np.full((5, cg.GENOME_SIZE), 99.0, dtype=np.float32)
+
+    inserted = tool._seed_feasible_best_population(
+        population,
+        best,
+        np.random.default_rng(7),
+        start_slot=1,
+        seed_frac=0.4,
+        sigma=0.0,
+        open_logit_bias=2.5,
+    )
+
+    open_actions = [code for code in cg._OPEN_ACTION_CODES if code < cg.N_ACTIONS]
+    non_open_actions = [code for code in range(cg.N_ACTIONS) if code not in open_actions]
+    assert inserted == 2
+    np.testing.assert_allclose(population[1:3, b4_start + np.array(open_actions)], -1.5)
+    np.testing.assert_allclose(population[1:3, b4_start + np.array(non_open_actions)], 1.0)
+    assert np.all(population[3:] == 99.0)

@@ -256,8 +256,13 @@ TRADE_REWARD_REF        = _gscfg_f(_GS, 'trade_reward_ref',         0.01)
 TURNOVER_TARGET_RATE    = _gscfg_f(_GS, 'turnover_target_rate',     0.10)
 TURNOVER_PENALTY_W      = _gscfg_f(_GS, 'turnover_penalty_w',       3.00)
 MAX_POSITION_SATURATION_PENALTY_W = _gscfg_f(_GS, 'max_position_saturation_penalty_w', 8.00)
+MAX_POSITION_SATURATION_MAX_PENALTY_W = _gscfg_f(_GS, 'max_position_saturation_max_penalty_w', 0.00)
 INVALID_OPEN_LOGIT_MARGIN = _gscfg_f(_GS, 'invalid_open_logit_margin', 0.25)
 INVALID_OPEN_LOGIT_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_penalty_w', 2.00)
+INVALID_OPEN_LOGIT_MAX_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_max_penalty_w', 0.00)
+ACTION_FEASIBILITY_SATURATION_TARGET = _gscfg_f(_GS, 'action_feasibility_saturation_target', 0.25)
+ACTION_FEASIBILITY_INVALID_OPEN_TARGET = _gscfg_f(_GS, 'action_feasibility_invalid_open_target', 0.05)
+ACTION_FEASIBILITY_PENALTY_W = _gscfg_f(_GS, 'action_feasibility_penalty_w', 0.00)
 POSITION_STATE_FEATURES_ENABLED = _gscfg_b(_GS, 'position_state_features_enabled', True)
 POSITION_STATE_FEATURES_LIVE_DEFAULT = _gscfg_b(_GS, 'position_state_features_live_default', False)
 ROBUST_FITNESS_ENABLED  = _gscfg_b(_GS, 'robust_fitness_enabled',  True)
@@ -2118,26 +2123,49 @@ def _compute_fitness(period_rets: np.ndarray,
         saturation_arr = np.asarray(period_saturation_rates, dtype=np.float64)
         if saturation_arr.shape == period_rets.shape:
             mean_saturation_rate = saturation_arr.mean(axis=1)
+            max_saturation_rate = saturation_arr.max(axis=1)
         elif saturation_arr.shape == (G,):
             mean_saturation_rate = saturation_arr
+            max_saturation_rate = saturation_arr
         else:
             mean_saturation_rate = np.zeros(G, dtype=np.float64)
+            max_saturation_rate = np.zeros(G, dtype=np.float64)
     else:
         mean_saturation_rate = np.zeros(G, dtype=np.float64)
+        max_saturation_rate = np.zeros(G, dtype=np.float64)
     saturation_pen = mean_saturation_rate * float(MAX_POSITION_SATURATION_PENALTY_W)
+    saturation_max_pen = max_saturation_rate * float(MAX_POSITION_SATURATION_MAX_PENALTY_W)
     if period_invalid_open_logit_pressures is not None:
         pressure_arr = np.asarray(period_invalid_open_logit_pressures, dtype=np.float64)
         if pressure_arr.shape == period_rets.shape:
             mean_invalid_open_pressure = pressure_arr.mean(axis=1)
+            max_invalid_open_pressure = pressure_arr.max(axis=1)
         elif pressure_arr.shape == (G,):
             mean_invalid_open_pressure = pressure_arr
+            max_invalid_open_pressure = pressure_arr
         else:
             mean_invalid_open_pressure = np.zeros(G, dtype=np.float64)
+            max_invalid_open_pressure = np.zeros(G, dtype=np.float64)
     else:
         mean_invalid_open_pressure = np.zeros(G, dtype=np.float64)
+        max_invalid_open_pressure = np.zeros(G, dtype=np.float64)
     invalid_open_logit_pen = (
         mean_invalid_open_pressure * float(INVALID_OPEN_LOGIT_PENALTY_W)
     )
+    invalid_open_logit_max_pen = (
+        max_invalid_open_pressure * float(INVALID_OPEN_LOGIT_MAX_PENALTY_W)
+    )
+    feasibility_sat_excess = (
+        np.maximum(0.0, mean_saturation_rate - float(ACTION_FEASIBILITY_SATURATION_TARGET))
+        + np.maximum(0.0, max_saturation_rate - float(ACTION_FEASIBILITY_SATURATION_TARGET))
+    )
+    feasibility_invalid_excess = (
+        np.maximum(0.0, mean_invalid_open_pressure - float(ACTION_FEASIBILITY_INVALID_OPEN_TARGET))
+        + np.maximum(0.0, max_invalid_open_pressure - float(ACTION_FEASIBILITY_INVALID_OPEN_TARGET))
+    )
+    action_feasibility_pen = (
+        feasibility_sat_excess + feasibility_invalid_excess
+    ) * float(ACTION_FEASIBILITY_PENALTY_W)
 
     # ── Daily snapshot metrics ────────────────────────────────────────────────
     daily_sharpe_scores = np.zeros(G, dtype=np.float64)
@@ -2296,7 +2324,10 @@ def _compute_fitness(period_rets: np.ndarray,
           - FITNESS_EPSILON * 0.25 * inactivity_pen       # штраф за бездействие
           - turnover_pen                                  # penalty for excessive open turnover
           - saturation_pen                                # penalty for impossible/saturated opens
+          - saturation_max_pen                            # penalty for concentrated impossible opens
           - invalid_open_logit_pen                        # penalty for preferring impossible opens
+          - invalid_open_logit_max_pen                    # penalty for concentrated invalid-open pressure
+          - action_feasibility_pen                        # feasibility-first action contract gate
           - 0.20            * stop_pen                    # штраф за частые стопы
           - neg_streak_pen)                               # FIX 4: штраф за серию убытков
 

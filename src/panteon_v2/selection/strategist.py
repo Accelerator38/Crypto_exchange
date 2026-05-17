@@ -86,6 +86,7 @@ class StrategistConfig:
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
     use_v3_shadow_rolling_score: bool = False
+    v3_shadow_position_gate_enabled: bool = True
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_min_score_to_trade: float = 0.0
@@ -299,6 +300,9 @@ class Strategist:
             Tuple[str, str],
             _ShadowRollingActorState,
         ] = {}
+        self._shadow_positions_by_player: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+        self._real_position_signature: Tuple[Tuple[str, str], ...] = ()
+        self._shadow_position_snapshot_seen: bool = False
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -362,6 +366,21 @@ class Strategist:
                 closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
                 wins=self._safe_int(self._object_value(event, "winning_trades")),
             )
+
+    def update_shadow_position_snapshot(
+        self,
+        *,
+        player_positions: object,
+        real_positions: object,
+    ) -> None:
+        if not isinstance(player_positions, dict):
+            player_positions = {}
+        self._shadow_positions_by_player = {
+            str(label): self._position_signature(positions)
+            for label, positions in dict(player_positions).items()
+        }
+        self._real_position_signature = self._position_signature(real_positions)
+        self._shadow_position_snapshot_seen = True
 
     def current_leader(self) -> Optional[Player]:
         return self._current
@@ -762,6 +781,9 @@ class Strategist:
             issue = self._validate_v3_real_loss(player, regime)
             if issue is not None:
                 return issue
+            issue = self._validate_v3_shadow_position_gate(player)
+            if issue is not None:
+                return issue
         if regime_confidence < cfg.min_regime_confidence:
             return _DisqualificationReason(
                 label=player.label,
@@ -805,6 +827,32 @@ class Strategist:
                 score = self._score_player(player, regime, current_bar=current_bar)
             return self._validate_real_promotion(player, regime, score)
         return None
+
+    def _validate_v3_shadow_position_gate(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        if not (
+            cfg.use_v3_shadow_rolling_score
+            and cfg.v3_shadow_position_gate_enabled
+            and self._shadow_position_snapshot_seen
+        ):
+            return None
+        if self._current is not None and player.label == self._current.label:
+            return None
+        shadow_signature = self._shadow_positions_by_player.get(player.label, ())
+        real_signature = self._real_position_signature
+        if shadow_signature == real_signature:
+            return None
+        return _DisqualificationReason(
+            label=player.label,
+            reason=(
+                "v3 shadow position gate: shadow positions "
+                f"{self._format_position_signature(shadow_signature)} != real positions "
+                f"{self._format_position_signature(real_signature)}"
+            ),
+        )
 
     def _validate_v3_real_loss(
         self,
@@ -1609,6 +1657,32 @@ class Strategist:
             return float(value or 0.0)
         except (TypeError, ValueError):
             return 0.0
+
+    @classmethod
+    def _position_signature(cls, positions: object) -> Tuple[Tuple[str, str], ...]:
+        out: List[Tuple[str, str]] = []
+        if isinstance(positions, dict):
+            iterable = positions.values()
+        else:
+            iterable = positions or ()
+        for pos in iterable:
+            sym = str(cls._position_value(pos, "sym") or "").upper()
+            side = str(cls._position_value(pos, "side") or "").lower()
+            if sym and side in ("long", "short"):
+                out.append((sym, side))
+        return tuple(sorted(set(out)))
+
+    @staticmethod
+    def _position_value(pos: object, key: str) -> object:
+        if isinstance(pos, dict):
+            return pos.get(key)
+        return getattr(pos, key, None)
+
+    @staticmethod
+    def _format_position_signature(signature: Tuple[Tuple[str, str], ...]) -> str:
+        if not signature:
+            return "flat"
+        return ",".join(f"{sym}:{side}" for sym, side in signature)
 
     @staticmethod
     def _cold_start_tie_priority(label: str) -> int:

@@ -148,6 +148,7 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
 
     assert config.use_v3_rolling_score is True
     assert config.use_v3_shadow_rolling_score is True
+    assert config.v3_shadow_position_gate_enabled is True
     assert config.v3_shadow_rolling_window_bars == 24
     assert config.v3_shadow_rolling_min_closed_trades == 50
 
@@ -156,6 +157,7 @@ def test_build_strategist_config_passes_use_v3_rolling_score():
     config = RetrodateMarketConfig(
         use_v3_rolling_score=True,
         use_v3_shadow_rolling_score=True,
+        v3_shadow_position_gate_enabled=True,
         v3_shadow_rolling_window_bars=24,
         v3_shadow_rolling_min_closed_trades=50,
     )
@@ -164,6 +166,7 @@ def test_build_strategist_config_passes_use_v3_rolling_score():
 
     assert strategist_config.use_v3_rolling_score is True
     assert strategist_config.use_v3_shadow_rolling_score is True
+    assert strategist_config.v3_shadow_position_gate_enabled is True
     assert strategist_config.v3_shadow_rolling_window_bars == 24
     assert strategist_config.v3_shadow_rolling_min_closed_trades == 50
 

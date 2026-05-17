@@ -139,6 +139,16 @@ class ProductionShadowTournament:
     def last_actor_updates(self) -> Tuple[ShadowActorUpdated, ...]:
         return tuple(self._last_updates)
 
+    def last_player_open_positions(self) -> Dict[str, Tuple[Dict[str, str], ...]]:
+        out: Dict[str, Tuple[Dict[str, str], ...]] = {}
+        prefix = "player:"
+        for actor_key, runtime in self._runtimes.items():
+            if not actor_key.startswith(prefix):
+                continue
+            label = actor_key[len(prefix):]
+            out[label] = _position_payloads(runtime.open_positions())
+        return out
+
     def run_bar(
         self,
         market: MarketSnapshot,
@@ -491,6 +501,17 @@ class ProductionShadowTournament:
 
 def _empty_counts() -> Dict[str, int]:
     return {"signals": 0, "filled": 0, "rejected": 0, "blocked": 0}
+
+
+def _position_payloads(open_positions: Dict[str, object]) -> Tuple[Dict[str, str], ...]:
+    payloads: List[Dict[str, str]] = []
+    for key, pos in (open_positions or {}).items():
+        sym = str(getattr(pos, "sym", key) or key).upper()
+        side = str(getattr(pos, "side", "") or "").lower()
+        if sym and side in ("long", "short"):
+            payloads.append({"sym": sym, "side": side})
+    payloads.sort(key=lambda item: (item["sym"], item["side"]))
+    return tuple(payloads)
 
 
 def _filter_position_aware_signals(

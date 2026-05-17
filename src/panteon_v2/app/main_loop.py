@@ -45,6 +45,7 @@ from .live_state import (
     is_external_position,
     reconcile_tracker_with_exchange,
     sync_player_agents_to_real_positions,
+    tracker_positions_for_agent_sync,
 )
 
 
@@ -890,15 +891,28 @@ def _run_shadow_tournament(
 
 def _apply_pending_shadow_updates_to_strategist(pipeline: ProductionPipeline) -> None:
     pending = tuple(getattr(pipeline, "_pending_shadow_actor_updates", ()) or ())
-    if not pending:
-        return
+    pending_positions = getattr(pipeline, "_pending_shadow_player_positions", None)
     update = getattr(getattr(pipeline, "strategist", None), "update_shadow_actor_updates", None)
-    if callable(update):
+    if pending and callable(update):
         try:
             update(pending)
         except Exception:
             log.debug("failed to sync shadow updates into strategist", exc_info=True)
+    update_positions = getattr(
+        getattr(pipeline, "strategist", None),
+        "update_shadow_position_snapshot",
+        None,
+    )
+    if pending_positions is not None and callable(update_positions):
+        try:
+            update_positions(
+                player_positions=pending_positions,
+                real_positions=tracker_positions_for_agent_sync(pipeline),
+            )
+        except Exception:
+            log.debug("failed to sync shadow positions into strategist", exc_info=True)
     pipeline._pending_shadow_actor_updates = ()
+    pipeline._pending_shadow_player_positions = None
 
 
 def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
@@ -912,6 +926,15 @@ def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
     except Exception:
         log.debug("failed to capture shadow updates for strategist", exc_info=True)
         pipeline._pending_shadow_actor_updates = ()
+    positions_getter = getattr(tournament, "last_player_open_positions", None)
+    if not callable(positions_getter):
+        pipeline._pending_shadow_player_positions = None
+        return
+    try:
+        pipeline._pending_shadow_player_positions = dict(positions_getter())
+    except Exception:
+        log.debug("failed to capture shadow positions for strategist", exc_info=True)
+        pipeline._pending_shadow_player_positions = None
 
 
 def _emit_candidate_audit_events(

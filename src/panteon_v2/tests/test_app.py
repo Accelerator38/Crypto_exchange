@@ -531,15 +531,48 @@ class TestMainLoop(unittest.TestCase):
         updates = tournament.last_actor_updates()
         self.assertTrue(any(ev.actor_type == "player" and ev.actor_label == "PlayerA" for ev in updates))
 
+    def test_shadow_tournament_exposes_player_open_positions_for_position_gate(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        agent = FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(agent)
+        tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=PerformanceMemory(trade_fraction=1.0),
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=None,
+        )
+        player = EnsemblePlayer(
+            label="PlayerA",
+            agents=[agent],
+            weights={"AgentA": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.10, open_multi=0.10, open_floor=0.10),
+        )
+
+        tournament.run_bar(
+            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            players=[player],
+            balance_usd=1000.0,
+        )
+
+        positions = tournament.last_player_open_positions()
+        self.assertEqual(positions, {"PlayerA": ({"sym": "BTC", "side": "long"},)})
+
     def test_pending_shadow_updates_sync_into_strategist_once(self):
         from panteon_v2.app.main_loop import _apply_pending_shadow_updates_to_strategist
 
         class FakeStrategist:
             def __init__(self):
                 self.calls = []
+                self.position_calls = []
 
             def update_shadow_actor_updates(self, updates):
                 self.calls.append(tuple(updates))
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.position_calls.append((dict(player_positions), tuple(real_positions)))
 
         pipeline, _ = self._setup()
         fake = FakeStrategist()
@@ -555,12 +588,15 @@ class TestMainLoop(unittest.TestCase):
             ),
         )
         pipeline._pending_shadow_actor_updates = pending
+        pipeline._pending_shadow_player_positions = {"PlayerA": ({"sym": "BTC", "side": "long"},)}
 
         _apply_pending_shadow_updates_to_strategist(pipeline)
         _apply_pending_shadow_updates_to_strategist(pipeline)
 
         self.assertEqual(fake.calls, [pending])
+        self.assertEqual(fake.position_calls, [({"PlayerA": ({"sym": "BTC", "side": "long"},)}, ())])
         self.assertEqual(pipeline._pending_shadow_actor_updates, ())
+        self.assertIsNone(pipeline._pending_shadow_player_positions)
 
     def test_shadow_actor_update_includes_blocked_reason_counts(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
