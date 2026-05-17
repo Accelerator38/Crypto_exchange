@@ -135,17 +135,37 @@ def test_retrodate_regime_classifier_detects_large_btc_drop(tmp_path):
 
 
 def test_cli_config_accepts_use_v3_rolling_score_flag():
-    config = runner._parse_cli_config(["--years", "2025", "--use-v3-rolling-score"])
+    config = runner._parse_cli_config([
+        "--years",
+        "2025",
+        "--use-v3-rolling-score",
+        "--use-v3-shadow-rolling-score",
+        "--v3-shadow-rolling-window-bars",
+        "24",
+        "--v3-shadow-rolling-min-closed-trades",
+        "50",
+    ])
 
     assert config.use_v3_rolling_score is True
+    assert config.use_v3_shadow_rolling_score is True
+    assert config.v3_shadow_rolling_window_bars == 24
+    assert config.v3_shadow_rolling_min_closed_trades == 50
 
 
 def test_build_strategist_config_passes_use_v3_rolling_score():
-    config = RetrodateMarketConfig(use_v3_rolling_score=True)
+    config = RetrodateMarketConfig(
+        use_v3_rolling_score=True,
+        use_v3_shadow_rolling_score=True,
+        v3_shadow_rolling_window_bars=24,
+        v3_shadow_rolling_min_closed_trades=50,
+    )
 
     strategist_config = runner._build_strategist_config(config)
 
     assert strategist_config.use_v3_rolling_score is True
+    assert strategist_config.use_v3_shadow_rolling_score is True
+    assert strategist_config.v3_shadow_rolling_window_bars == 24
+    assert strategist_config.v3_shadow_rolling_min_closed_trades == 50
 
 
 def test_analysis_report_includes_soft_allocator_summary(tmp_path):
@@ -187,6 +207,18 @@ def test_analysis_report_includes_soft_allocator_summary(tmp_path):
         }),
         encoding="utf-8",
     )
+    (output_dir / "perfect_panteon_report.json").write_text(
+        json.dumps({
+            "pnl_usd": 200.0,
+            "pnl_pct": 20.0,
+            "max_drawdown_pct": 2.5,
+            "month_count": 2,
+            "profitable_months": 2,
+            "cash_months": 0,
+            "closed_trades": 11.0,
+        }),
+        encoding="utf-8",
+    )
     summary = RetrodateRunSummary(
         output_dir=output_dir,
         report_path=output_dir / "analysis_report.md",
@@ -217,3 +249,5 @@ def test_analysis_report_includes_soft_allocator_summary(tmp_path):
     assert "## Soft Allocator Simulation" in report
     assert "`soft_top3_decayed`" in report
     assert "Beats best single: yes" in report
+    assert "## Perfect Panteon Monthly Oracle" in report
+    assert "$200.00" in report

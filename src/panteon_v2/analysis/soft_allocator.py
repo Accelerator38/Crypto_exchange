@@ -14,6 +14,7 @@ from typing import Iterable, Mapping, Sequence
 class ShadowPnLEvent:
     bar: int
     label: str
+    timestamp: str = ""
     regime: str = "all"
     pnl_usd: float = 0.0
     closed_trades: int = 0
@@ -67,6 +68,35 @@ class SoftAllocatorReport:
     regret_vs_best_single_usd: float
     beats_best_single: bool
     policy_results: tuple[SoftAllocatorPolicyResult, ...]
+
+
+@dataclass(frozen=True)
+class PerfectMonthSelection:
+    month: str
+    label: str
+    pnl_usd: float
+    pnl_pct: float
+    closed_trades: float
+    wins: float
+    win_rate_pct: float
+
+
+@dataclass(frozen=True)
+class PerfectPanteonReport:
+    initial_capital: float
+    event_count: int
+    month_count: int
+    player_count: int
+    pnl_usd: float
+    pnl_pct: float
+    final_equity_usd: float
+    max_drawdown_pct: float
+    closed_trades: float
+    wins: float
+    win_rate_pct: float
+    profitable_months: int
+    cash_months: int
+    months: tuple[PerfectMonthSelection, ...]
 
 
 @dataclass
@@ -192,6 +222,7 @@ def shadow_pnl_events_from_shadow_updates(
             ShadowPnLEvent(
                 bar=_int(_event_value(event, "bar")),
                 label=label,
+                timestamp=_timestamp_iso(_event_value(event, "timestamp")),
                 regime=str(_event_value(event, "regime") or "all").strip() or "all",
                 pnl_usd=_float(_event_value(event, "realized_pnl_usd")),
                 closed_trades=_int(_event_value(event, "closed_trades")),
@@ -255,6 +286,90 @@ def simulate_soft_allocator_policies(
     )
 
 
+def simulate_perfect_monthly_panteon(
+    events: Sequence[ShadowPnLEvent],
+    *,
+    initial_capital: float,
+    cash_label: str = "CASH",
+) -> PerfectPanteonReport:
+    """Monthly hindsight oracle: choose the best actor for each month."""
+
+    capital = max(1e-9, float(initial_capital or 0.0))
+    clean_events = [
+        event for event in events
+        if (
+            event.label
+            and _event_month(event)
+            and int(event.bar) > 0
+            and math.isfinite(float(event.pnl_usd))
+        )
+    ]
+    clean_events.sort(key=lambda item: (_event_month(item), item.bar, item.label))
+    grouped = _group_by_month_and_label(clean_events)
+    months: list[PerfectMonthSelection] = []
+    equity = capital
+    curve = [equity]
+    closed_trades = 0.0
+    wins = 0.0
+    for month in sorted(grouped):
+        by_label = grouped[month]
+        totals = {
+            label: sum(float(event.pnl_usd) for event in items)
+            for label, items in by_label.items()
+        }
+        best_label = max(totals, key=lambda label: (totals[label], label))
+        best_pnl = float(totals[best_label])
+        if best_pnl <= 0.0:
+            months.append(PerfectMonthSelection(
+                month=month,
+                label=cash_label,
+                pnl_usd=0.0,
+                pnl_pct=0.0,
+                closed_trades=0.0,
+                wins=0.0,
+                win_rate_pct=0.0,
+            ))
+            curve.append(equity)
+            continue
+        month_trades = 0.0
+        month_wins = 0.0
+        for event in sorted(by_label[best_label], key=lambda item: (item.bar, item.label)):
+            equity += float(event.pnl_usd)
+            curve.append(equity)
+            trades = max(0, int(event.closed_trades))
+            event_wins = max(0, int(event.wins))
+            month_trades += trades
+            month_wins += event_wins
+        closed_trades += month_trades
+        wins += month_wins
+        months.append(PerfectMonthSelection(
+            month=month,
+            label=best_label,
+            pnl_usd=best_pnl,
+            pnl_pct=best_pnl / capital * 100.0,
+            closed_trades=month_trades,
+            wins=month_wins,
+            win_rate_pct=(month_wins / month_trades * 100.0) if month_trades else 0.0,
+        ))
+    pnl = equity - capital
+    return PerfectPanteonReport(
+        initial_capital=capital,
+        event_count=len(clean_events),
+        month_count=len(grouped),
+        player_count=len({event.label for event in clean_events}),
+        pnl_usd=pnl,
+        pnl_pct=pnl / capital * 100.0,
+        final_equity_usd=equity,
+        max_drawdown_pct=_curve_max_drawdown_pct(curve),
+        closed_trades=closed_trades,
+        wins=wins,
+        win_rate_pct=(wins / closed_trades * 100.0) if closed_trades else 0.0,
+        profitable_months=sum(1 for item in months if item.pnl_usd > 0.0),
+        cash_months=sum(1 for item in months if item.label == cash_label),
+        months=tuple(months),
+    )
+
+
 def write_soft_allocator_report(
     output_dir: str | Path,
     report: SoftAllocatorReport,
@@ -267,6 +382,21 @@ def write_soft_allocator_report(
         encoding="utf-8",
     )
     md_path.write_text(render_soft_allocator_markdown(report), encoding="utf-8")
+    return json_path, md_path
+
+
+def write_perfect_panteon_report(
+    output_dir: str | Path,
+    report: PerfectPanteonReport,
+) -> tuple[Path, Path]:
+    root = Path(output_dir)
+    json_path = root / "perfect_panteon_report.json"
+    md_path = root / "perfect_panteon_report.md"
+    json_path.write_text(
+        json.dumps(perfect_panteon_report_to_dict(report), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    md_path.write_text(render_perfect_panteon_markdown(report), encoding="utf-8")
     return json_path, md_path
 
 
@@ -284,6 +414,12 @@ def write_shadow_pnl_events(
 def soft_allocator_report_to_dict(report: SoftAllocatorReport) -> dict:
     data = asdict(report)
     data["policy_results"] = [asdict(item) for item in report.policy_results]
+    return data
+
+
+def perfect_panteon_report_to_dict(report: PerfectPanteonReport) -> dict:
+    data = asdict(report)
+    data["months"] = [asdict(item) for item in report.months]
     return data
 
 
@@ -313,6 +449,33 @@ def render_soft_allocator_markdown(report: SoftAllocatorReport) -> str:
             f"| `{item.policy_name}` | {item.pnl_usd:.2f} | {item.pnl_pct:.2f} | "
             f"{item.max_drawdown_pct:.2f} | {item.weighted_closed_trades:.2f} | "
             f"{item.average_cash_weight_pct:.2f} | {item.average_leader_count:.2f} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def render_perfect_panteon_markdown(report: PerfectPanteonReport) -> str:
+    lines = [
+        "# Perfect Panteon Monthly Oracle",
+        "",
+        "## Summary",
+        f"- Shadow player PnL events: {report.event_count}",
+        f"- Months observed: {report.month_count}",
+        f"- Players observed: {report.player_count}",
+        f"- Perfect monthly PnL: {_fmt_money(report.pnl_usd)}, {_fmt_pct(report.pnl_pct)}",
+        f"- Max drawdown: {_fmt_pct(report.max_drawdown_pct)}",
+        f"- Closed trades: {report.closed_trades:.2f}",
+        f"- Win rate: {_fmt_pct(report.win_rate_pct)}",
+        f"- Profitable months: {report.profitable_months}",
+        f"- Cash months: {report.cash_months}",
+        "",
+        "## Monthly Selection",
+        "| Month | Selected | PnL USD | PnL % | Trades | Win rate % |",
+        "| --- | --- | ---: | ---: | ---: | ---: |",
+    ]
+    for item in report.months:
+        lines.append(
+            f"| `{item.month}` | `{item.label}` | {item.pnl_usd:.2f} | "
+            f"{item.pnl_pct:.2f} | {item.closed_trades:.2f} | {item.win_rate_pct:.2f} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -521,6 +684,18 @@ def _group_by_bar(events: Sequence[ShadowPnLEvent]) -> dict[int, list[ShadowPnLE
     return grouped
 
 
+def _group_by_month_and_label(
+    events: Sequence[ShadowPnLEvent],
+) -> dict[str, dict[str, list[ShadowPnLEvent]]]:
+    grouped: dict[str, dict[str, list[ShadowPnLEvent]]] = {}
+    for event in events:
+        month = _event_month(event)
+        if not month:
+            continue
+        grouped.setdefault(month, {}).setdefault(event.label, []).append(event)
+    return grouped
+
+
 def _decay_states(
     states: Iterable[_ActorState],
     *,
@@ -587,6 +762,25 @@ def _event_value(event: object, key: str) -> object:
     if isinstance(event, Mapping):
         return event.get(key)
     return getattr(event, key, None)
+
+
+def _event_month(event: ShadowPnLEvent) -> str:
+    stamp = str(event.timestamp or "").strip()
+    if len(stamp) >= 7 and stamp[4:5] == "-" and stamp[7:8] in ("", "-", "T", " "):
+        return stamp[:7]
+    return ""
+
+
+def _timestamp_iso(value: object) -> str:
+    if value is None:
+        return ""
+    iso = getattr(value, "isoformat", None)
+    if callable(iso):
+        try:
+            return str(iso())
+        except Exception:
+            return ""
+    return str(value or "")
 
 
 def _int(value: object) -> int:

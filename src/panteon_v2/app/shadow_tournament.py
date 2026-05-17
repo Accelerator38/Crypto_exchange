@@ -133,7 +133,11 @@ class ProductionShadowTournament:
         self._player_agent_clones: Dict[Tuple[str, str], Agent] = {}
         self._player_clones: Dict[str, Player] = {}
         self._signal_id = _SHADOW_SIGNAL_ID_START
+        self._last_updates: List[ShadowActorUpdated] = []
         self._refresh_shadow_agents()
+
+    def last_actor_updates(self) -> Tuple[ShadowActorUpdated, ...]:
+        return tuple(self._last_updates)
 
     def run_bar(
         self,
@@ -143,6 +147,7 @@ class ProductionShadowTournament:
         balance_usd: float,
     ) -> ShadowStepSummary:
         virtual_balance = max(float(balance_usd or 0.0), self._balance_floor)
+        self._last_updates = []
         self._refresh_shadow_agents()
         agent_summary = self._run_agents(market, balance_usd=virtual_balance)
         player_summary = self._run_players(market, players, balance_usd=virtual_balance)
@@ -456,13 +461,12 @@ class ProductionShadowTournament:
         signals: int,
         results: Sequence[ExecutionResult],
     ) -> None:
-        if self._event_log is None:
-            return
         counts = _empty_counts()
         _add_execution_counts(counts, results)
         realized_pnl, closed_trades, winning_trades = _realized_counts(results)
-        self._event_log.emit(ShadowActorUpdated(
+        event = ShadowActorUpdated(
             bar=market.bar,
+            timestamp=market.timestamp,
             trace_id=f"shadow-{market.bar}",
             actor_type=actor_type,
             actor_label=actor_label,
@@ -479,7 +483,10 @@ class ProductionShadowTournament:
             realized_pnl_usd=realized_pnl,
             closed_trades=closed_trades,
             winning_trades=winning_trades,
-        ))
+        )
+        self._last_updates.append(event)
+        if self._event_log is not None:
+            self._event_log.emit(event)
 
 
 def _empty_counts() -> Dict[str, int]:

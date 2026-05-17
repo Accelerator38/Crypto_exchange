@@ -23,8 +23,10 @@ from ..selection import AgentRegistry, StrategistConfig
 from ..shadow.feed import ReplayFeed
 from .soft_allocator import (
     shadow_pnl_events_from_shadow_updates,
+    simulate_perfect_monthly_panteon,
     simulate_soft_allocator_policies,
     write_shadow_pnl_events,
+    write_perfect_panteon_report,
     write_soft_allocator_report,
 )
 from .retrodate_validator import (
@@ -63,6 +65,9 @@ class RetrodateMarketConfig:
     real_promotion_loss_budget_pct: float = -1.0
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
+    use_v3_shadow_rolling_score: bool = False
+    v3_shadow_rolling_window_bars: int = 24
+    v3_shadow_rolling_min_closed_trades: int = 50
     v3_persistent_loss_kill_min_closed_trades: int = 0
     v3_persistent_loss_kill_pnl_pct: float = -2.0
     v3_persistent_loss_kill_win_rate_pct: float = 0.0
@@ -88,6 +93,10 @@ class RetrodateMarketConfig:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
         if self.v3_persistent_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_persistent_loss_kill_min_closed_trades must be >= 0")
+        if self.v3_shadow_rolling_window_bars < 1:
+            raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
+        if self.v3_shadow_rolling_min_closed_trades < 0:
+            raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
         if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
             raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
         if self.v3_persistent_loss_virtual_min_dd_pct < 0:
@@ -334,7 +343,12 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             shadow_pnl_events,
             initial_capital=config.initial_capital,
         )
+        perfect_report = simulate_perfect_monthly_panteon(
+            shadow_pnl_events,
+            initial_capital=config.initial_capital,
+        )
         write_soft_allocator_report(output_dir, soft_report)
+        write_perfect_panteon_report(output_dir, perfect_report)
         write_shadow_pnl_events(output_dir, shadow_pnl_events)
     except Exception as exc:
         step_errors.append(f"soft_allocator_report_failed: {type(exc).__name__}: {exc}")
@@ -398,6 +412,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         real_promotion_loss_budget_pct=args.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=args.real_promotion_probation_min_score,
         use_v3_rolling_score=args.use_v3_rolling_score,
+        use_v3_shadow_rolling_score=args.use_v3_shadow_rolling_score,
+        v3_shadow_rolling_window_bars=args.v3_shadow_rolling_window_bars,
+        v3_shadow_rolling_min_closed_trades=args.v3_shadow_rolling_min_closed_trades,
         v3_persistent_loss_kill_min_closed_trades=(
             args.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -438,6 +455,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-promotion-loss-budget-pct", type=float, default=-1.0)
     parser.add_argument("--real-promotion-probation-min-score", type=float, default=0.0)
     parser.add_argument("--use-v3-rolling-score", action="store_true")
+    parser.add_argument("--use-v3-shadow-rolling-score", action="store_true")
+    parser.add_argument("--v3-shadow-rolling-window-bars", type=int, default=24)
+    parser.add_argument("--v3-shadow-rolling-min-closed-trades", type=int, default=50)
     parser.add_argument("--v3-persistent-loss-kill-min-closed-trades", type=int, default=0)
     parser.add_argument("--v3-persistent-loss-kill-pnl-pct", type=float, default=-2.0)
     parser.add_argument("--v3-persistent-loss-kill-win-rate-pct", type=float, default=0.0)
@@ -456,6 +476,9 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         real_promotion_loss_budget_pct=config.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=config.real_promotion_probation_min_score,
         use_v3_rolling_score=config.use_v3_rolling_score,
+        use_v3_shadow_rolling_score=config.use_v3_shadow_rolling_score,
+        v3_shadow_rolling_window_bars=config.v3_shadow_rolling_window_bars,
+        v3_shadow_rolling_min_closed_trades=config.v3_shadow_rolling_min_closed_trades,
         v3_persistent_loss_kill_min_closed_trades=(
             config.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -585,6 +608,9 @@ def _write_run_summary(
         "real_promotion_loss_budget_pct": config.real_promotion_loss_budget_pct,
         "real_promotion_probation_min_score": config.real_promotion_probation_min_score,
         "use_v3_rolling_score": config.use_v3_rolling_score,
+        "use_v3_shadow_rolling_score": config.use_v3_shadow_rolling_score,
+        "v3_shadow_rolling_window_bars": config.v3_shadow_rolling_window_bars,
+        "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
         "v3_persistent_loss_kill_min_closed_trades": (
             config.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -624,6 +650,17 @@ def _write_run_summary(
             ),
             "beats_best_single": soft_allocator.get("beats_best_single", False),
         }
+    perfect_panteon = _load_json(summary.output_dir / "perfect_panteon_report.json")
+    if perfect_panteon:
+        data["perfect_panteon_report"] = {
+            "pnl_usd": perfect_panteon.get("pnl_usd", 0.0),
+            "pnl_pct": perfect_panteon.get("pnl_pct", 0.0),
+            "max_drawdown_pct": perfect_panteon.get("max_drawdown_pct", 0.0),
+            "month_count": perfect_panteon.get("month_count", 0),
+            "profitable_months": perfect_panteon.get("profitable_months", 0),
+            "cash_months": perfect_panteon.get("cash_months", 0),
+            "closed_trades": perfect_panteon.get("closed_trades", 0.0),
+        }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
@@ -640,6 +677,7 @@ def _write_analysis_report(
     live_session = status.get("live_session", {}) if isinstance(status, dict) else {}
     shadow = status.get("shadow", {}) if isinstance(status, dict) else {}
     soft_allocator = _load_json(summary.output_dir / "soft_allocator_report.json")
+    perfect_panteon = _load_json(summary.output_dir / "perfect_panteon_report.json")
 
     excluded_lines = []
     for item in selection.excluded_files:
@@ -660,6 +698,8 @@ def _write_analysis_report(
         "leaderboard_players.json",
         "soft_allocator_report.md",
         "soft_allocator_report.json",
+        "perfect_panteon_report.md",
+        "perfect_panteon_report.json",
         "shadow_player_pnl_events.jsonl",
     ]
     dashboard_lines = [
@@ -695,6 +735,7 @@ def _write_analysis_report(
         f"- Last shadow actors: {shadow.get('actors', 0)}",
         "",
         *(_soft_allocator_report_lines(soft_allocator) + [""] if soft_allocator else []),
+        *(_perfect_panteon_report_lines(perfect_panteon) + [""] if perfect_panteon else []),
         "## Top Agents By Virtual PnL",
         _markdown_table(_top_rows(agents, limit=10)),
         "",
@@ -735,6 +776,22 @@ def _soft_allocator_report_lines(report: dict[str, Any]) -> list[str]:
         f"- Regret vs best single: {_fmt_money(report.get('regret_vs_best_single_usd'))}",
         f"- Beats best single: {'yes' if report.get('beats_best_single') else 'no'}",
         f"- Details: `soft_allocator_report.md`, `soft_allocator_report.json`",
+    ]
+
+
+def _perfect_panteon_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    return [
+        "## Perfect Panteon Monthly Oracle",
+        f"- Perfect monthly PnL: {_fmt_money(report.get('pnl_usd'))}, "
+        f"{_fmt_pct(report.get('pnl_pct'))}",
+        f"- Max drawdown: {_fmt_pct(report.get('max_drawdown_pct'))}",
+        f"- Months observed: {int(report.get('month_count', 0) or 0)}",
+        f"- Profitable months: {int(report.get('profitable_months', 0) or 0)}",
+        f"- Cash months: {int(report.get('cash_months', 0) or 0)}",
+        f"- Closed trades: {float(report.get('closed_trades', 0.0) or 0.0):.2f}",
+        f"- Details: `perfect_panteon_report.md`, `perfect_panteon_report.json`",
     ]
 
 

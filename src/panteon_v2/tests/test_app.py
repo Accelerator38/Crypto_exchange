@@ -430,7 +430,12 @@ class TestMainLoop(unittest.TestCase):
         )
 
         summary = tournament.run_bar(
-            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            make_market_snapshot(
+                bar=1,
+                prices={"BTC": 100.0},
+                regime="bullish",
+                timestamp=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            ),
             players=[player],
             balance_usd=1000.0,
         )
@@ -444,6 +449,7 @@ class TestMainLoop(unittest.TestCase):
         self.assertTrue(all(ev.filled >= 1 for ev in shadow_events))
         player_event = next(ev for ev in shadow_events if ev.actor_type == "player")
         self.assertEqual(player_event.regime, "bullish")
+        self.assertEqual(player_event.timestamp.isoformat(), "2025-01-01T00:00:00+00:00")
         self.assertEqual(player_event.agent_outcomes, (("AgentA", 1, 1, 0, 0),))
 
     def test_shadow_actor_update_reports_realized_pnl_after_virtual_close(self):
@@ -495,6 +501,66 @@ class TestMainLoop(unittest.TestCase):
         self.assertGreater(player_events[-1].realized_pnl_usd, 0.0)
         self.assertEqual(player_events[-1].closed_trades, 1)
         self.assertEqual(player_events[-1].winning_trades, 1)
+
+    def test_shadow_tournament_exposes_last_actor_updates_without_event_log(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        agent = FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(agent)
+        tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=PerformanceMemory(trade_fraction=1.0),
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=None,
+        )
+        player = EnsemblePlayer(
+            label="PlayerA",
+            agents=[agent],
+            weights={"AgentA": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.10, open_multi=0.10, open_floor=0.10),
+        )
+
+        tournament.run_bar(
+            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            players=[player],
+            balance_usd=1000.0,
+        )
+
+        updates = tournament.last_actor_updates()
+        self.assertTrue(any(ev.actor_type == "player" and ev.actor_label == "PlayerA" for ev in updates))
+
+    def test_pending_shadow_updates_sync_into_strategist_once(self):
+        from panteon_v2.app.main_loop import _apply_pending_shadow_updates_to_strategist
+
+        class FakeStrategist:
+            def __init__(self):
+                self.calls = []
+
+            def update_shadow_actor_updates(self, updates):
+                self.calls.append(tuple(updates))
+
+        pipeline, _ = self._setup()
+        fake = FakeStrategist()
+        pipeline.strategist = fake
+        pending = (
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="PlayerA",
+                regime="bullish",
+                realized_pnl_usd=8.0,
+                closed_trades=2,
+            ),
+        )
+        pipeline._pending_shadow_actor_updates = pending
+
+        _apply_pending_shadow_updates_to_strategist(pipeline)
+        _apply_pending_shadow_updates_to_strategist(pipeline)
+
+        self.assertEqual(fake.calls, [pending])
+        self.assertEqual(pipeline._pending_shadow_actor_updates, ())
 
     def test_shadow_actor_update_includes_blocked_reason_counts(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament

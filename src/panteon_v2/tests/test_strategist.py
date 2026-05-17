@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 
+from panteon_v2.attribution import ShadowActorUpdated
 from panteon_v2.domain.types import Action, Regime
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import (
@@ -362,6 +363,57 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(decision.new_leader.label, "RealPlayer")
         by_label = {row.label: row for row in decision.candidate_scores}
         self.assertLessEqual(by_label["VirtualPlayer"].score, 0.25)
+
+    def test_v3_shadow_rolling_score_prefers_recent_regime_winner(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("AlphaPlayer", ["AlphaAgent"]),
+                _make_player("BetaPlayer", ["BetaAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_shadow_rolling_score=True,
+                v3_shadow_rolling_min_closed_trades=2,
+                v3_shadow_rolling_window_bars=24,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="AlphaPlayer",
+                regime="bullish",
+                realized_pnl_usd=8.0,
+                closed_trades=2,
+                winning_trades=2,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="BetaPlayer",
+                regime="bullish",
+                realized_pnl_usd=-4.0,
+                closed_trades=2,
+                winning_trades=0,
+            ),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "AlphaPlayer")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertEqual(by_label["AlphaPlayer"].score_source, "v3_shadow_rolling")
+        self.assertGreater(by_label["AlphaPlayer"].score, by_label["BetaPlayer"].score)
 
     def test_v3_real_loss_kill_blocks_candidate_before_slow_promotion_gate(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)

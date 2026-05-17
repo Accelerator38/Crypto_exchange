@@ -8,6 +8,7 @@ from panteon_v2.analysis.soft_allocator import (
     ShadowPnLEvent,
     SoftAllocatorPolicy,
     default_soft_allocator_policies,
+    simulate_perfect_monthly_panteon,
     simulate_soft_allocator_policies,
 )
 
@@ -93,6 +94,69 @@ class TestSoftAllocator(unittest.TestCase):
         self.assertAlmostEqual(result.pnl_usd, 20.0)
         self.assertEqual(report.best_single_label, "Beta")
         self.assertTrue(report.beats_best_single)
+
+    def test_perfect_monthly_panteon_selects_best_monthly_actor_and_cash(self):
+        events = [
+            ShadowPnLEvent(
+                bar=1,
+                label="Alpha",
+                timestamp="2025-01-01T00:00:00+00:00",
+                pnl_usd=10.0,
+                closed_trades=1,
+                wins=1,
+            ),
+            ShadowPnLEvent(
+                bar=2,
+                label="Beta",
+                timestamp="2025-01-02T00:00:00+00:00",
+                pnl_usd=30.0,
+                closed_trades=2,
+                wins=2,
+            ),
+            ShadowPnLEvent(
+                bar=3,
+                label="Alpha",
+                timestamp="2025-02-01T00:00:00+00:00",
+                pnl_usd=-5.0,
+                closed_trades=1,
+                wins=0,
+            ),
+            ShadowPnLEvent(
+                bar=4,
+                label="Beta",
+                timestamp="2025-02-02T00:00:00+00:00",
+                pnl_usd=-7.0,
+                closed_trades=1,
+                wins=0,
+            ),
+            ShadowPnLEvent(
+                bar=5,
+                label="Alpha",
+                timestamp="2025-03-01T00:00:00+00:00",
+                pnl_usd=12.0,
+                closed_trades=1,
+                wins=1,
+            ),
+            ShadowPnLEvent(
+                bar=6,
+                label="Beta",
+                timestamp="2025-03-02T00:00:00+00:00",
+                pnl_usd=1.0,
+                closed_trades=1,
+                wins=1,
+            ),
+        ]
+
+        report = simulate_perfect_monthly_panteon(events, initial_capital=100.0)
+
+        self.assertEqual(report.month_count, 3)
+        self.assertAlmostEqual(report.pnl_usd, 42.0)
+        self.assertAlmostEqual(report.pnl_pct, 42.0)
+        self.assertEqual(report.profitable_months, 2)
+        self.assertEqual(report.cash_months, 1)
+        self.assertEqual([row.label for row in report.months], ["Beta", "CASH", "Alpha"])
+        self.assertAlmostEqual(report.months[1].pnl_usd, 0.0)
+        self.assertAlmostEqual(report.closed_trades, 3.0)
 
 
 if __name__ == "__main__":

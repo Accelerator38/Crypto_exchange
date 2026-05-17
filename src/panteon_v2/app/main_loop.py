@@ -371,6 +371,7 @@ def _run_one_bar(
     reconcile_summary = reconcile_tracker_with_exchange(pipeline, bar_index=market.bar)
     _record_exchange_desync(pipeline, reconcile_summary)
     _expire_stale_pending_orders(pipeline)
+    _apply_pending_shadow_updates_to_strategist(pipeline)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
 
     # 1. Регим
@@ -388,6 +389,7 @@ def _run_one_bar(
     _ensure_degradation_baseline(pipeline)
     candidates = _compose_candidates(pipeline, market.regime)
     shadow_summary = _run_shadow_tournament(pipeline, market, candidates)
+    _capture_pending_shadow_updates(pipeline)
 
     # 3. Карантин (раз в N bar-ов) после shadow-обновлений perf
     if market.bar - last_qm_bar >= recompute_every:
@@ -884,6 +886,32 @@ def _run_shadow_tournament(
     except Exception:
         pass
     return summary
+
+
+def _apply_pending_shadow_updates_to_strategist(pipeline: ProductionPipeline) -> None:
+    pending = tuple(getattr(pipeline, "_pending_shadow_actor_updates", ()) or ())
+    if not pending:
+        return
+    update = getattr(getattr(pipeline, "strategist", None), "update_shadow_actor_updates", None)
+    if callable(update):
+        try:
+            update(pending)
+        except Exception:
+            log.debug("failed to sync shadow updates into strategist", exc_info=True)
+    pipeline._pending_shadow_actor_updates = ()
+
+
+def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
+    tournament = getattr(pipeline, "shadow_tournament", None)
+    getter = getattr(tournament, "last_actor_updates", None)
+    if not callable(getter):
+        pipeline._pending_shadow_actor_updates = ()
+        return
+    try:
+        pipeline._pending_shadow_actor_updates = tuple(getter())
+    except Exception:
+        log.debug("failed to capture shadow updates for strategist", exc_info=True)
+        pipeline._pending_shadow_actor_updates = ()
 
 
 def _emit_candidate_audit_events(

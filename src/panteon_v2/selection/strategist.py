@@ -26,6 +26,7 @@ Strategist решает: какой Player станет current_leader на эт
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -84,6 +85,9 @@ class StrategistConfig:
     real_promotion_loss_budget_pct: float = -1.0
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
+    use_v3_shadow_rolling_score: bool = False
+    v3_shadow_rolling_window_bars: int = 24
+    v3_shadow_rolling_min_closed_trades: int = 50
     v3_min_score_to_trade: float = 0.0
     v3_virtual_only_score_cap: float = 0.35
     v3_real_loss_kill_min_closed_trades: int = 3
@@ -139,6 +143,10 @@ class StrategistConfig:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
         if self.v3_virtual_only_score_cap < self.v3_min_score_to_trade:
             raise ValueError("v3_virtual_only_score_cap must be >= v3_min_score_to_trade")
+        if self.v3_shadow_rolling_window_bars < 1:
+            raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
+        if self.v3_shadow_rolling_min_closed_trades < 0:
+            raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
         if self.v3_real_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_real_loss_kill_min_closed_trades must be >= 0")
         if self.v3_persistent_loss_kill_min_closed_trades < 0:
@@ -225,6 +233,25 @@ class _DisqualificationReason:
 # ────────────────────────────────────────────────────────────────────
 
 
+@dataclass
+class _ShadowRollingActorState:
+    total_trades: int = 0
+    total_wins: int = 0
+    recent_bars: List[int] = field(default_factory=list)
+    recent_pnl_prefix: List[float] = field(default_factory=lambda: [0.0])
+
+    def append(self, *, bar: int, pnl_usd: float, closed_trades: int, wins: int) -> None:
+        self.total_trades += max(0, int(closed_trades))
+        self.total_wins += max(0, int(wins))
+        self.recent_bars.append(int(bar))
+        self.recent_pnl_prefix.append(self.recent_pnl_prefix[-1] + float(pnl_usd))
+
+    def rolling_pnl_usd(self, *, current_bar: int, window_bars: int) -> float:
+        cutoff = int(current_bar) - max(1, int(window_bars))
+        first_index = bisect_right(self.recent_bars, cutoff)
+        return float(self.recent_pnl_prefix[-1] - self.recent_pnl_prefix[first_index])
+
+
 class Strategist:
     """Один Strategist — один current_leader.
 
@@ -268,6 +295,10 @@ class Strategist:
         self._realized_trade_counts_by_player: Dict[str, int] = {}
         self._realized_win_counts_by_player: Dict[str, int] = {}
         self._realized_initial_capital: float = 0.0
+        self._shadow_rolling_by_player_regime: Dict[
+            Tuple[str, str],
+            _ShadowRollingActorState,
+        ] = {}
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -313,6 +344,25 @@ class Strategist:
         }
         self._realized_initial_capital = max(0.0, float(initial_capital or 0.0))
 
+    def update_shadow_actor_updates(self, updates: Sequence[object]) -> None:
+        for event in updates or ():
+            if str(self._object_value(event, "actor_type") or "") != "player":
+                continue
+            label = str(self._object_value(event, "actor_label") or "").strip()
+            if not label:
+                continue
+            regime = str(self._object_value(event, "regime") or "").strip().lower() or "neutral"
+            state = self._shadow_rolling_by_player_regime.setdefault(
+                (label, regime),
+                _ShadowRollingActorState(),
+            )
+            state.append(
+                bar=self._safe_int(self._object_value(event, "bar")),
+                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
+                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
+                wins=self._safe_int(self._object_value(event, "winning_trades")),
+            )
+
     def current_leader(self) -> Optional[Player]:
         return self._current
 
@@ -337,6 +387,7 @@ class Strategist:
                 issue = self._validate_promotion(
                     cand,
                     regime,
+                    current_bar=current_bar,
                     regime_confidence=regime_confidence,
                 )
             if issue is None:
@@ -385,7 +436,7 @@ class Strategist:
 
         # 2. Скорим каждого
         self._ensure_session_baseline(eligible, regime)
-        scored_rows = self._rank_candidates(eligible, regime)
+        scored_rows = self._rank_candidates(eligible, regime, current_bar=current_bar)
         by_label = {cand.label: cand for cand in eligible}
         best_row = scored_rows[0]
         best_score = best_row.score
@@ -462,7 +513,7 @@ class Strategist:
                 cooldown_blocked=False,
             )
 
-        current_score = self._score_player(self._current, regime)
+        current_score = self._score_player(self._current, regime, current_bar=current_bar)
         margin = best_score - current_score
         urgent = (
             current_score <= self._config.hard_negative
@@ -701,6 +752,7 @@ class Strategist:
         player: Player,
         regime: Regime,
         *,
+        current_bar: int,
         regime_confidence: float,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
@@ -726,7 +778,7 @@ class Strategist:
         )
         if virtual_gate_enabled:
             metrics = self._promotion_metrics(player, regime)
-            score = self._score_player(player, regime)
+            score = self._score_player(player, regime, current_bar=current_bar)
             if metrics.closed_trades < cfg.min_live_closed_trades:
                 return _DisqualificationReason(
                     label=player.label,
@@ -750,7 +802,7 @@ class Strategist:
                 )
         if cfg.real_promotion_gate_enabled:
             if score is None:
-                score = self._score_player(player, regime)
+                score = self._score_player(player, regime, current_bar=current_bar)
             return self._validate_real_promotion(player, regime, score)
         return None
 
@@ -1287,8 +1339,13 @@ class Strategist:
         self,
         candidates: Sequence[Player],
         regime: Regime,
+        *,
+        current_bar: int = 0,
     ) -> Tuple[CandidateScore, ...]:
-        rows = [self._score_player_detail(player, regime) for player in candidates]
+        rows = [
+            self._score_player_detail(player, regime, current_bar=current_bar)
+            for player in candidates
+        ]
         rows.sort(
             key=lambda row: (
                 -row.score,
@@ -1300,13 +1357,25 @@ class Strategist:
         )
         return tuple(replace(row, rank=i + 1) for i, row in enumerate(rows))
 
-    def _score_player(self, player: Player, regime: Regime) -> float:
-        return self._score_player_detail(player, regime).score
+    def _score_player(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int = 0,
+    ) -> float:
+        return self._score_player_detail(player, regime, current_bar=current_bar).score
 
-    def _score_player_detail(self, player: Player, regime: Regime) -> CandidateScore:
+    def _score_player_detail(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int = 0,
+    ) -> CandidateScore:
         """Score для игрока plus forensic details."""
         if self._config.use_v3_rolling_score:
-            return self._score_player_detail_v3(player, regime)
+            return self._score_player_detail_v3(player, regime, current_bar=current_bar)
 
         agent_labels = tuple(player.agent_labels)
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
@@ -1411,11 +1480,25 @@ class Strategist:
             session_stale_penalty=session_stale,
         )
 
-    def _score_player_detail_v3(self, player: Player, regime: Regime) -> CandidateScore:
+    def _score_player_detail_v3(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int = 0,
+    ) -> CandidateScore:
         agent_labels = tuple(player.agent_labels)
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
             self._memory_key(label, regime) for label in agent_labels
         )
+        if self._config.use_v3_shadow_rolling_score:
+            return self._score_player_detail_v3_shadow(
+                player,
+                regime,
+                agent_labels=agent_labels,
+                memory_keys=memory_keys,
+                current_bar=current_bar,
+            )
         long_real = self._real_promotion_metrics(player, regime)
         recent_real = self._real_session_metrics_for_player(player, regime)
         virtual = self._promotion_metrics(player, regime)
@@ -1452,9 +1535,80 @@ class Strategist:
             session_stale_penalty=0.0,
         )
 
+    def _score_player_detail_v3_shadow(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        agent_labels: Tuple[str, ...],
+        memory_keys: Tuple[str, ...],
+        current_bar: int,
+    ) -> CandidateScore:
+        state = self._shadow_rolling_by_player_regime.get((player.label, regime.label))
+        if state is None:
+            return CandidateScore(
+                label=player.label,
+                score=float(self._config.v3_score_config.no_data_score),
+                rank=0,
+                has_data=False,
+                closed_trades=0,
+                signals=0,
+                execution_failures=0,
+                score_source="v3_shadow_rolling",
+                uncertainty_penalty=0.0,
+                agent_labels=agent_labels,
+                memory_keys_read=memory_keys,
+            )
+        rolling_pnl_usd = state.rolling_pnl_usd(
+            current_bar=current_bar,
+            window_bars=self._config.v3_shadow_rolling_window_bars,
+        )
+        capital = max(1e-9, float(self._realized_initial_capital or 0.0))
+        score = rolling_pnl_usd / capital * 100.0
+        has_data = state.total_trades >= self._config.v3_shadow_rolling_min_closed_trades
+        if not has_data:
+            score = min(score, float(self._config.v3_score_config.no_data_score))
+        return CandidateScore(
+            label=player.label,
+            score=score,
+            rank=0,
+            has_data=has_data,
+            closed_trades=state.total_trades,
+            signals=0,
+            execution_failures=0,
+            score_source="v3_shadow_rolling",
+            uncertainty_penalty=0.0,
+            agent_labels=agent_labels,
+            memory_keys_read=memory_keys,
+            session_score_delta=score,
+            session_pnl_pct=score,
+            session_underperformance_penalty=max(0.0, -score),
+            session_stale_penalty=0.0,
+        )
+
     @staticmethod
     def _memory_key(label: str, regime: Regime) -> str:
         return f"{label}|{regime.label}"
+
+    @staticmethod
+    def _object_value(event: object, key: str) -> object:
+        if isinstance(event, dict):
+            return event.get(key)
+        return getattr(event, key, None)
+
+    @staticmethod
+    def _safe_int(value: object) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _safe_float(value: object) -> float:
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     @staticmethod
     def _cold_start_tie_priority(label: str) -> int:
