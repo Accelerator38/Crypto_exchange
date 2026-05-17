@@ -366,7 +366,7 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
     def test_v3_real_loss_kill_blocks_candidate_before_slow_promotion_gate(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)
         real_perf = PerformanceMemory(trade_fraction=1.0)
-        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, 2.0, start_id=1)
+        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, -2.0, start_id=1)
         _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
         _add_perf(real_perf, "BadPlayer", Regime.BULLISH, 3, -0.35, start_id=2000)
         st = Strategist(
@@ -391,6 +391,109 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(decision.new_leader.label, "SafePlayer")
         reasons = " ".join(item.reason for item in decision.candidate_rejections)
         self.assertIn("v3 real-loss kill", reasons)
+
+    def test_v3_persistent_loss_kill_uses_all_regime_real_history(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, -2.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        _add_perf(real_perf, "BadPlayer", Regime.BULLISH, 5, 0.2, start_id=2000)
+        _add_perf(real_perf, "BadPlayer", Regime.BEARISH, 30, -4.0, start_id=3000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("BadPlayer", ["BadAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_persistent_loss_kill_min_closed_trades=20,
+                v3_persistent_loss_kill_pnl_pct=-2.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 persistent real-loss kill", reasons)
+
+    def test_v3_persistent_loss_kill_uses_realized_ledger_snapshot(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, -2.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        _add_perf(real_perf, "BadPlayer", Regime.BULLISH, 25, 3.0, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("BadPlayer", ["BadAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_persistent_loss_kill_min_closed_trades=20,
+                v3_persistent_loss_kill_pnl_pct=-2.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"BadPlayer": -30.0},
+            trade_counts_by_player={"BadPlayer": 25},
+            win_counts_by_player={"BadPlayer": 15},
+            initial_capital=1000.0,
+        )
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 persistent realized-loss kill", reasons)
+
+    def test_v3_persistent_loss_kill_spares_strong_virtual_edge(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "StrongAgent", Regime.BULLISH, 20, 4.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        _add_perf(real_perf, "StrongPlayer", Regime.BULLISH, 25, 3.0, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("StrongPlayer", ["StrongAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_persistent_loss_kill_min_closed_trades=20,
+                v3_persistent_loss_kill_pnl_pct=-2.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"StrongPlayer": -30.0},
+            trade_counts_by_player={"StrongPlayer": 25},
+            win_counts_by_player={"StrongPlayer": 15},
+            initial_capital=1000.0,
+        )
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "StrongPlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertNotIn("v3 persistent realized-loss kill", reasons)
 
     def test_player_session_overlay_penalizes_current_session_underperformance(self):
         perf = PerformanceMemory(trade_fraction=1.0)

@@ -56,6 +56,12 @@ class RetrodateMarketConfig:
     real_promotion_loss_budget_pct: float = -1.0
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
+    v3_persistent_loss_kill_min_closed_trades: int = 0
+    v3_persistent_loss_kill_pnl_pct: float = -2.0
+    v3_persistent_loss_kill_win_rate_pct: float = 0.0
+    v3_persistent_loss_requires_virtual_weakness: bool = True
+    v3_persistent_loss_virtual_max_pnl_pct: float = 0.0
+    v3_persistent_loss_virtual_min_dd_pct: float = 25.0
 
     def __post_init__(self) -> None:
         if self.stride_minutes <= 0:
@@ -73,6 +79,12 @@ class RetrodateMarketConfig:
             raise ValueError("real_promotion_min_closed_trades must be >= 0")
         if self.real_promotion_max_drawdown_pct < 0:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
+        if self.v3_persistent_loss_kill_min_closed_trades < 0:
+            raise ValueError("v3_persistent_loss_kill_min_closed_trades must be >= 0")
+        if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
+            raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
+        if self.v3_persistent_loss_virtual_min_dd_pct < 0:
+            raise ValueError("v3_persistent_loss_virtual_min_dd_pct must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -365,6 +377,20 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         real_promotion_loss_budget_pct=args.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=args.real_promotion_probation_min_score,
         use_v3_rolling_score=args.use_v3_rolling_score,
+        v3_persistent_loss_kill_min_closed_trades=(
+            args.v3_persistent_loss_kill_min_closed_trades
+        ),
+        v3_persistent_loss_kill_pnl_pct=args.v3_persistent_loss_kill_pnl_pct,
+        v3_persistent_loss_kill_win_rate_pct=args.v3_persistent_loss_kill_win_rate_pct,
+        v3_persistent_loss_requires_virtual_weakness=(
+            not args.v3_persistent_loss_ignore_virtual_quality
+        ),
+        v3_persistent_loss_virtual_max_pnl_pct=(
+            args.v3_persistent_loss_virtual_max_pnl_pct
+        ),
+        v3_persistent_loss_virtual_min_dd_pct=(
+            args.v3_persistent_loss_virtual_min_dd_pct
+        ),
     )
 
 
@@ -391,6 +417,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-promotion-loss-budget-pct", type=float, default=-1.0)
     parser.add_argument("--real-promotion-probation-min-score", type=float, default=0.0)
     parser.add_argument("--use-v3-rolling-score", action="store_true")
+    parser.add_argument("--v3-persistent-loss-kill-min-closed-trades", type=int, default=0)
+    parser.add_argument("--v3-persistent-loss-kill-pnl-pct", type=float, default=-2.0)
+    parser.add_argument("--v3-persistent-loss-kill-win-rate-pct", type=float, default=0.0)
+    parser.add_argument("--v3-persistent-loss-ignore-virtual-quality", action="store_true")
+    parser.add_argument("--v3-persistent-loss-virtual-max-pnl-pct", type=float, default=0.0)
+    parser.add_argument("--v3-persistent-loss-virtual-min-dd-pct", type=float, default=25.0)
     return parser
 
 
@@ -403,6 +435,22 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         real_promotion_loss_budget_pct=config.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=config.real_promotion_probation_min_score,
         use_v3_rolling_score=config.use_v3_rolling_score,
+        v3_persistent_loss_kill_min_closed_trades=(
+            config.v3_persistent_loss_kill_min_closed_trades
+        ),
+        v3_persistent_loss_kill_pnl_pct=config.v3_persistent_loss_kill_pnl_pct,
+        v3_persistent_loss_kill_win_rate_pct=(
+            config.v3_persistent_loss_kill_win_rate_pct
+        ),
+        v3_persistent_loss_requires_virtual_weakness=(
+            config.v3_persistent_loss_requires_virtual_weakness
+        ),
+        v3_persistent_loss_virtual_max_pnl_pct=(
+            config.v3_persistent_loss_virtual_max_pnl_pct
+        ),
+        v3_persistent_loss_virtual_min_dd_pct=(
+            config.v3_persistent_loss_virtual_min_dd_pct
+        ),
     )
 
 
@@ -516,6 +564,22 @@ def _write_run_summary(
         "real_promotion_loss_budget_pct": config.real_promotion_loss_budget_pct,
         "real_promotion_probation_min_score": config.real_promotion_probation_min_score,
         "use_v3_rolling_score": config.use_v3_rolling_score,
+        "v3_persistent_loss_kill_min_closed_trades": (
+            config.v3_persistent_loss_kill_min_closed_trades
+        ),
+        "v3_persistent_loss_kill_pnl_pct": config.v3_persistent_loss_kill_pnl_pct,
+        "v3_persistent_loss_kill_win_rate_pct": (
+            config.v3_persistent_loss_kill_win_rate_pct
+        ),
+        "v3_persistent_loss_requires_virtual_weakness": (
+            config.v3_persistent_loss_requires_virtual_weakness
+        ),
+        "v3_persistent_loss_virtual_max_pnl_pct": (
+            config.v3_persistent_loss_virtual_max_pnl_pct
+        ),
+        "v3_persistent_loss_virtual_min_dd_pct": (
+            config.v3_persistent_loss_virtual_min_dd_pct
+        ),
         "registered_agents": list(summary.registered_agents),
         "player_profile_count": summary.player_profile_count,
         "max_bars": summary.max_bars,
@@ -582,6 +646,8 @@ def _write_analysis_report(
         f"- Current leader: `{status.get('current_leader') or '-'}`",
         f"- Panteon owned PnL: {_fmt_pct(live_session.get('panteon_owned_pnl_pct'))}",
         f"- Panteon realized PnL USD: {_fmt_money(live_session.get('panteon_owned_realized_pnl_usd'))}",
+        f"- Panteon max drawdown: {_fmt_pct(status.get('panteon_max_drawdown_pct'))}",
+        f"- Panteon realized max drawdown: {_fmt_pct(status.get('panteon_realized_max_drawdown_pct'))}",
         f"- Real closed trades: {live_session.get('real_closed_trades', 0)}",
         f"- Open Panteon positions: {live_session.get('panteon_owned_positions_count', 0)}",
         f"- Last shadow actors: {shadow.get('actors', 0)}",

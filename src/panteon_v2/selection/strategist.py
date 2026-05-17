@@ -88,6 +88,12 @@ class StrategistConfig:
     v3_virtual_only_score_cap: float = 0.35
     v3_real_loss_kill_min_closed_trades: int = 3
     v3_real_loss_kill_pnl_pct: float = -1.0
+    v3_persistent_loss_kill_min_closed_trades: int = 0
+    v3_persistent_loss_kill_pnl_pct: float = -2.0
+    v3_persistent_loss_kill_win_rate_pct: float = 0.0
+    v3_persistent_loss_requires_virtual_weakness: bool = True
+    v3_persistent_loss_virtual_max_pnl_pct: float = 0.0
+    v3_persistent_loss_virtual_min_dd_pct: float = 25.0
     v3_score_config: RollingDecisionScoreConfig = field(
         default_factory=RollingDecisionScoreConfig
     )
@@ -135,6 +141,12 @@ class StrategistConfig:
             raise ValueError("v3_virtual_only_score_cap must be >= v3_min_score_to_trade")
         if self.v3_real_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_real_loss_kill_min_closed_trades must be >= 0")
+        if self.v3_persistent_loss_kill_min_closed_trades < 0:
+            raise ValueError("v3_persistent_loss_kill_min_closed_trades must be >= 0")
+        if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
+            raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
+        if self.v3_persistent_loss_virtual_min_dd_pct < 0:
+            raise ValueError("v3_persistent_loss_virtual_min_dd_pct must be >= 0")
         if not isinstance(self.v3_score_config, RollingDecisionScoreConfig):
             raise ValueError("v3_score_config must be RollingDecisionScoreConfig")
 
@@ -252,6 +264,10 @@ class Strategist:
         self._real_session_baseline: Dict[Tuple[str, Regime], Metrics] = {}
         self._candidate_cache: Dict[str, Tuple[Player, int]] = {}
         self._no_trade: Player = NoTradePlayer()
+        self._realized_pnl_by_player: Dict[str, float] = {}
+        self._realized_trade_counts_by_player: Dict[str, int] = {}
+        self._realized_win_counts_by_player: Dict[str, int] = {}
+        self._realized_initial_capital: float = 0.0
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -274,6 +290,28 @@ class Strategist:
                         label,
                         regime=reg,
                     )
+
+    def update_realized_pnl_snapshot(
+        self,
+        *,
+        pnl_by_player: Dict[str, float],
+        trade_counts_by_player: Dict[str, int],
+        win_counts_by_player: Dict[str, int],
+        initial_capital: float,
+    ) -> None:
+        self._realized_pnl_by_player = {
+            str(label): float(value or 0.0)
+            for label, value in dict(pnl_by_player or {}).items()
+        }
+        self._realized_trade_counts_by_player = {
+            str(label): max(0, int(value or 0))
+            for label, value in dict(trade_counts_by_player or {}).items()
+        }
+        self._realized_win_counts_by_player = {
+            str(label): max(0, int(value or 0))
+            for label, value in dict(win_counts_by_player or {}).items()
+        }
+        self._realized_initial_capital = max(0.0, float(initial_capital or 0.0))
 
     def current_leader(self) -> Optional[Player]:
         return self._current
@@ -722,20 +760,104 @@ class Strategist:
         regime: Regime,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
-        if cfg.v3_real_loss_kill_min_closed_trades <= 0:
+        if cfg.v3_real_loss_kill_min_closed_trades > 0:
+            metrics = self._real_promotion_metrics(player, regime)
+            if (
+                metrics.closed_trades >= cfg.v3_real_loss_kill_min_closed_trades
+                and metrics.pnl_pct <= cfg.v3_real_loss_kill_pnl_pct
+            ):
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=(
+                        f"v3 real-loss kill: pnl_pct {metrics.pnl_pct:.2f} <= "
+                        f"{cfg.v3_real_loss_kill_pnl_pct:.2f} with "
+                        f"{metrics.closed_trades} real closed trades"
+                    ),
+                )
+        return self._validate_v3_persistent_loss(player)
+
+    def _validate_v3_persistent_loss(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        if cfg.v3_persistent_loss_kill_min_closed_trades <= 0:
             return None
-        metrics = self._real_promotion_metrics(player, regime)
-        if metrics.closed_trades < cfg.v3_real_loss_kill_min_closed_trades:
+        realized_issue = self._validate_v3_persistent_realized_loss(player)
+        if realized_issue is not None:
+            return realized_issue
+        metrics = self._real_persistent_metrics(player)
+        if metrics.closed_trades < cfg.v3_persistent_loss_kill_min_closed_trades:
             return None
-        if metrics.pnl_pct > cfg.v3_real_loss_kill_pnl_pct:
+        win_rate = (
+            metrics.wins / metrics.closed_trades * 100.0
+            if metrics.closed_trades > 0 else 0.0
+        )
+        pnl_breach = metrics.pnl_pct <= cfg.v3_persistent_loss_kill_pnl_pct
+        weak_negative_edge = (
+            cfg.v3_persistent_loss_kill_win_rate_pct > 0.0
+            and
+            metrics.pnl_pct < 0.0
+            and win_rate <= cfg.v3_persistent_loss_kill_win_rate_pct
+        )
+        if not (pnl_breach or weak_negative_edge):
+            return None
+        if not self._has_v3_persistent_virtual_weakness(player):
             return None
         return _DisqualificationReason(
             label=player.label,
             reason=(
-                f"v3 real-loss kill: pnl_pct {metrics.pnl_pct:.2f} <= "
-                f"{cfg.v3_real_loss_kill_pnl_pct:.2f} with "
-                f"{metrics.closed_trades} real closed trades"
+                f"v3 persistent real-loss kill: pnl_pct {metrics.pnl_pct:.2f}, "
+                f"win_rate {win_rate:.2f}% with {metrics.closed_trades} "
+                "all-regime real closed trades"
             ),
+        )
+
+    def _validate_v3_persistent_realized_loss(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        label = player.label
+        closed_trades = int(self._realized_trade_counts_by_player.get(label, 0) or 0)
+        if closed_trades < cfg.v3_persistent_loss_kill_min_closed_trades:
+            return None
+        initial_capital = float(self._realized_initial_capital or 0.0)
+        if initial_capital <= 0:
+            return None
+        pnl_usd = float(self._realized_pnl_by_player.get(label, 0.0) or 0.0)
+        pnl_pct = pnl_usd / initial_capital * 100.0
+        wins = int(self._realized_win_counts_by_player.get(label, 0) or 0)
+        win_rate = wins / closed_trades * 100.0 if closed_trades > 0 else 0.0
+        pnl_breach = pnl_pct <= cfg.v3_persistent_loss_kill_pnl_pct
+        weak_negative_edge = (
+            cfg.v3_persistent_loss_kill_win_rate_pct > 0.0
+            and pnl_pct < 0.0
+            and win_rate <= cfg.v3_persistent_loss_kill_win_rate_pct
+        )
+        if not (pnl_breach or weak_negative_edge):
+            return None
+        if not self._has_v3_persistent_virtual_weakness(player):
+            return None
+        return _DisqualificationReason(
+            label=label,
+            reason=(
+                f"v3 persistent realized-loss kill: pnl_usd {pnl_usd:.2f}, "
+                f"pnl_pct {pnl_pct:.2f}, win_rate {win_rate:.2f}% with "
+                f"{closed_trades} realized closed trades"
+            ),
+        )
+
+    def _has_v3_persistent_virtual_weakness(self, player: Player) -> bool:
+        cfg = self._config
+        if not cfg.v3_persistent_loss_requires_virtual_weakness:
+            return True
+        metrics = self._virtual_persistent_metrics(player)
+        if not metrics.has_data:
+            return True
+        return (
+            metrics.pnl_pct <= cfg.v3_persistent_loss_virtual_max_pnl_pct
+            or metrics.max_dd_pct >= cfg.v3_persistent_loss_virtual_min_dd_pct
         )
 
     def _validate_real_promotion(
@@ -803,6 +925,95 @@ class Strategist:
             metrics = real_perf.get(label, regime=regime)
             if not metrics.has_data:
                 metrics = real_perf.get(label)
+            if not metrics.has_data:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            blocked += metrics.blocked_signals
+            rejected += metrics.rejected_signals
+            pending += metrics.pending_signals
+            execution_failures += metrics.execution_failures
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == execution_failures == 0:
+            return Metrics.empty()
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=(sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0),
+            max_dd_pct=max_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
+        )
+
+    def _real_persistent_metrics(self, player: Player) -> Metrics:
+        real_perf = getattr(self, "_real_perf", None)
+        if real_perf is None:
+            return Metrics.empty()
+        own_all = real_perf.get(player.label)
+        if own_all.has_data:
+            return own_all
+
+        closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            metrics = real_perf.get(label)
+            if not metrics.has_data:
+                continue
+            closed += metrics.closed_trades
+            entries += metrics.entries
+            signals += metrics.signals
+            wins += metrics.wins
+            losses += metrics.losses
+            blocked += metrics.blocked_signals
+            rejected += metrics.rejected_signals
+            pending += metrics.pending_signals
+            execution_failures += metrics.execution_failures
+            pnl += metrics.pnl_pct
+            max_dd = max(max_dd, metrics.max_dd_pct)
+            sharpe_values.append(metrics.sharpe)
+        if closed == entries == signals == execution_failures == 0:
+            return Metrics.empty()
+        return Metrics(
+            pnl_pct=pnl,
+            closed_trades=closed,
+            entries=entries,
+            signals=signals,
+            wins=wins,
+            losses=losses,
+            sharpe=(sum(sharpe_values) / len(sharpe_values) if sharpe_values else 0.0),
+            max_dd_pct=max_dd,
+            blocked_signals=blocked,
+            rejected_signals=rejected,
+            pending_signals=pending,
+            execution_failures=execution_failures,
+        )
+
+    def _virtual_persistent_metrics(self, player: Player) -> Metrics:
+        own_all = self._perf.get(player.label)
+        if own_all.has_data:
+            return own_all
+
+        closed = entries = signals = wins = losses = 0
+        blocked = rejected = pending = execution_failures = 0
+        pnl = 0.0
+        max_dd = 0.0
+        sharpe_values: List[float] = []
+        for label in player.agent_labels:
+            metrics = self._perf.get(label)
             if not metrics.has_data:
                 continue
             closed += metrics.closed_trades

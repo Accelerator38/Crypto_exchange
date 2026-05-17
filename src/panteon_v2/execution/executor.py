@@ -105,6 +105,9 @@ class ExecutionResult:
     signal:     Signal
     trade:      Optional[Trade] = None
     reason:     str = ""
+    realized_pnl_by_player: tuple[tuple[str, float], ...] = ()
+    closed_trade_counts_by_player: tuple[tuple[str, int], ...] = ()
+    win_counts_by_player: tuple[tuple[str, int], ...] = ()
 
     @property
     def is_success(self) -> bool:
@@ -586,6 +589,23 @@ class TradeExecutor:
         self._log.emit_many(
             self._with_context_many(events, audit_context)
         )
+        realized_pnl = sum(
+            float(getattr(event, "realized_pnl", 0.0) or 0.0)
+            for event in events
+        )
+        realized_by_player: Dict[str, float] = {}
+        closed_counts_by_player: Dict[str, int] = {}
+        win_counts_by_player: Dict[str, int] = {}
+        for event in events:
+            label = str(getattr(event, "by_player", "") or "")
+            if not label or not hasattr(event, "realized_pnl"):
+                continue
+            pnl = float(getattr(event, "realized_pnl", 0.0) or 0.0)
+            realized_by_player[label] = realized_by_player.get(label, 0.0) + pnl
+            closed_counts_by_player[label] = closed_counts_by_player.get(label, 0) + 1
+            if pnl > 0:
+                win_counts_by_player[label] = win_counts_by_player.get(label, 0) + 1
+
         self._emit_execution_attribution(
             signal,
             ExecutionStatus.FILLED,
@@ -594,16 +614,16 @@ class TradeExecutor:
             result=result,
             order_id=self._resolved_order_id(result, trade, execution_key),
             latency_ms=self._latency_ms(started_at),
-            realized_pnl=sum(
-                float(getattr(event, "realized_pnl", 0.0) or 0.0)
-                for event in events
-            ),
+            realized_pnl=realized_pnl,
         )
 
         return ExecutionResult(
             status=ExecutionStatus.FILLED,
             signal=signal,
             trade=trade,
+            realized_pnl_by_player=tuple(sorted(realized_by_player.items())),
+            closed_trade_counts_by_player=tuple(sorted(closed_counts_by_player.items())),
+            win_counts_by_player=tuple(sorted(win_counts_by_player.items())),
         )
 
     def _handle_rejected(

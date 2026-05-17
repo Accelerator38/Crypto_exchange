@@ -459,6 +459,7 @@ def _run_one_bar(
         shadow_total_blocked=shadow_summary.total_blocked,
     ))
     pipeline.strategist.update_candidates(candidates)
+    _sync_strategist_realized_snapshot(pipeline)
     try:
         decision: SwitchDecision = pipeline.strategist.consider_switch(
             market.regime,
@@ -622,6 +623,7 @@ def _run_one_bar(
         if res.status == ExecutionStatus.FILLED:
             n_filled += 1
             _record_order_success(pipeline, sig, res)
+            _record_realized_result_for_strategy(pipeline, res)
             # Update balance (simple): добавляем realized PnL если был close
             # (детальнее — в AttributionLedger; здесь упрощённо)
         elif res.status == ExecutionStatus.REJECTED:
@@ -1122,6 +1124,58 @@ def _record_order_success(
             pipeline,
             f"excessive slippage {slippage_pct:.4f}% > {limit:.4f}%",
         )
+
+
+def _record_realized_result_for_strategy(
+    pipeline: ProductionPipeline,
+    result: ExecutionResult,
+) -> None:
+    pnl_by_player = dict(getattr(pipeline, "_allocator_realized_pnl_by_player", {}) or {})
+    trades_by_player = dict(
+        getattr(pipeline, "_allocator_realized_trade_counts_by_player", {}) or {}
+    )
+    wins_by_player = dict(getattr(pipeline, "_allocator_realized_win_counts_by_player", {}) or {})
+
+    for label, pnl in getattr(result, "realized_pnl_by_player", ()) or ():
+        key = str(label or "")
+        if not key:
+            continue
+        pnl_by_player[key] = float(pnl_by_player.get(key, 0.0) or 0.0) + float(pnl or 0.0)
+    for label, count in getattr(result, "closed_trade_counts_by_player", ()) or ():
+        key = str(label or "")
+        if not key:
+            continue
+        trades_by_player[key] = int(trades_by_player.get(key, 0) or 0) + int(count or 0)
+    for label, count in getattr(result, "win_counts_by_player", ()) or ():
+        key = str(label or "")
+        if not key:
+            continue
+        wins_by_player[key] = int(wins_by_player.get(key, 0) or 0) + int(count or 0)
+
+    pipeline._allocator_realized_pnl_by_player = pnl_by_player
+    pipeline._allocator_realized_trade_counts_by_player = trades_by_player
+    pipeline._allocator_realized_win_counts_by_player = wins_by_player
+
+
+def _sync_strategist_realized_snapshot(pipeline: ProductionPipeline) -> None:
+    update = getattr(getattr(pipeline, "strategist", None), "update_realized_pnl_snapshot", None)
+    if not callable(update):
+        return
+    try:
+        update(
+            pnl_by_player=getattr(pipeline, "_allocator_realized_pnl_by_player", {}) or {},
+            trade_counts_by_player=(
+                getattr(pipeline, "_allocator_realized_trade_counts_by_player", {}) or {}
+            ),
+            win_counts_by_player=getattr(
+                pipeline,
+                "_allocator_realized_win_counts_by_player",
+                {},
+            ) or {},
+            initial_capital=float(getattr(pipeline, "initial_capital", 0.0) or 0.0),
+        )
+    except Exception:
+        log.debug("failed to sync realized PnL snapshot into strategist", exc_info=True)
 
 
 def _record_order_failure(pipeline: ProductionPipeline, reason: str) -> None:

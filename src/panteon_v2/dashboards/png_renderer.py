@@ -168,6 +168,7 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
         ("Spot assets", _usd(status.get("spot_assets_usd", 0.0))),
         ("Total assets", _usd(status.get("total_assets_usd", status.get("current_balance", 0.0)))),
         ("Panteon PnL", f"{_usd(pnl_usd)} / {_pct(panteon_pct)}"),
+        ("Panteon DD", _pct(status.get("panteon_max_drawdown_pct", 0.0))),
         ("Account PnL", _pct(status.get("pnl_pct", 0.0))),
         ("Positions", status.get("n_positions", 0)),
     ]

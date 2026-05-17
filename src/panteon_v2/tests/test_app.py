@@ -1775,6 +1775,82 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(status["real_trades"]["unsuccessful"], 1)
         self.assertEqual(status["real_trades"]["unresolved"], 1)
 
+    def test_status_exports_panteon_realized_equity_curve_and_drawdown(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            pipeline.event_log.emit(PositionClosed(
+                bar=1,
+                trace_id="win",
+                open_signal_id=1,
+                close_signal_id=2,
+                sym="BTC",
+                side="long",
+                entry=100.0,
+                exit=120.0,
+                qty=1.0,
+                realized_pnl=20.0,
+                by_player="DefaultEnsemble",
+                by_agent="AgentA",
+            ))
+            writer.write(StepResult(
+                bar=1,
+                regime=Regime.BULLISH,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+            ))
+            pipeline.event_log.emit(PositionClosed(
+                bar=2,
+                trace_id="loss",
+                open_signal_id=3,
+                close_signal_id=4,
+                sym="ETH",
+                side="long",
+                entry=100.0,
+                exit=85.0,
+                qty=1.0,
+                realized_pnl=-15.0,
+                by_player="DefaultEnsemble",
+                by_agent="AgentA",
+            ))
+            writer.write(StepResult(
+                bar=2,
+                regime=Regime.BEARISH,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"),
+                      "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        self.assertEqual(status["panteon_realized_equity_usd"], 105.0)
+        self.assertEqual(status["panteon_equity_usd"], 105.0)
+        self.assertEqual(status["panteon_realized_equity_curve"][-3:], [100.0, 120.0, 105.0])
+        self.assertEqual(status["panteon_equity_curve"][-3:], [100.0, 120.0, 105.0])
+        self.assertAlmostEqual(status["panteon_realized_max_drawdown_pct"], 12.5)
+        self.assertAlmostEqual(status["panteon_max_drawdown_pct"], 12.5)
+        self.assertAlmostEqual(
+            status["live_session"]["panteon_realized_max_drawdown_pct"],
+            12.5,
+        )
+        self.assertAlmostEqual(status["live_session"]["panteon_max_drawdown_pct"], 12.5)
+
 
 # ════════════════════════════════════════════════════════════════════
 # Migration

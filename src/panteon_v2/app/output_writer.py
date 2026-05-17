@@ -91,6 +91,8 @@ class OutputWriter:
         self._last_players_payload: Dict[str, object] = {"metadata": {}, "players": {}}
         self._wrote_first_live_dashboard = False
         self._assets_history: List[float] = []
+        self._panteon_equity_history: List[float] = []
+        self._panteon_realized_equity_history: List[float] = []
         self._shadow_session_counts = {
             "signals": 0,
             "filled": 0,
@@ -266,9 +268,7 @@ class OutputWriter:
             (total_assets - self._initial_capital) / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
-        self._assets_history.append(total_assets)
-        if len(self._assets_history) > 720:
-            self._assets_history = self._assets_history[-720:]
+        self._assets_history = self._append_curve_value(self._assets_history, total_assets)
 
         # Открытые позиции
         open_positions = self._tracked_open_positions()
@@ -322,6 +322,20 @@ class OutputWriter:
             panteon_owned_realized_pnl
             + position_pnl["panteon_owned_unrealized_pnl_usd"]
         )
+        panteon_realized_equity = self._initial_capital + panteon_owned_realized_pnl
+        panteon_equity = self._initial_capital + panteon_owned_total_pnl
+        self._panteon_realized_equity_history = self._append_curve_value(
+            self._panteon_realized_equity_history,
+            panteon_realized_equity,
+        )
+        self._panteon_equity_history = self._append_curve_value(
+            self._panteon_equity_history,
+            panteon_equity,
+        )
+        panteon_realized_max_dd_pct = self._curve_max_drawdown_pct(
+            self._panteon_realized_equity_history
+        )
+        panteon_max_dd_pct = self._curve_max_drawdown_pct(self._panteon_equity_history)
         panteon_owned_pnl_pct = (
             panteon_owned_total_pnl / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
@@ -334,6 +348,10 @@ class OutputWriter:
             "panteon_equity_pnl_usd": panteon_owned_total_pnl,
             "panteon_realized_pnl_usd": panteon_owned_realized_pnl,
             "panteon_pnl_pct": panteon_owned_pnl_pct,
+            "panteon_equity_usd": panteon_equity,
+            "panteon_realized_equity_usd": panteon_realized_equity,
+            "panteon_max_drawdown_pct": panteon_max_dd_pct,
+            "panteon_realized_max_drawdown_pct": panteon_realized_max_dd_pct,
             "panteon_owned_realized_pnl_usd": panteon_owned_realized_pnl,
             "panteon_owned_unrealized_pnl_usd": position_pnl["panteon_owned_unrealized_pnl_usd"],
             "panteon_owned_total_pnl_usd": panteon_owned_total_pnl,
@@ -412,6 +430,13 @@ class OutputWriter:
             "spot_assets_usd": account_snapshot.get("spot_assets", 0.0),
             "total_assets_usd": total_assets,
             "assets_curve":     list(self._assets_history),
+            "equity_curve":     list(self._panteon_equity_history),
+            "panteon_equity_usd": panteon_equity,
+            "panteon_realized_equity_usd": panteon_realized_equity,
+            "panteon_equity_curve": list(self._panteon_equity_history),
+            "panteon_realized_equity_curve": list(self._panteon_realized_equity_history),
+            "panteon_max_drawdown_pct": panteon_max_dd_pct,
+            "panteon_realized_max_drawdown_pct": panteon_realized_max_dd_pct,
             "unrealized_pnl_usd": account_snapshot.get("unrealized_pnl", 0.0),
             "pnl_usd":          realized_pnl,
             "pnl_pct":          pnl_pct,
@@ -585,6 +610,31 @@ class OutputWriter:
                 "external": _is_external_player(pos.by_player),
             }
         return open_positions
+
+    @staticmethod
+    def _append_curve_value(history: List[float], value: float, *, limit: int = 720) -> List[float]:
+        out = list(history)
+        out.append(float(value))
+        if len(out) > limit:
+            out = out[-limit:]
+        return out
+
+    @staticmethod
+    def _curve_max_drawdown_pct(curve: List[float]) -> float:
+        peak = 0.0
+        max_dd = 0.0
+        for raw in curve:
+            value = float(raw or 0.0)
+            if value <= 0:
+                continue
+            if value > peak:
+                peak = value
+            if peak <= 0:
+                continue
+            dd = (peak - value) / peak * 100.0
+            if dd > max_dd:
+                max_dd = dd
+        return max_dd
 
     def _position_pnl_summary(self, *, leader: Optional[str]) -> Dict[str, float]:
         summary = {
