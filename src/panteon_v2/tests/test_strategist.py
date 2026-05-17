@@ -427,6 +427,7 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
                 use_v3_rolling_score=True,
                 use_v3_shadow_rolling_score=True,
                 v3_shadow_position_gate_enabled=True,
+                v3_shadow_flat_handoff_enabled=False,
                 v3_shadow_rolling_min_closed_trades=1,
                 cooldown_bars=0,
                 streak_needed=1,
@@ -471,6 +472,63 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(decision.new_leader.label, "BetaPlayer")
         reasons = " ".join(item.reason for item in decision.candidate_rejections)
         self.assertIn("v3 shadow position gate", reasons)
+
+    def test_v3_shadow_position_gate_allows_flat_real_handoff(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("AlphaPlayer", ["AlphaAgent"]),
+                _make_player("BetaPlayer", ["BetaAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_shadow_rolling_score=True,
+                v3_shadow_position_gate_enabled=True,
+                v3_shadow_flat_handoff_enabled=True,
+                v3_shadow_rolling_min_closed_trades=1,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="AlphaPlayer",
+                regime="bullish",
+                realized_pnl_usd=10.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="BetaPlayer",
+                regime="bullish",
+                realized_pnl_usd=1.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+        ])
+        st.update_shadow_position_snapshot(
+            player_positions={
+                "AlphaPlayer": ({"sym": "BTC", "side": "long"},),
+                "BetaPlayer": (),
+            },
+            real_positions=(),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "AlphaPlayer")
+        self.assertEqual(decision.candidate_rejections, ())
 
     def test_v3_real_loss_kill_blocks_candidate_before_slow_promotion_gate(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)

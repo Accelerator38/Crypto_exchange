@@ -87,6 +87,7 @@ class StrategistConfig:
     use_v3_rolling_score: bool = False
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
+    v3_shadow_flat_handoff_enabled: bool = False
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_min_score_to_trade: float = 0.0
@@ -844,6 +845,8 @@ class Strategist:
         shadow_signature = self._shadow_positions_by_player.get(player.label, ())
         real_signature = self._real_position_signature
         if shadow_signature == real_signature:
+            return None
+        if cfg.v3_shadow_flat_handoff_enabled and not real_signature:
             return None
         return _DisqualificationReason(
             label=player.label,
