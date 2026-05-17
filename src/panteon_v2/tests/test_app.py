@@ -558,7 +558,10 @@ class TestMainLoop(unittest.TestCase):
         )
 
         positions = tournament.last_player_open_positions()
-        self.assertEqual(positions, {"PlayerA": ({"sym": "BTC", "side": "long"},)})
+        self.assertEqual(
+            positions,
+            {"PlayerA": ({"sym": "BTC", "side": "long", "opened_bar": 1},)},
+        )
 
     def test_pending_shadow_updates_sync_into_strategist_once(self):
         from panteon_v2.app.main_loop import _apply_pending_shadow_updates_to_strategist

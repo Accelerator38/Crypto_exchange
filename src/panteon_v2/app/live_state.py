@@ -322,6 +322,10 @@ def reconcile_tracker_with_exchange(
                 getattr(existing, "opened_at", None)
                 if existing is not None else datetime.now(timezone.utc)
             ) or datetime.now(timezone.utc),
+            opened_bar=(
+                int(getattr(existing, "opened_bar", 0) or 0)
+                if existing is not None else int(bar_index or 0)
+            ),
         )
         if existing is None:
             added += 1

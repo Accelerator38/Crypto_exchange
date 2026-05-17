@@ -68,6 +68,8 @@ class RetrodateMarketConfig:
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
+    v3_shadow_fresh_handoff_enabled: bool = False
+    v3_shadow_fresh_handoff_max_age_bars: int = 1
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_persistent_loss_kill_min_closed_trades: int = 0
@@ -99,6 +101,8 @@ class RetrodateMarketConfig:
             raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
         if self.v3_shadow_rolling_min_closed_trades < 0:
             raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
+        if self.v3_shadow_fresh_handoff_max_age_bars < 0:
+            raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
         if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
             raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
         if self.v3_persistent_loss_virtual_min_dd_pct < 0:
@@ -417,6 +421,8 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         use_v3_shadow_rolling_score=args.use_v3_shadow_rolling_score,
         v3_shadow_position_gate_enabled=not args.disable_v3_shadow_position_gate,
         v3_shadow_flat_handoff_enabled=args.enable_v3_shadow_flat_handoff,
+        v3_shadow_fresh_handoff_enabled=args.enable_v3_shadow_fresh_handoff,
+        v3_shadow_fresh_handoff_max_age_bars=args.v3_shadow_fresh_handoff_max_age_bars,
         v3_shadow_rolling_window_bars=args.v3_shadow_rolling_window_bars,
         v3_shadow_rolling_min_closed_trades=args.v3_shadow_rolling_min_closed_trades,
         v3_persistent_loss_kill_min_closed_trades=(
@@ -462,6 +468,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-v3-shadow-rolling-score", action="store_true")
     parser.add_argument("--disable-v3-shadow-position-gate", action="store_true")
     parser.add_argument("--enable-v3-shadow-flat-handoff", action="store_true")
+    parser.add_argument("--enable-v3-shadow-fresh-handoff", action="store_true")
+    parser.add_argument("--v3-shadow-fresh-handoff-max-age-bars", type=int, default=1)
     parser.add_argument("--v3-shadow-rolling-window-bars", type=int, default=24)
     parser.add_argument("--v3-shadow-rolling-min-closed-trades", type=int, default=50)
     parser.add_argument("--v3-persistent-loss-kill-min-closed-trades", type=int, default=0)
@@ -485,6 +493,8 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         use_v3_shadow_rolling_score=config.use_v3_shadow_rolling_score,
         v3_shadow_position_gate_enabled=config.v3_shadow_position_gate_enabled,
         v3_shadow_flat_handoff_enabled=config.v3_shadow_flat_handoff_enabled,
+        v3_shadow_fresh_handoff_enabled=config.v3_shadow_fresh_handoff_enabled,
+        v3_shadow_fresh_handoff_max_age_bars=config.v3_shadow_fresh_handoff_max_age_bars,
         v3_shadow_rolling_window_bars=config.v3_shadow_rolling_window_bars,
         v3_shadow_rolling_min_closed_trades=config.v3_shadow_rolling_min_closed_trades,
         v3_persistent_loss_kill_min_closed_trades=(
@@ -619,6 +629,8 @@ def _write_run_summary(
         "use_v3_shadow_rolling_score": config.use_v3_shadow_rolling_score,
         "v3_shadow_position_gate_enabled": config.v3_shadow_position_gate_enabled,
         "v3_shadow_flat_handoff_enabled": config.v3_shadow_flat_handoff_enabled,
+        "v3_shadow_fresh_handoff_enabled": config.v3_shadow_fresh_handoff_enabled,
+        "v3_shadow_fresh_handoff_max_age_bars": config.v3_shadow_fresh_handoff_max_age_bars,
         "v3_shadow_rolling_window_bars": config.v3_shadow_rolling_window_bars,
         "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
         "v3_persistent_loss_kill_min_closed_trades": (

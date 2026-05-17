@@ -141,6 +141,9 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
         "--use-v3-rolling-score",
         "--use-v3-shadow-rolling-score",
         "--enable-v3-shadow-flat-handoff",
+        "--enable-v3-shadow-fresh-handoff",
+        "--v3-shadow-fresh-handoff-max-age-bars",
+        "1",
         "--v3-shadow-rolling-window-bars",
         "24",
         "--v3-shadow-rolling-min-closed-trades",
@@ -151,6 +154,8 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
     assert config.use_v3_shadow_rolling_score is True
     assert config.v3_shadow_position_gate_enabled is True
     assert config.v3_shadow_flat_handoff_enabled is True
+    assert config.v3_shadow_fresh_handoff_enabled is True
+    assert config.v3_shadow_fresh_handoff_max_age_bars == 1
     assert config.v3_shadow_rolling_window_bars == 24
     assert config.v3_shadow_rolling_min_closed_trades == 50
 
@@ -161,6 +166,8 @@ def test_build_strategist_config_passes_use_v3_rolling_score():
         use_v3_shadow_rolling_score=True,
         v3_shadow_position_gate_enabled=True,
         v3_shadow_flat_handoff_enabled=True,
+        v3_shadow_fresh_handoff_enabled=True,
+        v3_shadow_fresh_handoff_max_age_bars=1,
         v3_shadow_rolling_window_bars=24,
         v3_shadow_rolling_min_closed_trades=50,
     )
@@ -171,6 +178,8 @@ def test_build_strategist_config_passes_use_v3_rolling_score():
     assert strategist_config.use_v3_shadow_rolling_score is True
     assert strategist_config.v3_shadow_position_gate_enabled is True
     assert strategist_config.v3_shadow_flat_handoff_enabled is True
+    assert strategist_config.v3_shadow_fresh_handoff_enabled is True
+    assert strategist_config.v3_shadow_fresh_handoff_max_age_bars == 1
     assert strategist_config.v3_shadow_rolling_window_bars == 24
     assert strategist_config.v3_shadow_rolling_min_closed_trades == 50
 

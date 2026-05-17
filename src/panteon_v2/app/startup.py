@@ -477,6 +477,7 @@ def _recover_exchange_positions(pipeline) -> int:
             by_player=by_player,
             by_agent=by_agent,
             opened_at=datetime.now(timezone.utc),
+            opened_bar=0,
         ))
         recovered += 1
 

@@ -88,6 +88,8 @@ class StrategistConfig:
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
+    v3_shadow_fresh_handoff_enabled: bool = False
+    v3_shadow_fresh_handoff_max_age_bars: int = 1
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_min_score_to_trade: float = 0.0
@@ -149,6 +151,8 @@ class StrategistConfig:
             raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
         if self.v3_shadow_rolling_min_closed_trades < 0:
             raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
+        if self.v3_shadow_fresh_handoff_max_age_bars < 0:
+            raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
         if self.v3_real_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_real_loss_kill_min_closed_trades must be >= 0")
         if self.v3_persistent_loss_kill_min_closed_trades < 0:
@@ -302,6 +306,10 @@ class Strategist:
             _ShadowRollingActorState,
         ] = {}
         self._shadow_positions_by_player: Dict[str, Tuple[Tuple[str, str], ...]] = {}
+        self._shadow_position_details_by_player: Dict[
+            str,
+            Tuple[Tuple[str, str, int], ...],
+        ] = {}
         self._real_position_signature: Tuple[Tuple[str, str], ...] = ()
         self._shadow_position_snapshot_seen: bool = False
 
@@ -376,9 +384,14 @@ class Strategist:
     ) -> None:
         if not isinstance(player_positions, dict):
             player_positions = {}
-        self._shadow_positions_by_player = {
-            str(label): self._position_signature(positions)
+        details_by_player = {
+            str(label): self._position_details(positions)
             for label, positions in dict(player_positions).items()
+        }
+        self._shadow_position_details_by_player = details_by_player
+        self._shadow_positions_by_player = {
+            label: tuple((sym, side) for sym, side, _ in details)
+            for label, details in details_by_player.items()
         }
         self._real_position_signature = self._position_signature(real_positions)
         self._shadow_position_snapshot_seen = True
@@ -782,7 +795,10 @@ class Strategist:
             issue = self._validate_v3_real_loss(player, regime)
             if issue is not None:
                 return issue
-            issue = self._validate_v3_shadow_position_gate(player)
+            issue = self._validate_v3_shadow_position_gate(
+                player,
+                current_bar=current_bar,
+            )
             if issue is not None:
                 return issue
         if regime_confidence < cfg.min_regime_confidence:
@@ -832,6 +848,8 @@ class Strategist:
     def _validate_v3_shadow_position_gate(
         self,
         player: Player,
+        *,
+        current_bar: int,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
         if not (
@@ -848,6 +866,12 @@ class Strategist:
             return None
         if cfg.v3_shadow_flat_handoff_enabled and not real_signature:
             return None
+        if (
+            cfg.v3_shadow_fresh_handoff_enabled
+            and not real_signature
+            and self._is_fresh_shadow_handoff(player.label, current_bar=current_bar)
+        ):
+            return None
         return _DisqualificationReason(
             label=player.label,
             reason=(
@@ -856,6 +880,19 @@ class Strategist:
                 f"{self._format_position_signature(real_signature)}"
             ),
         )
+
+    def _is_fresh_shadow_handoff(self, label: str, *, current_bar: int) -> bool:
+        details = self._shadow_position_details_by_player.get(label, ())
+        if not details:
+            return False
+        max_age = max(0, int(self._config.v3_shadow_fresh_handoff_max_age_bars))
+        for _, _, opened_bar in details:
+            if opened_bar <= 0:
+                return False
+            age = int(current_bar) - int(opened_bar)
+            if age < 0 or age > max_age:
+                return False
+        return True
 
     def _validate_v3_real_loss(
         self,
@@ -1663,7 +1700,11 @@ class Strategist:
 
     @classmethod
     def _position_signature(cls, positions: object) -> Tuple[Tuple[str, str], ...]:
-        out: List[Tuple[str, str]] = []
+        return tuple((sym, side) for sym, side, _ in cls._position_details(positions))
+
+    @classmethod
+    def _position_details(cls, positions: object) -> Tuple[Tuple[str, str, int], ...]:
+        out: List[Tuple[str, str, int]] = []
         if isinstance(positions, dict):
             iterable = positions.values()
         else:
@@ -1672,7 +1713,8 @@ class Strategist:
             sym = str(cls._position_value(pos, "sym") or "").upper()
             side = str(cls._position_value(pos, "side") or "").lower()
             if sym and side in ("long", "short"):
-                out.append((sym, side))
+                opened_bar = cls._safe_int(cls._position_value(pos, "opened_bar"))
+                out.append((sym, side, opened_bar))
         return tuple(sorted(set(out)))
 
     @staticmethod

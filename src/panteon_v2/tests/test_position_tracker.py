@@ -51,6 +51,7 @@ class TestPositionTracker(unittest.TestCase):
         self.assertEqual(events[0].signal_id, 1)
         self.assertTrue(tracker.has("BTC"))
         self.assertEqual(tracker.open_count, 1)
+        self.assertEqual(tracker.get("BTC").opened_bar, sig.bar)
 
     def test_on_open_ignores_close_action(self):
         tracker = PositionTracker()

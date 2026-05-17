@@ -32,6 +32,7 @@ class TrackedPosition:
     by_player:      str
     by_agent:       str
     opened_at:      datetime
+    opened_bar:     int = 0
 
 
 class PositionTracker:
@@ -91,6 +92,7 @@ class PositionTracker:
             by_player=signal.by_player,
             by_agent=signal.by_agent,
             opened_at=trade.timestamp,
+            opened_bar=signal.bar,
         )
         self._positions[sym] = pos
         return [PositionOpened(

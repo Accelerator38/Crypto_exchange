@@ -509,7 +509,11 @@ def _position_payloads(open_positions: Dict[str, object]) -> Tuple[Dict[str, str
         sym = str(getattr(pos, "sym", key) or key).upper()
         side = str(getattr(pos, "side", "") or "").lower()
         if sym and side in ("long", "short"):
-            payloads.append({"sym": sym, "side": side})
+            payloads.append({
+                "sym": sym,
+                "side": side,
+                "opened_bar": int(getattr(pos, "opened_bar", 0) or 0),
+            })
     payloads.sort(key=lambda item: (item["sym"], item["side"]))
     return tuple(payloads)
 
