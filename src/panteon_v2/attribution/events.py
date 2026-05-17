@@ -195,6 +195,7 @@ class ShadowActorUpdated(Event):
 
     actor_label: str = ""
     actor_type: str = ""
+    regime: str = ""
     signals: int = 0
     filled: int = 0
     rejected: int = 0
@@ -204,6 +205,9 @@ class ShadowActorUpdated(Event):
     agent_outcomes: Tuple[Tuple[str, int, int, int, int], ...] = ()
     agent_rejected_reasons: Tuple[Tuple[str, str, int], ...] = ()
     agent_blocked_reasons: Tuple[Tuple[str, str, int], ...] = ()
+    realized_pnl_usd: float = 0.0
+    closed_trades: int = 0
+    winning_trades: int = 0
 
 
 @dataclass(frozen=True)

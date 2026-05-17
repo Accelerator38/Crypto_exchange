@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
 
 import panteon_v2.analysis.retrodate_market_runner as runner
 from panteon_v2.analysis.retrodate_market_runner import (
+    RetrodateFileSelection,
     RetrodateMarketConfig,
+    RetrodateRunSummary,
     RetrodateSnapshotState,
     load_retrodate_year_snapshots,
     select_retrodate_files,
 )
+from panteon_v2.analysis.retrodate_validator import RetrodateDirReport
 from panteon_v2.analysis.retrodate_validator import RetrodateValidationError
 from panteon_v2.domain.types import Regime
 
@@ -142,3 +146,74 @@ def test_build_strategist_config_passes_use_v3_rolling_score():
     strategist_config = runner._build_strategist_config(config)
 
     assert strategist_config.use_v3_rolling_score is True
+
+
+def test_analysis_report_includes_soft_allocator_summary(tmp_path):
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "status.json").write_text(
+        json.dumps({
+            "current_leader": "Leader",
+            "live_session": {
+                "panteon_owned_pnl_pct": 1.5,
+                "panteon_owned_realized_pnl_usd": 15.0,
+                "real_closed_trades": 3,
+                "panteon_owned_positions_count": 0,
+            },
+            "shadow": {"actors": 2},
+        }),
+        encoding="utf-8",
+    )
+    (output_dir / "leaderboard_agents.json").write_text(
+        json.dumps({"agents": {}}),
+        encoding="utf-8",
+    )
+    (output_dir / "leaderboard_players.json").write_text(
+        json.dumps({"players": {}}),
+        encoding="utf-8",
+    )
+    (output_dir / "soft_allocator_report.json").write_text(
+        json.dumps({
+            "best_single_label": "Solo_A",
+            "best_single_pnl_usd": 100.0,
+            "best_single_pnl_pct": 10.0,
+            "best_single_max_drawdown_pct": 4.0,
+            "best_policy_name": "soft_top3_decayed",
+            "best_policy_pnl_usd": 130.0,
+            "best_policy_pnl_pct": 13.0,
+            "best_policy_max_drawdown_pct": 3.0,
+            "regret_vs_best_single_usd": 0.0,
+            "beats_best_single": True,
+        }),
+        encoding="utf-8",
+    )
+    summary = RetrodateRunSummary(
+        output_dir=output_dir,
+        report_path=output_dir / "analysis_report.md",
+        summary_path=output_dir / "run_summary.json",
+        requested_years=(2025,),
+        executed_years=(2025,),
+        excluded_files=(),
+        missing_years=(),
+        bars_processed=1,
+        registered_agents=("A",),
+        player_profile_count=1,
+        first_timestamp="2025-01-01T00:00:00+00:00",
+        last_timestamp="2025-01-01T01:00:00+00:00",
+        stride_minutes=60,
+        max_bars=None,
+        step_errors=(),
+    )
+    selection = RetrodateFileSelection(
+        report=RetrodateDirReport(path=tmp_path, files=[]),
+        valid_reports=(),
+        excluded_files=(),
+        missing_years=(),
+    )
+
+    runner._write_analysis_report(summary.report_path, summary, selection)
+
+    report = summary.report_path.read_text(encoding="utf-8")
+    assert "## Soft Allocator Simulation" in report
+    assert "`soft_top3_decayed`" in report
+    assert "Beats best single: yes" in report

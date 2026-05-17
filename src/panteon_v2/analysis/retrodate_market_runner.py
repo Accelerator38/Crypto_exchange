@@ -16,10 +16,17 @@ from ..app.bootstrap import build_production_pipeline
 from ..app.main_loop import StepResult, main_loop
 from ..app.output_writer import OutputWriter, OutputWriterConfig
 from ..app.shadow_tournament import ProductionShadowTournament
+from ..attribution import EventLog, ShadowActorUpdated
 from ..domain.types import MarketSnapshot, Regime
 from ..execution import FakeExchange
 from ..selection import AgentRegistry, StrategistConfig
 from ..shadow.feed import ReplayFeed
+from .soft_allocator import (
+    shadow_pnl_events_from_shadow_updates,
+    simulate_soft_allocator_policies,
+    write_shadow_pnl_events,
+    write_soft_allocator_report,
+)
 from .retrodate_validator import (
     RetrodateDirReport,
     RetrodateFileReport,
@@ -262,11 +269,12 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
     pipeline.run_id = output_dir.name
+    shadow_event_log = EventLog()
     pipeline.shadow_tournament = ProductionShadowTournament(
         registry=pipeline.registry,
         perf=pipeline.virtual_perf,
         risk_config=pipeline.risk_config,
-        event_log=None,
+        event_log=shadow_event_log,
     )
 
     writer = OutputWriter(
@@ -317,6 +325,19 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             step_errors.extend(str(step.error) for step in steps if step.error)
     finally:
         writer.close()
+
+    try:
+        shadow_pnl_events = shadow_pnl_events_from_shadow_updates(
+            shadow_event_log.query(event_types=[ShadowActorUpdated])
+        )
+        soft_report = simulate_soft_allocator_policies(
+            shadow_pnl_events,
+            initial_capital=config.initial_capital,
+        )
+        write_soft_allocator_report(output_dir, soft_report)
+        write_shadow_pnl_events(output_dir, shadow_pnl_events)
+    except Exception as exc:
+        step_errors.append(f"soft_allocator_report_failed: {type(exc).__name__}: {exc}")
 
     report_path = output_dir / "analysis_report.md"
     summary_path = output_dir / "run_summary.json"
@@ -586,6 +607,23 @@ def _write_run_summary(
         "step_errors": list(summary.step_errors),
         "validation_files": [_file_report_payload(item) for item in selection.report.files],
     }
+    soft_allocator = _load_json(summary.output_dir / "soft_allocator_report.json")
+    if soft_allocator:
+        data["soft_allocator_report"] = {
+            "best_single_label": soft_allocator.get("best_single_label", ""),
+            "best_single_pnl_usd": soft_allocator.get("best_single_pnl_usd", 0.0),
+            "best_policy_name": soft_allocator.get("best_policy_name", ""),
+            "best_policy_pnl_usd": soft_allocator.get("best_policy_pnl_usd", 0.0),
+            "best_policy_max_drawdown_pct": soft_allocator.get(
+                "best_policy_max_drawdown_pct",
+                0.0,
+            ),
+            "regret_vs_best_single_usd": soft_allocator.get(
+                "regret_vs_best_single_usd",
+                0.0,
+            ),
+            "beats_best_single": soft_allocator.get("beats_best_single", False),
+        }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
@@ -601,6 +639,7 @@ def _write_analysis_report(
     players = players_payload.get("players", {}) if isinstance(players_payload, dict) else {}
     live_session = status.get("live_session", {}) if isinstance(status, dict) else {}
     shadow = status.get("shadow", {}) if isinstance(status, dict) else {}
+    soft_allocator = _load_json(summary.output_dir / "soft_allocator_report.json")
 
     excluded_lines = []
     for item in selection.excluded_files:
@@ -619,6 +658,9 @@ def _write_analysis_report(
         "status.json",
         "leaderboard_agents.json",
         "leaderboard_players.json",
+        "soft_allocator_report.md",
+        "soft_allocator_report.json",
+        "shadow_player_pnl_events.jsonl",
     ]
     dashboard_lines = [
         f"- `{name}`"
@@ -652,6 +694,7 @@ def _write_analysis_report(
         f"- Open Panteon positions: {live_session.get('panteon_owned_positions_count', 0)}",
         f"- Last shadow actors: {shadow.get('actors', 0)}",
         "",
+        *(_soft_allocator_report_lines(soft_allocator) + [""] if soft_allocator else []),
         "## Top Agents By Virtual PnL",
         _markdown_table(_top_rows(agents, limit=10)),
         "",
@@ -674,6 +717,25 @@ def _write_analysis_report(
             *[f"- {error}" for error in summary.step_errors[:20]],
         ])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _soft_allocator_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    return [
+        "## Soft Allocator Simulation",
+        f"- Best single shadow player: `{report.get('best_single_label') or '-'}` "
+        f"({_fmt_money(report.get('best_single_pnl_usd'))}, "
+        f"{_fmt_pct(report.get('best_single_pnl_pct'))}, "
+        f"DD {_fmt_pct(report.get('best_single_max_drawdown_pct'))})",
+        f"- Best soft policy: `{report.get('best_policy_name') or '-'}` "
+        f"({_fmt_money(report.get('best_policy_pnl_usd'))}, "
+        f"{_fmt_pct(report.get('best_policy_pnl_pct'))}, "
+        f"DD {_fmt_pct(report.get('best_policy_max_drawdown_pct'))})",
+        f"- Regret vs best single: {_fmt_money(report.get('regret_vs_best_single_usd'))}",
+        f"- Beats best single: {'yes' if report.get('beats_best_single') else 'no'}",
+        f"- Details: `soft_allocator_report.md`, `soft_allocator_report.json`",
+    ]
 
 
 def _file_report_payload(report: RetrodateFileReport) -> dict[str, Any]:

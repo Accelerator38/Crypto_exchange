@@ -460,11 +460,13 @@ class ProductionShadowTournament:
             return
         counts = _empty_counts()
         _add_execution_counts(counts, results)
+        realized_pnl, closed_trades, winning_trades = _realized_counts(results)
         self._event_log.emit(ShadowActorUpdated(
             bar=market.bar,
             trace_id=f"shadow-{market.bar}",
             actor_type=actor_type,
             actor_label=actor_label,
+            regime=market.regime.label,
             signals=signals,
             filled=counts["filled"],
             rejected=counts["rejected"],
@@ -474,6 +476,9 @@ class ProductionShadowTournament:
             agent_outcomes=_agent_outcome_counts(results),
             agent_rejected_reasons=_agent_reason_counts(results, ExecutionStatus.REJECTED),
             agent_blocked_reasons=_agent_reason_counts(results, ExecutionStatus.BLOCKED),
+            realized_pnl_usd=realized_pnl,
+            closed_trades=closed_trades,
+            winning_trades=winning_trades,
         ))
 
 
@@ -584,3 +589,18 @@ def _agent_reason_counts(
 def _result_agent_label(result: ExecutionResult) -> str:
     signal = result.signal
     return str(getattr(signal, "by_agent", "") or getattr(signal, "by_player", "") or "")
+
+
+def _realized_counts(results: Iterable[ExecutionResult]) -> Tuple[float, int, int]:
+    realized_pnl = 0.0
+    closed_trades = 0
+    winning_trades = 0
+    for result in results:
+        for _, pnl in getattr(result, "realized_pnl_by_player", ()) or ():
+            value = float(pnl or 0.0)
+            realized_pnl += value
+            if value > 0:
+                winning_trades += 1
+        for _, count in getattr(result, "closed_trade_counts_by_player", ()) or ():
+            closed_trades += int(count or 0)
+    return realized_pnl, closed_trades, winning_trades

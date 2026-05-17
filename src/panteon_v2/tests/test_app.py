@@ -443,7 +443,58 @@ class TestMainLoop(unittest.TestCase):
         self.assertGreaterEqual(len(shadow_events), 2)
         self.assertTrue(all(ev.filled >= 1 for ev in shadow_events))
         player_event = next(ev for ev in shadow_events if ev.actor_type == "player")
+        self.assertEqual(player_event.regime, "bullish")
         self.assertEqual(player_event.agent_outcomes, (("AgentA", 1, 1, 0, 0),))
+
+    def test_shadow_actor_update_reports_realized_pnl_after_virtual_close(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        class BarAgent:
+            label = "AgentA"
+
+            def act(self, market):
+                if market.bar == 1:
+                    return {"BTC": Action.FUT_LONG_FULL}
+                return {"BTC": Action.FUT_CLOSE_ALL}
+
+        agent = BarAgent()
+        reg = AgentRegistry()
+        reg.register(agent)
+        perf = PerformanceMemory(trade_fraction=1.0)
+        event_log = EventLog()
+        tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=event_log,
+        )
+        player = EnsemblePlayer(
+            label="PlayerA",
+            agents=[agent],
+            weights={"AgentA": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.10, open_multi=0.10, open_floor=0.10),
+        )
+
+        tournament.run_bar(
+            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            players=[player],
+            balance_usd=1000.0,
+        )
+        tournament.run_bar(
+            make_market_snapshot(bar=2, prices={"BTC": 110.0}, regime="bullish"),
+            players=[player],
+            balance_usd=1000.0,
+        )
+
+        player_events = [
+            ev for ev in event_log.query(event_types=[ShadowActorUpdated])
+            if ev.actor_type == "player"
+        ]
+        self.assertEqual(player_events[-1].regime, "bullish")
+        self.assertGreater(player_events[-1].realized_pnl_usd, 0.0)
+        self.assertEqual(player_events[-1].closed_trades, 1)
+        self.assertEqual(player_events[-1].winning_trades, 1)
 
     def test_shadow_actor_update_includes_blocked_reason_counts(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
