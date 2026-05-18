@@ -39,6 +39,8 @@ from .rolling_score import (
     RollingDecisionScoreInput,
     score_rolling_decision,
 )
+from .entry_causal_score import EntryCausalScoreState
+from .soft_shadow_score import SoftShadowScoreState
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -85,6 +87,8 @@ class StrategistConfig:
     real_promotion_loss_budget_pct: float = -1.0
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
+    use_v3_entry_causal_score: bool = False
+    use_v3_soft_shadow_score: bool = False
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
@@ -92,6 +96,8 @@ class StrategistConfig:
     v3_shadow_fresh_handoff_max_age_bars: int = 1
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
+    v3_entry_causal_min_filled: int = 3
+    v3_entry_causal_actionability_weight: float = 1.0
     v3_min_score_to_trade: float = 0.0
     v3_virtual_only_score_cap: float = 0.35
     v3_real_loss_kill_min_closed_trades: int = 3
@@ -151,6 +157,10 @@ class StrategistConfig:
             raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
         if self.v3_shadow_rolling_min_closed_trades < 0:
             raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
+        if self.v3_entry_causal_min_filled < 0:
+            raise ValueError("v3_entry_causal_min_filled must be >= 0")
+        if self.v3_entry_causal_actionability_weight < 0:
+            raise ValueError("v3_entry_causal_actionability_weight must be >= 0")
         if self.v3_shadow_fresh_handoff_max_age_bars < 0:
             raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
         if self.v3_real_loss_kill_min_closed_trades < 0:
@@ -305,6 +315,16 @@ class Strategist:
             Tuple[str, str],
             _ShadowRollingActorState,
         ] = {}
+        self._soft_shadow_score = SoftShadowScoreState(
+            window_bars=self._config.v3_shadow_rolling_window_bars,
+            min_closed_trades=self._config.v3_shadow_rolling_min_closed_trades,
+        )
+        self._entry_causal_score = EntryCausalScoreState(
+            window_bars=self._config.v3_shadow_rolling_window_bars,
+            min_closed_trades=self._config.v3_shadow_rolling_min_closed_trades,
+            min_filled=self._config.v3_entry_causal_min_filled,
+            actionability_weight=self._config.v3_entry_causal_actionability_weight,
+        )
         self._shadow_positions_by_player: Dict[str, Tuple[Tuple[str, str], ...]] = {}
         self._shadow_position_details_by_player: Dict[
             str,
@@ -374,6 +394,22 @@ class Strategist:
                 pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
                 closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
                 wins=self._safe_int(self._object_value(event, "winning_trades")),
+            )
+            self._soft_shadow_score.update(
+                bar=self._safe_int(self._object_value(event, "bar")),
+                label=label,
+                regime=regime,
+                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
+                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
+            )
+            self._entry_causal_score.update(
+                bar=self._safe_int(self._object_value(event, "bar")),
+                label=label,
+                regime=regime,
+                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
+                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
+                signals=self._safe_int(self._object_value(event, "signals")),
+                filled=self._safe_int(self._object_value(event, "filled")),
             )
 
     def update_shadow_position_snapshot(
@@ -1579,6 +1615,22 @@ class Strategist:
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
             self._memory_key(label, regime) for label in agent_labels
         )
+        if self._config.use_v3_entry_causal_score:
+            return self._score_player_detail_v3_entry_causal(
+                player,
+                regime,
+                agent_labels=agent_labels,
+                memory_keys=memory_keys,
+                current_bar=current_bar,
+            )
+        if self._config.use_v3_soft_shadow_score:
+            return self._score_player_detail_v3_soft_shadow(
+                player,
+                regime,
+                agent_labels=agent_labels,
+                memory_keys=memory_keys,
+                current_bar=current_bar,
+            )
         if self._config.use_v3_shadow_rolling_score:
             return self._score_player_detail_v3_shadow(
                 player,
@@ -1621,6 +1673,80 @@ class Strategist:
             session_pnl_pct=recent_real.pnl_pct,
             session_underperformance_penalty=result.negative_real_penalty,
             session_stale_penalty=0.0,
+        )
+
+    def _score_player_detail_v3_soft_shadow(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        agent_labels: Tuple[str, ...],
+        memory_keys: Tuple[str, ...],
+        current_bar: int,
+    ) -> CandidateScore:
+        score, closed_trades = self._soft_shadow_score.score_with_trade_count(
+            label=player.label,
+            regime=regime.label,
+            current_bar=current_bar,
+        )
+        has_data = closed_trades >= self._config.v3_shadow_rolling_min_closed_trades
+        if not has_data:
+            score = min(score, float(self._config.v3_score_config.no_data_score))
+        capital = max(1e-9, float(self._realized_initial_capital or 0.0))
+        session_pnl_pct = float(score) / capital * 100.0
+        return CandidateScore(
+            label=player.label,
+            score=float(score),
+            rank=0,
+            has_data=has_data,
+            closed_trades=int(closed_trades),
+            signals=0,
+            execution_failures=0,
+            score_source="v3_soft_shadow",
+            uncertainty_penalty=0.0,
+            agent_labels=agent_labels,
+            memory_keys_read=memory_keys,
+            session_score_delta=float(score),
+            session_pnl_pct=session_pnl_pct,
+            session_underperformance_penalty=max(0.0, -session_pnl_pct),
+            session_stale_penalty=0.0,
+        )
+
+    def _score_player_detail_v3_entry_causal(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        agent_labels: Tuple[str, ...],
+        memory_keys: Tuple[str, ...],
+        current_bar: int,
+    ) -> CandidateScore:
+        stats = self._entry_causal_score.score_with_stats(
+            label=player.label,
+            regime=regime.label,
+            current_bar=current_bar,
+        )
+        score = float(stats.score)
+        if not stats.has_data:
+            score = min(score, float(self._config.v3_score_config.no_data_score))
+        capital = max(1e-9, float(self._realized_initial_capital or 0.0))
+        session_pnl_pct = float(stats.recent_pnl_usd) / capital * 100.0
+        return CandidateScore(
+            label=player.label,
+            score=score,
+            rank=0,
+            has_data=stats.has_data,
+            closed_trades=int(stats.closed_trades),
+            signals=int(stats.recent_signals),
+            execution_failures=0,
+            score_source="v3_entry_causal",
+            uncertainty_penalty=0.0,
+            agent_labels=agent_labels,
+            memory_keys_read=memory_keys,
+            session_score_delta=score,
+            session_pnl_pct=session_pnl_pct,
+            session_underperformance_penalty=max(0.0, -session_pnl_pct),
+            session_stale_penalty=max(0.0, 1.0 - stats.actionable_share),
         )
 
     def _score_player_detail_v3_shadow(

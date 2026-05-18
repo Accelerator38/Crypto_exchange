@@ -415,6 +415,123 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(by_label["AlphaPlayer"].score_source, "v3_shadow_rolling")
         self.assertGreater(by_label["AlphaPlayer"].score, by_label["BetaPlayer"].score)
 
+    def test_v3_soft_shadow_score_prefers_recent_regime_winner(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("AlphaPlayer", ["AlphaAgent"]),
+                _make_player("BetaPlayer", ["BetaAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_soft_shadow_score=True,
+                v3_shadow_rolling_min_closed_trades=2,
+                v3_shadow_rolling_window_bars=24,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="AlphaPlayer",
+                regime="bullish",
+                realized_pnl_usd=8.0,
+                closed_trades=2,
+                winning_trades=2,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="BetaPlayer",
+                regime="bullish",
+                realized_pnl_usd=-4.0,
+                closed_trades=2,
+                winning_trades=0,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="BetaPlayer",
+                regime="neutral",
+                realized_pnl_usd=20.0,
+                closed_trades=2,
+                winning_trades=2,
+            ),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "AlphaPlayer")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertEqual(by_label["AlphaPlayer"].score_source, "v3_soft_shadow")
+        self.assertGreater(by_label["AlphaPlayer"].score, by_label["BetaPlayer"].score)
+
+    def test_v3_entry_causal_score_prefers_actionable_winner(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("SparsePlayer", ["SparseAgent"]),
+                _make_player("DensePlayer", ["DenseAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=1,
+                v3_entry_causal_min_filled=1,
+                v3_shadow_rolling_window_bars=10,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        updates = []
+        for bar in range(1, 6):
+            updates.append(ShadowActorUpdated(
+                bar=bar,
+                actor_type="player",
+                actor_label="SparsePlayer",
+                regime="bullish",
+                signals=1 if bar == 5 else 0,
+                filled=1 if bar == 5 else 0,
+                realized_pnl_usd=100.0 if bar == 5 else 0.0,
+                closed_trades=2 if bar == 5 else 0,
+                winning_trades=2 if bar == 5 else 0,
+            ))
+            updates.append(ShadowActorUpdated(
+                bar=bar,
+                actor_type="player",
+                actor_label="DensePlayer",
+                regime="bullish",
+                signals=1,
+                filled=1,
+                realized_pnl_usd=6.0,
+                closed_trades=1,
+                winning_trades=1,
+            ))
+        st.update_shadow_actor_updates(updates)
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=6)
+
+        self.assertEqual(decision.new_leader.label, "DensePlayer")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertEqual(by_label["DensePlayer"].score_source, "v3_entry_causal")
+        self.assertGreater(by_label["DensePlayer"].score, by_label["SparsePlayer"].score)
+
     def test_v3_shadow_position_gate_blocks_incompatible_shadow_book(self):
         st = Strategist(
             PerformanceMemory(trade_fraction=1.0),
@@ -677,6 +794,65 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(decision.new_leader.label, "SafePlayer")
         reasons = " ".join(item.reason for item in decision.candidate_rejections)
         self.assertIn("v3 real-loss kill", reasons)
+
+    def test_v3_real_loss_kill_demotes_recent_loser_even_with_positive_virtual_score(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "RiskyAgent", Regime.BULLISH, 40, 5.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        _add_perf(real_perf, "RiskyPlayer", Regime.BULLISH, 20, -1.2, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("RiskyPlayer", ["RiskyAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_soft_shadow_score=True,
+                v3_real_loss_kill_min_closed_trades=20,
+                v3_real_loss_kill_pnl_pct=-1.0,
+                v3_shadow_rolling_min_closed_trades=1,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="RiskyPlayer",
+                regime="bullish",
+                realized_pnl_usd=50.0,
+                closed_trades=5,
+                winning_trades=5,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="SafePlayer",
+                regime="bullish",
+                realized_pnl_usd=5.0,
+                closed_trades=5,
+                winning_trades=3,
+            ),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 real-loss kill", reasons)
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertNotIn("RiskyPlayer", by_label)
 
     def test_v3_persistent_loss_kill_uses_all_regime_real_history(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)

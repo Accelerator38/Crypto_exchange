@@ -50,7 +50,7 @@ from .live_state import (
 
 
 log = logging.getLogger(__name__)
-_SOLO_AGENT_CANDIDATE_LIMIT = 3
+_DEFAULT_SOLO_AGENT_CANDIDATE_LIMIT = 3
 
 
 def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
@@ -578,13 +578,36 @@ def _run_one_bar(
     fallback_candidate = ""
     fallback_reason = ""
     if vote_attempt["raw_signal_count"] == 0:
-        fallback_skipped = any(
-            candidate.label != selected_leader.label for candidate in candidates
-        )
-        if fallback_skipped:
-            fallback_reason = (
-                "actionable fallback disabled: selected leader emitted no raw signals"
+        fallback_enabled = bool(getattr(pipeline, "actionable_fallback_enabled", False))
+        fallback_attempt = None
+        if fallback_enabled:
+            fallback_attempt = _find_actionable_candidate_vote(
+                pipeline,
+                market,
+                candidates,
+                decision,
+                skip_label=selected_leader.label,
+                signal_id_counter=signal_id_counter,
+                trace_id=trace,
             )
+        if fallback_attempt is not None:
+            fallback_used = True
+            executed_leader = fallback_attempt["leader"]
+            fallback_candidate = executed_leader.label
+            fallback_reason = (
+                "selected leader emitted no raw signals; actionable fallback used"
+            )
+            vote_attempt = fallback_attempt
+        else:
+            fallback_skipped = any(
+                candidate.label != selected_leader.label for candidate in candidates
+            )
+            if fallback_skipped:
+                fallback_reason = (
+                    "actionable fallback disabled: selected leader emitted no raw signals"
+                    if not fallback_enabled
+                    else "no actionable fallback candidate emitted raw signals"
+                )
     raw_signals = vote_attempt["raw_signals"]
     raw_signal_count = vote_attempt["raw_signal_count"]
     leader_vote_error_count = vote_attempt["leader_vote_error_count"]
@@ -711,11 +734,19 @@ def _compose_solo_agent_candidates(
     existing_labels = {player.label for player in existing}
     solo: List[EnsemblePlayer] = []
     try:
-        scored = pipeline.selector.select(regime, k=_SOLO_AGENT_CANDIDATE_LIMIT)
+        limit = int(
+            getattr(
+                pipeline,
+                "solo_agent_candidate_limit",
+                _DEFAULT_SOLO_AGENT_CANDIDATE_LIMIT,
+            )
+            or _DEFAULT_SOLO_AGENT_CANDIDATE_LIMIT
+        )
+        scored = pipeline.selector.select(regime, k=limit)
         if not scored and hasattr(pipeline.selector, "select_with_fallback"):
             scored = pipeline.selector.select_with_fallback(
                 regime,
-                k=_SOLO_AGENT_CANDIDATE_LIMIT,
+                k=limit,
                 fallback_threshold=-10.0,
                 min_count=1,
             )

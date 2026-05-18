@@ -140,6 +140,8 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
         "2025",
         "--use-v3-rolling-score",
         "--use-v3-shadow-rolling-score",
+        "--use-v3-soft-shadow-score",
+        "--use-v3-entry-causal-score",
         "--enable-v3-shadow-flat-handoff",
         "--enable-v3-shadow-fresh-handoff",
         "--v3-shadow-fresh-handoff-max-age-bars",
@@ -148,40 +150,63 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
         "24",
         "--v3-shadow-rolling-min-closed-trades",
         "50",
+        "--v3-entry-causal-min-filled",
+        "2",
+        "--v3-entry-causal-actionability-weight",
+        "0.5",
+        "--enable-actionable-fallback",
+        "--solo-agent-candidate-limit",
+        "6",
     ])
 
     assert config.use_v3_rolling_score is True
     assert config.use_v3_shadow_rolling_score is True
+    assert config.use_v3_soft_shadow_score is True
+    assert config.use_v3_entry_causal_score is True
     assert config.v3_shadow_position_gate_enabled is True
     assert config.v3_shadow_flat_handoff_enabled is True
     assert config.v3_shadow_fresh_handoff_enabled is True
     assert config.v3_shadow_fresh_handoff_max_age_bars == 1
     assert config.v3_shadow_rolling_window_bars == 24
     assert config.v3_shadow_rolling_min_closed_trades == 50
+    assert config.v3_entry_causal_min_filled == 2
+    assert config.v3_entry_causal_actionability_weight == 0.5
+    assert config.actionable_fallback_enabled is True
+    assert config.solo_agent_candidate_limit == 6
 
 
 def test_build_strategist_config_passes_use_v3_rolling_score():
     config = RetrodateMarketConfig(
         use_v3_rolling_score=True,
         use_v3_shadow_rolling_score=True,
+        use_v3_soft_shadow_score=True,
+        use_v3_entry_causal_score=True,
         v3_shadow_position_gate_enabled=True,
         v3_shadow_flat_handoff_enabled=True,
         v3_shadow_fresh_handoff_enabled=True,
         v3_shadow_fresh_handoff_max_age_bars=1,
         v3_shadow_rolling_window_bars=24,
         v3_shadow_rolling_min_closed_trades=50,
+        v3_entry_causal_min_filled=2,
+        v3_entry_causal_actionability_weight=0.5,
+        solo_agent_candidate_limit=6,
     )
 
     strategist_config = runner._build_strategist_config(config)
 
     assert strategist_config.use_v3_rolling_score is True
     assert strategist_config.use_v3_shadow_rolling_score is True
+    assert strategist_config.use_v3_soft_shadow_score is True
+    assert strategist_config.use_v3_entry_causal_score is True
     assert strategist_config.v3_shadow_position_gate_enabled is True
     assert strategist_config.v3_shadow_flat_handoff_enabled is True
     assert strategist_config.v3_shadow_fresh_handoff_enabled is True
     assert strategist_config.v3_shadow_fresh_handoff_max_age_bars == 1
     assert strategist_config.v3_shadow_rolling_window_bars == 24
     assert strategist_config.v3_shadow_rolling_min_closed_trades == 50
+    assert strategist_config.v3_entry_causal_min_filled == 2
+    assert strategist_config.v3_entry_causal_actionability_weight == 0.5
+    assert config.solo_agent_candidate_limit == 6
 
 
 def test_analysis_report_includes_soft_allocator_summary(tmp_path):
@@ -267,3 +292,91 @@ def test_analysis_report_includes_soft_allocator_summary(tmp_path):
     assert "Beats best single: yes" in report
     assert "## Perfect Panteon Monthly Oracle" in report
     assert "$200.00" in report
+
+
+def test_analysis_report_and_summary_include_allocation_diagnostics(tmp_path):
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "status.json").write_text(
+        json.dumps({
+            "current_leader": "NoTrade",
+            "live_session": {
+                "panteon_owned_pnl_pct": -1.0,
+                "panteon_owned_realized_pnl_usd": -10.0,
+                "real_closed_trades": 2,
+                "panteon_owned_positions_count": 0,
+            },
+            "shadow": {"actors": 2},
+        }),
+        encoding="utf-8",
+    )
+    (output_dir / "leaderboard_agents.json").write_text(
+        json.dumps({"agents": {}}),
+        encoding="utf-8",
+    )
+    (output_dir / "leaderboard_players.json").write_text(
+        json.dumps({"players": {}}),
+        encoding="utf-8",
+    )
+    (output_dir / "allocation_diagnostics.json").write_text(
+        json.dumps({
+            "bars": 4,
+            "no_trade_bars": 1,
+            "no_trade_share_pct": 25.0,
+            "raw_zero_bars": 3,
+            "raw_zero_share_pct": 75.0,
+            "filled_zero_bars": 3,
+            "filled_zero_share_pct": 75.0,
+            "leaders": {
+                "Alpha": {
+                    "bars": 3,
+                    "bar_share_pct": 75.0,
+                    "raw_zero_share_pct": 66.6666666667,
+                    "filled_zero_share_pct": 66.6666666667,
+                    "raw_signals": 2,
+                    "signals": 1,
+                    "filled": 1,
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    summary = RetrodateRunSummary(
+        output_dir=output_dir,
+        report_path=output_dir / "analysis_report.md",
+        summary_path=output_dir / "run_summary.json",
+        requested_years=(2025,),
+        executed_years=(2025,),
+        excluded_files=(),
+        missing_years=(),
+        bars_processed=4,
+        registered_agents=("A",),
+        player_profile_count=1,
+        first_timestamp="2025-01-01T00:00:00+00:00",
+        last_timestamp="2025-01-01T04:00:00+00:00",
+        stride_minutes=60,
+        max_bars=None,
+        step_errors=(),
+    )
+    selection = RetrodateFileSelection(
+        report=RetrodateDirReport(path=tmp_path, files=[]),
+        valid_reports=(),
+        excluded_files=(),
+        missing_years=(),
+    )
+
+    runner._write_run_summary(
+        summary.summary_path,
+        summary,
+        selection,
+        RetrodateMarketConfig(data_dir=tmp_path, years=(2025,), solo_agent_candidate_limit=6),
+    )
+    runner._write_analysis_report(summary.report_path, summary, selection)
+
+    run_summary = json.loads(summary.summary_path.read_text(encoding="utf-8"))
+    report = summary.report_path.read_text(encoding="utf-8")
+    assert run_summary["solo_agent_candidate_limit"] == 6
+    assert run_summary["allocation_diagnostics"]["no_trade_share_pct"] == 25.0
+    assert "## Allocation Diagnostics" in report
+    assert "NoTrade share: 25.00%" in report
+    assert "`allocation_diagnostics.json`" in report

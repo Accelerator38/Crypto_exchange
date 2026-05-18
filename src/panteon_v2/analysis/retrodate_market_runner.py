@@ -35,6 +35,7 @@ from .retrodate_validator import (
     RetrodateValidationError,
     validate_retrodate_dir,
 )
+from .allocation_diagnostics import analyze_trading_log, write_allocation_diagnostics
 
 
 DEFAULT_YEARS = (2022, 2023, 2024, 2025, 2026)
@@ -58,6 +59,8 @@ class RetrodateMarketConfig:
     recompute_quarantine_every: int = 24
     progress_every_bars: int = 1000
     max_bars: Optional[int] = None
+    solo_agent_candidate_limit: int = 3
+    actionable_fallback_enabled: bool = False
     real_promotion_gate_enabled: bool = False
     real_promotion_min_closed_trades: int = 20
     real_promotion_min_pnl_pct: float = 0.0
@@ -66,12 +69,16 @@ class RetrodateMarketConfig:
     real_promotion_probation_min_score: float = 0.0
     use_v3_rolling_score: bool = False
     use_v3_shadow_rolling_score: bool = False
+    use_v3_soft_shadow_score: bool = False
+    use_v3_entry_causal_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_max_age_bars: int = 1
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
+    v3_entry_causal_min_filled: int = 3
+    v3_entry_causal_actionability_weight: float = 1.0
     v3_persistent_loss_kill_min_closed_trades: int = 0
     v3_persistent_loss_kill_pnl_pct: float = -2.0
     v3_persistent_loss_kill_win_rate_pct: float = 0.0
@@ -84,6 +91,8 @@ class RetrodateMarketConfig:
             raise ValueError("stride_minutes must be > 0")
         if self.initial_capital <= 0:
             raise ValueError("initial_capital must be > 0")
+        if self.solo_agent_candidate_limit < 1:
+            raise ValueError("solo_agent_candidate_limit must be >= 1")
         if self.invalid_policy not in {"exclude", "fail"}:
             raise ValueError("invalid_policy must be 'exclude' or 'fail'")
         object.__setattr__(
@@ -101,6 +110,10 @@ class RetrodateMarketConfig:
             raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
         if self.v3_shadow_rolling_min_closed_trades < 0:
             raise ValueError("v3_shadow_rolling_min_closed_trades must be >= 0")
+        if self.v3_entry_causal_min_filled < 0:
+            raise ValueError("v3_entry_causal_min_filled must be >= 0")
+        if self.v3_entry_causal_actionability_weight < 0:
+            raise ValueError("v3_entry_causal_actionability_weight must be >= 0")
         if self.v3_shadow_fresh_handoff_max_age_bars < 0:
             raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
         if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
@@ -284,6 +297,8 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
     pipeline.run_id = output_dir.name
+    pipeline.actionable_fallback_enabled = bool(config.actionable_fallback_enabled)
+    pipeline.solo_agent_candidate_limit = int(config.solo_agent_candidate_limit)
     shadow_event_log = EventLog()
     pipeline.shadow_tournament = ProductionShadowTournament(
         registry=pipeline.registry,
@@ -340,6 +355,18 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             step_errors.extend(str(step.error) for step in steps if step.error)
     finally:
         writer.close()
+
+    try:
+        trading_log = output_dir / "trading.log"
+        if trading_log.exists():
+            write_allocation_diagnostics(
+                output_dir,
+                analyze_trading_log(trading_log),
+            )
+    except Exception as exc:
+        step_errors.append(
+            f"allocation_diagnostics_failed: {type(exc).__name__}: {exc}"
+        )
 
     try:
         shadow_pnl_events = shadow_pnl_events_from_shadow_updates(
@@ -411,6 +438,8 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         recompute_quarantine_every=args.recompute_quarantine_every,
         progress_every_bars=args.progress_every_bars,
         max_bars=args.max_bars,
+        solo_agent_candidate_limit=args.solo_agent_candidate_limit,
+        actionable_fallback_enabled=args.enable_actionable_fallback,
         real_promotion_gate_enabled=args.real_promotion_gate,
         real_promotion_min_closed_trades=args.real_promotion_min_closed_trades,
         real_promotion_min_pnl_pct=args.real_promotion_min_pnl_pct,
@@ -419,12 +448,16 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         real_promotion_probation_min_score=args.real_promotion_probation_min_score,
         use_v3_rolling_score=args.use_v3_rolling_score,
         use_v3_shadow_rolling_score=args.use_v3_shadow_rolling_score,
+        use_v3_soft_shadow_score=args.use_v3_soft_shadow_score,
+        use_v3_entry_causal_score=args.use_v3_entry_causal_score,
         v3_shadow_position_gate_enabled=not args.disable_v3_shadow_position_gate,
         v3_shadow_flat_handoff_enabled=args.enable_v3_shadow_flat_handoff,
         v3_shadow_fresh_handoff_enabled=args.enable_v3_shadow_fresh_handoff,
         v3_shadow_fresh_handoff_max_age_bars=args.v3_shadow_fresh_handoff_max_age_bars,
         v3_shadow_rolling_window_bars=args.v3_shadow_rolling_window_bars,
         v3_shadow_rolling_min_closed_trades=args.v3_shadow_rolling_min_closed_trades,
+        v3_entry_causal_min_filled=args.v3_entry_causal_min_filled,
+        v3_entry_causal_actionability_weight=args.v3_entry_causal_actionability_weight,
         v3_persistent_loss_kill_min_closed_trades=(
             args.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -458,6 +491,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--recompute-quarantine-every", type=int, default=24)
     parser.add_argument("--progress-every-bars", type=int, default=1000)
     parser.add_argument("--max-bars", type=int)
+    parser.add_argument("--solo-agent-candidate-limit", type=int, default=3)
+    parser.add_argument("--enable-actionable-fallback", action="store_true")
     parser.add_argument("--real-promotion-gate", action="store_true")
     parser.add_argument("--real-promotion-min-closed-trades", type=int, default=20)
     parser.add_argument("--real-promotion-min-pnl-pct", type=float, default=0.0)
@@ -466,12 +501,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--real-promotion-probation-min-score", type=float, default=0.0)
     parser.add_argument("--use-v3-rolling-score", action="store_true")
     parser.add_argument("--use-v3-shadow-rolling-score", action="store_true")
+    parser.add_argument("--use-v3-soft-shadow-score", action="store_true")
+    parser.add_argument("--use-v3-entry-causal-score", action="store_true")
     parser.add_argument("--disable-v3-shadow-position-gate", action="store_true")
     parser.add_argument("--enable-v3-shadow-flat-handoff", action="store_true")
     parser.add_argument("--enable-v3-shadow-fresh-handoff", action="store_true")
     parser.add_argument("--v3-shadow-fresh-handoff-max-age-bars", type=int, default=1)
     parser.add_argument("--v3-shadow-rolling-window-bars", type=int, default=24)
     parser.add_argument("--v3-shadow-rolling-min-closed-trades", type=int, default=50)
+    parser.add_argument("--v3-entry-causal-min-filled", type=int, default=3)
+    parser.add_argument("--v3-entry-causal-actionability-weight", type=float, default=1.0)
     parser.add_argument("--v3-persistent-loss-kill-min-closed-trades", type=int, default=0)
     parser.add_argument("--v3-persistent-loss-kill-pnl-pct", type=float, default=-2.0)
     parser.add_argument("--v3-persistent-loss-kill-win-rate-pct", type=float, default=0.0)
@@ -490,13 +529,17 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         real_promotion_loss_budget_pct=config.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=config.real_promotion_probation_min_score,
         use_v3_rolling_score=config.use_v3_rolling_score,
+        use_v3_entry_causal_score=config.use_v3_entry_causal_score,
         use_v3_shadow_rolling_score=config.use_v3_shadow_rolling_score,
+        use_v3_soft_shadow_score=config.use_v3_soft_shadow_score,
         v3_shadow_position_gate_enabled=config.v3_shadow_position_gate_enabled,
         v3_shadow_flat_handoff_enabled=config.v3_shadow_flat_handoff_enabled,
         v3_shadow_fresh_handoff_enabled=config.v3_shadow_fresh_handoff_enabled,
         v3_shadow_fresh_handoff_max_age_bars=config.v3_shadow_fresh_handoff_max_age_bars,
         v3_shadow_rolling_window_bars=config.v3_shadow_rolling_window_bars,
         v3_shadow_rolling_min_closed_trades=config.v3_shadow_rolling_min_closed_trades,
+        v3_entry_causal_min_filled=config.v3_entry_causal_min_filled,
+        v3_entry_causal_actionability_weight=config.v3_entry_causal_actionability_weight,
         v3_persistent_loss_kill_min_closed_trades=(
             config.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -619,6 +662,8 @@ def _write_run_summary(
         "initial_capital": config.initial_capital,
         "include_optional_agents": config.include_optional_agents,
         "optional_agent_labels": list(config.optional_agent_labels),
+        "solo_agent_candidate_limit": config.solo_agent_candidate_limit,
+        "actionable_fallback_enabled": config.actionable_fallback_enabled,
         "real_promotion_gate_enabled": config.real_promotion_gate_enabled,
         "real_promotion_min_closed_trades": config.real_promotion_min_closed_trades,
         "real_promotion_min_pnl_pct": config.real_promotion_min_pnl_pct,
@@ -626,13 +671,19 @@ def _write_run_summary(
         "real_promotion_loss_budget_pct": config.real_promotion_loss_budget_pct,
         "real_promotion_probation_min_score": config.real_promotion_probation_min_score,
         "use_v3_rolling_score": config.use_v3_rolling_score,
+        "use_v3_entry_causal_score": config.use_v3_entry_causal_score,
         "use_v3_shadow_rolling_score": config.use_v3_shadow_rolling_score,
+        "use_v3_soft_shadow_score": config.use_v3_soft_shadow_score,
         "v3_shadow_position_gate_enabled": config.v3_shadow_position_gate_enabled,
         "v3_shadow_flat_handoff_enabled": config.v3_shadow_flat_handoff_enabled,
         "v3_shadow_fresh_handoff_enabled": config.v3_shadow_fresh_handoff_enabled,
         "v3_shadow_fresh_handoff_max_age_bars": config.v3_shadow_fresh_handoff_max_age_bars,
         "v3_shadow_rolling_window_bars": config.v3_shadow_rolling_window_bars,
         "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
+        "v3_entry_causal_min_filled": config.v3_entry_causal_min_filled,
+        "v3_entry_causal_actionability_weight": (
+            config.v3_entry_causal_actionability_weight
+        ),
         "v3_persistent_loss_kill_min_closed_trades": (
             config.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -683,6 +734,22 @@ def _write_run_summary(
             "cash_months": perfect_panteon.get("cash_months", 0),
             "closed_trades": perfect_panteon.get("closed_trades", 0.0),
         }
+    allocation_diagnostics = _load_json(
+        summary.output_dir / "allocation_diagnostics.json"
+    )
+    if allocation_diagnostics:
+        data["allocation_diagnostics"] = {
+            "bars": allocation_diagnostics.get("bars", 0),
+            "no_trade_bars": allocation_diagnostics.get("no_trade_bars", 0),
+            "no_trade_share_pct": allocation_diagnostics.get("no_trade_share_pct", 0.0),
+            "raw_zero_bars": allocation_diagnostics.get("raw_zero_bars", 0),
+            "raw_zero_share_pct": allocation_diagnostics.get("raw_zero_share_pct", 0.0),
+            "filled_zero_bars": allocation_diagnostics.get("filled_zero_bars", 0),
+            "filled_zero_share_pct": allocation_diagnostics.get(
+                "filled_zero_share_pct",
+                0.0,
+            ),
+        }
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
@@ -700,6 +767,9 @@ def _write_analysis_report(
     shadow = status.get("shadow", {}) if isinstance(status, dict) else {}
     soft_allocator = _load_json(summary.output_dir / "soft_allocator_report.json")
     perfect_panteon = _load_json(summary.output_dir / "perfect_panteon_report.json")
+    allocation_diagnostics = _load_json(
+        summary.output_dir / "allocation_diagnostics.json"
+    )
 
     excluded_lines = []
     for item in selection.excluded_files:
@@ -722,6 +792,7 @@ def _write_analysis_report(
         "soft_allocator_report.json",
         "perfect_panteon_report.md",
         "perfect_panteon_report.json",
+        "allocation_diagnostics.json",
         "shadow_player_pnl_events.jsonl",
     ]
     dashboard_lines = [
@@ -756,6 +827,10 @@ def _write_analysis_report(
         f"- Open Panteon positions: {live_session.get('panteon_owned_positions_count', 0)}",
         f"- Last shadow actors: {shadow.get('actors', 0)}",
         "",
+        *(
+            _allocation_diagnostics_report_lines(allocation_diagnostics) + [""]
+            if allocation_diagnostics else []
+        ),
         *(_soft_allocator_report_lines(soft_allocator) + [""] if soft_allocator else []),
         *(_perfect_panteon_report_lines(perfect_panteon) + [""] if perfect_panteon else []),
         "## Top Agents By Virtual PnL",
@@ -780,6 +855,30 @@ def _write_analysis_report(
             *[f"- {error}" for error in summary.step_errors[:20]],
         ])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _allocation_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    top = []
+    leaders = report.get("leaders", {})
+    if isinstance(leaders, dict):
+        for label, payload in list(leaders.items())[:5]:
+            if isinstance(payload, dict):
+                top.append(
+                    f"- `{label}`: bars {int(payload.get('bars', 0) or 0)}, "
+                    f"raw-zero {_fmt_pct(payload.get('raw_zero_share_pct'))}, "
+                    f"filled-zero {_fmt_pct(payload.get('filled_zero_share_pct'))}"
+                )
+    return [
+        "## Allocation Diagnostics",
+        f"- Bars analyzed: {int(report.get('bars', 0) or 0)}",
+        f"- NoTrade share: {_fmt_pct(report.get('no_trade_share_pct'))}",
+        f"- Raw-zero share: {_fmt_pct(report.get('raw_zero_share_pct'))}",
+        f"- Filled-zero share: {_fmt_pct(report.get('filled_zero_share_pct'))}",
+        f"- Details: `allocation_diagnostics.json`",
+        *(["- Top leaders by bar share:"] + top if top else []),
+    ]
 
 
 def _soft_allocator_report_lines(report: dict[str, Any]) -> list[str]:

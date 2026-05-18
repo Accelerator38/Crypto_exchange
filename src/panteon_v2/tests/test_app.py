@@ -23,6 +23,7 @@ from panteon_v2.app import (
 )
 from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.app.main_loop import StepResult
+from panteon_v2.app.main_loop import _compose_solo_agent_candidates
 from panteon_v2.attribution import (
     CandidateScored,
     DecisionStarted,
@@ -36,7 +37,7 @@ from panteon_v2.attribution import (
     ShadowActorUpdated,
     SignalEmitted,
 )
-from panteon_v2.domain.types import Action, Regime, Signal, Trade
+from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.execution import ExchangePosition, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.execution.position_tracker import TrackedPosition
@@ -46,6 +47,7 @@ from panteon_v2.selection import (
     EnsemblePlayer,
     NoTradePlayer,
     PlayerProfile,
+    ScoredAgent,
     SwitchDecision,
     ThresholdProfile,
     WeightedConsensus,
@@ -786,6 +788,93 @@ class TestMainLoop(unittest.TestCase):
         self.assertTrue(steps[0].fallback_skipped)
         self.assertIn("disabled", steps[0].fallback_reason)
 
+    def test_actionable_fallback_executes_when_explicitly_enabled(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        fallback_agent = FakeAgent("FallbackAgent", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(fallback_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="FallbackPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.actionable_fallback_enabled = True
+        players = {
+            "SelectedPlayer": EnsemblePlayer(
+                label="SelectedPlayer",
+                agents=[selected_agent],
+                weights={"SelectedAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "FallbackPlayer": EnsemblePlayer(
+                label="FallbackPlayer",
+                agents=[fallback_agent],
+                weights={"FallbackAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=players["SelectedPlayer"],
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].leader, "FallbackPlayer")
+        self.assertEqual(steps[0].executed_leader, "FallbackPlayer")
+        self.assertEqual(steps[0].fallback_candidate, "FallbackPlayer")
+        self.assertTrue(steps[0].fallback_used)
+        self.assertFalse(steps[0].fallback_skipped)
+        self.assertEqual(steps[0].n_raw_signals, 1)
+        self.assertEqual(steps[0].n_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(len(exchange.orders_log), 1)
+
     def test_no_trade_leader_closes_existing_panteon_positions(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("IdleAgent"))
@@ -1002,6 +1091,65 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(steps[0].n_filled, 0)
         self.assertEqual(len(exchange.orders_log), 0)
         self.assertTrue(steps[0].fallback_skipped)
+
+    def test_solo_agent_candidate_limit_is_runtime_configurable(self):
+        rows = [
+            ScoredAgent(
+                agent=FakeAgent(f"Agent{i}"),
+                score=1.0,
+                metrics=Metrics(pnl_pct=1.0, closed_trades=1),
+            )
+            for i in range(5)
+        ]
+
+        class RecordingSelector:
+            def __init__(self):
+                self.calls = []
+
+            def select(self, regime, *, k):
+                self.calls.append(("select", k))
+                return rows[:k]
+
+        class Pipeline:
+            solo_agent_candidate_limit = 5
+            selector = RecordingSelector()
+
+        solo = _compose_solo_agent_candidates(Pipeline(), Regime.NEUTRAL, [])
+
+        self.assertEqual(Pipeline.selector.calls, [("select", 5)])
+        self.assertEqual(len(solo), 5)
+        self.assertEqual(solo[-1].label, "Solo_Agent4")
+
+    def test_solo_agent_candidate_limit_applies_to_fallback_selector(self):
+        row = ScoredAgent(
+            agent=FakeAgent("FallbackAgent"),
+            score=1.0,
+            metrics=Metrics(pnl_pct=1.0, closed_trades=1),
+        )
+
+        class RecordingSelector:
+            def __init__(self):
+                self.calls = []
+
+            def select(self, regime, *, k):
+                self.calls.append(("select", k))
+                return []
+
+            def select_with_fallback(self, regime, *, k, fallback_threshold, min_count):
+                self.calls.append(("fallback", k, fallback_threshold, min_count))
+                return [row]
+
+        class Pipeline:
+            solo_agent_candidate_limit = 6
+            selector = RecordingSelector()
+
+        solo = _compose_solo_agent_candidates(Pipeline(), Regime.NEUTRAL, [])
+
+        self.assertEqual(
+            Pipeline.selector.calls,
+            [("select", 6), ("fallback", 6, -10.0, 1)],
+        )
+        self.assertEqual([player.label for player in solo], ["Solo_FallbackAgent"])
 
     def test_external_exchange_positions_do_not_trip_desync_kill_switch(self):
         from panteon_v2.execution.exchange import ExchangePosition
