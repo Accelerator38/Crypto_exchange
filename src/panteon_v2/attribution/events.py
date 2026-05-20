@@ -144,6 +144,11 @@ class CandidateScored(Event):
     session_pnl_pct: float = 0.0
     session_underperformance_penalty: float = 0.0
     session_stale_penalty: float = 0.0
+    recent_bars: int = 0
+    recent_actionable_bars: int = 0
+    actionable_share: float = 0.0
+    recent_filled: int = 0
+    recent_pnl_usd: float = 0.0
 
 
 @dataclass(frozen=True)

@@ -82,8 +82,14 @@ class QuarantineManager:
         seed: Iterable[str] = (),
         *,
         config: ScoringConfig = DEFAULT_SCORING,
+        protected_labels: Iterable[str] = (),
     ):
         self._seed: FrozenSet[str] = frozenset(seed)
+        self._protected: FrozenSet[str] = frozenset(
+            str(label).strip()
+            for label in protected_labels
+            if str(label).strip()
+        )
         self._dynamic: Set[str] = set(self._seed)
         self._records = {
             label: QuarantineRecord(
@@ -113,6 +119,21 @@ class QuarantineManager:
     def record_for(self, label: str) -> Optional[QuarantineRecord]:
         with self._lock:
             return self._records.get(label)
+
+    @property
+    def protected_labels(self) -> FrozenSet[str]:
+        return self._protected
+
+    def add_protected_labels(self, labels: Iterable[str]) -> None:
+        normalized = {
+            str(label).strip()
+            for label in labels
+            if str(label).strip()
+        }
+        if not normalized:
+            return
+        with self._lock:
+            self._protected = frozenset(set(self._protected) | normalized)
 
     @property
     def seed(self) -> FrozenSet[str]:
@@ -170,6 +191,8 @@ class QuarantineManager:
                         continue
                     new_set.add(label)
                 else:
+                    if label in self._protected:
+                        continue
                     # Не в seed — добавляется только если hopeless
                     # (даже без явного proven, но без явных доказательств
                     # карантина не трогаем).

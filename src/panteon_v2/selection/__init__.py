@@ -18,7 +18,7 @@ from .voting import (
     VotingPolicy,
     WeightedConsensus,
 )
-from .player import EnsemblePlayer, NoTradePlayer, Player
+from .player import EnsemblePlayer, NoTradePlayer, Player, RotatingAgentPlayer
 from .selector import AgentSelector, ScoredAgent, SessionOverlayConfig
 from .composer import (
     PROFILE_BOMBERMAN_STRONG,
@@ -53,6 +53,7 @@ __all__ = [
     "EnsemblePlayer",
     "NoTradePlayer",
     "Player",
+    "RotatingAgentPlayer",
     # selector
     "AgentSelector",
     "ScoredAgent",

@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+
 from panteon_v2.app.bootstrap import build_production_pipeline
+from panteon_v2.app.main_loop import main_loop
+from panteon_v2.domain.types import Action, Regime
 from panteon_v2.execution import FakeExchange
-from panteon_v2.selection import AgentRegistry
+from panteon_v2.selection import (
+    AgentRegistry,
+    EnsemblePlayer,
+    PlayerProfile,
+    SwitchDecision,
+    ThresholdProfile,
+    WeightedConsensus,
+)
+from panteon_v2.domain.types import Signal
+from panteon_v2.shadow import make_market_snapshot
+from panteon_v2.shadow.feed import ReplayFeed
 from panteon_v2.tests._helpers import FakeAgent
 
 
@@ -24,6 +40,7 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         self.assertIn("GeneticsBearish", labels)
         self.assertIn("GeneticsNeutral", labels)
         self.assertIn("GeneticsGenomeEnsemble", labels)
+        self.assertIn("GeneticsRegimeRouter", labels)
 
     def test_zero_env_does_not_load_optional_genetics(self):
         from panteon_v2.app import agent_bootstrap
@@ -64,6 +81,23 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         self.assertEqual(calls[-1], ["GeneticsGenomeEnsemble"])
         self.assertIn("GeneticsGenomeEnsemble", registered)
         self.assertNotIn("GeneticsCore", registered)
+
+    def test_genome_ensemble_optional_registration_uses_conservative_regime_gate(self):
+        from panteon_v2.app import agent_bootstrap
+
+        registry = AgentRegistry()
+        registered = agent_bootstrap.register_optional_agents(
+            registry,
+            optional_agent_labels=("GeneticsGenomeEnsemble",),
+            skip_on_error=False,
+        )
+
+        self.assertEqual(registered, ["GeneticsGenomeEnsemble"])
+        adapter = registry.get("GeneticsGenomeEnsemble")
+        self.assertEqual(
+            adapter.allowed_open_regimes,
+            frozenset({Regime.BEARISH, Regime.CRASH}),
+        )
 
     def test_shadow_only_genetics_extends_seed_quarantine(self):
         from panteon_v2.app.startup import _seed_quarantine_with_shadow_only_genetics
@@ -126,6 +160,366 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIs(captured["include_optional"], True)
         self.assertIn("GeneticsCore", captured["seed_quarantine"])
+
+    def test_builds_regime_router_from_selection_manifest_under_results_root(self):
+        from panteon_v2.app.agent_bootstrap import build_genetics_regime_router_adapter
+
+        class FakeGeneticsAgent:
+            def __init__(self, genome):
+                self.genome = np.asarray(genome, dtype=np.float32)
+
+            def act(self, prices, volumes, **_kwargs):
+                return {"BTC": int(self.genome[0])}
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "Results" / "neiro_genetics" / "run"
+            root.mkdir(parents=True)
+            baseline_path = root / "warm_start_genome.npy"
+            candidate_path = root / "archive_rank1.npy"
+            np.save(baseline_path, np.asarray([3], dtype=np.float32))
+            np.save(candidate_path, np.asarray([4], dtype=np.float32))
+            manifest_path = root / "selection_router.json"
+            manifest_path.write_text(json.dumps({
+                "selected_is_baseline": False,
+                "selected_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(candidate_path),
+                    "bullish": str(candidate_path),
+                },
+                "baseline_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+                "validation": {"mean_ret": 1.0, "min_ret": 0.5, "positive_period_pct": 100.0},
+                "baseline_validation": {"mean_ret": 1.0, "min_ret": 0.5, "positive_period_pct": 100.0},
+            }), encoding="utf-8")
+
+            adapter = build_genetics_regime_router_adapter(
+                manifest_path,
+                FakeGeneticsAgent,
+                results_root=Path(td) / "Results" / "neiro_genetics",
+            )
+
+        neutral = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            regime_confidence=0.9,
+        )
+        crash = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 90.0},
+            regime="crash",
+            regime_confidence=1.0,
+        )
+
+        self.assertEqual(adapter.act(neutral)["BTC"], Action.FUT_SHORT_FULL)
+        self.assertEqual(adapter.act(crash)["BTC"], Action.FUT_LONG_FULL)
+        self.assertFalse(adapter.promotion_eligible)
+        self.assertTrue(adapter.shadow_only)
+
+    def test_offline_promoted_regime_router_stays_shadow_only_without_live_gate(self):
+        from panteon_v2.app.agent_bootstrap import build_genetics_regime_router_adapter
+
+        class FakeGeneticsAgent:
+            def __init__(self, genome):
+                self.genome = np.asarray(genome, dtype=np.float32)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "Results" / "neiro_genetics" / "run"
+            root.mkdir(parents=True)
+            baseline_path = root / "warm_start_genome.npy"
+            candidate_path = root / "archive_rank1.npy"
+            np.save(baseline_path, np.asarray([3], dtype=np.float32))
+            np.save(candidate_path, np.asarray([4], dtype=np.float32))
+            manifest_path = root / "selection_router.json"
+            manifest_path.write_text(json.dumps({
+                "selected_is_baseline": False,
+                "selected_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(candidate_path),
+                    "bullish": str(baseline_path),
+                },
+                "baseline_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+                "validation": {"mean_ret": 0.5, "min_ret": 0.2, "positive_period_pct": 100.0},
+                "baseline_validation": {"mean_ret": 0.1, "min_ret": 0.0, "positive_period_pct": 66.7},
+            }), encoding="utf-8")
+
+            adapter = build_genetics_regime_router_adapter(
+                manifest_path,
+                FakeGeneticsAgent,
+                results_root=Path(td) / "Results" / "neiro_genetics",
+            )
+
+        self.assertTrue(adapter.promotion_eligible)
+        self.assertFalse(adapter.live_trading_eligible)
+        self.assertTrue(adapter.shadow_only)
+
+    def test_shadow_only_genetics_is_not_exposed_as_real_solo_candidate(self):
+        from panteon_v2.app.main_loop import _compose_solo_agent_candidates
+
+        registry = AgentRegistry()
+        executable = FakeAgent("ExecutableAgent", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only.shadow_only = True
+        shadow_only.paper_trading_eligible = True
+        shadow_only.live_trading_eligible = False
+        registry.register(executable)
+        registry.register(shadow_only)
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="TEST"),
+            initial_capital=1000.0,
+        )
+        pipeline.solo_agent_candidate_limit = 3
+        pipeline.virtual_perf.restore({
+            "trade_fraction": 0.10,
+            "state": {
+                "ExecutableAgent|neutral": {
+                    "closed_trades": 10,
+                    "entries": 10,
+                    "signals": 20,
+                    "wins": 6,
+                    "losses": 4,
+                    "pnl_pct": 1.0,
+                    "returns": [0.10, -0.05, 0.20, 0.10],
+                    "max_dd_pct": 0.2,
+                },
+                "GeneticsRegimeRouter|neutral": {
+                    "closed_trades": 20,
+                    "entries": 20,
+                    "signals": 40,
+                    "wins": 14,
+                    "losses": 6,
+                    "pnl_pct": 5.0,
+                    "returns": [0.20, 0.10, -0.05, 0.30],
+                    "max_dd_pct": 0.1,
+                },
+            },
+            "open": {},
+            "seen_signal_ids": [],
+        })
+
+        solo = _compose_solo_agent_candidates(pipeline, Regime.NEUTRAL, [])
+
+        self.assertEqual([player.label for player in solo], ["Solo_ExecutableAgent"])
+
+    def test_actionable_fallback_does_not_execute_shadow_only_genetics_agent_signal(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        shadow_only = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only.shadow_only = True
+        shadow_only.paper_trading_eligible = True
+        shadow_only.live_trading_eligible = False
+        registry = AgentRegistry()
+        registry.register(selected_agent)
+        registry.register(shadow_only)
+        exchange = FakeExchange(name="TEST")
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.player_positions = dict(player_positions)
+                self.real_positions = tuple(real_positions)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        class ShadowOnlyGeneticsTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(agent_signals=1, agent_filled=1, actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {
+                    "GeneticsRegimeRouter": (
+                        Signal(
+                            id=10_000,
+                            bar=1,
+                            sym="BTC",
+                            action=Action.FUT_LONG_FULL,
+                            price=100.0,
+                            regime=Regime.NEUTRAL,
+                            by_player="",
+                            by_agent="GeneticsRegimeRouter",
+                        ),
+                    )
+                }
+
+            def last_player_open_positions(self):
+                return {}
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = ShadowOnlyGeneticsTournament()
+        pipeline.actionable_fallback_enabled = True
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(exchange.orders_log, [])
+
+    def test_fallback_safety_rejects_any_shadow_only_agent_candidate(self):
+        from panteon_v2.app.main_loop import _fallback_candidate_safety_issue
+
+        shadow_only = FakeAgent("ShadowOnlyPaperAgent", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only.shadow_only = True
+        shadow_only.paper_trading_eligible = True
+        shadow_only.live_trading_eligible = False
+        registry = AgentRegistry()
+        registry.register(shadow_only)
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="TEST"),
+            initial_capital=1000.0,
+        )
+        candidate = EnsemblePlayer(
+            label="Solo_ShadowOnlyPaperAgent",
+            agents=[shadow_only],
+            weights={"ShadowOnlyPaperAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        market = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        )
+
+        self.assertTrue(_fallback_candidate_safety_issue(pipeline, candidate, market))
+
+    def test_regime_router_manifest_rejects_paths_outside_neiro_genetics(self):
+        from panteon_v2.app.agent_bootstrap import build_genetics_regime_router_adapter
+
+        class FakeGeneticsAgent:
+            def __init__(self, genome):
+                self.genome = genome
+
+        with tempfile.TemporaryDirectory() as td:
+            results_root = Path(td) / "Results" / "neiro_genetics"
+            safe_dir = results_root / "run"
+            safe_dir.mkdir(parents=True)
+            outside_dir = Path(td) / "Results" / "other"
+            outside_dir.mkdir(parents=True)
+            baseline_path = safe_dir / "warm_start_genome.npy"
+            outside_path = outside_dir / "archive_rank1.npy"
+            np.save(baseline_path, np.asarray([3], dtype=np.float32))
+            np.save(outside_path, np.asarray([4], dtype=np.float32))
+            manifest_path = safe_dir / "selection_router.json"
+            manifest_path.write_text(json.dumps({
+                "selected_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(outside_path),
+                    "bullish": str(baseline_path),
+                },
+                "baseline_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+            }), encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                build_genetics_regime_router_adapter(
+                    manifest_path,
+                    FakeGeneticsAgent,
+                    results_root=results_root,
+                )
+
+    def test_regime_router_manifest_rejects_runtime_genome_size_mismatch(self):
+        from panteon_v2.app.agent_bootstrap import build_genetics_regime_router_adapter
+
+        class FakeGeneticsAgent:
+            def __init__(self, genome):
+                self.genome = genome
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "Results" / "neiro_genetics" / "run"
+            root.mkdir(parents=True)
+            baseline_path = root / "warm_start_genome.npy"
+            np.save(baseline_path, np.asarray([3.0, 4.0], dtype=np.float32))
+            manifest_path = root / "selection_router.json"
+            manifest_path.write_text(json.dumps({
+                "selected_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+                "baseline_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+            }), encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                build_genetics_regime_router_adapter(
+                    manifest_path,
+                    FakeGeneticsAgent,
+                    results_root=Path(td) / "Results" / "neiro_genetics",
+                    expected_genome_size=1,
+                )
 
 
 if __name__ == "__main__":

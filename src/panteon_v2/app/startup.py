@@ -135,6 +135,10 @@ def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
     except Exception:
         settings = {}
 
+    return _strategist_config_from_settings(settings)
+
+
+def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
     def num(name: str, default: float) -> float:
         try:
             return float(settings.get(name, default))
@@ -146,6 +150,44 @@ def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
             if name in settings:
                 return num(name, default)
         return float(default)
+
+    def bool_any(names: Sequence[str], default: bool) -> bool:
+        for name in names:
+            if name not in settings:
+                continue
+            value = settings.get(name)
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"1", "true", "yes", "on"}:
+                    return True
+                if normalized in {"0", "false", "no", "off"}:
+                    return False
+            return bool(default)
+        return bool(default)
+
+    executable_soft_top1 = bool_any(
+        ("v2_executable_soft_top1_enabled", "executable_soft_top1_enabled"),
+        False,
+    )
+    shadow_window = int(num_any(
+        ("v2_shadow_rolling_window_bars", "v3_shadow_rolling_window_bars"),
+        24,
+    ))
+    shadow_min_closed = int(num_any(
+        ("v2_shadow_rolling_min_closed_trades", "v3_shadow_rolling_min_closed_trades"),
+        20 if executable_soft_top1 else 50,
+    ))
+    probation_loss_kill_all = bool_any(
+        (
+            "v2_probation_loss_kill_all_labels",
+            "v3_probation_loss_kill_all_labels",
+        ),
+        False,
+    )
 
     return StrategistConfig(
         cooldown_bars=int(num("player_switch_cooldown_bars", 30)),
@@ -166,6 +208,46 @@ def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
         player_session_stale_penalty=num("player_session_stale_penalty", 0.10),
         player_session_pnl_cap_pct=num("player_session_pnl_cap_pct", 3.0),
         player_session_min_activity=int(num("player_session_min_activity", 1)),
+        use_v3_rolling_score=bool_any(
+            ("v2_use_v3_rolling_score", "use_v3_rolling_score"),
+            False,
+        ) or executable_soft_top1,
+        use_v3_soft_shadow_score=bool_any(
+            ("v2_use_v3_soft_shadow_score", "use_v3_soft_shadow_score"),
+            False,
+        ) or executable_soft_top1,
+        v3_current_actionable_gate_enabled=bool_any(
+            (
+                "v2_current_actionable_candidate_layer_enabled",
+                "current_actionable_candidate_layer_enabled",
+            ),
+            False,
+        ) or executable_soft_top1,
+        v3_shadow_rolling_window_bars=shadow_window,
+        v3_shadow_rolling_min_closed_trades=shadow_min_closed,
+        v3_probation_loss_kill_min_closed_trades=int(num_any(
+            (
+                "v2_probation_loss_kill_min_closed_trades",
+                "v3_probation_loss_kill_min_closed_trades",
+            ),
+            0,
+        )),
+        v3_probation_loss_kill_pnl_pct=num_any(
+            ("v2_probation_loss_kill_pnl_pct", "v3_probation_loss_kill_pnl_pct"),
+            -0.15,
+        ),
+        v3_probation_loss_kill_win_rate_pct=num_any(
+            (
+                "v2_probation_loss_kill_win_rate_pct",
+                "v3_probation_loss_kill_win_rate_pct",
+            ),
+            50.0,
+        ),
+        v3_probation_loss_kill_label_prefixes=(
+            ()
+            if probation_loss_kill_all
+            else ("Solo_", "Fixed_", "Antonius_", "Optimal_")
+        ),
     )
 
 
@@ -181,6 +263,24 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
 
     def int_any(names: Sequence[str], default: int) -> int:
         return int(num_any(names, float(default)))
+
+    def bool_any(names: Sequence[str], default: bool) -> bool:
+        for name in names:
+            if name not in settings:
+                continue
+            value = settings.get(name)
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"1", "true", "yes", "on"}:
+                    return True
+                if normalized in {"0", "false", "no", "off"}:
+                    return False
+            return bool(default)
+        return bool(default)
 
     return LiveExecutionConfig(
         max_new_opens_per_bar=int_any(("v2_max_new_opens_per_bar", "max_new_opens_per_bar"), 1),
@@ -199,6 +299,31 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
         pending_order_timeout_sec=num_any(
             ("v2_pending_order_timeout_sec", "pending_order_timeout_sec"),
             180.0,
+        ),
+        genetics_probation_execution_enabled=bool_any(
+            (
+                "v2_genetics_probation_execution_enabled",
+                "genetics_probation_execution_enabled",
+            ),
+            False,
+        ),
+        genetics_probation_risk_mult=num_any(
+            ("v2_genetics_probation_risk_mult", "genetics_probation_risk_mult"),
+            0.25,
+        ),
+        genetics_probation_max_real_trades=int_any(
+            (
+                "v2_genetics_probation_max_real_trades",
+                "genetics_probation_max_real_trades",
+            ),
+            20,
+        ),
+        genetics_probation_require_shadow_confirmation=bool_any(
+            (
+                "v2_genetics_probation_require_shadow_confirmation",
+                "genetics_probation_require_shadow_confirmation",
+            ),
+            True,
         ),
     )
 

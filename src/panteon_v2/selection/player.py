@@ -18,7 +18,7 @@ EnsemblePlayer заменяет в v1 всю иерархию:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, Sequence
+from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 
 from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from .agent import Agent
@@ -233,3 +233,137 @@ class EnsemblePlayer:
             return ""
         same_dir.sort(reverse=True)  # max weight first
         return same_dir[0][1]
+
+
+@dataclass
+class RotatingAgentPlayer:
+    """Fixed agent-set player that executes the first current actionable agent.
+
+    Unlike ``EnsemblePlayer``, this player does not dilute a specialist signal
+    through consensus. It keeps a stable static agent set for attribution and
+    shadow accounting, but chooses the first agent with a non-HOLD signal from a
+    regime-specific priority list on each bar.
+    """
+
+    label: str
+    agents: List[Agent]
+    regime_agent_order: Mapping[str, Sequence[str]]
+    fallback_agent_order: Sequence[str] = ()
+    affinity: Optional[Regime] = None
+    last_vote_errors: List[VoteError] = field(default_factory=list, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.label:
+            raise ValueError("RotatingAgentPlayer.label must be non-empty")
+        labels = [agent.label for agent in self.agents]
+        if len(labels) != len(set(labels)):
+            raise ValueError("RotatingAgentPlayer agents must not contain duplicates")
+        self._agents_by_label = {agent.label: agent for agent in self.agents}
+
+    @property
+    def agent_labels(self) -> List[str]:
+        return sorted(self._agents_by_label)
+
+    def vote(
+        self,
+        market: MarketSnapshot,
+        *,
+        signal_id_start: int,
+    ) -> List[Signal]:
+        self.last_vote_errors = []
+        if not self.agents:
+            return []
+        for agent_label in self._ordered_labels(market.regime):
+            agent = self._agents_by_label.get(agent_label)
+            if agent is None:
+                continue
+            cleaned = self._agent_actions(agent, market)
+            if not any(not action.is_hold for action in cleaned.values()):
+                continue
+            return self._signals_from_actions(
+                cleaned,
+                market,
+                by_agent=agent.label,
+                signal_id_start=signal_id_start,
+            )
+        return []
+
+    def _ordered_labels(self, regime: Regime) -> Tuple[str, ...]:
+        ordered: List[str] = []
+        for raw_label in self.regime_agent_order.get(regime.label, ()):
+            label = str(raw_label or "").strip()
+            if label and label not in ordered:
+                ordered.append(label)
+        for raw_label in self.fallback_agent_order:
+            label = str(raw_label or "").strip()
+            if label and label not in ordered:
+                ordered.append(label)
+        return tuple(ordered)
+
+    def _agent_actions(
+        self,
+        agent: Agent,
+        market: MarketSnapshot,
+    ) -> Dict[str, Action]:
+        try:
+            raw_actions = agent.act(market)
+        except Exception as exc:
+            self.last_vote_errors.append(VoteError(
+                agent_label=agent.label,
+                reason=f"{type(exc).__name__}: {exc}",
+            ))
+            raw_actions = {}
+        cleaned: Dict[str, Action] = {}
+        for sym, action in (raw_actions or {}).items():
+            if sym not in market.prices:
+                continue
+            if not isinstance(action, Action):
+                try:
+                    action = Action(int(action))
+                except (ValueError, TypeError):
+                    continue
+            cleaned[sym] = action
+        return cleaned
+
+    def _signals_from_actions(
+        self,
+        actions: Mapping[str, Action],
+        market: MarketSnapshot,
+        *,
+        by_agent: str,
+        signal_id_start: int,
+    ) -> List[Signal]:
+        signals: List[Signal] = []
+        sid = int(signal_id_start)
+        equal_weight = 1.0 / len(self._agents_by_label) if self._agents_by_label else 0.0
+        vote_weights = {
+            label: equal_weight
+            for label in self.agent_labels
+        }
+        vote_actions = {
+            label: {}
+            for label in self.agent_labels
+        }
+        vote_actions[by_agent] = dict(actions)
+        for sym, action in actions.items():
+            if action == Action.HOLD:
+                continue
+            signals.append(Signal(
+                id=sid,
+                bar=market.bar,
+                sym=sym,
+                action=action,
+                price=float(market.prices.get(sym, 0.0)),
+                regime=market.regime,
+                by_player=self.label,
+                by_agent=by_agent,
+                vote_weights=vote_weights,
+                vote_actions={
+                    label: vote_actions.get(label, {}).get(sym, Action.HOLD)
+                    for label in self.agent_labels
+                },
+                risk_mult=1.0,
+                timestamp=market.timestamp,
+            ))
+            sid += 1
+        return signals

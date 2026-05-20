@@ -403,8 +403,10 @@ def write_perfect_panteon_report(
 def write_shadow_pnl_events(
     output_dir: str | Path,
     events: Sequence[ShadowPnLEvent],
+    *,
+    filename: str = "shadow_player_pnl_events.jsonl",
 ) -> Path:
-    path = Path(output_dir) / "shadow_player_pnl_events.jsonl"
+    path = Path(output_dir) / filename
     with path.open("w", encoding="utf-8") as handle:
         for event in events:
             handle.write(json.dumps(asdict(event), ensure_ascii=False) + "\n")

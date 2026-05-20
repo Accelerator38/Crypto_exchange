@@ -503,6 +503,17 @@ class GenomeEnsembleAgent:
             except Exception:
                 pass
 
+    def update_from_exchange(self, symbol: str, spot_qty: float, spot_entry: float,
+                              fut_qty: float, fut_entry: float):
+        self._load()
+        for a in self._agents:
+            try:
+                update = getattr(a, "update_from_exchange", None)
+                if callable(update):
+                    update(symbol, spot_qty, spot_entry, fut_qty, fut_entry)
+            except Exception:
+                pass
+
     def _load(self):
         if self._loaded:
             return
@@ -527,6 +538,17 @@ class GenomeEnsembleAgent:
             try:
                 acts = a.act(prices, volumes=volumes, month=month,
                              portfolio_value=portfolio_value, bar_index=bar_index) or {}
+            except TypeError:
+                try:
+                    acts = a.act(prices, volumes, month=month,
+                                 portfolio_value=portfolio_value) or {}
+                except TypeError:
+                    try:
+                        acts = a.act(prices, volumes) or {}
+                    except Exception:
+                        acts = {}
+                except Exception:
+                    acts = {}
             except Exception:
                 acts = {}
             for sym, val in acts.items():

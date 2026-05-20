@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
+import re
 import sys
 import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -25,6 +29,46 @@ from panteon_v2.analysis.genetics_validation import (  # noqa: E402
     robust_period_score,
     split_precomp_by_periods,
 )
+from panteon_v2.analysis.retrodate_validator import (  # noqa: E402
+    RetrodateDirReport,
+    RetrodateFileReport,
+    RetrodateValidationIssue,
+    RetrodateValidationError,
+    validate_retrodate_dir,
+)
+
+
+_RETRODATE_FILE_RE = re.compile(
+    r"^crypto_(?P<timeframe>[^_]+)_(?P<year>\d{4})_all_symbols\.csv$"
+)
+_RETRODATE_REQUIRED_COLUMNS = (
+    "timestamp",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "symbol",
+    "datetime",
+)
+
+
+@dataclass(frozen=True)
+class RequestedRetrodateFileSelection:
+    report: RetrodateDirReport
+    requested_years: tuple[int, ...]
+    valid_reports: tuple[RetrodateFileReport, ...]
+    excluded_files: tuple[RetrodateFileReport, ...]
+    missing_years: tuple[int, ...]
+
+    @property
+    def valid_files(self) -> tuple[Path, ...]:
+        return tuple(item.path for item in self.valid_reports)
+
+    @property
+    def executed_years(self) -> tuple[int, ...]:
+        years = [item.expected_year for item in self.valid_reports if item.expected_year is not None]
+        return tuple(sorted(set(int(year) for year in years)))
 
 
 def _torch_device():
@@ -34,6 +78,295 @@ def _torch_device():
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     except Exception:
         return None
+
+
+def _parse_config_year(value: Any, fallback: int) -> int:
+    match = re.match(r"(\d{4})", str(value or ""))
+    if match:
+        return int(match.group(1))
+    return int(fallback)
+
+
+def _requested_retrodate_years(start_date: Any, end_date: Any) -> tuple[int, ...]:
+    start_year = _parse_config_year(start_date, 2022)
+    end_year = _parse_config_year(end_date, 2025)
+    if start_year > end_year:
+        raise RetrodateValidationError(
+            f"Invalid genetics evaluation date range: start year {start_year} > end year {end_year}"
+        )
+    return tuple(range(start_year, end_year + 1))
+
+
+def _resolve_eval_data_dir(data_dir_override: str | None = None) -> Path:
+    if data_dir_override:
+        path = Path(data_dir_override)
+        if not path.is_absolute():
+            path = ROOT / path
+        return path
+    return Path(cg._resolve_data_dir())
+
+
+def _format_retrodate_directory_issues(report: RetrodateDirReport) -> str:
+    lines = [f"Retrodate directory is not usable for genetics evaluation: {report.path}"]
+    for issue in report.issues:
+        lines.append(f"directory:{issue.code}: {issue.message}")
+    return "\n".join(lines)
+
+
+def _format_requested_retrodate_errors(reports: tuple[RetrodateFileReport, ...]) -> str:
+    lines = ["Requested Retrodate files failed genetics evaluation validation"]
+    for file_report in reports:
+        for issue in file_report.issues:
+            lines.append(f"{file_report.path.name}:{issue.code}: {issue.message}")
+    return "\n".join(lines)
+
+
+def _expected_retrodate_file_report(
+    path: Path,
+    *,
+    expected_year: int,
+    timeframe: str,
+    issues: list[RetrodateValidationIssue],
+) -> RetrodateFileReport:
+    return RetrodateFileReport(
+        path=path,
+        expected_year=expected_year,
+        timeframe=timeframe,
+        issues=issues,
+    )
+
+
+def _read_last_nonempty_line(path: Path, *, block_size: int = 65536) -> str:
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        position = handle.tell()
+        buffer = b""
+        while position > 0:
+            read_size = min(block_size, position)
+            position -= read_size
+            handle.seek(position)
+            buffer = handle.read(read_size) + buffer
+            lines = [line for line in buffer.splitlines() if line.strip()]
+            if len(lines) >= 2 or position == 0:
+                return lines[-1].decode("utf-8", errors="replace") if lines else ""
+    return ""
+
+
+def _validate_requested_retrodate_file_sample(
+    path: Path,
+    *,
+    expected_year: int,
+    timeframe: str,
+    sample_rows: int = 16,
+) -> RetrodateFileReport:
+    issues: list[RetrodateValidationIssue] = []
+    match = _RETRODATE_FILE_RE.match(path.name)
+    if not match:
+        issues.append(
+            RetrodateValidationIssue("filename_pattern", f"unexpected Retrodate filename: {path.name}")
+        )
+        return _expected_retrodate_file_report(
+            path,
+            expected_year=expected_year,
+            timeframe=timeframe,
+            issues=issues,
+        )
+    if int(match.group("year")) != expected_year or match.group("timeframe") != timeframe:
+        issues.append(
+            RetrodateValidationIssue(
+                "filename_pattern",
+                f"expected crypto_{timeframe}_{expected_year}_all_symbols.csv, got {path.name}",
+            )
+        )
+        return _expected_retrodate_file_report(
+            path,
+            expected_year=expected_year,
+            timeframe=timeframe,
+            issues=issues,
+        )
+
+    rows = 0
+    symbols: set[str] = set()
+    years: set[int] = set()
+    first_ts: Optional[int] = None
+    last_ts: Optional[int] = None
+    first_dt = ""
+    last_dt = ""
+    bad_timestamps = 0
+
+    def observe(row: dict[str, str]) -> None:
+        nonlocal rows, first_ts, last_ts, first_dt, last_dt, bad_timestamps
+        rows += 1
+        symbol = str(row.get("symbol") or "").strip()
+        if symbol:
+            symbols.add(symbol)
+        try:
+            timestamp = int(str(row.get("timestamp") or "").strip())
+        except ValueError:
+            bad_timestamps += 1
+            return
+        dt_text = str(row.get("datetime") or "")
+        years.add(datetime.fromtimestamp(timestamp / 1000.0, timezone.utc).year)
+        if first_ts is None or timestamp < first_ts:
+            first_ts = timestamp
+            first_dt = dt_text
+        if last_ts is None or timestamp > last_ts:
+            last_ts = timestamp
+            last_dt = dt_text
+
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            header_line = handle.readline()
+            if not header_line:
+                issues.append(RetrodateValidationIssue("empty_file", "file has no header row"))
+                return _expected_retrodate_file_report(
+                    path,
+                    expected_year=expected_year,
+                    timeframe=timeframe,
+                    issues=issues,
+                )
+            reader = csv.DictReader([header_line])
+            missing = [
+                column
+                for column in _RETRODATE_REQUIRED_COLUMNS
+                if column not in (reader.fieldnames or [])
+            ]
+            if missing:
+                issues.append(
+                    RetrodateValidationIssue(
+                        "missing_columns",
+                        f"missing required columns: {', '.join(missing)}",
+                    )
+                )
+                return _expected_retrodate_file_report(
+                    path,
+                    expected_year=expected_year,
+                    timeframe=timeframe,
+                    issues=issues,
+                )
+
+            reader = csv.DictReader(handle, fieldnames=reader.fieldnames)
+            for idx, row in enumerate(reader):
+                if idx >= sample_rows:
+                    break
+                observe(row)
+
+        last_line = _read_last_nonempty_line(path)
+        if last_line and last_line.strip() != header_line.strip():
+            tail_reader = csv.DictReader([header_line, last_line])
+            for row in tail_reader:
+                observe(row)
+                break
+    except OSError as exc:
+        issues.append(RetrodateValidationIssue("read_error", str(exc)))
+        return _expected_retrodate_file_report(
+            path,
+            expected_year=expected_year,
+            timeframe=timeframe,
+            issues=issues,
+        )
+
+    if rows == 0:
+        issues.append(RetrodateValidationIssue("empty_file", "file has no data rows"))
+    if bad_timestamps:
+        issues.append(
+            RetrodateValidationIssue(
+                "bad_timestamp",
+                f"{bad_timestamps} sampled rows have invalid timestamp values",
+            )
+        )
+    if years and any(year != expected_year for year in years):
+        found = ", ".join(str(year) for year in sorted(years))
+        issues.append(
+            RetrodateValidationIssue(
+                "year_mismatch",
+                f"{path.name}: expected {expected_year} from filename, found timestamp years {found}",
+            )
+        )
+
+    return RetrodateFileReport(
+        path=path,
+        expected_year=expected_year,
+        timeframe=timeframe,
+        rows=rows,
+        symbols=len(symbols),
+        first_timestamp=first_ts,
+        last_timestamp=last_ts,
+        first_datetime=first_dt,
+        last_datetime=last_dt,
+        found_years=tuple(sorted(years)),
+        issues=issues,
+    )
+
+
+def _validate_requested_retrodate_files(
+    data_dir: str | Path,
+    *,
+    timeframe: str,
+    start_date: Any,
+    end_date: Any,
+) -> RequestedRetrodateFileSelection:
+    root = Path(data_dir)
+    directory_issues: list[RetrodateValidationIssue] = []
+    if not root.exists():
+        directory_issues.append(
+            RetrodateValidationIssue("missing_directory", f"directory not found: {root}")
+        )
+    elif not root.is_dir():
+        directory_issues.append(
+            RetrodateValidationIssue("not_directory", f"path is not a directory: {root}")
+        )
+    if directory_issues:
+        report = RetrodateDirReport(path=root, files=[], issues=directory_issues)
+        raise RetrodateValidationError(_format_retrodate_directory_issues(report))
+
+    requested_years = _requested_retrodate_years(start_date, end_date)
+    selected_reports: list[RetrodateFileReport] = []
+    missing_years: list[int] = []
+    for year in requested_years:
+        path = root / f"crypto_{timeframe}_{year}_all_symbols.csv"
+        if not path.exists():
+            missing_years.append(year)
+            continue
+        selected_reports.append(
+            _validate_requested_retrodate_file_sample(
+                path,
+                expected_year=year,
+                timeframe=timeframe,
+            )
+        )
+
+    report = RetrodateDirReport(path=root, files=selected_reports)
+    selected = tuple(selected_reports)
+    excluded = tuple(item for item in selected if not item.is_valid)
+    if excluded:
+        raise RetrodateValidationError(_format_requested_retrodate_errors(excluded))
+
+    valid_reports = tuple(
+        sorted(
+            (item for item in selected if item.is_valid),
+            key=lambda item: (item.expected_year or 0, item.path.name),
+        )
+    )
+    missing_years_tuple = tuple(missing_years)
+    if missing_years_tuple:
+        raise RetrodateValidationError(
+            "Missing requested Retrodate files for genetics evaluation: "
+            + ", ".join(f"crypto_{timeframe}_{year}_all_symbols.csv" for year in missing_years_tuple)
+        )
+    if not valid_reports:
+        raise RetrodateValidationError(
+            "No valid Retrodate files selected for requested genetics evaluation years: "
+            + ", ".join(str(year) for year in requested_years)
+        )
+
+    return RequestedRetrodateFileSelection(
+        report=report,
+        requested_years=requested_years,
+        valid_reports=valid_reports,
+        excluded_files=excluded,
+        missing_years=missing_years_tuple,
+    )
 
 
 def _period_stats(period_rets: List[float]) -> Dict[str, Any]:
@@ -87,6 +420,138 @@ def _infer_position_state_features_enabled(genome_path: Path) -> bool:
     return False
 
 
+def _position_exposure_metrics(
+    actions_arr: np.ndarray,
+    *,
+    max_positions: int,
+    symbols: Optional[List[str]] = None,
+    top_n_symbols: int = 5,
+) -> Dict[str, Any]:
+    actions = np.asarray(actions_arr, dtype=np.int32)
+    if actions.ndim != 3:
+        raise ValueError("actions_arr must have shape (G, T, NC)")
+
+    G, T, NC = actions.shape
+    if G == 0 or T == 0 or NC == 0:
+        return {
+            "mean_long_slot_rate": 0.0,
+            "mean_short_slot_rate": 0.0,
+            "mean_position_slot_rate": 0.0,
+            "mean_net_direction_bias": 0.0,
+            "mean_capacity_usage": 0.0,
+            "max_open_positions": 0,
+            "capacity_bar_rate": 0.0,
+            "top_position_symbols": [],
+        }
+
+    max_pos = max(0, int(max_positions))
+    spot = np.zeros((G, NC), dtype=bool)
+    fut_dir = np.zeros((G, NC), dtype=np.int8)
+    symbol_long_slots = np.zeros(NC, dtype=np.float64)
+    symbol_short_slots = np.zeros(NC, dtype=np.float64)
+    symbol_position_slots = np.zeros(NC, dtype=np.float64)
+    long_slots = 0.0
+    short_slots = 0.0
+    position_slots = 0.0
+    open_position_sum = 0.0
+    max_open_seen = 0
+    capacity_bars = 0.0
+
+    for t in range(T):
+        for g in range(G):
+            occupied_before = spot[g] | (fut_dir[g] != 0)
+            n_pos = int(occupied_before.sum())
+            for c in range(NC):
+                action = int(actions[g, t, c])
+                occupied = bool(spot[g, c] or fut_dir[g, c] != 0)
+                if action in (1, 2, 9):
+                    if not spot[g, c]:
+                        if not occupied and max_pos > 0 and n_pos >= max_pos:
+                            continue
+                        if not occupied:
+                            n_pos += 1
+                        spot[g, c] = True
+                elif action == 3 and spot[g, c]:
+                    spot[g, c] = False
+                    if fut_dir[g, c] == 0:
+                        n_pos -= 1
+                elif action in (4, 5):
+                    if fut_dir[g, c] < 0:
+                        continue
+                    if fut_dir[g, c] == 0:
+                        if not occupied and max_pos > 0 and n_pos >= max_pos:
+                            continue
+                        if not occupied:
+                            n_pos += 1
+                    fut_dir[g, c] = 1
+                elif action in (6, 7):
+                    if fut_dir[g, c] > 0:
+                        continue
+                    if fut_dir[g, c] == 0:
+                        if not occupied and max_pos > 0 and n_pos >= max_pos:
+                            continue
+                        if not occupied:
+                            n_pos += 1
+                    fut_dir[g, c] = -1
+                elif action == 8 and fut_dir[g, c] != 0:
+                    fut_dir[g, c] = 0
+                    if not spot[g, c]:
+                        n_pos -= 1
+
+            long_now = spot[g] | (fut_dir[g] > 0)
+            short_now = fut_dir[g] < 0
+            occupied_now = spot[g] | (fut_dir[g] != 0)
+            open_now = int(occupied_now.sum())
+            symbol_long_slots += long_now.astype(np.float64)
+            symbol_short_slots += short_now.astype(np.float64)
+            symbol_position_slots += occupied_now.astype(np.float64)
+            long_slots += float(long_now.sum())
+            short_slots += float(short_now.sum())
+            position_slots += float(open_now)
+            open_position_sum += float(open_now)
+            max_open_seen = max(max_open_seen, open_now)
+            if max_pos > 0 and open_now >= max_pos:
+                capacity_bars += 1.0
+
+    slot_denom = float(G * T * NC)
+    bar_denom = float(G * T)
+    directional_total = long_slots + short_slots
+    symbol_names = list(symbols or [str(i) for i in range(NC)])
+    if len(symbol_names) < NC:
+        symbol_names.extend(str(i) for i in range(len(symbol_names), NC))
+    per_symbol_denom = float(G * T)
+    top_n = max(0, min(int(top_n_symbols), NC))
+    order = np.argsort(-symbol_position_slots)[:top_n]
+    top_position_symbols = [
+        {
+            "symbol": str(symbol_names[int(idx)]),
+            "position_slot_rate": float(symbol_position_slots[int(idx)] / per_symbol_denom),
+            "long_slot_rate": float(symbol_long_slots[int(idx)] / per_symbol_denom),
+            "short_slot_rate": float(symbol_short_slots[int(idx)] / per_symbol_denom),
+        }
+        for idx in order
+        if symbol_position_slots[int(idx)] > 0.0
+    ]
+    return {
+        "mean_long_slot_rate": float(long_slots / slot_denom),
+        "mean_short_slot_rate": float(short_slots / slot_denom),
+        "mean_position_slot_rate": float(position_slots / slot_denom),
+        "mean_net_direction_bias": float(
+            (long_slots - short_slots) / directional_total
+            if directional_total > 0.0
+            else 0.0
+        ),
+        "mean_capacity_usage": float(
+            open_position_sum / (bar_denom * max_pos)
+            if max_pos > 0
+            else 0.0
+        ),
+        "max_open_positions": int(max_open_seen),
+        "capacity_bar_rate": float(capacity_bars / bar_denom),
+        "top_position_symbols": top_position_symbols,
+    }
+
+
 def _contract_metrics_for_genome(
     *,
     genome: np.ndarray,
@@ -137,6 +602,12 @@ def _contract_metrics_for_genome(
             else 0.0
         )
         effective_turnover_rate = float(exec_metrics["turnover_rates"][0])
+        exposure_metrics = _position_exposure_metrics(
+            exec_actions.astype(np.int32),
+            max_positions=int(cg.TRAIN_MAX_POS),
+            symbols=[str(sym) for sym in syms],
+            top_n_symbols=len(syms),
+        )
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
         invalid_open_logit_pressures.append(invalid_open_logit_pressure)
@@ -149,6 +620,7 @@ def _contract_metrics_for_genome(
             "effective_turnover_rate": effective_turnover_rate,
             "saturation_rate": saturation_rate,
             "invalid_open_logit_pressure": invalid_open_logit_pressure,
+            **exposure_metrics,
         })
 
     turnover_arr = np.asarray(turnover_rates, dtype=np.float64)
@@ -164,6 +636,13 @@ def _contract_metrics_for_genome(
             "max_saturation_rate": 0.0,
             "mean_invalid_open_logit_pressure": 0.0,
             "max_invalid_open_logit_pressure": 0.0,
+            "mean_long_slot_rate": 0.0,
+            "mean_short_slot_rate": 0.0,
+            "mean_position_slot_rate": 0.0,
+            "mean_net_direction_bias": 0.0,
+            "mean_capacity_usage": 0.0,
+            "max_open_positions": 0,
+            "capacity_bar_rate": 0.0,
             "periods": [],
         }
     effective_turnover_arr = np.asarray(
@@ -171,6 +650,30 @@ def _contract_metrics_for_genome(
         dtype=np.float64,
     )
     invalid_open_pressure_arr = np.asarray(invalid_open_logit_pressures, dtype=np.float64)
+    long_slot_arr = np.asarray(
+        [float(row["mean_long_slot_rate"]) for row in period_rows],
+        dtype=np.float64,
+    )
+    short_slot_arr = np.asarray(
+        [float(row["mean_short_slot_rate"]) for row in period_rows],
+        dtype=np.float64,
+    )
+    position_slot_arr = np.asarray(
+        [float(row["mean_position_slot_rate"]) for row in period_rows],
+        dtype=np.float64,
+    )
+    direction_bias_arr = np.asarray(
+        [float(row["mean_net_direction_bias"]) for row in period_rows],
+        dtype=np.float64,
+    )
+    capacity_usage_arr = np.asarray(
+        [float(row["mean_capacity_usage"]) for row in period_rows],
+        dtype=np.float64,
+    )
+    capacity_bar_arr = np.asarray(
+        [float(row["capacity_bar_rate"]) for row in period_rows],
+        dtype=np.float64,
+    )
     return {
         "execution_lag_bars": int(execution_lag_bars),
         "turnover_target_rate": float(cg.TURNOVER_TARGET_RATE),
@@ -181,6 +684,13 @@ def _contract_metrics_for_genome(
         "max_saturation_rate": float(saturation_arr.max()),
         "mean_invalid_open_logit_pressure": float(invalid_open_pressure_arr.mean()),
         "max_invalid_open_logit_pressure": float(invalid_open_pressure_arr.max()),
+        "mean_long_slot_rate": float(long_slot_arr.mean()),
+        "mean_short_slot_rate": float(short_slot_arr.mean()),
+        "mean_position_slot_rate": float(position_slot_arr.mean()),
+        "mean_net_direction_bias": float(direction_bias_arr.mean()),
+        "mean_capacity_usage": float(capacity_usage_arr.mean()),
+        "max_open_positions": int(max(int(row["max_open_positions"]) for row in period_rows)),
+        "capacity_bar_rate": float(capacity_bar_arr.mean()),
         "periods": period_rows,
     }
 
@@ -299,6 +809,11 @@ def main() -> int:
         help="Optional evaluation end date passed to the genetics data loader.",
     )
     parser.add_argument(
+        "--data-dir",
+        default=None,
+        help="Optional Retrodate CSV directory override for this evaluation only.",
+    )
+    parser.add_argument(
         "--walk-forward",
         action="store_true",
         help="Also evaluate validation slices from rolling train/validation year folds.",
@@ -342,12 +857,27 @@ def main() -> int:
 
     old_cfg_start = cg._cx._CFG.get("start_date")
     old_cfg_end = cg._cx._CFG.get("end_date")
+    old_data_dir = cg._cx.DATA_DIR
     try:
         if args.start_date is not None:
             cg._cx._CFG["start_date"] = args.start_date
         if args.end_date is not None:
             cg._cx._CFG["end_date"] = args.end_date
 
+        data_dir = _resolve_eval_data_dir(args.data_dir)
+        if args.data_dir is not None:
+            cg._cx.DATA_DIR = str(data_dir)
+        timeframe = {"1m": "1m", "1h": "1h", "1d": "1d"}.get(cg._cx.TIMEFRAME, "1m")
+        retrodate_selection = _validate_requested_retrodate_files(
+            data_dir,
+            timeframe=timeframe,
+            start_date=cg._cx._CFG.get("start_date"),
+            end_date=cg._cx._CFG.get("end_date"),
+        )
+        print(
+            "[eval] retrodate files="
+            + ", ".join(item.path.name for item in retrodate_selection.valid_reports)
+        )
         print("[eval] loading precomputed features...")
         precomp = cg._load_precomp()
     finally:
@@ -355,6 +885,7 @@ def main() -> int:
             cg._cx._CFG["start_date"] = old_cfg_start
         if old_cfg_end is not None:
             cg._cx._CFG["end_date"] = old_cfg_end
+        cg._cx.DATA_DIR = old_data_dir
 
     if not precomp:
         raise RuntimeError("No precomputed periods loaded")
@@ -383,6 +914,11 @@ def main() -> int:
         "start_date": args.start_date,
         "end_date": args.end_date,
         "periods": len(precomp),
+        "retrodate_data_dir": str(retrodate_selection.report.path),
+        "retrodate_timeframe": timeframe,
+        "retrodate_requested_years": list(retrodate_selection.requested_years),
+        "retrodate_valid_files": [item.path.name for item in retrodate_selection.valid_reports],
+        "retrodate_missing_years": list(retrodate_selection.missing_years),
         "default_position_state_features_enabled": bool(cg.POSITION_STATE_FEATURES_ENABLED),
         "genomes": [],
     }

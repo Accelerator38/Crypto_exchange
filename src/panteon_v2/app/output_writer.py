@@ -18,7 +18,7 @@ import html
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..dashboards import (
     DashboardRenderer,
@@ -66,6 +66,7 @@ class OutputWriterConfig:
     dashboard_filename:   str = "dashboard.txt"
     dashboard_html:       str = "dashboard.html"
     events_jsonl:         str = "events.jsonl"
+    causal_entry_decisions_jsonl: str = "causal_entry_decisions.jsonl"
     latest_dir:           Optional[str] = None
 
 
@@ -108,6 +109,11 @@ class OutputWriter:
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
         # Открываем trading.log (append)
         self._log_path = os.path.join(config.output_dir, config.trading_log_filename)
+        self._causal_entry_path = os.path.join(
+            config.output_dir,
+            config.causal_entry_decisions_jsonl,
+        )
+        Path(self._causal_entry_path).touch(exist_ok=True)
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(f"\n{'='*70}\n")
             f.write(f"Panteon v2 started: {datetime.now(timezone.utc).isoformat()}\n")
@@ -160,6 +166,7 @@ class OutputWriter:
         self._accumulate_shadow_counts(step)
         self._accumulate_fallback_counts(step)
         self._log_step(step)
+        self._write_causal_entry_decision(step)
 
         # каждый bar — status.json
         if step.bar % self._config.write_every_bars == 0:
@@ -244,6 +251,25 @@ class OutputWriter:
                 f.write(line + "\n")
         except Exception:
             log.exception("trading.log write failed")
+
+    def _write_causal_entry_decision(self, step: StepResult) -> None:
+        payload: Any = getattr(step, "causal_decision", None)
+        if not payload:
+            return
+        row = dict(payload)
+        row.setdefault("bar", step.bar)
+        row.setdefault("regime", step.regime.label)
+        row.setdefault("selected_leader", step.selected_leader or step.leader or "")
+        row.setdefault("executed_leader", step.executed_leader or step.leader or "")
+        row.setdefault("n_signals", step.n_signals)
+        row.setdefault("n_filled", step.n_filled)
+        row.setdefault("n_rejected", step.n_rejected)
+        row.setdefault("n_blocked", step.n_blocked)
+        try:
+            with open(self._causal_entry_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            log.exception("causal_entry_decisions.jsonl write failed")
 
     def _write_status(
         self,

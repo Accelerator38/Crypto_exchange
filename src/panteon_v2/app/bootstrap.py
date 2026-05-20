@@ -70,6 +70,12 @@ class LiveExecutionConfig:
     max_slippage_pct: float = 0.0
     max_api_error_streak: int = 5
     pending_order_timeout_sec: float = 180.0
+    genetics_probation_execution_enabled: bool = False
+    genetics_probation_labels: tuple[str, ...] = ("GeneticsResearch",)
+    genetics_probation_allowed_regimes: tuple[str, ...] = ("bearish", "crash")
+    genetics_probation_risk_mult: float = 0.25
+    genetics_probation_max_real_trades: int = 20
+    genetics_probation_require_shadow_confirmation: bool = True
 
     def __post_init__(self) -> None:
         if self.max_new_opens_per_bar < 0:
@@ -81,6 +87,21 @@ class LiveExecutionConfig:
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
+        if not 0.0 < self.genetics_probation_risk_mult <= 1.0:
+            raise ValueError("genetics_probation_risk_mult must be in (0, 1]")
+        if self.genetics_probation_max_real_trades < 0:
+            raise ValueError("genetics_probation_max_real_trades must be >= 0")
+        for name in ("genetics_probation_labels", "genetics_probation_allowed_regimes"):
+            value = getattr(self, name)
+            if isinstance(value, str):
+                normalized = (value.strip(),) if value.strip() else ()
+            else:
+                normalized = tuple(
+                    str(item).strip()
+                    for item in (value or ())
+                    if str(item).strip()
+                )
+            object.__setattr__(self, name, normalized)
         for name in (
             "max_consecutive_failed_orders",
             "max_exchange_desync_events",
@@ -114,10 +135,113 @@ PRODUCTION_PROFILES: List[PlayerProfile] = [
     PROFILE_BOMBERMAN_STRONG,
 ]
 
+DEFAULT_REGIME_SWITCH_PLAYER_SETS: tuple[tuple[str, Dict[str, object]], ...] = (
+    (
+        "Antonius_conservative",
+        {
+            "bullish": "VolBreakoutHunter",
+            "bearish": "FundingArb",
+            "neutral": "ResearchValidatorAgent",
+            "crash": "CrashPanicShortAgent",
+        },
+    ),
+    (
+        "Perfect_OIBreakout",
+        {
+            "bullish": "LiveOIBreakout",
+            "neutral": "LiveOIBreakout",
+            "bearish": "LiveOIBreakout",
+            "crash": "LiveOIBreakout",
+        },
+    ),
+    (
+        "Perfect_CrashSwitch",
+        {
+            "bearish": "LiveCrashHunter",
+            "crash": "LiveCrashHunter",
+        },
+    ),
+    (
+        "Perfect_NeutralValidator",
+        {
+            "neutral": "ResearchValidatorAgent",
+        },
+    ),
+    (
+        "Perfect_GeneticsBearCrash",
+        {
+            "bearish": "GeneticsCore",
+            "crash": "GeneticsCore",
+        },
+    ),
+    (
+        "Perfect_MeanRev",
+        {
+            "neutral": "LiveMeanRev",
+        },
+    ),
+)
+
 
 # ────────────────────────────────────────────────────────────────────
 # Production composite
 # ────────────────────────────────────────────────────────────────────
+
+
+DEFAULT_ROTATING_AGENT_PLAYER_SETS: tuple[
+    tuple[str, Dict[str, tuple[str, ...]], tuple[str, ...]],
+    ...
+] = (
+    (
+        "Optimal_StaticRotator",
+        {
+            "bullish": (
+                "LiveAfterShock",
+                "VolBreakoutHunter",
+                "LiveVolCompress",
+                "BullRotationAgent",
+                "LiveOIBreakout",
+                "MomentumScalper",
+            ),
+            "bearish": (
+                "MomentumScalper",
+                "GeneticsCore",
+                "LiveCrashHunter",
+                "ResearchValidatorAgent",
+                "FundingArb",
+                "LiveRegimePullback",
+            ),
+            "neutral": (
+                "ResearchValidatorAgent",
+                "GeneticsCore",
+                "NeutralLiquiditySweep",
+                "NeutralRangeScalper",
+                "LiveAfterShock",
+            ),
+            "crash": (
+                "LiveCrashHunter",
+                "MomentumScalper",
+                "LiveRegimePullback",
+                "FundingArb",
+                "CrashPanicShortAgent",
+                "LiveOIBreakout",
+            ),
+        },
+        (
+            "ResearchValidatorAgent",
+            "LiveCrashHunter",
+            "MomentumScalper",
+            "LiveOIBreakout",
+            "GeneticsCore",
+        ),
+    ),
+)
+
+
+def _protected_composite_labels() -> tuple[str, ...]:
+    labels = [label for label, _mapping in DEFAULT_REGIME_SWITCH_PLAYER_SETS]
+    labels.extend(label for label, _mapping, _fallback in DEFAULT_ROTATING_AGENT_PLAYER_SETS)
+    return tuple(dict.fromkeys(labels))
 
 
 @dataclass
@@ -152,6 +276,13 @@ class ProductionPipeline:
     timeframe:       str = ""
     run_id:          str = ""
     session_id:      str = ""
+    regime_switch_player_sets: tuple[tuple[str, Dict[str, object]], ...] = field(
+        default_factory=lambda: DEFAULT_REGIME_SWITCH_PLAYER_SETS
+    )
+    rotating_agent_player_sets: tuple[
+        tuple[str, Dict[str, tuple[str, ...]], tuple[str, ...]],
+        ...
+    ] = field(default_factory=lambda: DEFAULT_ROTATING_AGENT_PLAYER_SETS)
 
     # Состояние loop
     current_balance: float = 0.0
@@ -221,7 +352,11 @@ def build_production_pipeline(
     )
     virtual_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
     real_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
-    qm = QuarantineManager(seed=set(seed_quarantine), config=scoring_config)
+    qm = QuarantineManager(
+        seed=set(seed_quarantine),
+        config=scoring_config,
+        protected_labels=_protected_composite_labels(),
+    )
     degradation_gate = DegradationGate(degradation_config)
     selector = AgentSelector(
         registry,

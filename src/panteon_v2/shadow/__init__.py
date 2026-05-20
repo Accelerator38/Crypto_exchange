@@ -13,6 +13,7 @@
 """
 
 from .adapters import (
+    GeneticsRegimeRouterV2AgentAdapter,
     GeneticsV2AgentAdapter,
     V1AgentAdapter,
     map_genetics_legacy_action,
@@ -38,6 +39,7 @@ from .runner import (
 
 __all__ = [
     # adapters
+    "GeneticsRegimeRouterV2AgentAdapter",
     "GeneticsV2AgentAdapter",
     "V1AgentAdapter",
     "map_genetics_legacy_action",

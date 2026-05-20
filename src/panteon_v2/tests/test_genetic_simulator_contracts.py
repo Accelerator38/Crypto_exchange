@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
 import importlib
 import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 def _load_crypto_genetics():
@@ -20,6 +22,26 @@ def _load_contract_eval_tool():
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     return importlib.import_module("tools.evaluate_genetics_contract")
+
+
+def _write_retrodate_csv(path: Path, *, timestamp: int, dt: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["timestamp", "open", "high", "low", "close", "volume", "symbol", "datetime"],
+        )
+        writer.writeheader()
+        writer.writerow({
+            "timestamp": timestamp,
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 10.0,
+            "symbol": "BTC/USDT",
+            "datetime": dt,
+        })
 
 
 def _patch_minimal_sim_config(monkeypatch, cg, *, spot_fee, futures_fee):
@@ -137,6 +159,32 @@ def test_compute_fitness_applies_robust_concentration_penalty(monkeypatch):
     robust = cg._compute_fitness(period_rets, period_dds, trade_rates)
 
     assert robust[0] < base[0] - 50.0
+
+
+def test_core_fitness_prefers_stable_returns_over_single_outlier(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [2.0] * 24,
+        [0.5] * 23 + [60.0],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.05)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_MAX_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_MAX_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_CORE_ROBUST_BLEND", 1.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_OUTLIER_CONC_MAX_PCT", 25.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_OUTLIER_CONC_PENALTY_W", 0.50, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > fits[1]
 
 
 def test_action_contract_metrics_counts_max_position_saturation(monkeypatch):
@@ -286,6 +334,49 @@ def test_compute_fitness_penalizes_excess_turnover_and_saturation(monkeypatch):
     assert fits[0] > fits[1] + 5.0
 
 
+def test_compute_fitness_does_not_prefer_low_turnover_lossy_policy(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.45, 0.45, 0.45, 0.45, 0.45, 0.45],
+        [0.10, 0.10, 0.10, 0.10, -0.70, 0.10],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.array([
+        [0.14] * 6,
+        [0.01] * 6,
+    ], dtype=np.float64)
+    saturation_rates = np.array([
+        [0.06] * 6,
+        [0.00] * 6,
+    ], dtype=np.float64)
+    invalid_open_pressure = np.array([
+        [0.0] * 6,
+        [0.0] * 6,
+    ], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", True)
+    monkeypatch.setattr(cg, "FITNESS_CORE_ROBUST_BLEND", 0.45, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MIN_CORE_MEAN_RET", 0.20, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MEAN_RET_FLOOR_PENALTY_W", 20.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_NEGATIVE_PERIOD_TARGET", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_NEGATIVE_PERIOD_PENALTY_W", 6.0, raising=False)
+    monkeypatch.setattr(cg, "TURNOVER_TARGET_RATE", 0.10)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 8.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 25.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 4.0)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 120.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_saturation_rates=saturation_rates,
+        period_invalid_open_logit_pressures=invalid_open_pressure,
+    )
+
+    assert fits[0] > fits[1]
+
+
 def test_compute_fitness_penalizes_invalid_open_logit_pressure(monkeypatch):
     cg = _load_crypto_genetics()
     period_rets = np.array([[4.0, 4.0], [4.0, 4.0]], dtype=np.float64)
@@ -393,6 +484,55 @@ def test_compute_fitness_prefers_executable_policy_over_high_return_invalid_poli
     assert fits[0] > fits[1]
 
 
+def test_island_regime_genomes_require_positive_contract_fitness(tmp_path, monkeypatch):
+    cg = _load_crypto_genetics()
+    monkeypatch.setattr(cg, "AGENTS_DIR", str(tmp_path))
+    monkeypatch.setattr(cg, "REGIME_GENOME_MIN_FITNESS", 0.0, raising=False)
+
+    trainer = object.__new__(cg.GeneticTrainer)
+    trainer.gen = 1
+    trainer.islands = [[0], [1], [2]]
+    trainer.pop = np.zeros((3, cg.GENOME_SIZE), dtype=np.float32)
+    trainer._island_best_fits = {}
+    trainer._island_best_genomes = {}
+
+    trainer._save_island_bests(np.array([-10.0, -0.5, 0.25], dtype=np.float64))
+
+    assert not (tmp_path / "best_genome_regime_bearish.npy").exists()
+    assert not (tmp_path / "best_genome_regime_neutral.npy").exists()
+    assert (tmp_path / "best_genome_regime_bullish.npy").exists()
+
+
+def test_per_regime_genomes_require_positive_contract_fitness(tmp_path, monkeypatch):
+    cg = _load_crypto_genetics()
+    monkeypatch.setattr(cg, "AGENTS_DIR", str(tmp_path))
+    monkeypatch.setattr(cg, "REGIME_GENOME_MIN_FITNESS", 0.0, raising=False)
+
+    trainer = object.__new__(cg.GeneticTrainer)
+    trainer.gen = 1
+    trainer.best_g = np.zeros(cg.GENOME_SIZE, dtype=np.float32)
+    trainer.precomp = [(None, None, None, None, None, 1.0, "bullish")]
+    trainer.best_per_regime = {}
+    trainer._island_best_fits = {}
+    trainer._island_best_genomes = {}
+
+    trainer._save_best_per_regime(
+        [5.0],
+        genome=np.ones(cg.GENOME_SIZE, dtype=np.float32),
+        candidate_fitness=-1.0,
+    )
+
+    assert not (tmp_path / "best_genome_regime_bullish.npy").exists()
+
+    trainer._save_best_per_regime(
+        [5.0],
+        genome=np.ones(cg.GENOME_SIZE, dtype=np.float32),
+        candidate_fitness=0.25,
+    )
+
+    assert (tmp_path / "best_genome_regime_bullish.npy").exists()
+
+
 def test_contract_evaluator_reports_action_contract_metrics(monkeypatch):
     tool = _load_contract_eval_tool()
     cg = tool.cg
@@ -454,6 +594,96 @@ def test_contract_evaluator_infers_position_state_flag_from_genome_metadata(tmp_
     assert tool._infer_position_state_features_enabled(tmp_path / "missing.npy") is False
 
 
+def test_contract_evaluator_blocks_requested_retrodate_year_mismatch(tmp_path):
+    tool = _load_contract_eval_tool()
+    _write_retrodate_csv(
+        tmp_path / "crypto_1m_2026_all_symbols.csv",
+        timestamp=1640995200000,
+        dt="2022-01-01 00:00:00+00:00",
+    )
+
+    with pytest.raises(tool.RetrodateValidationError) as exc:
+        tool._validate_requested_retrodate_files(
+            tmp_path,
+            timeframe="1m",
+            start_date="2026-01-01",
+            end_date="2026-02-28",
+        )
+
+    message = str(exc.value)
+    assert "crypto_1m_2026_all_symbols.csv" in message
+    assert "year_mismatch" in message
+
+
+def test_contract_evaluator_ignores_unrequested_invalid_retrodate_year(tmp_path):
+    tool = _load_contract_eval_tool()
+    _write_retrodate_csv(
+        tmp_path / "crypto_1m_2025_all_symbols.csv",
+        timestamp=1735689600000,
+        dt="2025-01-01 00:00:00+00:00",
+    )
+    _write_retrodate_csv(
+        tmp_path / "crypto_1m_2026_all_symbols.csv",
+        timestamp=1640995200000,
+        dt="2022-01-01 00:00:00+00:00",
+    )
+
+    selection = tool._validate_requested_retrodate_files(
+        tmp_path,
+        timeframe="1m",
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+    )
+
+    assert [item.path.name for item in selection.valid_reports] == [
+        "crypto_1m_2025_all_symbols.csv"
+    ]
+    assert selection.missing_years == ()
+
+
+def test_contract_evaluator_preflight_avoids_full_retrodate_directory_scan(tmp_path, monkeypatch):
+    tool = _load_contract_eval_tool()
+    _write_retrodate_csv(
+        tmp_path / "crypto_1m_2025_all_symbols.csv",
+        timestamp=1735689600000,
+        dt="2025-01-01 00:00:00+00:00",
+    )
+    _write_retrodate_csv(
+        tmp_path / "crypto_1m_2026_all_symbols.csv",
+        timestamp=1640995200000,
+        dt="2022-01-01 00:00:00+00:00",
+    )
+
+    def fail_full_scan(_path):
+        raise AssertionError("genetics evaluator preflight must not full-scan Retrodate directory")
+
+    monkeypatch.setattr(tool, "validate_retrodate_dir", fail_full_scan)
+
+    selection = tool._validate_requested_retrodate_files(
+        tmp_path,
+        timeframe="1m",
+        start_date="2025-01-01",
+        end_date="2025-12-31",
+    )
+
+    assert [item.path.name for item in selection.valid_reports] == [
+        "crypto_1m_2025_all_symbols.csv"
+    ]
+
+
+def test_contract_evaluator_can_override_data_dir(tmp_path, monkeypatch):
+    tool = _load_contract_eval_tool()
+    default_dir = tmp_path / "default"
+    override_dir = tmp_path / "override"
+    default_dir.mkdir()
+    override_dir.mkdir()
+
+    monkeypatch.setattr(tool.cg, "_resolve_data_dir", lambda: str(default_dir))
+
+    assert tool._resolve_eval_data_dir(None) == default_dir
+    assert tool._resolve_eval_data_dir(str(override_dir)) == override_dir
+
+
 def test_contract_metrics_report_effective_turnover_after_position_policy(monkeypatch):
     tool = _load_contract_eval_tool()
     cg = tool.cg
@@ -513,3 +743,649 @@ def test_smoke_training_feasible_best_seed_biases_open_action_logits():
     np.testing.assert_allclose(population[1:3, b4_start + np.array(open_actions)], -1.5)
     np.testing.assert_allclose(population[1:3, b4_start + np.array(non_open_actions)], 1.0)
     assert np.all(population[3:] == 99.0)
+
+
+def test_smoke_training_can_seed_output_layer_only_mutants():
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    cg = tool.cg
+    best = np.linspace(-0.25, 0.25, cg.GENOME_SIZE, dtype=np.float32)
+    population = np.full((4, cg.GENOME_SIZE), 99.0, dtype=np.float32)
+    output_start = cg.GENOME_SIZE - (cg.N_HIDDEN3 * cg.N_ACTIONS + cg.N_ACTIONS)
+
+    inserted = tool._seed_feasible_best_population(
+        population,
+        best,
+        np.random.default_rng(13),
+        start_slot=1,
+        seed_frac=0.75,
+        sigma=0.02,
+        open_logit_bias=0.0,
+        mutation_scope="output",
+    )
+
+    assert inserted == 3
+    expected_prefix = np.broadcast_to(best[:output_start], (3, output_start))
+    np.testing.assert_allclose(population[1:, :output_start], expected_prefix)
+    assert np.max(np.abs(population[1:, output_start:] - best[output_start:])) > 0.0
+
+
+def test_smoke_training_position_state_mode_uses_source_metadata(tmp_path):
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    (tmp_path / "best_genome_meta.json").write_text(
+        '{"position_state_features_enabled": false}',
+        encoding="utf-8",
+    )
+
+    assert tool._resolve_position_state_features_enabled(
+        "source-meta",
+        tmp_path,
+        settings_default=True,
+    ) is False
+
+
+def test_smoke_training_position_state_mode_can_force_on_off(tmp_path):
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    (tmp_path / "best_genome_meta.json").write_text(
+        '{"position_state_features_enabled": false}',
+        encoding="utf-8",
+    )
+
+    assert tool._resolve_position_state_features_enabled(
+        "on",
+        tmp_path,
+        settings_default=False,
+    ) is True
+    assert tool._resolve_position_state_features_enabled(
+        "off",
+        tmp_path,
+        settings_default=True,
+    ) is False
+    assert tool._resolve_position_state_features_enabled(
+        "settings",
+        tmp_path,
+        settings_default=True,
+    ) is True
+
+
+def test_smoke_training_can_filter_precomp_by_market_regime():
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    precomp = [
+        ("feat", "prices", ["BTC"], 1, "2025-01", 1.0, "bullish"),
+        ("feat", "prices", ["BTC"], 2, "2025-02", 2.5, "bearish"),
+        ("feat", "prices", ["BTC"], 3, "2025-03", 1.5, "neutral"),
+        ("feat", "prices", ["BTC"], 4, "2025-04", 2.5, "crash"),
+    ]
+
+    bearish = tool._filter_precomp_by_regime(precomp, "bearish")
+    all_periods = tool._filter_precomp_by_regime(precomp, "all")
+
+    assert [row[4] for row in bearish] == ["2025-02", "2025-04"]
+    assert all_periods == precomp
+
+
+def test_genetic_settings_can_load_from_env_path(tmp_path, monkeypatch):
+    cg = _load_crypto_genetics()
+    settings_path = tmp_path / "settings_genetic_wide.txt"
+    settings_path.write_text(
+        "n_hidden1 = 192\n"
+        "n_hidden2 = 96\n"
+        "n_hidden3 = 48\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("GENETICS_SETTINGS_FILE", str(settings_path))
+
+    loaded = cg._load_genetic_settings()
+
+    assert loaded["n_hidden1"] == "192"
+    assert loaded["n_hidden2"] == "96"
+    assert loaded["n_hidden3"] == "48"
+    assert "pop_size" in loaded
+
+
+def _test_mlp_forward(genome: np.ndarray, arch: tuple[int, int, int, int, int],
+                      x: np.ndarray) -> np.ndarray:
+    n_in, h1, h2, h3, n_actions = arch
+    i = 0
+    w1 = genome[i:i + n_in * h1].reshape(n_in, h1); i += n_in * h1
+    b1 = genome[i:i + h1]; i += h1
+    w2 = genome[i:i + h1 * h2].reshape(h1, h2); i += h1 * h2
+    b2 = genome[i:i + h2]; i += h2
+    w3 = genome[i:i + h2 * h3].reshape(h2, h3); i += h2 * h3
+    b3 = genome[i:i + h3]; i += h3
+    w4 = genome[i:i + h3 * n_actions].reshape(h3, n_actions); i += h3 * n_actions
+    b4 = genome[i:i + n_actions]
+
+    def elu(v):
+        return np.where(v >= 0, v, np.exp(v) - 1.0)
+
+    return elu(elu(elu(x @ w1 + b1) @ w2 + b2) @ w3 + b3) @ w4 + b4
+
+
+def test_smoke_training_transfers_genome_to_wider_architecture():
+    import importlib
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    source_arch = (3, 4, 3, 2, 2)
+    target_arch = (3, 6, 5, 4, 2)
+    rng = np.random.default_rng(11)
+    source = rng.normal(0.0, 0.2, tool._genome_size_for_arch(source_arch)).astype(np.float32)
+
+    transferred = tool._transfer_mlp_genome(source, source_arch, target_arch)
+
+    assert transferred.shape == (tool._genome_size_for_arch(target_arch),)
+    x = rng.normal(0.0, 1.0, (5, source_arch[0])).astype(np.float32)
+    np.testing.assert_allclose(
+        _test_mlp_forward(source, source_arch, x),
+        _test_mlp_forward(transferred, target_arch, x),
+        atol=1e-6,
+    )
+
+
+def test_contract_evaluator_reports_directional_exposure_metrics():
+    import importlib
+
+    tool = importlib.import_module("tools.evaluate_genetics_contract")
+    actions = np.zeros((1, 4, 2), dtype=np.int32)
+    actions[0, 0, 0] = 4  # open futures long on symbol 0
+    actions[0, 0, 1] = 6  # open futures short on symbol 1
+    actions[0, 2, 0] = 8  # close futures long
+    actions[0, 3, 1] = 8  # close futures short
+
+    metrics = tool._position_exposure_metrics(actions, max_positions=4)
+
+    assert metrics["mean_long_slot_rate"] == pytest.approx(2 / 8)
+    assert metrics["mean_short_slot_rate"] == pytest.approx(3 / 8)
+    assert metrics["mean_position_slot_rate"] == pytest.approx(5 / 8)
+    assert metrics["max_open_positions"] == 2
+    assert metrics["mean_net_direction_bias"] == pytest.approx((2 - 3) / 5)
+
+    by_symbol = tool._position_exposure_metrics(
+        actions,
+        max_positions=4,
+        symbols=["BTC", "ETH"],
+        top_n_symbols=2,
+    )
+
+    assert by_symbol["top_position_symbols"][0]["symbol"] == "ETH"
+    assert by_symbol["top_position_symbols"][0]["position_slot_rate"] == pytest.approx(3 / 4)
+    assert by_symbol["top_position_symbols"][0]["short_slot_rate"] == pytest.approx(3 / 4)
+    assert by_symbol["top_position_symbols"][1]["symbol"] == "BTC"
+    assert by_symbol["top_position_symbols"][1]["position_slot_rate"] == pytest.approx(2 / 4)
+    assert by_symbol["top_position_symbols"][1]["long_slot_rate"] == pytest.approx(2 / 4)
+
+
+def test_smoke_training_writes_warm_start_artifacts(tmp_path):
+    import importlib
+    import json
+
+    tool = importlib.import_module("tools.run_genetics_smoke_training")
+    genome = np.arange(6, dtype=np.float32)
+
+    written = tool._write_warm_start_artifacts(
+        tmp_path,
+        genome,
+        {
+            "source_arch": {"in": 1, "h1": 2, "h2": 1, "h3": 1, "out": 1},
+            "target_arch": {"in": 1, "h1": 3, "h2": 2, "h3": 1, "out": 1},
+            "source_genome_transferred": True,
+        },
+    )
+
+    np.testing.assert_allclose(np.load(written["genome"]), genome)
+    meta = json.loads(written["meta"].read_text(encoding="utf-8"))
+    assert meta["role"] == "warm_start_baseline"
+    assert meta["source_genome_transferred"] is True
+    assert meta["genome_size"] == 6
+
+
+def _genetics_selection_report(*, baseline_mean: float, candidate_mean: float,
+                              baseline_min: float = 0.0, candidate_min: float = 0.0,
+                              candidate_turnover: float = 0.01) -> dict:
+    def genome(path: str, mean: float, min_ret: float, turnover: float) -> dict:
+        return {
+            "path": path,
+            "position_state_features_enabled": False,
+            "modes": [{
+                "mode": "fee_fixed_nextbar",
+                "fitness": mean,
+                "period_stats": {
+                    "mean_ret": mean,
+                    "min_ret": min_ret,
+                    "max_ret": mean,
+                    "positive_period_pct": 100.0 if min_ret >= 0 else 66.67,
+                },
+                "robust_score": {
+                    "max_positive_contribution_pct": 30.0,
+                    "passes_default_gates": True,
+                },
+                "contract_metrics": {
+                    "mean_turnover_rate": turnover,
+                    "mean_saturation_rate": 0.01,
+                    "mean_invalid_open_logit_pressure": 0.0,
+                },
+                "period_rets": [mean],
+            }],
+        }
+
+    return {
+        "genomes": [
+            genome("baseline.npy", baseline_mean, baseline_min, 0.01),
+            genome("candidate.npy", candidate_mean, candidate_min, candidate_turnover),
+        ]
+    }
+
+
+def _genetics_regime_selection_report(
+    *,
+    baseline_rets: list[float],
+    candidate_rets: list[float],
+    regimes: list[str],
+    baseline_turnovers: list[float] | None = None,
+    candidate_turnovers: list[float] | None = None,
+    baseline_saturations: list[float] | None = None,
+    candidate_saturations: list[float] | None = None,
+) -> dict:
+    baseline_turnovers = baseline_turnovers or [0.01] * len(regimes)
+    candidate_turnovers = candidate_turnovers or [0.01] * len(regimes)
+    baseline_saturations = baseline_saturations or [0.01] * len(regimes)
+    candidate_saturations = candidate_saturations or [0.01] * len(regimes)
+
+    def genome(path: str, rets: list[float], turnovers: list[float], saturations: list[float]) -> dict:
+        return {
+            "path": path,
+            "position_state_features_enabled": False,
+            "modes": [{
+                "mode": "fee_fixed_nextbar",
+                "fitness": float(np.mean(rets)),
+                "period_stats": {
+                    "mean_ret": float(np.mean(rets)),
+                    "min_ret": float(np.min(rets)),
+                    "max_ret": float(np.max(rets)),
+                    "positive_period_pct": float(np.mean(np.asarray(rets) > 0.0) * 100.0),
+                },
+                "robust_score": {
+                    "max_positive_contribution_pct": 30.0,
+                    "passes_default_gates": True,
+                },
+                "contract_metrics": {
+                    "mean_turnover_rate": float(np.mean(turnovers)),
+                    "mean_saturation_rate": float(np.mean(saturations)),
+                    "mean_invalid_open_logit_pressure": 0.0,
+                    "periods": [
+                        {
+                            "period": f"p{i}",
+                            "regime": regime,
+                            "turnover_rate": float(turnovers[i]),
+                            "saturation_rate": float(saturations[i]),
+                            "invalid_open_logit_pressure": 0.0,
+                        }
+                        for i, regime in enumerate(regimes)
+                    ],
+                },
+                "period_rets": list(rets),
+            }],
+        }
+
+    return {
+        "genomes": [
+            genome("baseline.npy", baseline_rets, baseline_turnovers, baseline_saturations),
+            genome("candidate.npy", candidate_rets, candidate_turnovers, candidate_saturations),
+        ]
+    }
+
+
+def test_genetics_candidate_selector_keeps_baseline_when_validation_loses():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_selection_report(baseline_mean=0.2, candidate_mean=0.5)
+    validation = _genetics_selection_report(
+        baseline_mean=1.0,
+        candidate_mean=-0.2,
+        baseline_min=0.5,
+        candidate_min=-1.0,
+    )
+
+    selected = selector.select_candidate(train, validation)
+
+    assert selected["selected_is_baseline"] is True
+    assert selected["selected_path"] == "baseline.npy"
+    assert selected["candidates"][0]["accepted"] is False
+    assert "validation_mean_ret" in selected["candidates"][0]["failures"]
+
+
+def test_genetics_candidate_selector_keeps_baseline_on_validation_tie():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_selection_report(baseline_mean=0.2, candidate_mean=0.5)
+    validation = _genetics_selection_report(
+        baseline_mean=1.0,
+        candidate_mean=1.0,
+        baseline_min=0.5,
+        candidate_min=0.5,
+    )
+
+    selected = selector.select_candidate(train, validation)
+
+    assert selected["selected_is_baseline"] is True
+    assert selected["selected_path"] == "baseline.npy"
+    assert selected["candidates"][0]["accepted"] is False
+    assert "validation_tie" in selected["candidates"][0]["failures"]
+
+
+def test_genetics_candidate_selector_accepts_validation_winner():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_selection_report(baseline_mean=0.2, candidate_mean=0.5)
+    validation = _genetics_selection_report(
+        baseline_mean=0.1,
+        candidate_mean=0.4,
+        baseline_min=0.0,
+        candidate_min=0.2,
+    )
+
+    selected = selector.select_candidate(
+        train,
+        validation,
+        min_validation_mean_delta=0.05,
+        min_validation_min_ret_delta=0.0,
+        min_positive_period_pct=100.0,
+    )
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["selected_path"] == "candidate.npy"
+    assert selected["candidates"][0]["accepted"] is True
+
+
+def test_regime_router_selector_can_improve_unvalidated_regime_without_validation_degradation():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[1.0, 0.1],
+        candidate_rets=[-1.0, 0.5],
+        regimes=["bearish", "neutral"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[1.0],
+        candidate_rets=[-1.0],
+        regimes=["bearish"],
+    )
+
+    selected = selector.select_regime_router(train, validation)
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["promotion_eligible"] is False
+    assert "validation_tie" in selected["promotion_failures"]
+    assert selected["selected_regime_map"]["bearish"] == "baseline.npy"
+    assert selected["selected_regime_map"]["neutral"] == "candidate.npy"
+    assert selected["validation"]["mean_ret"] == pytest.approx(1.0)
+    assert selected["train"]["mean_ret"] == pytest.approx(0.75)
+
+
+def test_regime_router_selector_rejects_train_gain_with_validation_degradation():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[1.0],
+        candidate_rets=[1.2],
+        regimes=["bearish"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[1.0],
+        candidate_rets=[-1.0],
+        regimes=["bearish"],
+    )
+
+    selected = selector.select_regime_router(train, validation)
+
+    assert selected["selected_is_baseline"] is True
+    assert selected["selected_regime_map"]["bearish"] == "baseline.npy"
+
+
+def test_regime_router_selector_requires_multiple_validation_periods_for_promotion():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.40, 0.40],
+        regimes=["neutral", "bullish"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.40],
+        regimes=["neutral"],
+    )
+
+    selected = selector.select_regime_router(train, validation)
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["promotion_eligible"] is False
+    assert "validation_period_count" in selected["promotion_failures"]
+
+
+def test_regime_router_selector_requires_validation_coverage_for_selected_regimes():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.40, 0.40],
+        regimes=["neutral", "bullish"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.40, 0.30],
+        regimes=["neutral", "neutral"],
+    )
+
+    selected = selector.select_regime_router(train, validation)
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["selected_regime_map"]["bullish"] == "candidate.npy"
+    assert selected["promotion_eligible"] is False
+    assert "validation_regime_coverage:bullish" in selected["promotion_failures"]
+
+
+def test_regime_router_selector_uses_guard_reports_to_reject_fragile_maps():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.45, 0.45],
+        regimes=["neutral", "bullish"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.40, 0.35],
+        regimes=["neutral", "bullish"],
+    )
+    guard = _genetics_regime_selection_report(
+        baseline_rets=[0.20, 0.20],
+        candidate_rets=[-0.20, -0.10],
+        regimes=["neutral", "bullish"],
+    )
+
+    selected = selector.select_regime_router(train, validation, guard_reports=[guard])
+
+    assert selected["selected_is_baseline"] is True
+    assert selected["selected_regime_map"]["neutral"] == "baseline.npy"
+    assert selected["selected_regime_map"]["bullish"] == "baseline.npy"
+    assert "guard_0_mean_ret" in selected["candidates"][0]["failures"]
+
+
+def test_regime_router_selector_can_restrict_candidate_regimes_for_specialists():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.50, 0.50],
+        regimes=["neutral", "bullish"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10, 0.10],
+        candidate_rets=[0.40, 0.40],
+        regimes=["neutral", "bullish"],
+    )
+
+    selected = selector.select_regime_router(
+        train,
+        validation,
+        allowed_candidate_regimes=["neutral"],
+    )
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["selected_regime_map"]["neutral"] == "candidate.npy"
+    assert selected["selected_regime_map"]["bullish"] == "baseline.npy"
+
+
+def test_regime_router_multisplit_gate_rejects_oos_degradation():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "selected_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "candidate.npy",
+            "bullish": "baseline.npy",
+        },
+        "baseline_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+            "bullish": "baseline.npy",
+        },
+    }
+    oos = _genetics_regime_selection_report(
+        baseline_rets=[0.30],
+        candidate_rets=[-0.10],
+        regimes=["neutral"],
+    )
+
+    gate = selector.evaluate_regime_router_multisplit_gate(selection, [oos])
+
+    assert gate["promotion_eligible"] is False
+    assert "oos_0_mean_ret" in gate["promotion_failures"]
+    assert gate["holdouts"][0]["baseline"]["mean_ret"] == pytest.approx(0.30)
+    assert gate["holdouts"][0]["candidate"]["mean_ret"] == pytest.approx(-0.10)
+
+
+def test_regime_router_multisplit_gate_requires_oos_coverage_for_selected_regimes():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "selected_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "candidate.npy",
+            "bullish": "candidate.npy",
+        },
+        "baseline_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+            "bullish": "baseline.npy",
+        },
+    }
+    oos = _genetics_regime_selection_report(
+        baseline_rets=[0.30, 0.20],
+        candidate_rets=[0.30, 0.20],
+        regimes=["bearish", "bearish"],
+    )
+
+    gate = selector.evaluate_regime_router_multisplit_gate(selection, [oos])
+
+    assert gate["promotion_eligible"] is False
+    assert "oos_regime_coverage:neutral" in gate["promotion_failures"]
+    assert "oos_regime_coverage:bullish" in gate["promotion_failures"]
+
+
+def test_regime_router_multisplit_gate_rejects_selected_map_contract_breaches():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "selected_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "candidate.npy",
+            "bullish": "baseline.npy",
+        },
+        "baseline_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+            "bullish": "baseline.npy",
+        },
+    }
+    oos = _genetics_regime_selection_report(
+        baseline_rets=[0.20, 0.20],
+        candidate_rets=[0.20, 0.20],
+        regimes=["bearish", "neutral"],
+        baseline_turnovers=[0.01, 0.01],
+        candidate_turnovers=[0.01, 0.25],
+        baseline_saturations=[0.01, 0.01],
+        candidate_saturations=[0.01, 0.23],
+    )
+
+    gate = selector.evaluate_regime_router_multisplit_gate(
+        selection,
+        [oos],
+        max_turnover_rate=0.10,
+        max_saturation_rate=0.10,
+    )
+
+    assert gate["promotion_eligible"] is False
+    assert "oos_0_turnover" in gate["promotion_failures"]
+    assert "oos_0_saturation" in gate["promotion_failures"]
+    assert gate["holdouts"][0]["candidate"]["mean_turnover_rate"] == pytest.approx(0.13)
+    assert gate["holdouts"][0]["candidate"]["mean_saturation_rate"] == pytest.approx(0.12)
+
+
+def test_regime_router_paper_gate_marks_paper_only_after_no_degradation():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "selected_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "candidate.npy",
+            "bullish": "baseline.npy",
+        },
+        "baseline_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+            "bullish": "baseline.npy",
+        },
+    }
+    paper = _genetics_regime_selection_report(
+        baseline_rets=[0.20, 0.20],
+        candidate_rets=[0.20, 0.25],
+        regimes=["bearish", "neutral"],
+        baseline_turnovers=[0.01, 0.01],
+        candidate_turnovers=[0.01, 0.08],
+        baseline_saturations=[0.01, 0.01],
+        candidate_saturations=[0.01, 0.07],
+    )
+
+    gate = selector.evaluate_regime_router_paper_gate(selection, [paper])
+
+    assert gate["paper_trading_eligible"] is True
+    assert gate["live_trading_eligible"] is False
+    assert gate["paper_failures"] == []
+    assert gate["paper_reports"][0]["candidate"]["mean_ret"] == pytest.approx(0.225)

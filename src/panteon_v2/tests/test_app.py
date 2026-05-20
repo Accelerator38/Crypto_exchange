@@ -23,7 +23,12 @@ from panteon_v2.app import (
 )
 from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.app.main_loop import StepResult
+from panteon_v2.app.main_loop import _compose_candidates
+from panteon_v2.app.main_loop import _compose_fixed_agent_candidates
+from panteon_v2.app.main_loop import _compose_regime_switch_agent_candidates
+from panteon_v2.app.main_loop import _compose_rotating_agent_candidates
 from panteon_v2.app.main_loop import _compose_solo_agent_candidates
+from panteon_v2.app.main_loop import _drop_quarantined_candidates
 from panteon_v2.attribution import (
     CandidateScored,
     DecisionStarted,
@@ -41,20 +46,22 @@ from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.execution import ExchangePosition, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.execution.position_tracker import TrackedPosition
-from panteon_v2.memory import PerformanceMemory
+from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import (
     AgentRegistry,
     EnsemblePlayer,
     NoTradePlayer,
     PlayerProfile,
+    RotatingAgentPlayer,
     ScoredAgent,
     SwitchDecision,
     ThresholdProfile,
     WeightedConsensus,
 )
-from panteon_v2.shadow.adapters import make_market_snapshot
+from panteon_v2.selection.strategist import CandidateRejection, CandidateScore
+from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter, make_market_snapshot
 from panteon_v2.shadow.feed import ReplayFeed
-from panteon_v2.tests._helpers import FakeAgent
+from panteon_v2.tests._helpers import FakeAgent, make_market
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -504,6 +511,54 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(player_events[-1].closed_trades, 1)
         self.assertEqual(player_events[-1].winning_trades, 1)
 
+    def test_shadow_tournament_syncs_genetics_fill_state_before_next_bar(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+        class SyncAwareLegacyGenetics:
+            def __init__(self):
+                self.has_futures_position = False
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 5 if self.has_futures_position else 3}
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                if symbol == "BTC":
+                    self.has_futures_position = bool(fut_qty)
+
+        agent = GeneticsV2AgentAdapter(
+            "GeneticsProbe",
+            SyncAwareLegacyGenetics(),
+        )
+        reg = AgentRegistry()
+        reg.register(agent)
+        event_log = EventLog()
+        tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=PerformanceMemory(trade_fraction=1.0),
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+            event_log=event_log,
+        )
+
+        first = tournament.run_bar(
+            make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish"),
+            players=[],
+            balance_usd=1000.0,
+        )
+        second = tournament.run_bar(
+            make_market_snapshot(bar=2, prices={"BTC": 110.0}, regime="bullish"),
+            players=[],
+            balance_usd=1000.0,
+        )
+
+        self.assertEqual(first.agent_filled, 1)
+        self.assertEqual(second.agent_filled, 1)
+        agent_events = [
+            ev for ev in event_log.query(event_types=[ShadowActorUpdated])
+            if ev.actor_type == "agent" and ev.actor_label == "GeneticsProbe"
+        ]
+        self.assertEqual(agent_events[-1].closed_trades, 1)
+        self.assertGreater(agent_events[-1].realized_pnl_usd, 0.0)
+
     def test_shadow_tournament_exposes_last_actor_updates_without_event_log(self):
         from panteon_v2.app.shadow_tournament import ProductionShadowTournament
 
@@ -562,7 +617,19 @@ class TestMainLoop(unittest.TestCase):
         positions = tournament.last_player_open_positions()
         self.assertEqual(
             positions,
-            {"PlayerA": ({"sym": "BTC", "side": "long", "opened_bar": 1},)},
+            {"PlayerA": ({
+                "sym": "BTC",
+                "side": "long",
+                "opened_bar": 1,
+                "age_bars": 0,
+                "entry_price": 100.0,
+                "current_price": 100.0,
+                "qty": 1.0,
+                "unrealized_pnl_usd": 0.0,
+                "stop_price": None,
+                "take_profit_price": None,
+                "fresh": True,
+            },)},
         )
 
     def test_pending_shadow_updates_sync_into_strategist_once(self):
@@ -816,6 +883,12 @@ class TestMainLoop(unittest.TestCase):
                 ),
             ],
         )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
         pipeline.actionable_fallback_enabled = True
         players = {
             "SelectedPlayer": EnsemblePlayer(
@@ -874,6 +947,1700 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(steps[0].n_signals, 1)
         self.assertEqual(steps[0].n_filled, 1)
         self.assertEqual(len(exchange.orders_log), 1)
+
+    def test_genetics_probation_execution_scales_open_risk_multiplier(self):
+        genetics_agent = FakeAgent("GeneticsGenomeEnsemble", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(genetics_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+            profiles=[
+                PlayerProfile(
+                    label="GeneticsResearch",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_execution_enabled",
+            True,
+        )
+        object.__setattr__(pipeline.live_execution, "genetics_probation_risk_mult", 0.25)
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_require_shadow_confirmation",
+            False,
+        )
+        player = EnsemblePlayer(
+            label="GeneticsResearch",
+            agents=[genetics_agent],
+            weights={"GeneticsGenomeEnsemble": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, **kwargs):
+                return SwitchDecision(
+                    new_leader=player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "GeneticsResearch")
+        self.assertEqual(steps[0].executed_leader, "GeneticsResearch")
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(len(exchange.orders_log), 1)
+        filled_trade = exchange.orders_log[0].trade
+        self.assertIsNotNone(filled_trade)
+        self.assertAlmostEqual(filled_trade.qty, 0.25)
+        emitted = list(pipeline.event_log.query(event_types=[SignalEmitted]))
+        self.assertEqual(len(emitted), 1)
+        self.assertAlmostEqual(emitted[0].signal.risk_mult, 0.25)
+
+    def test_genetics_probation_execution_requires_current_shadow_confirmation(self):
+        genetics_agent = FakeAgent("GeneticsGenomeEnsemble", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(genetics_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+            profiles=[
+                PlayerProfile(
+                    label="GeneticsResearch",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_execution_enabled",
+            True,
+        )
+        object.__setattr__(pipeline.live_execution, "genetics_probation_risk_mult", 0.25)
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_require_shadow_confirmation",
+            True,
+        )
+        player = EnsemblePlayer(
+            label="GeneticsResearch",
+            agents=[genetics_agent],
+            weights={"GeneticsGenomeEnsemble": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, **kwargs):
+                return SwitchDecision(
+                    new_leader=player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "GeneticsResearch")
+        self.assertEqual(steps[0].executed_leader, "GeneticsResearch")
+        self.assertEqual(steps[0].n_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(steps[0].n_filtered_real_signals, 1)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertIn(
+            "genetics_shadow_unconfirmed:BTC:GeneticsGenomeEnsemble",
+            steps[0].signal_filter_details,
+        )
+
+    def test_actionable_fallback_reuses_current_shadow_registry_without_real_revote(self):
+        class ShadowOnlyAgent(FakeAgent):
+            def __init__(self):
+                super().__init__("FallbackAgent")
+
+            def clone_for_shadow(self):
+                return FakeAgent("FallbackAgent", {"BTC": Action.FUT_LONG_FULL})
+
+            def act(self, market):
+                raise AssertionError("fallback must not re-run real vote")
+
+        selected_agent = FakeAgent("SelectedAgent")
+        fallback_agent = ShadowOnlyAgent()
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(fallback_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="FallbackPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        players = {
+            "SelectedPlayer": EnsemblePlayer(
+                label="SelectedPlayer",
+                agents=[selected_agent],
+                weights={"SelectedAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "FallbackPlayer": EnsemblePlayer(
+                label="FallbackPlayer",
+                agents=[fallback_agent],
+                weights={"FallbackAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=players["SelectedPlayer"],
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "FallbackPlayer")
+        self.assertTrue(steps[0].fallback_used)
+        self.assertEqual(steps[0].n_raw_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(len(exchange.orders_log), 1)
+
+    def test_selected_leader_replays_fresh_shadow_position_when_real_vote_is_empty(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            class Config:
+                v3_shadow_fresh_handoff_enabled = True
+                v3_shadow_flat_handoff_enabled = False
+                v3_shadow_fresh_handoff_max_age_bars = 1
+
+            _config = Config()
+
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.player_positions = dict(player_positions)
+                self.real_positions = tuple(real_positions)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        class PositionOnlyTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "SelectedPlayer": ({
+                        "sym": "BTC",
+                        "side": "long",
+                        "opened_bar": 1,
+                        "age_bars": 0,
+                        "entry_price": 100.0,
+                        "current_price": 101.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": 1.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": True,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = PositionOnlyTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 101.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertEqual(steps[0].n_raw_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(exchange.orders_log[0].trade.sym, "BTC")
+        self.assertEqual(exchange.orders_log[0].trade.side, "long")
+        causal = steps[0].causal_decision
+        self.assertEqual(causal["bar"], 1)
+        self.assertEqual(causal["selected_leader"], "SelectedPlayer")
+        self.assertEqual(causal["executed_leader"], "SelectedPlayer")
+        self.assertTrue(causal["shadow_position_replay_used"])
+        self.assertEqual(
+            causal["selected_shadow_positions"][0]["unrealized_pnl_usd"],
+            1.0,
+        )
+        self.assertEqual(causal["raw_signals"][0]["by_agent"], "ShadowPositionReplay")
+
+    def test_selected_leader_does_not_replay_flat_shadow_position(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            class Config:
+                v3_shadow_fresh_handoff_enabled = True
+                v3_shadow_flat_handoff_enabled = False
+                v3_shadow_fresh_handoff_max_age_bars = 1
+
+            _config = Config()
+
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.player_positions = dict(player_positions)
+                self.real_positions = tuple(real_positions)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        class FlatPositionTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "SelectedPlayer": ({
+                        "sym": "BTC",
+                        "side": "long",
+                        "opened_bar": 1,
+                        "age_bars": 0,
+                        "entry_price": 100.0,
+                        "current_price": 100.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": 0.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": True,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = FlatPositionTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(exchange.orders_log, [])
+
+    def test_selected_leader_does_not_replay_losing_shadow_position(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            class Config:
+                v3_shadow_fresh_handoff_enabled = True
+                v3_shadow_flat_handoff_enabled = False
+                v3_shadow_fresh_handoff_max_age_bars = 1
+
+            _config = Config()
+
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.player_positions = dict(player_positions)
+                self.real_positions = tuple(real_positions)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        class LosingPositionTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "SelectedPlayer": ({
+                        "sym": "BTC",
+                        "side": "long",
+                        "opened_bar": 1,
+                        "age_bars": 0,
+                        "entry_price": 100.0,
+                        "current_price": 99.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": -1.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": True,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = LosingPositionTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 99.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(exchange.orders_log, [])
+
+    def test_selected_leader_replays_positive_shadow_position_with_configured_age(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            class Config:
+                v3_shadow_fresh_handoff_enabled = True
+                v3_shadow_flat_handoff_enabled = False
+                v3_shadow_fresh_handoff_max_age_bars = 6
+
+            _config = Config()
+
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_shadow_position_snapshot(self, *, player_positions, real_positions):
+                self.player_positions = dict(player_positions)
+                self.real_positions = tuple(real_positions)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        class PositionOnlyTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "SelectedPlayer": ({
+                        "sym": "BTC",
+                        "side": "short",
+                        "opened_bar": 5,
+                        "age_bars": 4,
+                        "entry_price": 100.0,
+                        "current_price": 96.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": 4.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": False,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = PositionOnlyTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=9,
+            prices={"BTC": 96.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertTrue(steps[0].causal_decision["shadow_position_replay_used"])
+        self.assertEqual(steps[0].n_raw_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(exchange.orders_log[0].trade.sym, "BTC")
+        self.assertEqual(exchange.orders_log[0].trade.side, "short")
+
+    def test_current_actionable_labels_include_fresh_shadow_positions(self):
+        from panteon_v2.app.main_loop import _current_actionable_player_labels
+
+        labels = _current_actionable_player_labels(
+            updates=(),
+            signals_by_player={},
+            signals_by_agent={},
+            positions_by_player={
+                "ShadowLeader": ({
+                    "sym": "BTC",
+                    "side": "long",
+                    "opened_bar": 10,
+                    "age_bars": 1,
+                    "fresh": True,
+                },),
+                "StaleLeader": ({
+                    "sym": "ETH",
+                    "side": "short",
+                    "opened_bar": 1,
+                    "age_bars": 20,
+                    "fresh": False,
+                },),
+                "LosingFreshLeader": ({
+                    "sym": "SOL",
+                    "side": "long",
+                    "opened_bar": 10,
+                    "age_bars": 0,
+                    "unrealized_pnl_usd": -0.25,
+                    "fresh": True,
+                },),
+                "FlatFreshLeader": ({
+                    "sym": "XRP",
+                    "side": "short",
+                    "opened_bar": 10,
+                    "age_bars": 0,
+                    "unrealized_pnl_usd": 0.0,
+                    "fresh": True,
+                },),
+            },
+        )
+
+        self.assertIn("ShadowLeader", labels)
+        self.assertNotIn("StaleLeader", labels)
+        self.assertNotIn("LosingFreshLeader", labels)
+        self.assertNotIn("FlatFreshLeader", labels)
+
+    def test_current_actionable_labels_respect_configured_shadow_position_age(self):
+        from panteon_v2.app.main_loop import _current_actionable_player_labels
+
+        positions_by_player = {
+            "AgedWinner": ({
+                "sym": "BTC",
+                "side": "short",
+                "opened_bar": 10,
+                "age_bars": 4,
+                "unrealized_pnl_usd": 1.25,
+                "fresh": False,
+            },),
+        }
+
+        default_labels = _current_actionable_player_labels(
+            updates=(),
+            signals_by_player={},
+            signals_by_agent={},
+            positions_by_player=positions_by_player,
+        )
+        extended_labels = _current_actionable_player_labels(
+            updates=(),
+            signals_by_player={},
+            signals_by_agent={},
+            positions_by_player=positions_by_player,
+            max_shadow_position_age_bars=6,
+        )
+
+        self.assertNotIn("AgedWinner", default_labels)
+        self.assertIn("AgedWinner", extended_labels)
+
+    def test_shadow_state_fallback_skips_unconfirmed_antonius_raw_open(self):
+        funding_agent = FakeAgent("FundingArb", {"BTC": Action.FUT_SHORT_FULL})
+        reg = AgentRegistry()
+        reg.register(funding_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+            profiles=[
+                PlayerProfile(
+                    label="Antonius_conservative",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.actionable_fallback_min_score = None
+        antonius = EnsemblePlayer(
+            label="Antonius_conservative",
+            agents=[funding_agent],
+            weights={"FundingArb": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return antonius
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected no trade",
+                    switched=True,
+                )
+
+        class PositionOnlyTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {
+                    "Antonius_conservative": (Signal(
+                        id=900,
+                        bar=1,
+                        sym="BTC",
+                        action=Action.FUT_SHORT_FULL,
+                        price=100.0,
+                        regime=Regime.BEARISH,
+                        by_player="Antonius_conservative",
+                        by_agent="FundingArb",
+                    ),),
+                }
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "Antonius_conservative": ({
+                        "sym": "BTC",
+                        "side": "short",
+                        "opened_bar": 1,
+                        "age_bars": 0,
+                        "entry_price": 100.0,
+                        "current_price": 100.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": 0.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": True,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = PositionOnlyTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "NoTrade")
+        self.assertEqual(steps[0].executed_leader, "NoTrade")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertTrue(steps[0].fallback_skipped)
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_shadow_state_selected_antonius_skips_unconfirmed_raw_open(self):
+        funding_agent = FakeAgent("FundingArb", {"BTC": Action.FUT_SHORT_FULL})
+        reg = AgentRegistry()
+        reg.register(funding_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+            profiles=[
+                PlayerProfile(
+                    label="Antonius_conservative",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        antonius = EnsemblePlayer(
+            label="Antonius_conservative",
+            agents=[funding_agent],
+            weights={"FundingArb": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return antonius
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=antonius,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected antonius",
+                    switched=True,
+                )
+
+        class PositionOnlyTournament:
+            def run_bar(self, market, *, players, balance_usd):
+                from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+                return ShadowStepSummary(actors=1)
+
+            def last_actor_updates(self):
+                return ()
+
+            def last_player_signals(self):
+                return {}
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {
+                    "Antonius_conservative": ({
+                        "sym": "BTC",
+                        "side": "short",
+                        "opened_bar": 1,
+                        "age_bars": 0,
+                        "entry_price": 100.0,
+                        "current_price": 100.0,
+                        "qty": 1.0,
+                        "unrealized_pnl_usd": 0.0,
+                        "stop_price": None,
+                        "take_profit_price": None,
+                        "fresh": True,
+                    },),
+                }
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = PositionOnlyTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "Antonius_conservative")
+        self.assertEqual(steps[0].executed_leader, "Antonius_conservative")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_actionable_fallback_can_execute_current_agent_signal_as_solo(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        current_agent = FakeAgent("CurrentAgent", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(current_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.actionable_fallback_min_score = None
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "SelectedPlayer")
+        self.assertEqual(steps[0].executed_leader, "Solo_CurrentAgent")
+        self.assertEqual(steps[0].fallback_candidate, "Solo_CurrentAgent")
+        self.assertTrue(steps[0].fallback_used)
+        self.assertEqual(exchange.orders_log[0].trade.sym, "BTC")
+
+    def test_actionable_fallback_agent_solo_respects_hard_policy(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        denied_agent = FakeAgent("PlayerFunding", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(denied_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.actionable_fallback_min_score = None
+        selected_player = EnsemblePlayer(
+            label="SelectedPlayer",
+            agents=[selected_agent],
+            weights={"SelectedAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return selected_player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=selected_player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                    candidate_rejections=(
+                        CandidateRejection(
+                            label="Solo_PlayerFunding",
+                            reason="hard policy denylist: Solo_PlayerFunding",
+                        ),
+                    ),
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].executed_leader, "SelectedPlayer")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_actionable_fallback_does_not_bypass_panteon_equity_guard(self):
+        fallback_agent = FakeAgent("FallbackAgent", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(fallback_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="FallbackPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.actionable_fallback_enabled = True
+        fallback_player = EnsemblePlayer(
+            label="FallbackPlayer",
+            agents=[fallback_agent],
+            weights={"FallbackAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return fallback_player
+
+        class GuardStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=fallback_player,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=True,
+                    reason="v3 panteon equity guard: test",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = GuardStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "NoTrade")
+        self.assertEqual(steps[0].executed_leader, "NoTrade")
+        self.assertFalse(steps[0].fallback_used)
+        self.assertTrue(steps[0].fallback_skipped)
+        self.assertIn("portfolio equity guard", steps[0].fallback_reason)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_actionable_fallback_uses_current_registry_signal_without_has_data(self):
+        selected_agent = FakeAgent("SelectedAgent")
+        low_agent = FakeAgent("LowAgent", {"BTC": Action.FUT_LONG_FULL})
+        high_agent = FakeAgent("HighAgent", {"ETH": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(low_agent)
+        reg.register(high_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="LowFallback",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="HighFallback",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.actionable_fallback_min_score = 0.0
+        pipeline.actionable_fallback_require_has_data = True
+        players = {
+            "SelectedPlayer": EnsemblePlayer(
+                label="SelectedPlayer",
+                agents=[selected_agent],
+                weights={"SelectedAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "LowFallback": EnsemblePlayer(
+                label="LowFallback",
+                agents=[low_agent],
+                weights={"LowAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "HighFallback": EnsemblePlayer(
+                label="HighFallback",
+                agents=[high_agent],
+                weights={"HighAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=players["SelectedPlayer"],
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                    candidate_scores=(
+                        CandidateScore(
+                            label="LowFallback",
+                            score=-1.0,
+                            rank=1,
+                            has_data=True,
+                            closed_trades=20,
+                            signals=1,
+                            execution_failures=0,
+                            score_source="test",
+                            uncertainty_penalty=0.0,
+                            agent_labels=("LowAgent",),
+                            memory_keys_read=(),
+                        ),
+                        CandidateScore(
+                            label="HighFallback",
+                            score=1.0,
+                            rank=2,
+                            has_data=False,
+                            closed_trades=20,
+                            signals=1,
+                            execution_failures=0,
+                            score_source="test",
+                            uncertainty_penalty=0.0,
+                            agent_labels=("HighAgent",),
+                            memory_keys_read=(),
+                        ),
+                    ),
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertTrue(steps[0].fallback_used)
+        self.assertFalse(steps[0].fallback_skipped)
+        self.assertEqual(steps[0].fallback_candidate, "HighFallback")
+        self.assertEqual(len(exchange.orders_log), 1)
+
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL2"),
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="LowFallback",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="HighFallback",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.actionable_fallback_min_score = 0.0
+        pipeline.actionable_fallback_require_has_data = False
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertTrue(steps[0].fallback_used)
+        self.assertEqual(steps[0].fallback_candidate, "HighFallback")
+        self.assertEqual(steps[0].n_filled, 1)
+
+    def test_actionable_fallback_skips_candidates_rejected_by_hard_policy(self):
+        denied_agent = FakeAgent("PlayerFunding", {"BTC": Action.FUT_LONG_FULL})
+        safe_agent = FakeAgent("SafeAgent", {"ETH": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(denied_agent)
+        reg.register(safe_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Solo_PlayerFunding",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="SafePlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        players = {
+            "Solo_PlayerFunding": EnsemblePlayer(
+                label="Solo_PlayerFunding",
+                agents=[denied_agent],
+                weights={"PlayerFunding": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "SafePlayer": EnsemblePlayer(
+                label="SafePlayer",
+                agents=[safe_agent],
+                weights={"SafeAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="all candidates rejected",
+                    switched=True,
+                    candidate_rejections=(
+                        CandidateRejection(
+                            label="Solo_PlayerFunding",
+                            reason="hard policy denylist: Solo_PlayerFunding",
+                        ),
+                    ),
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "NoTrade")
+        self.assertEqual(steps[0].executed_leader, "SafePlayer")
+        self.assertEqual(steps[0].fallback_candidate, "SafePlayer")
+        self.assertTrue(steps[0].fallback_used)
+        self.assertEqual(exchange.orders_log[0].trade.sym, "ETH")
+
+    def test_actionable_fallback_skips_candidates_rejected_by_probation_score(self):
+        risky_agent = FakeAgent("RiskyAgent", {"BTC": Action.FUT_LONG_FULL})
+        safe_agent = FakeAgent("SafeAgent", {"ETH": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(risky_agent)
+        reg.register(safe_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="RiskyPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="SafePlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=reg,
+            perf=pipeline.perf,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10),
+        )
+        pipeline.actionable_fallback_enabled = True
+        players = {
+            "RiskyPlayer": EnsemblePlayer(
+                label="RiskyPlayer",
+                agents=[risky_agent],
+                weights={"RiskyAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "SafePlayer": EnsemblePlayer(
+                label="SafePlayer",
+                agents=[safe_agent],
+                weights={"SafeAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="all candidates rejected",
+                    switched=True,
+                    candidate_rejections=(
+                        CandidateRejection(
+                            label="RiskyPlayer",
+                            reason=(
+                                "real promotion gate: probation score 0.0000 < "
+                                "1.0000 with 1 real closed trades"
+                            ),
+                        ),
+                    ),
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "NoTrade")
+        self.assertEqual(steps[0].executed_leader, "SafePlayer")
+        self.assertEqual(steps[0].fallback_candidate, "SafePlayer")
+        self.assertTrue(steps[0].fallback_used)
+        self.assertEqual(exchange.orders_log[0].trade.sym, "ETH")
+
+    def test_actionable_fallback_restores_failed_probe_state(self):
+        class MutatingAgent(FakeAgent):
+            def __init__(self):
+                super().__init__("FallbackAgent", {"BTC": Action.FUT_LONG_FULL})
+                self.calls = 0
+
+            def act(self, market):
+                self.calls += 1
+                return super().act(market)
+
+        selected_agent = FakeAgent("SelectedAgent")
+        fallback_agent = MutatingAgent()
+        reg = AgentRegistry()
+        reg.register(selected_agent)
+        reg.register(fallback_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="SelectedPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="FallbackPlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.actionable_fallback_enabled = True
+        pipeline.live_execution = LiveExecutionConfig(max_new_opens_per_bar=0)
+        players = {
+            "SelectedPlayer": EnsemblePlayer(
+                label="SelectedPlayer",
+                agents=[selected_agent],
+                weights={"SelectedAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "FallbackPlayer": EnsemblePlayer(
+                label="FallbackPlayer",
+                agents=[fallback_agent],
+                weights={"FallbackAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=players["SelectedPlayer"],
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertFalse(steps[0].fallback_used)
+        self.assertTrue(steps[0].fallback_skipped)
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_signals, 0)
+        self.assertEqual(fallback_agent.calls, 0)
 
     def test_no_trade_leader_closes_existing_panteon_positions(self):
         reg = AgentRegistry()
@@ -1150,6 +2917,552 @@ class TestMainLoop(unittest.TestCase):
             [("select", 6), ("fallback", 6, -10.0, 1)],
         )
         self.assertEqual([player.label for player in solo], ["Solo_FallbackAgent"])
+
+    def test_fixed_agent_candidate_uses_exact_registered_agent_set(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("AgentB", {"ETH": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("AgentC", {"SOL": Action.FUT_LONG_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            fixed_agent_player_sets = (
+                ("Fixed_AB", ("AgentA", "AgentB")),
+            )
+
+        fixed = _compose_fixed_agent_candidates(Pipeline(), [])
+
+        self.assertEqual([player.label for player in fixed], ["Fixed_AB"])
+        self.assertEqual(fixed[0].agent_labels, ["AgentA", "AgentB"])
+        self.assertEqual(fixed[0].weights, {"AgentA": 0.5, "AgentB": 0.5})
+
+    def test_rotating_agent_candidate_uses_first_actionable_agent_for_regime(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("QuietAgent", {"BTC": Action.HOLD}))
+        reg.register(FakeAgent("BullAgent", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("FallbackAgent", {"BTC": Action.FUT_SHORT_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            rotating_agent_player_sets = (
+                (
+                    "Optimal_StaticRotator",
+                    {"bullish": ("QuietAgent", "BullAgent")},
+                    ("FallbackAgent",),
+                ),
+            )
+
+        players = _compose_rotating_agent_candidates(Pipeline(), Regime.BULLISH, [])
+
+        self.assertEqual([player.label for player in players], ["Optimal_StaticRotator"])
+        self.assertIsInstance(players[0], RotatingAgentPlayer)
+        self.assertEqual(
+            players[0].agent_labels,
+            ["BullAgent", "FallbackAgent", "QuietAgent"],
+        )
+        signals = players[0].vote(
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            signal_id_start=10,
+        )
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].by_agent, "BullAgent")
+        self.assertEqual(signals[0].action, Action.FUT_LONG_FULL)
+
+    def test_regime_switch_candidate_orders_agent_pool_by_selector_score(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("OldDefaultAgent", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("BestAgent", {"ETH": Action.FUT_SHORT_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def score_registered(
+                self,
+                label,
+                regime,
+                *,
+                include_quarantined=False,
+                ensure_baseline=True,
+            ):
+                scores = {
+                    "OldDefaultAgent": 0.10,
+                    "BestAgent": 0.80,
+                }
+                agent = reg.get(label)
+                if agent is None:
+                    return None
+                return ScoredAgent(
+                    agent=agent,
+                    score=scores[label],
+                    metrics=Metrics(
+                        pnl_pct=scores[label] * 10.0,
+                        closed_trades=25,
+                        entries=25,
+                        signals=25,
+                        wins=6,
+                        losses=4,
+                    ),
+                )
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            regime_switch_player_sets = (
+                (
+                    "Antonius_dynamic",
+                    {"bearish": ("OldDefaultAgent", "BestAgent")},
+                ),
+            )
+
+        players = _compose_regime_switch_agent_candidates(
+            Pipeline(),
+            Regime.BEARISH,
+            [],
+        )
+
+        self.assertEqual([player.label for player in players], ["Antonius_dynamic"])
+        self.assertIsInstance(players[0], RotatingAgentPlayer)
+        signals = players[0].vote(
+            make_market(regime=Regime.BEARISH, prices={"BTC": 100.0, "ETH": 50.0}),
+            signal_id_start=10,
+        )
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].by_agent, "BestAgent")
+        self.assertEqual(signals[0].sym, "ETH")
+
+    def test_regime_switch_candidate_keeps_default_order_without_walk_forward_evidence(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("OldDefaultAgent", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("ThinBestAgent", {"ETH": Action.FUT_SHORT_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def score_registered(
+                self,
+                label,
+                regime,
+                *,
+                include_quarantined=False,
+                ensure_baseline=True,
+            ):
+                scores = {
+                    "OldDefaultAgent": (0.10, 25),
+                    "ThinBestAgent": (0.80, 1),
+                }
+                agent = reg.get(label)
+                if agent is None:
+                    return None
+                score, trades = scores[label]
+                return ScoredAgent(
+                    agent=agent,
+                    score=score,
+                    metrics=Metrics(
+                        pnl_pct=score * 10.0,
+                        closed_trades=trades,
+                        entries=trades,
+                        signals=trades,
+                        wins=min(trades, 1),
+                        losses=max(0, trades - 1),
+                    ),
+                )
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            regime_switch_player_sets = (
+                (
+                    "Antonius_dynamic",
+                    {"bearish": ("OldDefaultAgent", "ThinBestAgent")},
+                ),
+            )
+
+        players = _compose_regime_switch_agent_candidates(
+            Pipeline(),
+            Regime.BEARISH,
+            [],
+        )
+
+        signals = players[0].vote(
+            make_market(regime=Regime.BEARISH, prices={"BTC": 100.0, "ETH": 50.0}),
+            signal_id_start=10,
+        )
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].by_agent, "OldDefaultAgent")
+        self.assertEqual(signals[0].sym, "BTC")
+
+    def test_regime_switch_candidate_prefers_causal_pnl_over_lower_profit_score(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("RiskAdjustedAgent", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("ProfitAgent", {"ETH": Action.FUT_SHORT_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def score_registered(
+                self,
+                label,
+                regime,
+                *,
+                include_quarantined=False,
+                ensure_baseline=True,
+            ):
+                rows = {
+                    "RiskAdjustedAgent": (0.90, 1.0),
+                    "ProfitAgent": (0.20, 12.0),
+                }
+                agent = reg.get(label)
+                if agent is None:
+                    return None
+                score, pnl_pct = rows[label]
+                return ScoredAgent(
+                    agent=agent,
+                    score=score,
+                    metrics=Metrics(
+                        pnl_pct=pnl_pct,
+                        closed_trades=25,
+                        entries=25,
+                        signals=25,
+                        wins=15,
+                        losses=10,
+                    ),
+                )
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            regime_switch_player_sets = (
+                (
+                    "Antonius_dynamic",
+                    {"bearish": ("RiskAdjustedAgent", "ProfitAgent")},
+                ),
+            )
+
+        players = _compose_regime_switch_agent_candidates(
+            Pipeline(),
+            Regime.BEARISH,
+            [],
+        )
+
+        signals = players[0].vote(
+            make_market(regime=Regime.BEARISH, prices={"BTC": 100.0, "ETH": 50.0}),
+            signal_id_start=10,
+        )
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].by_agent, "ProfitAgent")
+        self.assertEqual(signals[0].sym, "ETH")
+
+    def test_rotating_agent_candidate_does_not_use_off_regime_agents(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("QuietBullAgent", {"BTC": Action.HOLD}))
+        reg.register(FakeAgent("BearAgent", {"BTC": Action.FUT_SHORT_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Pipeline:
+            registry = reg
+            qm = QM()
+            rotating_agent_player_sets = (
+                (
+                    "Optimal_StaticRotator",
+                    {
+                        "bullish": ("QuietBullAgent",),
+                        "bearish": ("BearAgent",),
+                    },
+                    (),
+                ),
+            )
+
+        players = _compose_rotating_agent_candidates(Pipeline(), Regime.BULLISH, [])
+
+        self.assertEqual([player.label for player in players], ["Optimal_StaticRotator"])
+        self.assertEqual(
+            players[0].vote(
+                make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+                signal_id_start=10,
+            ),
+            [],
+        )
+
+    def test_protected_composite_label_is_not_hopeless_quarantined_from_one_regime(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        for idx in range(5):
+            open_signal = Signal(
+                id=idx * 2 + 1,
+                bar=idx * 2 + 1,
+                sym="BTC",
+                action=Action.FUT_LONG_FULL,
+                price=100.0,
+                regime=Regime.NEUTRAL,
+                by_agent="LiveCrashHunter",
+                by_player="Antonius_strategy",
+            )
+            close_signal = Signal(
+                id=idx * 2 + 2,
+                bar=idx * 2 + 2,
+                sym="BTC",
+                action=Action.FUT_CLOSE_ALL,
+                price=90.0,
+                regime=Regime.NEUTRAL,
+                by_agent="LiveCrashHunter",
+                by_player="Antonius_strategy",
+            )
+            perf.update_from_trade(
+                Trade(
+                    signal_id=open_signal.id,
+                    bar=open_signal.bar,
+                    sym=open_signal.sym,
+                    side="long",
+                    qty=1.0,
+                    fill_price=100.0,
+                    fee=0.0,
+                ),
+                open_signal,
+            )
+            perf.update_from_trade(
+                Trade(
+                    signal_id=close_signal.id,
+                    bar=close_signal.bar,
+                    sym=close_signal.sym,
+                    side="long",
+                    qty=1.0,
+                    fill_price=90.0,
+                    fee=0.0,
+                ),
+                close_signal,
+            )
+
+        unprotected = QuarantineManager(seed=set())
+        unprotected.recompute(perf)
+        self.assertTrue(unprotected.is_quarantined("Antonius_strategy"))
+
+        protected = QuarantineManager(
+            seed=set(),
+            protected_labels={"Antonius_strategy"},
+        )
+        protected.recompute(perf)
+        self.assertFalse(protected.is_quarantined("Antonius_strategy"))
+
+    def test_drop_quarantine_keeps_genetics_player_with_quarantined_raw_genetics_agent(self):
+        class Pipeline:
+            qm = QuarantineManager(seed={"GeneticsGenomeEnsemble", "BadAgent"})
+
+        genetics_player = EnsemblePlayer(
+            label="GeneticsResearch",
+            agents=[FakeAgent("GeneticsGenomeEnsemble")],
+            weights={"GeneticsGenomeEnsemble": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        bad_player = EnsemblePlayer(
+            label="BadResearch",
+            agents=[FakeAgent("BadAgent")],
+            weights={"BadAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        filtered = _drop_quarantined_candidates(
+            Pipeline(),
+            [genetics_player, bad_player],
+        )
+
+        self.assertEqual([player.label for player in filtered], ["GeneticsResearch"])
+
+    def test_compose_candidates_includes_fixed_agent_players(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("AgentB", {"ETH": Action.FUT_LONG_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def select(self, regime, *, k):
+                return []
+
+        class Pipeline:
+            profiles = []
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            fixed_agent_player_sets = (
+                ("Fixed_AB", ("AgentA", "AgentB")),
+            )
+
+        candidates = _compose_candidates(Pipeline(), Regime.NEUTRAL)
+
+        self.assertEqual([player.label for player in candidates], ["Fixed_AB"])
+        self.assertEqual(candidates[0].agent_labels, ["AgentA", "AgentB"])
+
+    def test_compose_candidates_includes_rotating_agent_players(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA", {"BTC": Action.HOLD}))
+        reg.register(FakeAgent("AgentB", {"BTC": Action.FUT_LONG_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def select(self, regime, *, k):
+                return []
+
+        class Pipeline:
+            profiles = []
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            fixed_agent_player_sets = ()
+            regime_switch_player_sets = ()
+            rotating_agent_player_sets = (
+                ("Optimal_StaticRotator", {"bullish": ("AgentA", "AgentB")}, ()),
+            )
+
+        candidates = _compose_candidates(Pipeline(), Regime.BULLISH)
+
+        self.assertEqual([player.label for player in candidates], ["Optimal_StaticRotator"])
+        self.assertEqual(candidates[0].agent_labels, ["AgentA", "AgentB"])
+
+    def test_compose_candidates_includes_antonius_strategy_by_regime(self):
+        reg = AgentRegistry()
+        for label in (
+            "LiveAfterShock",
+            "MomentumScalper",
+            "ResearchValidatorAgent",
+            "LiveCrashHunter",
+        ):
+            reg.register(FakeAgent(label, {"BTC": Action.FUT_LONG_FULL}))
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Selector:
+            def select(self, regime, *, k):
+                return []
+
+        class Pipeline:
+            profiles = []
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            fixed_agent_player_sets = ()
+            regime_switch_player_sets = (
+                (
+                    "Antonius_strategy",
+                    {
+                        "bullish": "LiveAfterShock",
+                        "bearish": "MomentumScalper",
+                        "neutral": "ResearchValidatorAgent",
+                        "crash": "LiveCrashHunter",
+                    },
+                ),
+            )
+
+        expectations = {
+            Regime.BULLISH: ["LiveAfterShock"],
+            Regime.BEARISH: ["MomentumScalper"],
+            Regime.NEUTRAL: ["ResearchValidatorAgent"],
+            Regime.CRASH: ["LiveCrashHunter"],
+        }
+        for regime, agent_labels in expectations.items():
+            with self.subTest(regime=regime):
+                candidates = _compose_candidates(Pipeline(), regime)
+                self.assertEqual([player.label for player in candidates], ["Antonius_strategy"])
+                self.assertEqual(candidates[0].agent_labels, agent_labels)
+
+    def test_production_pipeline_exposes_antonius_strategy_default(self):
+        reg = AgentRegistry()
+        for label in (
+            "LiveAfterShock",
+            "FundingArb",
+            "LiveCrashHunter",
+            "RichardDennis",
+            "LiveOIBreakout",
+            "ResearchValidatorAgent",
+            "GeneticsCore",
+            "LiveMeanRev",
+            "MomentumScalper",
+            "VolBreakoutHunter",
+            "CrashPanicShortAgent",
+            "LiveVolCompress",
+            "BullRotationAgent",
+            "NeutralLiquiditySweep",
+            "NeutralRangeScalper",
+            "LiveRegimePullback",
+        ):
+            reg.register(FakeAgent(label, {"BTC": Action.FUT_LONG_FULL}))
+
+        pipeline = build_dryrun_pipeline(registry=reg, profiles=[])
+
+        expected_static = {
+            "Perfect_OIBreakout": {
+                "bullish": "LiveOIBreakout",
+                "neutral": "LiveOIBreakout",
+                "bearish": "LiveOIBreakout",
+                "crash": "LiveOIBreakout",
+            },
+            "Perfect_CrashSwitch": {
+                "bearish": "LiveCrashHunter",
+                "crash": "LiveCrashHunter",
+            },
+            "Perfect_NeutralValidator": {
+                "neutral": "ResearchValidatorAgent",
+            },
+            "Perfect_GeneticsBearCrash": {
+                "bearish": "GeneticsCore",
+                "crash": "GeneticsCore",
+            },
+            "Perfect_MeanRev": {
+                "neutral": "LiveMeanRev",
+            },
+        }
+        actual = dict(pipeline.regime_switch_player_sets)
+        self.assertNotIn("Antonius_strategy", actual)
+        self.assertEqual(
+            actual["Antonius_conservative"],
+            {
+                "bullish": "VolBreakoutHunter",
+                "bearish": "FundingArb",
+                "neutral": "ResearchValidatorAgent",
+                "crash": "CrashPanicShortAgent",
+            },
+        )
+        for label, mapping in expected_static.items():
+            self.assertEqual(actual.get(label), mapping)
+        rotating = dict(
+            (label, mapping)
+            for label, mapping, _fallback in pipeline.rotating_agent_player_sets
+        )
+        self.assertIn("Optimal_StaticRotator", rotating)
+        self.assertIn("ResearchValidatorAgent", rotating["Optimal_StaticRotator"]["neutral"])
+        self.assertIn("LiveCrashHunter", rotating["Optimal_StaticRotator"]["crash"])
+        self.assertIn("Optimal_StaticRotator", pipeline.qm.protected_labels)
+        self.assertIn("Antonius_conservative", pipeline.qm.protected_labels)
+        self.assertNotIn("Antonius_strategy", pipeline.qm.protected_labels)
 
     def test_external_exchange_positions_do_not_trip_desync_kill_switch(self):
         from panteon_v2.execution.exchange import ExchangePosition
@@ -1696,6 +4009,46 @@ class TestOutputWriter(unittest.TestCase):
         self.assertIn("selected_leader=SelectedLeader", trading_log)
         self.assertIn("executed_leader=ExecutedLeader", trading_log)
         self.assertIn("fallback_used=True", trading_log)
+
+    def test_writer_exports_causal_entry_decisions_jsonl(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=7,
+                regime=Regime.BEARISH,
+                leader="ExecutedLeader",
+                leader_changed=False,
+                n_signals=1,
+                n_filled=1,
+                n_rejected=0,
+                n_blocked=0,
+                selected_leader="SelectedLeader",
+                executed_leader="ExecutedLeader",
+                causal_decision={
+                    "bar": 7,
+                    "selected_leader": "SelectedLeader",
+                    "executed_leader": "ExecutedLeader",
+                    "raw_signals": [{"sym": "BTC", "action": "FUT_LONG_FULL"}],
+                    "selected_shadow_positions": [{"sym": "BTC", "age_bars": 1}],
+                },
+            ))
+            path = os.path.join(writer.output_dir, "causal_entry_decisions.jsonl")
+            with open(path, "r", encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            writer.close()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["bar"], 7)
+        self.assertEqual(rows[0]["selected_leader"], "SelectedLeader")
+        self.assertEqual(rows[0]["raw_signals"][0]["sym"], "BTC")
 
     def test_json_writer_falls_back_when_atomic_replace_is_denied(self):
         with tempfile.TemporaryDirectory() as td:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Deque
@@ -27,6 +28,42 @@ class _Event:
     filled: int
 
 
+@dataclass
+class _Series:
+    bars: list[int]
+    pnl_prefix: list[float]
+    closed_prefix: list[int]
+    signals_prefix: list[int]
+    filled_prefix: list[int]
+    actionable_prefix: list[int]
+
+    @classmethod
+    def empty(cls) -> "_Series":
+        return cls(
+            bars=[],
+            pnl_prefix=[0.0],
+            closed_prefix=[0],
+            signals_prefix=[0],
+            filled_prefix=[0],
+            actionable_prefix=[0],
+        )
+
+    def append(self, event: _Event) -> None:
+        self.bars.append(event.bar)
+        self.pnl_prefix.append(self.pnl_prefix[-1] + event.pnl_usd)
+        self.closed_prefix.append(self.closed_prefix[-1] + event.closed_trades)
+        self.signals_prefix.append(self.signals_prefix[-1] + event.signals)
+        self.filled_prefix.append(self.filled_prefix[-1] + event.filled)
+        actionable = 1 if event.signals > 0 or event.filled > 0 else 0
+        self.actionable_prefix.append(self.actionable_prefix[-1] + actionable)
+
+    def range_float(self, prefix: list[float], start: int, end: int) -> float:
+        return float(prefix[end] - prefix[start])
+
+    def range_int(self, prefix: list[int], start: int, end: int) -> int:
+        return int(prefix[end] - prefix[start])
+
+
 class EntryCausalScoreState:
     """Score shadow PnL only when it came from a recently actionable player."""
 
@@ -43,6 +80,7 @@ class EntryCausalScoreState:
         self.min_filled = max(0, int(min_filled))
         self.actionability_weight = max(0.0, float(actionability_weight))
         self._events: dict[tuple[str, str], Deque[_Event]] = defaultdict(deque)
+        self._series: dict[tuple[str, str], _Series] = defaultdict(_Series.empty)
 
     def update(
         self,
@@ -57,15 +95,16 @@ class EntryCausalScoreState:
     ) -> None:
         if not label:
             return
-        self._events[(str(label), _regime_key(regime))].append(
-            _Event(
-                bar=int(bar),
-                pnl_usd=float(pnl_usd),
-                closed_trades=max(0, int(closed_trades)),
-                signals=max(0, int(signals)),
-                filled=max(0, int(filled)),
-            )
+        event = _Event(
+            bar=int(bar),
+            pnl_usd=float(pnl_usd),
+            closed_trades=max(0, int(closed_trades)),
+            signals=max(0, int(signals)),
+            filled=max(0, int(filled)),
         )
+        key = (str(label), _regime_key(regime))
+        self._events[key].append(event)
+        self._series[key].append(event)
 
     def score_with_stats(
         self,
@@ -75,8 +114,8 @@ class EntryCausalScoreState:
         current_bar: int,
     ) -> EntryCausalStats:
         key = (str(label), _regime_key(regime))
-        events = self._events.get(key)
-        if not events:
+        series = self._series.get(key)
+        if series is None or not series.bars:
             return EntryCausalStats(
                 score=0.0,
                 recent_pnl_usd=0.0,
@@ -88,17 +127,15 @@ class EntryCausalScoreState:
                 actionable_share=0.0,
                 has_data=False,
             )
-        previous_events = [event for event in events if event.bar < int(current_bar)]
+        end = bisect_left(series.bars, int(current_bar))
         cutoff = int(current_bar) - self.window_bars
-        recent_events = [event for event in previous_events if event.bar > cutoff]
-        closed_trades = sum(event.closed_trades for event in previous_events)
-        recent_pnl = sum(event.pnl_usd for event in recent_events)
-        recent_signals = sum(event.signals for event in recent_events)
-        recent_filled = sum(event.filled for event in recent_events)
-        actionable_bars = sum(
-            1 for event in recent_events if event.signals > 0 or event.filled > 0
-        )
-        recent_bars = len(recent_events)
+        start = bisect_right(series.bars, cutoff, hi=end)
+        closed_trades = series.closed_prefix[end]
+        recent_pnl = series.range_float(series.pnl_prefix, start, end)
+        recent_signals = series.range_int(series.signals_prefix, start, end)
+        recent_filled = series.range_int(series.filled_prefix, start, end)
+        actionable_bars = series.range_int(series.actionable_prefix, start, end)
+        recent_bars = end - start
         actionable_share = actionable_bars / recent_bars if recent_bars else 0.0
         has_data = (
             closed_trades >= self.min_closed_trades

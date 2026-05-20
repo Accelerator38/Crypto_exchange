@@ -232,6 +232,35 @@ class TestPerRegimeIsolation(unittest.TestCase):
         self.assertEqual(agg.closed_trades, 2)
         self.assertEqual(agg.wins, 2)
 
+    def test_aggregate_get_is_cached_until_label_changes(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH, price=105.0, bar=2)
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 105.0), cs1)
+
+        calls = 0
+        original = perf._aggregate_metrics
+
+        def wrapped(label):
+            nonlocal calls
+            calls += 1
+            return original(label)
+
+        perf._aggregate_metrics = wrapped
+
+        self.assertAlmostEqual(perf.get("AgentA").pnl_pct, 5.0, places=5)
+        self.assertAlmostEqual(perf.get("AgentA").pnl_pct, 5.0, places=5)
+        self.assertEqual(calls, 1)
+
+        os2 = _open_signal(3, "ETH", Regime.BEARISH, price=100.0, bar=3)
+        cs2 = _close_signal(4, "ETH", Regime.BEARISH, price=90.0, bar=4)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 90.0), cs2)
+
+        self.assertAlmostEqual(perf.get("AgentA").pnl_pct, -5.0, places=5)
+        self.assertEqual(calls, 2)
+
 
 class TestPlayerAndAgentSeparately(unittest.TestCase):
     def test_both_label_levels_recorded(self):

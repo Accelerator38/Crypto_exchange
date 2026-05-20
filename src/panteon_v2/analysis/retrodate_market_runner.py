@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from bisect import bisect_right
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -12,11 +13,11 @@ from pathlib import Path
 from typing import Any, Deque, Iterable, Optional, Sequence
 
 from ..app.agent_bootstrap import register_all_v1_agents
-from ..app.bootstrap import build_production_pipeline
+from ..app.bootstrap import LiveExecutionConfig, build_production_pipeline
 from ..app.main_loop import StepResult, main_loop
 from ..app.output_writer import OutputWriter, OutputWriterConfig
 from ..app.shadow_tournament import ProductionShadowTournament
-from ..attribution import EventLog, ShadowActorUpdated
+from ..attribution import CandidateRejected, CandidateScored, EventLog, ShadowActorUpdated
 from ..domain.types import MarketSnapshot, Regime
 from ..execution import FakeExchange
 from ..selection import AgentRegistry, StrategistConfig
@@ -39,6 +40,82 @@ from .allocation_diagnostics import analyze_trading_log, write_allocation_diagno
 
 
 DEFAULT_YEARS = (2022, 2023, 2024, 2025, 2026)
+DEFAULT_FIXED_AGENT_PLAYER_SETS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "Fixed_BearDefense",
+        ("LiveCrashHunter", "FundingArb", "BearReliefFadeAgent", "CrashPanicShortAgent"),
+    ),
+    (
+        "Fixed_BullBreakout",
+        ("VolBreakoutHunter", "MomentumScalper", "RichardDennis", "LiveOIBreakout"),
+    ),
+    (
+        "Fixed_NeutralValidator",
+        (
+            "ResearchValidatorAgent",
+            "NeutralLiquiditySweep",
+            "NeutralRangeScalper",
+            "AnchorFlowMomentum",
+        ),
+    ),
+    (
+        "Fixed_RegimePullback",
+        ("LiveRegimePullback", "LiveMeanRev", "LiveVolCompress"),
+    ),
+    (
+        "Fixed_RotationFlow",
+        ("BullRotationAgent", "BearReliefFadeAgent", "AnchorFlowMomentum", "LiveTrendFollow"),
+    ),
+    (
+        "Fixed_CoreDiversified",
+        (
+            "LiveCrashHunter",
+            "VolBreakoutHunter",
+            "ResearchValidatorAgent",
+            "NeutralLiquiditySweep",
+            "AnchorFlowMomentum",
+        ),
+    ),
+    (
+        "Fixed_TrendRecovery",
+        ("LiveTrendFollow", "RichardDennis", "LiveRegimePullback"),
+    ),
+)
+DEFAULT_PROBATION_LOSS_LABEL_PREFIXES: tuple[str, ...] = (
+    "Solo_",
+    "Fixed_",
+    "Antonius_",
+    "Optimal_",
+)
+DEFAULT_RETRO_HARD_POLICY_DENY_LABELS: tuple[str, ...] = (
+    "Solo_PlayerFunding",
+    "Solo_LiveAfterShock",
+    "Solo_CarryFlowAgentV2",
+    "Solo_LiveRegimePullback",
+    "Solo_LiveTrendFollow",
+    "DefaultEnsemble",
+    "DefensiveResearch",
+    "TrendResearch",
+    "NeutralEdgeResearch",
+    "MeanRevResearch",
+    "Fixed_BearDefense",
+    "Fixed_BullBreakout",
+    "Fixed_CoreDiversified",
+    "Fixed_NeutralValidator",
+    "Fixed_RegimePullback",
+    "Fixed_RotationFlow",
+    "Fixed_TrendRecovery",
+    "Perfect_CrashSwitch",
+    "Perfect_GeneticsBearCrash",
+    "Perfect_MeanRev",
+    "Perfect_NeutralValidator",
+    "Perfect_OIBreakout",
+    "Solo_BullRotationAgent",
+    "Solo_GeneticsCore",
+    "Solo_LiveMeanRev",
+    "Solo_LiveOIBreakout",
+    "Solo_RichardDennis",
+)
 
 
 @dataclass(frozen=True)
@@ -60,7 +137,12 @@ class RetrodateMarketConfig:
     progress_every_bars: int = 1000
     max_bars: Optional[int] = None
     solo_agent_candidate_limit: int = 3
+    fixed_agent_players_enabled: bool = False
+    fixed_agent_player_sets: tuple[tuple[str, tuple[str, ...]], ...] = ()
     actionable_fallback_enabled: bool = False
+    actionable_fallback_min_score: Optional[float] = None
+    actionable_fallback_require_has_data: bool = False
+    current_actionable_candidate_layer_enabled: bool = False
     real_promotion_gate_enabled: bool = False
     real_promotion_min_closed_trades: int = 20
     real_promotion_min_pnl_pct: float = 0.0
@@ -70,6 +152,8 @@ class RetrodateMarketConfig:
     use_v3_rolling_score: bool = False
     use_v3_shadow_rolling_score: bool = False
     use_v3_soft_shadow_score: bool = False
+    use_v3_executable_soft_top1_score: bool = False
+    use_v3_executable_soft_confirmed_score: bool = False
     use_v3_entry_causal_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
@@ -79,12 +163,46 @@ class RetrodateMarketConfig:
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_entry_causal_min_filled: int = 3
     v3_entry_causal_actionability_weight: float = 1.0
+    v3_real_loss_rescue_enabled: bool = False
+    v3_real_loss_rescue_min_virtual_pnl_pct: float = 10.0
+    v3_real_loss_rescue_max_virtual_dd_pct: float = 50.0
+    v3_real_loss_rescue_min_actionable_share: float = 0.05
+    v3_real_loss_rescue_min_recent_filled: int = 1
+    v3_real_loss_rescue_max_real_loss_pct: float = -3.0
+    v3_real_loss_rescue_allow_genetics: bool = False
+    v3_probation_shadow_rescue_enabled: bool = False
+    v3_probation_shadow_rescue_min_virtual_pnl_pct: float = 10.0
+    v3_probation_shadow_rescue_max_virtual_dd_pct: float = 50.0
+    v3_probation_shadow_rescue_min_actionable_share: float = 0.05
+    v3_probation_shadow_rescue_min_recent_filled: int = 1
+    v3_probation_shadow_rescue_min_recent_pnl_usd: float = 0.0
+    v3_probation_shadow_rescue_allow_genetics: bool = False
     v3_persistent_loss_kill_min_closed_trades: int = 0
     v3_persistent_loss_kill_pnl_pct: float = -2.0
     v3_persistent_loss_kill_win_rate_pct: float = 0.0
     v3_persistent_loss_requires_virtual_weakness: bool = True
     v3_persistent_loss_virtual_max_pnl_pct: float = 0.0
     v3_persistent_loss_virtual_min_dd_pct: float = 25.0
+    v3_probation_loss_kill_min_closed_trades: int = 0
+    v3_probation_loss_kill_pnl_pct: float = -0.15
+    v3_probation_loss_kill_win_rate_pct: float = 50.0
+    v3_probation_loss_kill_label_prefixes: tuple[str, ...] = (
+        DEFAULT_PROBATION_LOSS_LABEL_PREFIXES
+    )
+    genetics_probation_execution_enabled: bool = False
+    genetics_probation_risk_mult: float = 0.25
+    genetics_probation_max_real_trades: int = 20
+    genetics_probation_require_shadow_confirmation: bool = True
+    v3_realized_profit_lock_min_closed_trades: int = 0
+    v3_realized_profit_lock_min_peak_pnl_pct: float = 0.75
+    v3_realized_profit_lock_max_giveback_pct: float = 0.55
+    v3_realized_profit_lock_floor_pnl_pct: float = 0.25
+    v3_panteon_equity_guard_enabled: bool = False
+    v3_panteon_equity_guard_min_peak_pnl_pct: float = 2.0
+    v3_panteon_equity_guard_max_giveback_pct: float = 1.0
+    v3_panteon_equity_guard_floor_pnl_pct: float = 2.0
+    v3_panteon_equity_guard_cooldown_bars: int = 720
+    hard_policy_deny_labels: tuple[str, ...] = DEFAULT_RETRO_HARD_POLICY_DENY_LABELS
 
     def __post_init__(self) -> None:
         if self.stride_minutes <= 0:
@@ -100,12 +218,34 @@ class RetrodateMarketConfig:
             "optional_agent_labels",
             tuple(str(label) for label in self.optional_agent_labels),
         )
+        object.__setattr__(
+            self,
+            "hard_policy_deny_labels",
+            tuple(str(label) for label in self.hard_policy_deny_labels),
+        )
+        fixed_sets = _normalize_fixed_agent_player_sets(self.fixed_agent_player_sets)
+        if self.fixed_agent_players_enabled and not fixed_sets:
+            fixed_sets = DEFAULT_FIXED_AGENT_PLAYER_SETS
+        object.__setattr__(self, "fixed_agent_player_sets", fixed_sets)
         if self.real_promotion_min_closed_trades < 0:
             raise ValueError("real_promotion_min_closed_trades must be >= 0")
         if self.real_promotion_max_drawdown_pct < 0:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
+        if (
+            self.actionable_fallback_min_score is not None
+            and not isinstance(self.actionable_fallback_min_score, (int, float))
+        ):
+            raise ValueError("actionable_fallback_min_score must be numeric or None")
         if self.v3_persistent_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_persistent_loss_kill_min_closed_trades must be >= 0")
+        if self.v3_probation_loss_kill_min_closed_trades < 0:
+            raise ValueError("v3_probation_loss_kill_min_closed_trades must be >= 0")
+        if not (0.0 < self.genetics_probation_risk_mult <= 1.0):
+            raise ValueError("genetics_probation_risk_mult must be in (0, 1]")
+        if self.genetics_probation_max_real_trades < 0:
+            raise ValueError("genetics_probation_max_real_trades must be >= 0")
+        if self.v3_realized_profit_lock_min_closed_trades < 0:
+            raise ValueError("v3_realized_profit_lock_min_closed_trades must be >= 0")
         if self.v3_shadow_rolling_window_bars < 1:
             raise ValueError("v3_shadow_rolling_window_bars must be >= 1")
         if self.v3_shadow_rolling_min_closed_trades < 0:
@@ -116,10 +256,43 @@ class RetrodateMarketConfig:
             raise ValueError("v3_entry_causal_actionability_weight must be >= 0")
         if self.v3_shadow_fresh_handoff_max_age_bars < 0:
             raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
+        if not 0.0 <= self.v3_real_loss_rescue_min_actionable_share <= 1.0:
+            raise ValueError("v3_real_loss_rescue_min_actionable_share must be in [0, 1]")
+        if self.v3_real_loss_rescue_min_recent_filled < 0:
+            raise ValueError("v3_real_loss_rescue_min_recent_filled must be >= 0")
+        if self.v3_real_loss_rescue_max_virtual_dd_pct < 0:
+            raise ValueError("v3_real_loss_rescue_max_virtual_dd_pct must be >= 0")
+        if not 0.0 <= self.v3_probation_shadow_rescue_min_actionable_share <= 1.0:
+            raise ValueError("v3_probation_shadow_rescue_min_actionable_share must be in [0, 1]")
+        if self.v3_probation_shadow_rescue_min_recent_filled < 0:
+            raise ValueError("v3_probation_shadow_rescue_min_recent_filled must be >= 0")
+        if self.v3_probation_shadow_rescue_max_virtual_dd_pct < 0:
+            raise ValueError("v3_probation_shadow_rescue_max_virtual_dd_pct must be >= 0")
         if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
             raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
         if self.v3_persistent_loss_virtual_min_dd_pct < 0:
             raise ValueError("v3_persistent_loss_virtual_min_dd_pct must be >= 0")
+        if not 0.0 <= self.v3_probation_loss_kill_win_rate_pct <= 100.0:
+            raise ValueError("v3_probation_loss_kill_win_rate_pct must be in [0, 100]")
+        if self.v3_realized_profit_lock_min_peak_pnl_pct < 0:
+            raise ValueError("v3_realized_profit_lock_min_peak_pnl_pct must be >= 0")
+        if self.v3_realized_profit_lock_max_giveback_pct < 0:
+            raise ValueError("v3_realized_profit_lock_max_giveback_pct must be >= 0")
+        if self.v3_panteon_equity_guard_min_peak_pnl_pct < 0:
+            raise ValueError("v3_panteon_equity_guard_min_peak_pnl_pct must be >= 0")
+        if self.v3_panteon_equity_guard_max_giveback_pct < 0:
+            raise ValueError("v3_panteon_equity_guard_max_giveback_pct must be >= 0")
+        if self.v3_panteon_equity_guard_cooldown_bars < 0:
+            raise ValueError("v3_panteon_equity_guard_cooldown_bars must be >= 0")
+        object.__setattr__(
+            self,
+            "v3_probation_loss_kill_label_prefixes",
+            tuple(
+                str(prefix)
+                for prefix in self.v3_probation_loss_kill_label_prefixes
+                if str(prefix)
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -196,7 +369,7 @@ def select_retrodate_files(config: RetrodateMarketConfig) -> RetrodateFileSelect
             key=lambda item: (item.expected_year or 0, item.path.name),
         )
     )
-    seen_years = {item.expected_year for item in selected}
+    seen_years = {item.expected_year for item in valid_reports}
     missing_years = tuple(year for year in requested if year not in seen_years)
     if not valid_reports:
         raise RetrodateValidationError(
@@ -292,13 +465,27 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         exchange=exchange,
         initial_capital=config.initial_capital,
         strategist_config=strategist_config,
+        live_execution_config=_build_live_execution_config(config),
     )
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
     pipeline.run_id = output_dir.name
     pipeline.actionable_fallback_enabled = bool(config.actionable_fallback_enabled)
+    pipeline.actionable_fallback_min_score = config.actionable_fallback_min_score
+    pipeline.actionable_fallback_require_has_data = bool(
+        config.actionable_fallback_require_has_data
+    )
+    pipeline.current_actionable_candidate_layer_enabled = bool(
+        config.current_actionable_candidate_layer_enabled
+        or config.use_v3_executable_soft_confirmed_score
+    )
     pipeline.solo_agent_candidate_limit = int(config.solo_agent_candidate_limit)
+    pipeline.fixed_agent_player_sets = (
+        tuple(config.fixed_agent_player_sets)
+        if config.fixed_agent_players_enabled
+        else ()
+    )
     shadow_event_log = EventLog()
     pipeline.shadow_tournament = ProductionShadowTournament(
         registry=pipeline.registry,
@@ -369,8 +556,26 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         )
 
     try:
-        shadow_pnl_events = shadow_pnl_events_from_shadow_updates(
-            shadow_event_log.query(event_types=[ShadowActorUpdated])
+        write_candidate_diagnostics(
+            output_dir,
+            candidate_events=tuple(
+                pipeline.event_log.query(event_types=[CandidateScored])
+            ),
+            rejection_events=tuple(
+                pipeline.event_log.query(event_types=[CandidateRejected])
+            ),
+        )
+    except Exception as exc:
+        step_errors.append(
+            f"candidate_diagnostics_failed: {type(exc).__name__}: {exc}"
+        )
+
+    try:
+        shadow_updates = tuple(shadow_event_log.query(event_types=[ShadowActorUpdated]))
+        shadow_pnl_events = shadow_pnl_events_from_shadow_updates(shadow_updates)
+        shadow_agent_pnl_events = shadow_pnl_events_from_shadow_updates(
+            shadow_updates,
+            actor_type="agent",
         )
         soft_report = simulate_soft_allocator_policies(
             shadow_pnl_events,
@@ -383,6 +588,19 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         write_soft_allocator_report(output_dir, soft_report)
         write_perfect_panteon_report(output_dir, perfect_report)
         write_shadow_pnl_events(output_dir, shadow_pnl_events)
+        write_shadow_pnl_events(
+            output_dir,
+            shadow_agent_pnl_events,
+            filename="shadow_agent_pnl_events.jsonl",
+        )
+        write_oracle_mismatch_report(
+            output_dir,
+            output_dir / "trading.log",
+            shadow_updates=shadow_updates,
+            candidate_rejections=tuple(
+                pipeline.event_log.query(event_types=[CandidateRejected])
+            ),
+        )
     except Exception as exc:
         step_errors.append(f"soft_allocator_report_failed: {type(exc).__name__}: {exc}")
 
@@ -439,7 +657,16 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         progress_every_bars=args.progress_every_bars,
         max_bars=args.max_bars,
         solo_agent_candidate_limit=args.solo_agent_candidate_limit,
+        fixed_agent_players_enabled=(
+            args.enable_fixed_agent_players or bool(args.fixed_agent_player_set)
+        ),
+        fixed_agent_player_sets=_parse_fixed_agent_player_sets(args.fixed_agent_player_set),
         actionable_fallback_enabled=args.enable_actionable_fallback,
+        actionable_fallback_min_score=args.actionable_fallback_min_score,
+        actionable_fallback_require_has_data=args.actionable_fallback_require_has_data,
+        current_actionable_candidate_layer_enabled=(
+            args.enable_current_actionable_candidate_layer
+        ),
         real_promotion_gate_enabled=args.real_promotion_gate,
         real_promotion_min_closed_trades=args.real_promotion_min_closed_trades,
         real_promotion_min_pnl_pct=args.real_promotion_min_pnl_pct,
@@ -449,6 +676,12 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         use_v3_rolling_score=args.use_v3_rolling_score,
         use_v3_shadow_rolling_score=args.use_v3_shadow_rolling_score,
         use_v3_soft_shadow_score=args.use_v3_soft_shadow_score,
+        use_v3_executable_soft_top1_score=(
+            args.use_v3_executable_soft_top1_score
+        ),
+        use_v3_executable_soft_confirmed_score=(
+            args.use_v3_executable_soft_confirmed_score
+        ),
         use_v3_entry_causal_score=args.use_v3_entry_causal_score,
         v3_shadow_position_gate_enabled=not args.disable_v3_shadow_position_gate,
         v3_shadow_flat_handoff_enabled=args.enable_v3_shadow_flat_handoff,
@@ -458,6 +691,42 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         v3_shadow_rolling_min_closed_trades=args.v3_shadow_rolling_min_closed_trades,
         v3_entry_causal_min_filled=args.v3_entry_causal_min_filled,
         v3_entry_causal_actionability_weight=args.v3_entry_causal_actionability_weight,
+        v3_real_loss_rescue_enabled=args.enable_v3_real_loss_rescue,
+        v3_real_loss_rescue_min_virtual_pnl_pct=(
+            args.v3_real_loss_rescue_min_virtual_pnl_pct
+        ),
+        v3_real_loss_rescue_max_virtual_dd_pct=(
+            args.v3_real_loss_rescue_max_virtual_dd_pct
+        ),
+        v3_real_loss_rescue_min_actionable_share=(
+            args.v3_real_loss_rescue_min_actionable_share
+        ),
+        v3_real_loss_rescue_min_recent_filled=(
+            args.v3_real_loss_rescue_min_recent_filled
+        ),
+        v3_real_loss_rescue_max_real_loss_pct=(
+            args.v3_real_loss_rescue_max_real_loss_pct
+        ),
+        v3_real_loss_rescue_allow_genetics=args.allow_genetics_real_loss_rescue,
+        v3_probation_shadow_rescue_enabled=args.enable_v3_probation_shadow_rescue,
+        v3_probation_shadow_rescue_min_virtual_pnl_pct=(
+            args.v3_probation_shadow_rescue_min_virtual_pnl_pct
+        ),
+        v3_probation_shadow_rescue_max_virtual_dd_pct=(
+            args.v3_probation_shadow_rescue_max_virtual_dd_pct
+        ),
+        v3_probation_shadow_rescue_min_actionable_share=(
+            args.v3_probation_shadow_rescue_min_actionable_share
+        ),
+        v3_probation_shadow_rescue_min_recent_filled=(
+            args.v3_probation_shadow_rescue_min_recent_filled
+        ),
+        v3_probation_shadow_rescue_min_recent_pnl_usd=(
+            args.v3_probation_shadow_rescue_min_recent_pnl_usd
+        ),
+        v3_probation_shadow_rescue_allow_genetics=(
+            args.allow_genetics_probation_shadow_rescue
+        ),
         v3_persistent_loss_kill_min_closed_trades=(
             args.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -471,6 +740,49 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         v3_persistent_loss_virtual_min_dd_pct=(
             args.v3_persistent_loss_virtual_min_dd_pct
+        ),
+        v3_probation_loss_kill_min_closed_trades=(
+            args.v3_probation_loss_kill_min_closed_trades
+        ),
+        v3_probation_loss_kill_pnl_pct=args.v3_probation_loss_kill_pnl_pct,
+        v3_probation_loss_kill_win_rate_pct=(
+            args.v3_probation_loss_kill_win_rate_pct
+        ),
+        v3_probation_loss_kill_label_prefixes=(
+            _parse_probation_loss_label_prefixes(args)
+        ),
+        genetics_probation_execution_enabled=(
+            args.enable_genetics_probation_execution
+        ),
+        genetics_probation_risk_mult=args.genetics_probation_risk_mult,
+        genetics_probation_max_real_trades=args.genetics_probation_max_real_trades,
+        genetics_probation_require_shadow_confirmation=(
+            not args.disable_genetics_probation_shadow_confirmation
+        ),
+        v3_realized_profit_lock_min_closed_trades=(
+            args.v3_realized_profit_lock_min_closed_trades
+        ),
+        v3_realized_profit_lock_min_peak_pnl_pct=(
+            args.v3_realized_profit_lock_min_peak_pnl_pct
+        ),
+        v3_realized_profit_lock_max_giveback_pct=(
+            args.v3_realized_profit_lock_max_giveback_pct
+        ),
+        v3_realized_profit_lock_floor_pnl_pct=(
+            args.v3_realized_profit_lock_floor_pnl_pct
+        ),
+        v3_panteon_equity_guard_enabled=args.enable_v3_panteon_equity_guard,
+        v3_panteon_equity_guard_min_peak_pnl_pct=(
+            args.v3_panteon_equity_guard_min_peak_pnl_pct
+        ),
+        v3_panteon_equity_guard_max_giveback_pct=(
+            args.v3_panteon_equity_guard_max_giveback_pct
+        ),
+        v3_panteon_equity_guard_floor_pnl_pct=(
+            args.v3_panteon_equity_guard_floor_pnl_pct
+        ),
+        v3_panteon_equity_guard_cooldown_bars=(
+            args.v3_panteon_equity_guard_cooldown_bars
         ),
     )
 
@@ -492,7 +804,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress-every-bars", type=int, default=1000)
     parser.add_argument("--max-bars", type=int)
     parser.add_argument("--solo-agent-candidate-limit", type=int, default=3)
+    parser.add_argument("--enable-fixed-agent-players", action="store_true")
+    parser.add_argument(
+        "--fixed-agent-player-set",
+        action="append",
+        default=[],
+        help="Add fixed player as Label=AgentA,AgentB. Can be repeated.",
+    )
     parser.add_argument("--enable-actionable-fallback", action="store_true")
+    parser.add_argument("--actionable-fallback-min-score", type=float)
+    parser.add_argument("--actionable-fallback-require-has-data", action="store_true")
+    parser.add_argument("--enable-current-actionable-candidate-layer", action="store_true")
     parser.add_argument("--real-promotion-gate", action="store_true")
     parser.add_argument("--real-promotion-min-closed-trades", type=int, default=20)
     parser.add_argument("--real-promotion-min-pnl-pct", type=float, default=0.0)
@@ -502,6 +824,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use-v3-rolling-score", action="store_true")
     parser.add_argument("--use-v3-shadow-rolling-score", action="store_true")
     parser.add_argument("--use-v3-soft-shadow-score", action="store_true")
+    parser.add_argument("--use-v3-executable-soft-top1-score", action="store_true")
+    parser.add_argument("--use-v3-executable-soft-confirmed-score", action="store_true")
     parser.add_argument("--use-v3-entry-causal-score", action="store_true")
     parser.add_argument("--disable-v3-shadow-position-gate", action="store_true")
     parser.add_argument("--enable-v3-shadow-flat-handoff", action="store_true")
@@ -511,35 +835,151 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--v3-shadow-rolling-min-closed-trades", type=int, default=50)
     parser.add_argument("--v3-entry-causal-min-filled", type=int, default=3)
     parser.add_argument("--v3-entry-causal-actionability-weight", type=float, default=1.0)
+    parser.add_argument("--enable-v3-real-loss-rescue", action="store_true")
+    parser.add_argument("--v3-real-loss-rescue-min-virtual-pnl-pct", type=float, default=10.0)
+    parser.add_argument("--v3-real-loss-rescue-max-virtual-dd-pct", type=float, default=50.0)
+    parser.add_argument("--v3-real-loss-rescue-min-actionable-share", type=float, default=0.05)
+    parser.add_argument("--v3-real-loss-rescue-min-recent-filled", type=int, default=1)
+    parser.add_argument("--v3-real-loss-rescue-max-real-loss-pct", type=float, default=-3.0)
+    parser.add_argument("--allow-genetics-real-loss-rescue", action="store_true")
+    parser.add_argument("--enable-v3-probation-shadow-rescue", action="store_true")
+    parser.add_argument("--v3-probation-shadow-rescue-min-virtual-pnl-pct", type=float, default=10.0)
+    parser.add_argument("--v3-probation-shadow-rescue-max-virtual-dd-pct", type=float, default=50.0)
+    parser.add_argument("--v3-probation-shadow-rescue-min-actionable-share", type=float, default=0.05)
+    parser.add_argument("--v3-probation-shadow-rescue-min-recent-filled", type=int, default=1)
+    parser.add_argument("--v3-probation-shadow-rescue-min-recent-pnl-usd", type=float, default=0.0)
+    parser.add_argument("--allow-genetics-probation-shadow-rescue", action="store_true")
     parser.add_argument("--v3-persistent-loss-kill-min-closed-trades", type=int, default=0)
     parser.add_argument("--v3-persistent-loss-kill-pnl-pct", type=float, default=-2.0)
     parser.add_argument("--v3-persistent-loss-kill-win-rate-pct", type=float, default=0.0)
     parser.add_argument("--v3-persistent-loss-ignore-virtual-quality", action="store_true")
     parser.add_argument("--v3-persistent-loss-virtual-max-pnl-pct", type=float, default=0.0)
     parser.add_argument("--v3-persistent-loss-virtual-min-dd-pct", type=float, default=25.0)
+    parser.add_argument("--v3-probation-loss-kill-min-closed-trades", type=int, default=0)
+    parser.add_argument("--v3-probation-loss-kill-pnl-pct", type=float, default=-0.15)
+    parser.add_argument("--v3-probation-loss-kill-win-rate-pct", type=float, default=50.0)
+    parser.add_argument(
+        "--v3-probation-loss-kill-label-prefix",
+        action="append",
+        default=None,
+        help=(
+            "Restrict probation loss-kill to labels with this prefix. "
+            "Can be repeated. Defaults to Solo_, Fixed_, Antonius_, and Optimal_."
+        ),
+    )
+    parser.add_argument(
+        "--v3-probation-loss-kill-all-labels",
+        action="store_true",
+        help="Apply probation loss-kill to every candidate label.",
+    )
+    parser.add_argument("--enable-genetics-probation-execution", action="store_true")
+    parser.add_argument("--genetics-probation-risk-mult", type=float, default=0.25)
+    parser.add_argument("--genetics-probation-max-real-trades", type=int, default=20)
+    parser.add_argument(
+        "--disable-genetics-probation-shadow-confirmation",
+        action="store_true",
+    )
+    parser.add_argument("--v3-realized-profit-lock-min-closed-trades", type=int, default=0)
+    parser.add_argument("--v3-realized-profit-lock-min-peak-pnl-pct", type=float, default=0.75)
+    parser.add_argument("--v3-realized-profit-lock-max-giveback-pct", type=float, default=0.55)
+    parser.add_argument("--v3-realized-profit-lock-floor-pnl-pct", type=float, default=0.25)
+    parser.add_argument("--enable-v3-panteon-equity-guard", action="store_true")
+    parser.add_argument("--v3-panteon-equity-guard-min-peak-pnl-pct", type=float, default=2.0)
+    parser.add_argument("--v3-panteon-equity-guard-max-giveback-pct", type=float, default=1.0)
+    parser.add_argument("--v3-panteon-equity-guard-floor-pnl-pct", type=float, default=2.0)
+    parser.add_argument("--v3-panteon-equity-guard-cooldown-bars", type=int, default=720)
     return parser
 
 
+def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecutionConfig:
+    return LiveExecutionConfig(
+        genetics_probation_execution_enabled=(
+            config.genetics_probation_execution_enabled
+        ),
+        genetics_probation_risk_mult=config.genetics_probation_risk_mult,
+        genetics_probation_max_real_trades=config.genetics_probation_max_real_trades,
+        genetics_probation_require_shadow_confirmation=(
+            config.genetics_probation_require_shadow_confirmation
+        ),
+    )
+
+
 def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
+    executable_soft_top1 = bool(config.use_v3_executable_soft_top1_score)
+    executable_soft_confirmed = bool(config.use_v3_executable_soft_confirmed_score)
+    executable_soft = executable_soft_top1 or executable_soft_confirmed
+    rolling_window = (
+        24 if executable_soft else config.v3_shadow_rolling_window_bars
+    )
+    min_closed_trades = (
+        20 if executable_soft_top1
+        else max(50, int(config.v3_shadow_rolling_min_closed_trades))
+        if executable_soft_confirmed
+        else config.v3_shadow_rolling_min_closed_trades
+    )
     return StrategistConfig(
+        hard_policy_deny_labels=config.hard_policy_deny_labels,
         real_promotion_gate_enabled=config.real_promotion_gate_enabled,
         real_promotion_min_closed_trades=config.real_promotion_min_closed_trades,
         real_promotion_min_pnl_pct=config.real_promotion_min_pnl_pct,
         real_promotion_max_drawdown_pct=config.real_promotion_max_drawdown_pct,
         real_promotion_loss_budget_pct=config.real_promotion_loss_budget_pct,
         real_promotion_probation_min_score=config.real_promotion_probation_min_score,
-        use_v3_rolling_score=config.use_v3_rolling_score,
+        use_v3_rolling_score=config.use_v3_rolling_score or executable_soft,
         use_v3_entry_causal_score=config.use_v3_entry_causal_score,
         use_v3_shadow_rolling_score=config.use_v3_shadow_rolling_score,
-        use_v3_soft_shadow_score=config.use_v3_soft_shadow_score,
+        use_v3_soft_shadow_score=config.use_v3_soft_shadow_score or executable_soft,
+        v3_current_actionable_gate_enabled=(
+            config.current_actionable_candidate_layer_enabled or executable_soft
+        ),
         v3_shadow_position_gate_enabled=config.v3_shadow_position_gate_enabled,
         v3_shadow_flat_handoff_enabled=config.v3_shadow_flat_handoff_enabled,
         v3_shadow_fresh_handoff_enabled=config.v3_shadow_fresh_handoff_enabled,
         v3_shadow_fresh_handoff_max_age_bars=config.v3_shadow_fresh_handoff_max_age_bars,
-        v3_shadow_rolling_window_bars=config.v3_shadow_rolling_window_bars,
-        v3_shadow_rolling_min_closed_trades=config.v3_shadow_rolling_min_closed_trades,
+        v3_shadow_rolling_window_bars=rolling_window,
+        v3_shadow_rolling_min_closed_trades=min_closed_trades,
         v3_entry_causal_min_filled=config.v3_entry_causal_min_filled,
         v3_entry_causal_actionability_weight=config.v3_entry_causal_actionability_weight,
+        v3_real_loss_rescue_enabled=config.v3_real_loss_rescue_enabled,
+        v3_real_loss_rescue_min_virtual_pnl_pct=(
+            config.v3_real_loss_rescue_min_virtual_pnl_pct
+        ),
+        v3_real_loss_rescue_max_virtual_dd_pct=(
+            config.v3_real_loss_rescue_max_virtual_dd_pct
+        ),
+        v3_real_loss_rescue_min_actionable_share=(
+            config.v3_real_loss_rescue_min_actionable_share
+        ),
+        v3_real_loss_rescue_min_recent_filled=(
+            config.v3_real_loss_rescue_min_recent_filled
+        ),
+        v3_real_loss_rescue_max_real_loss_pct=(
+            config.v3_real_loss_rescue_max_real_loss_pct
+        ),
+        v3_real_loss_rescue_allow_genetics=(
+            config.v3_real_loss_rescue_allow_genetics
+        ),
+        v3_probation_shadow_rescue_enabled=(
+            config.v3_probation_shadow_rescue_enabled
+        ),
+        v3_probation_shadow_rescue_min_virtual_pnl_pct=(
+            config.v3_probation_shadow_rescue_min_virtual_pnl_pct
+        ),
+        v3_probation_shadow_rescue_max_virtual_dd_pct=(
+            config.v3_probation_shadow_rescue_max_virtual_dd_pct
+        ),
+        v3_probation_shadow_rescue_min_actionable_share=(
+            config.v3_probation_shadow_rescue_min_actionable_share
+        ),
+        v3_probation_shadow_rescue_min_recent_filled=(
+            config.v3_probation_shadow_rescue_min_recent_filled
+        ),
+        v3_probation_shadow_rescue_min_recent_pnl_usd=(
+            config.v3_probation_shadow_rescue_min_recent_pnl_usd
+        ),
+        v3_probation_shadow_rescue_allow_genetics=(
+            config.v3_probation_shadow_rescue_allow_genetics
+        ),
         v3_persistent_loss_kill_min_closed_trades=(
             config.v3_persistent_loss_kill_min_closed_trades
         ),
@@ -556,6 +996,42 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         v3_persistent_loss_virtual_min_dd_pct=(
             config.v3_persistent_loss_virtual_min_dd_pct
         ),
+        v3_probation_loss_kill_min_closed_trades=(
+            config.v3_probation_loss_kill_min_closed_trades
+        ),
+        v3_probation_loss_kill_pnl_pct=config.v3_probation_loss_kill_pnl_pct,
+        v3_probation_loss_kill_win_rate_pct=(
+            config.v3_probation_loss_kill_win_rate_pct
+        ),
+        v3_probation_loss_kill_label_prefixes=(
+            config.v3_probation_loss_kill_label_prefixes
+        ),
+        v3_realized_profit_lock_min_closed_trades=(
+            config.v3_realized_profit_lock_min_closed_trades
+        ),
+        v3_realized_profit_lock_min_peak_pnl_pct=(
+            config.v3_realized_profit_lock_min_peak_pnl_pct
+        ),
+        v3_realized_profit_lock_max_giveback_pct=(
+            config.v3_realized_profit_lock_max_giveback_pct
+        ),
+        v3_realized_profit_lock_floor_pnl_pct=(
+            config.v3_realized_profit_lock_floor_pnl_pct
+        ),
+        v3_panteon_equity_guard_enabled=config.v3_panteon_equity_guard_enabled,
+        v3_panteon_equity_guard_min_peak_pnl_pct=(
+            config.v3_panteon_equity_guard_min_peak_pnl_pct
+        ),
+        v3_panteon_equity_guard_max_giveback_pct=(
+            config.v3_panteon_equity_guard_max_giveback_pct
+        ),
+        v3_panteon_equity_guard_floor_pnl_pct=(
+            config.v3_panteon_equity_guard_floor_pnl_pct
+        ),
+        v3_panteon_equity_guard_cooldown_bars=(
+            config.v3_panteon_equity_guard_cooldown_bars
+        ),
+        hard_policy_experimental_min_bar=0,
     )
 
 
@@ -626,6 +1102,486 @@ def _parse_optional_agent_labels(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in str(raw or "").split(",") if part.strip())
 
 
+def _parse_probation_loss_label_prefixes(args: argparse.Namespace) -> tuple[str, ...]:
+    if bool(getattr(args, "v3_probation_loss_kill_all_labels", False)):
+        return ()
+    raw_prefixes = getattr(args, "v3_probation_loss_kill_label_prefix", None)
+    if raw_prefixes is None:
+        return DEFAULT_PROBATION_LOSS_LABEL_PREFIXES
+    return tuple(str(prefix).strip() for prefix in raw_prefixes if str(prefix).strip())
+
+
+def write_candidate_diagnostics(
+    output_dir: Path | str,
+    *,
+    candidate_events: Sequence[object],
+    rejection_events: Sequence[object] = (),
+    filename: str = "candidate_diagnostics.json",
+) -> Path:
+    buckets: dict[str, dict[str, Any]] = {}
+    selected_rows = 0
+    for event in candidate_events or ():
+        label = str(_event_value(event, "player_label") or "").strip()
+        if not label:
+            continue
+        row = buckets.setdefault(label, _new_candidate_diagnostic_bucket(label))
+        row["bars_seen"] += 1
+        selected = bool(_event_value(event, "selected_by_pantheon") or False)
+        row["selected_bars"] += int(selected)
+        selected_rows += int(selected)
+        row["score_sum"] += _safe_float(_event_value(event, "score"))
+        row["has_data_rows"] += int(bool(_event_value(event, "has_data") or False))
+        row["closed_trades_sum"] += _safe_float(_event_value(event, "closed_trades"))
+        row["signals_sum"] += _safe_float(_event_value(event, "signals"))
+        row["recent_bars_sum"] += _safe_float(_event_value(event, "recent_bars"))
+        row["recent_actionable_bars_sum"] += _safe_float(
+            _event_value(event, "recent_actionable_bars")
+        )
+        row["actionable_share_sum"] += _safe_float(
+            _event_value(event, "actionable_share")
+        )
+        row["recent_filled_sum"] += _safe_float(_event_value(event, "recent_filled"))
+        row["recent_pnl_usd_sum"] += _safe_float(_event_value(event, "recent_pnl_usd"))
+
+    rejections: dict[str, dict[str, Any]] = {}
+    for event in rejection_events or ():
+        label = str(_event_value(event, "player_label") or "").strip()
+        if not label:
+            continue
+        reason = str(_event_value(event, "reason") or "")
+        row = rejections.setdefault(label, {"count": 0, "last_reason": ""})
+        row["count"] += 1
+        row["last_reason"] = reason
+
+    candidate_payload = {
+        label: _candidate_diagnostic_payload(row)
+        for label, row in sorted(
+            buckets.items(),
+            key=lambda item: (-item[1]["selected_bars"], item[0]),
+        )
+    }
+    data = {
+        "candidate_rows": sum(row["bars_seen"] for row in buckets.values()),
+        "selected_rows": selected_rows,
+        "rejection_rows": sum(row["count"] for row in rejections.values()),
+        "group_summary": _candidate_group_summary(candidate_payload),
+        "candidates": candidate_payload,
+        "rejections": dict(sorted(rejections.items())),
+    }
+    path = Path(output_dir) / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _new_candidate_diagnostic_bucket(label: str) -> dict[str, Any]:
+    return {
+        "label": label,
+        "group_type": _candidate_group_type(label),
+        "bars_seen": 0,
+        "selected_bars": 0,
+        "score_sum": 0.0,
+        "has_data_rows": 0,
+        "closed_trades_sum": 0.0,
+        "signals_sum": 0.0,
+        "recent_bars_sum": 0.0,
+        "recent_actionable_bars_sum": 0.0,
+        "actionable_share_sum": 0.0,
+        "recent_filled_sum": 0.0,
+        "recent_pnl_usd_sum": 0.0,
+    }
+
+
+def _candidate_diagnostic_payload(row: dict[str, Any]) -> dict[str, Any]:
+    bars = max(1, int(row["bars_seen"]))
+    return {
+        "group_type": row["group_type"],
+        "bars_seen": int(row["bars_seen"]),
+        "selected_bars": int(row["selected_bars"]),
+        "selected_share_pct": _share(row["selected_bars"], row["bars_seen"]),
+        "avg_score": float(row["score_sum"]) / bars,
+        "has_data_share_pct": _share(row["has_data_rows"], row["bars_seen"]),
+        "avg_closed_trades": float(row["closed_trades_sum"]) / bars,
+        "avg_signals": float(row["signals_sum"]) / bars,
+        "avg_recent_bars": float(row["recent_bars_sum"]) / bars,
+        "avg_recent_actionable_bars": (
+            float(row["recent_actionable_bars_sum"]) / bars
+        ),
+        "avg_actionable_share": float(row["actionable_share_sum"]) / bars,
+        "avg_recent_filled": float(row["recent_filled_sum"]) / bars,
+        "avg_recent_pnl_usd": float(row["recent_pnl_usd_sum"]) / bars,
+    }
+
+
+def _candidate_group_summary(candidates: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, dict[str, Any]] = {}
+    for row in candidates.values():
+        group = str(row.get("group_type") or "profile")
+        bucket = summary.setdefault(group, {
+            "candidate_count": 0,
+            "bars_seen": 0,
+            "selected_bars": 0,
+        })
+        bucket["candidate_count"] += 1
+        bucket["bars_seen"] += int(row.get("bars_seen", 0) or 0)
+        bucket["selected_bars"] += int(row.get("selected_bars", 0) or 0)
+    for bucket in summary.values():
+        bucket["selected_share_pct"] = _share(
+            bucket["selected_bars"],
+            bucket["bars_seen"],
+        )
+    return dict(sorted(summary.items()))
+
+
+def _candidate_group_type(label: str) -> str:
+    if label == "NoTrade":
+        return "notrade"
+    if label.startswith("Solo_"):
+        return "solo"
+    if label.startswith("Fixed_"):
+        return "fixed"
+    if label.startswith("Antonius_") or label.startswith("Perfect_"):
+        return "regime_switch"
+    if label.endswith("StaticRotator") or label.startswith("Optimal_"):
+        return "rotating"
+    return "profile"
+
+
+def write_oracle_mismatch_report(
+    output_dir: str | Path,
+    trading_log: str | Path,
+    *,
+    shadow_updates: Sequence[object],
+    candidate_rejections: Sequence[object],
+    filename: str = "oracle_mismatch_report.json",
+) -> Path:
+    rows = _parse_trading_log_rows(Path(trading_log))
+    player_updates = [
+        event for event in shadow_updates or ()
+        if str(_event_value(event, "actor_type") or "") == "player"
+    ]
+    current_shadow = _shadow_update_index(player_updates)
+    perfect_by_bar = _perfect_monthly_leader_by_bar(player_updates)
+    soft_by_bar = _soft_confirmed_leader_by_bar(player_updates)
+    rejections = _rejection_index(candidate_rejections)
+    out_rows: list[dict[str, Any]] = []
+    reason_counts: dict[str, int] = {}
+    for row in rows:
+        bar = int(row.get("bar", 0) or 0)
+        if bar <= 0:
+            continue
+        real_leader = str(
+            row.get("executed_leader")
+            or row.get("selected_leader")
+            or row.get("leader")
+            or ""
+        )
+        perfect_leader = perfect_by_bar.get(bar, "")
+        soft_leader = soft_by_bar.get(bar, "")
+        target = perfect_leader if perfect_leader and perfect_leader != "CASH" else soft_leader
+        if not target or target == real_leader:
+            continue
+        reason = _oracle_mismatch_reason(
+            bar=bar,
+            target_label=target,
+            trading_row=row,
+            current_shadow=current_shadow,
+            rejections=rejections,
+        )
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        out_rows.append({
+            "bar": bar,
+            "regime": row.get("regime", ""),
+            "real_leader": real_leader,
+            "selected_leader": row.get("selected_leader", ""),
+            "executed_leader": row.get("executed_leader", ""),
+            "perfect_leader": perfect_leader,
+            "soft_leader": soft_leader,
+            "reason": reason,
+            "raw_signals": int(row.get("raw_signals", 0) or 0),
+            "signals": int(row.get("signals", 0) or 0),
+            "filled": int(row.get("filled", 0) or 0),
+        })
+    data = {
+        "summary": {
+            "trading_rows": len(rows),
+            "mismatch_rows": len(out_rows),
+            "reason_counts": dict(sorted(reason_counts.items())),
+        },
+        "rows": out_rows,
+    }
+    path = Path(output_dir) / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _parse_trading_log_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        fields: dict[str, Any] = {}
+        for part in line.split("  "):
+            part = part.strip()
+            if "=" not in part:
+                continue
+            key, value = part.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if key in {
+                "bar",
+                "raw_signals",
+                "signals",
+                "filled",
+                "rejected",
+                "blocked",
+            }:
+                try:
+                    fields[key] = int(value)
+                except ValueError:
+                    fields[key] = 0
+            else:
+                fields[key] = value
+        if fields:
+            rows.append(fields)
+    return rows
+
+
+def _shadow_update_index(
+    updates: Sequence[object],
+) -> dict[tuple[int, str], dict[str, float]]:
+    index: dict[tuple[int, str], dict[str, float]] = {}
+    for event in updates or ():
+        bar = int(_event_value(event, "bar") or 0)
+        label = str(_event_value(event, "actor_label") or "").strip()
+        if bar <= 0 or not label:
+            continue
+        row = index.setdefault((bar, label), {
+            "signals": 0.0,
+            "filled": 0.0,
+            "pnl_usd": 0.0,
+            "closed_trades": 0.0,
+        })
+        row["signals"] += _safe_float(_event_value(event, "signals"))
+        row["filled"] += _safe_float(_event_value(event, "filled"))
+        row["pnl_usd"] += _safe_float(_event_value(event, "realized_pnl_usd"))
+        row["closed_trades"] += _safe_float(_event_value(event, "closed_trades"))
+    return index
+
+
+def _perfect_monthly_leader_by_bar(updates: Sequence[object]) -> dict[int, str]:
+    month_label_pnl: dict[str, dict[str, float]] = {}
+    month_by_bar: dict[int, str] = {}
+    for event in updates or ():
+        month = _event_month_from_update(event)
+        label = str(_event_value(event, "actor_label") or "").strip()
+        bar = int(_event_value(event, "bar") or 0)
+        if not month or not label or bar <= 0:
+            continue
+        month_by_bar[bar] = month
+        bucket = month_label_pnl.setdefault(month, {})
+        bucket[label] = bucket.get(label, 0.0) + _safe_float(
+            _event_value(event, "realized_pnl_usd")
+        )
+    best_by_month: dict[str, str] = {}
+    for month, pnl_by_label in month_label_pnl.items():
+        if not pnl_by_label:
+            continue
+        best_label = max(pnl_by_label, key=lambda label: (pnl_by_label[label], label))
+        best_by_month[month] = best_label if pnl_by_label[best_label] > 0.0 else "CASH"
+    return {
+        bar: best_by_month.get(month, "")
+        for bar, month in month_by_bar.items()
+    }
+
+
+def _soft_confirmed_leader_by_bar(updates: Sequence[object]) -> dict[int, str]:
+    grouped: dict[int, list[object]] = {}
+    for event in updates or ():
+        bar = int(_event_value(event, "bar") or 0)
+        label = str(_event_value(event, "actor_label") or "").strip()
+        if bar > 0 and label:
+            grouped.setdefault(bar, []).append(event)
+    state: dict[tuple[str, str], dict[str, Any]] = {}
+    out: dict[int, str] = {}
+    for bar in sorted(grouped):
+        bar_events = grouped[bar]
+        regime = str(_event_value(bar_events[0], "regime") or "all").strip().lower() or "all"
+        out[bar] = _soft_confirmed_leader_for_regime(state, regime, current_bar=bar)
+        for event in bar_events:
+            label = str(_event_value(event, "actor_label") or "").strip()
+            event_regime = str(_event_value(event, "regime") or "all").strip().lower() or "all"
+            row = state.setdefault(
+                (event_regime, label),
+                {"trades": 0, "bars": [], "prefix": [0.0]},
+            )
+            row["trades"] += max(0, int(_event_value(event, "closed_trades") or 0))
+            row["bars"].append(bar)
+            row["prefix"].append(
+                float(row["prefix"][-1])
+                + _safe_float(_event_value(event, "realized_pnl_usd"))
+            )
+    return out
+
+
+def _soft_confirmed_leader_for_regime(
+    state: dict[tuple[str, str], dict[str, Any]],
+    regime: str,
+    *,
+    current_bar: int,
+) -> str:
+    scored: list[tuple[str, float]] = []
+    cutoff = int(current_bar) - 24
+    for (item_regime, label), row in state.items():
+        if item_regime != regime:
+            continue
+        if int(row.get("trades", 0) or 0) < 50:
+            continue
+        bars = row.get("bars", []) or []
+        prefix = row.get("prefix", [0.0]) or [0.0]
+        first_index = bisect_right(bars, cutoff)
+        score = float(prefix[-1]) - float(prefix[first_index])
+        if score > 0.0:
+            scored.append((label, score))
+    if not scored:
+        return ""
+    scored.sort(key=lambda item: (-item[1], item[0]))
+    return scored[0][0]
+
+
+def _rejection_index(
+    rejections: Sequence[object],
+) -> dict[tuple[int, str], str]:
+    out: dict[tuple[int, str], str] = {}
+    for event in rejections or ():
+        bar = int(_event_value(event, "bar") or 0)
+        label = str(
+            _event_value(event, "player_label")
+            or _event_value(event, "label")
+            or ""
+        ).strip()
+        reason = str(_event_value(event, "reason") or "")
+        if bar > 0 and label:
+            out[(bar, label)] = reason
+    return out
+
+
+def _oracle_mismatch_reason(
+    *,
+    bar: int,
+    target_label: str,
+    trading_row: dict[str, Any],
+    current_shadow: dict[tuple[int, str], dict[str, float]],
+    rejections: dict[tuple[int, str], str],
+) -> str:
+    rejection = str(rejections.get((bar, target_label), "") or "").lower()
+    if "kill" in rejection:
+        return "kill"
+    if rejection:
+        return "rejected by policy"
+    shadow = current_shadow.get((bar, target_label), {})
+    if _safe_float(shadow.get("signals", 0.0)) <= 0.0 and _safe_float(
+        shadow.get("filled", 0.0)
+    ) <= 0.0:
+        return "no current signal"
+    reason_text = " ".join(
+        str(trading_row.get(key, "") or "").lower()
+        for key in ("reason", "fallback_reason", "error")
+    )
+    if "cooldown" in reason_text:
+        return "cooldown"
+    if str(trading_row.get("executed_leader") or trading_row.get("leader") or "") in {
+        "",
+        "-",
+        "NoTrade",
+    }:
+        return "no candidate"
+    return "low score"
+
+
+def _event_month_from_update(event: object) -> str:
+    value = _event_value(event, "timestamp")
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m")
+    text = str(value or "").strip()
+    if len(text) >= 7:
+        return text[:7]
+    return ""
+
+
+def _event_value(event: object, key: str) -> object:
+    if isinstance(event, dict):
+        return event.get(key)
+    return getattr(event, key, None)
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _share(part: object, total: object) -> float:
+    denom = _safe_float(total)
+    if denom <= 0:
+        return 0.0
+    return _safe_float(part) / denom * 100.0
+
+
+def _parse_fixed_agent_player_sets(
+    raw_items: Sequence[str],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    parsed: list[tuple[str, tuple[str, ...]]] = []
+    for raw in raw_items or ():
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if "=" not in text:
+            raise ValueError("fixed agent player set must use Label=AgentA,AgentB")
+        label, raw_agents = text.split("=", 1)
+        agents = tuple(
+            part.strip() for part in raw_agents.split(",") if part.strip()
+        )
+        parsed.append((label.strip(), agents))
+    return _normalize_fixed_agent_player_sets(parsed)
+
+
+def _normalize_fixed_agent_player_sets(
+    raw_sets: Sequence[tuple[str, Sequence[str]]],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    normalized: list[tuple[str, tuple[str, ...]]] = []
+    seen_labels = set()
+    for raw_label, raw_agents in raw_sets or ():
+        label = str(raw_label or "").strip()
+        if not label:
+            raise ValueError("fixed agent player label must not be empty")
+        if label in seen_labels:
+            raise ValueError(f"duplicate fixed agent player label: {label}")
+        seen_labels.add(label)
+        if isinstance(raw_agents, str):
+            agents = tuple(
+                part.strip() for part in raw_agents.split(",") if part.strip()
+            )
+        else:
+            agents = tuple(
+                str(agent or "").strip()
+                for agent in raw_agents
+                if str(agent or "").strip()
+            )
+        if not agents:
+            raise ValueError(f"fixed agent player {label} must include at least one agent")
+        if len(set(agents)) != len(agents):
+            raise ValueError(f"fixed agent player {label} has duplicate agents")
+        normalized.append((label, agents))
+    return tuple(normalized)
+
+
 def _format_directory_issues(report: RetrodateDirReport) -> str:
     lines = [f"Retrodate directory is not usable: {report.path}"]
     for issue in report.issues:
@@ -647,6 +1603,7 @@ def _write_run_summary(
     selection: RetrodateFileSelection,
     config: RetrodateMarketConfig,
 ) -> None:
+    effective_strategist = _build_strategist_config(config)
     data = {
         "output_dir": str(summary.output_dir),
         "analysis_report": str(summary.report_path),
@@ -663,7 +1620,29 @@ def _write_run_summary(
         "include_optional_agents": config.include_optional_agents,
         "optional_agent_labels": list(config.optional_agent_labels),
         "solo_agent_candidate_limit": config.solo_agent_candidate_limit,
+        "fixed_agent_players_enabled": config.fixed_agent_players_enabled,
+        "fixed_agent_player_count": (
+            len(config.fixed_agent_player_sets)
+            if config.fixed_agent_players_enabled
+            else 0
+        ),
+        "fixed_agent_player_sets": [
+            {"label": label, "agent_labels": list(agent_labels)}
+            for label, agent_labels in (
+                config.fixed_agent_player_sets
+                if config.fixed_agent_players_enabled
+                else ()
+            )
+        ],
         "actionable_fallback_enabled": config.actionable_fallback_enabled,
+        "actionable_fallback_min_score": config.actionable_fallback_min_score,
+        "actionable_fallback_require_has_data": (
+            config.actionable_fallback_require_has_data
+        ),
+        "current_actionable_candidate_layer_enabled": (
+            config.current_actionable_candidate_layer_enabled
+            or config.use_v3_executable_soft_confirmed_score
+        ),
         "real_promotion_gate_enabled": config.real_promotion_gate_enabled,
         "real_promotion_min_closed_trades": config.real_promotion_min_closed_trades,
         "real_promotion_min_pnl_pct": config.real_promotion_min_pnl_pct,
@@ -674,15 +1653,70 @@ def _write_run_summary(
         "use_v3_entry_causal_score": config.use_v3_entry_causal_score,
         "use_v3_shadow_rolling_score": config.use_v3_shadow_rolling_score,
         "use_v3_soft_shadow_score": config.use_v3_soft_shadow_score,
+        "use_v3_executable_soft_top1_score": (
+            config.use_v3_executable_soft_top1_score
+        ),
+        "use_v3_executable_soft_confirmed_score": (
+            config.use_v3_executable_soft_confirmed_score
+        ),
         "v3_shadow_position_gate_enabled": config.v3_shadow_position_gate_enabled,
         "v3_shadow_flat_handoff_enabled": config.v3_shadow_flat_handoff_enabled,
         "v3_shadow_fresh_handoff_enabled": config.v3_shadow_fresh_handoff_enabled,
         "v3_shadow_fresh_handoff_max_age_bars": config.v3_shadow_fresh_handoff_max_age_bars,
         "v3_shadow_rolling_window_bars": config.v3_shadow_rolling_window_bars,
         "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
+        "effective_v3_current_actionable_gate_enabled": (
+            effective_strategist.v3_current_actionable_gate_enabled
+        ),
+        "effective_v3_shadow_rolling_window_bars": (
+            effective_strategist.v3_shadow_rolling_window_bars
+        ),
+        "effective_v3_shadow_rolling_min_closed_trades": (
+            effective_strategist.v3_shadow_rolling_min_closed_trades
+        ),
         "v3_entry_causal_min_filled": config.v3_entry_causal_min_filled,
         "v3_entry_causal_actionability_weight": (
             config.v3_entry_causal_actionability_weight
+        ),
+        "v3_real_loss_rescue_enabled": config.v3_real_loss_rescue_enabled,
+        "v3_real_loss_rescue_min_virtual_pnl_pct": (
+            config.v3_real_loss_rescue_min_virtual_pnl_pct
+        ),
+        "v3_real_loss_rescue_max_virtual_dd_pct": (
+            config.v3_real_loss_rescue_max_virtual_dd_pct
+        ),
+        "v3_real_loss_rescue_min_actionable_share": (
+            config.v3_real_loss_rescue_min_actionable_share
+        ),
+        "v3_real_loss_rescue_min_recent_filled": (
+            config.v3_real_loss_rescue_min_recent_filled
+        ),
+        "v3_real_loss_rescue_max_real_loss_pct": (
+            config.v3_real_loss_rescue_max_real_loss_pct
+        ),
+        "v3_real_loss_rescue_allow_genetics": (
+            config.v3_real_loss_rescue_allow_genetics
+        ),
+        "v3_probation_shadow_rescue_enabled": (
+            config.v3_probation_shadow_rescue_enabled
+        ),
+        "v3_probation_shadow_rescue_min_virtual_pnl_pct": (
+            config.v3_probation_shadow_rescue_min_virtual_pnl_pct
+        ),
+        "v3_probation_shadow_rescue_max_virtual_dd_pct": (
+            config.v3_probation_shadow_rescue_max_virtual_dd_pct
+        ),
+        "v3_probation_shadow_rescue_min_actionable_share": (
+            config.v3_probation_shadow_rescue_min_actionable_share
+        ),
+        "v3_probation_shadow_rescue_min_recent_filled": (
+            config.v3_probation_shadow_rescue_min_recent_filled
+        ),
+        "v3_probation_shadow_rescue_min_recent_pnl_usd": (
+            config.v3_probation_shadow_rescue_min_recent_pnl_usd
+        ),
+        "v3_probation_shadow_rescue_allow_genetics": (
+            config.v3_probation_shadow_rescue_allow_genetics
         ),
         "v3_persistent_loss_kill_min_closed_trades": (
             config.v3_persistent_loss_kill_min_closed_trades
@@ -699,6 +1733,54 @@ def _write_run_summary(
         ),
         "v3_persistent_loss_virtual_min_dd_pct": (
             config.v3_persistent_loss_virtual_min_dd_pct
+        ),
+        "v3_probation_loss_kill_min_closed_trades": (
+            config.v3_probation_loss_kill_min_closed_trades
+        ),
+        "v3_probation_loss_kill_pnl_pct": config.v3_probation_loss_kill_pnl_pct,
+        "v3_probation_loss_kill_win_rate_pct": (
+            config.v3_probation_loss_kill_win_rate_pct
+        ),
+        "v3_probation_loss_kill_label_prefixes": list(
+            config.v3_probation_loss_kill_label_prefixes
+        ),
+        "hard_policy_deny_labels": list(config.hard_policy_deny_labels),
+        "genetics_probation_execution_enabled": (
+            config.genetics_probation_execution_enabled
+        ),
+        "genetics_probation_risk_mult": config.genetics_probation_risk_mult,
+        "genetics_probation_max_real_trades": (
+            config.genetics_probation_max_real_trades
+        ),
+        "genetics_probation_require_shadow_confirmation": (
+            config.genetics_probation_require_shadow_confirmation
+        ),
+        "v3_realized_profit_lock_min_closed_trades": (
+            config.v3_realized_profit_lock_min_closed_trades
+        ),
+        "v3_realized_profit_lock_min_peak_pnl_pct": (
+            config.v3_realized_profit_lock_min_peak_pnl_pct
+        ),
+        "v3_realized_profit_lock_max_giveback_pct": (
+            config.v3_realized_profit_lock_max_giveback_pct
+        ),
+        "v3_realized_profit_lock_floor_pnl_pct": (
+            config.v3_realized_profit_lock_floor_pnl_pct
+        ),
+        "v3_panteon_equity_guard_enabled": (
+            config.v3_panteon_equity_guard_enabled
+        ),
+        "v3_panteon_equity_guard_min_peak_pnl_pct": (
+            config.v3_panteon_equity_guard_min_peak_pnl_pct
+        ),
+        "v3_panteon_equity_guard_max_giveback_pct": (
+            config.v3_panteon_equity_guard_max_giveback_pct
+        ),
+        "v3_panteon_equity_guard_floor_pnl_pct": (
+            config.v3_panteon_equity_guard_floor_pnl_pct
+        ),
+        "v3_panteon_equity_guard_cooldown_bars": (
+            config.v3_panteon_equity_guard_cooldown_bars
         ),
         "registered_agents": list(summary.registered_agents),
         "player_profile_count": summary.player_profile_count,
@@ -750,6 +1832,19 @@ def _write_run_summary(
                 0.0,
             ),
         }
+    candidate_diagnostics = _load_json(
+        summary.output_dir / "candidate_diagnostics.json"
+    )
+    if candidate_diagnostics:
+        data["candidate_diagnostics"] = {
+            "candidate_rows": candidate_diagnostics.get("candidate_rows", 0),
+            "selected_rows": candidate_diagnostics.get("selected_rows", 0),
+            "rejection_rows": candidate_diagnostics.get("rejection_rows", 0),
+            "group_summary": candidate_diagnostics.get("group_summary", {}),
+        }
+    oracle_mismatch = _load_json(summary.output_dir / "oracle_mismatch_report.json")
+    if oracle_mismatch:
+        data["oracle_mismatch_report"] = oracle_mismatch.get("summary", {})
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
@@ -770,6 +1865,10 @@ def _write_analysis_report(
     allocation_diagnostics = _load_json(
         summary.output_dir / "allocation_diagnostics.json"
     )
+    candidate_diagnostics = _load_json(
+        summary.output_dir / "candidate_diagnostics.json"
+    )
+    oracle_mismatch = _load_json(summary.output_dir / "oracle_mismatch_report.json")
 
     excluded_lines = []
     for item in selection.excluded_files:
@@ -793,13 +1892,30 @@ def _write_analysis_report(
         "perfect_panteon_report.md",
         "perfect_panteon_report.json",
         "allocation_diagnostics.json",
+        "candidate_diagnostics.json",
+        "oracle_mismatch_report.json",
+        "causal_entry_decisions.jsonl",
         "shadow_player_pnl_events.jsonl",
+        "shadow_agent_pnl_events.jsonl",
     ]
     dashboard_lines = [
         f"- `{name}`"
         for name in dashboard_files
         if (summary.output_dir / name).exists()
     ]
+    note_lines = [
+        "- This run uses the existing live-like Panteon v2 pipeline, OutputWriter, leaderboards, and dashboard renderers.",
+        "- Shadow tournament evaluates registered agents and composed player profiles on every replayed bar.",
+        "- The default run is an hourly-stride benchmark; a full 1m replay is available with --stride-minutes 1 but is much heavier.",
+    ]
+    if any(
+        int(report.expected_year or 0) == 2026 and not report.is_valid
+        for report in selection.excluded_files
+    ):
+        note_lines.insert(
+            2,
+            "- The requested 2026 file was excluded by validation; check Data Exclusions above.",
+        )
 
     lines = [
         "# Retrodate Market Benchmark",
@@ -831,6 +1947,14 @@ def _write_analysis_report(
             _allocation_diagnostics_report_lines(allocation_diagnostics) + [""]
             if allocation_diagnostics else []
         ),
+        *(
+            _candidate_diagnostics_report_lines(candidate_diagnostics) + [""]
+            if candidate_diagnostics else []
+        ),
+        *(
+            _oracle_mismatch_report_lines(oracle_mismatch) + [""]
+            if oracle_mismatch else []
+        ),
         *(_soft_allocator_report_lines(soft_allocator) + [""] if soft_allocator else []),
         *(_perfect_panteon_report_lines(perfect_panteon) + [""] if perfect_panteon else []),
         "## Top Agents By Virtual PnL",
@@ -840,10 +1964,7 @@ def _write_analysis_report(
         _markdown_table(_top_rows(players, limit=10)),
         "",
         "## Notes",
-        "- This run uses the existing live-like Panteon v2 pipeline, OutputWriter, leaderboards, and dashboard renderers.",
-        "- Shadow tournament evaluates registered agents and composed player profiles on every replayed bar.",
-        "- Because the available 2026 file contains 2022-2023 timestamps, it is excluded by validation unless invalid_policy=fail is disabled explicitly.",
-        "- The default run is an hourly-stride benchmark; a full 1m replay is available with --stride-minutes 1 but is much heavier.",
+        *note_lines,
         "",
         "## Dashboard Artifacts",
         *(dashboard_lines or ["- none"]),
@@ -878,6 +1999,49 @@ def _allocation_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
         f"- Filled-zero share: {_fmt_pct(report.get('filled_zero_share_pct'))}",
         f"- Details: `allocation_diagnostics.json`",
         *(["- Top leaders by bar share:"] + top if top else []),
+    ]
+
+
+def _candidate_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    groups = report.get("group_summary", {})
+    group_lines = []
+    if isinstance(groups, dict):
+        for group, payload in groups.items():
+            if isinstance(payload, dict):
+                group_lines.append(
+                    f"- `{group}`: candidates {int(payload.get('candidate_count', 0) or 0)}, "
+                    f"selected bars {int(payload.get('selected_bars', 0) or 0)}, "
+                    f"selected share {_fmt_pct(payload.get('selected_share_pct'))}"
+                )
+    return [
+        "## Candidate Diagnostics",
+        f"- Candidate score rows: {int(report.get('candidate_rows', 0) or 0)}",
+        f"- Selected rows: {int(report.get('selected_rows', 0) or 0)}",
+        f"- Rejection rows: {int(report.get('rejection_rows', 0) or 0)}",
+        f"- Details: `candidate_diagnostics.json`",
+        *(["- Group summary:"] + group_lines if group_lines else []),
+    ]
+
+
+def _oracle_mismatch_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    reason_counts = summary.get("reason_counts", {}) if isinstance(summary, dict) else {}
+    reason_lines = []
+    if isinstance(reason_counts, dict):
+        reason_lines = [
+            f"- `{reason}`: {int(count or 0)}"
+            for reason, count in sorted(reason_counts.items())
+        ]
+    return [
+        "## Oracle Mismatch",
+        f"- Trading rows: {int(summary.get('trading_rows', 0) or 0)}",
+        f"- Mismatch rows: {int(summary.get('mismatch_rows', 0) or 0)}",
+        f"- Details: `oracle_mismatch_report.json`",
+        *(["- Reason counts:"] + reason_lines if reason_lines else []),
     ]
 
 

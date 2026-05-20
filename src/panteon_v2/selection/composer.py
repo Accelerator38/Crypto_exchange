@@ -172,7 +172,6 @@ PROFILE_DEFENSIVE_RESEARCH = PlayerProfile(
         "LiveCrashHunter":     0.20,
         "LiveRegimePullback":  0.12,
         "BearReliefFadeAgent": 0.10,
-        "CarryFlowAgentV2":    0.05,
     },
 )
 
@@ -186,11 +185,12 @@ PROFILE_BOMBERMAN_STRONG = PlayerProfile(
 )
 
 GENETICS_AGENT_LABELS: Tuple[str, ...] = (
-    "GeneticsGenomeEnsemble",
     "GeneticsCore",
-    "GeneticsBullish",
-    "GeneticsBearish",
-    "GeneticsNeutral",
+)
+
+GENETICS_PROFILE_REGIMES: Tuple[Regime, ...] = (
+    Regime.BEARISH,
+    Regime.CRASH,
 )
 
 PROFILE_GENETICS_RESEARCH = PlayerProfile(
@@ -204,15 +204,11 @@ PROFILE_GENETICS_RESEARCH = PlayerProfile(
         close_multi=0.20,
     ),
     affinity=None,
-    max_agents=5,
+    max_agents=1,
     min_agents=1,
     allowed_labels=GENETICS_AGENT_LABELS,
     bias={
-        "GeneticsGenomeEnsemble": 0.25,
-        "GeneticsCore": 0.12,
-        "GeneticsBullish": 0.08,
-        "GeneticsBearish": 0.08,
-        "GeneticsNeutral": 0.08,
+        "GeneticsCore": 0.35,
     },
 )
 
@@ -220,6 +216,20 @@ PROFILE_GENETICS_RESEARCH = PlayerProfile(
 # ────────────────────────────────────────────────────────────────────
 # PlayerComposer
 # ────────────────────────────────────────────────────────────────────
+
+
+def _is_genetics_profile(profile: PlayerProfile) -> bool:
+    labels = (profile.label, *profile.allowed_labels, *profile.bias.keys())
+    return any("genetic" in str(label).lower() for label in labels)
+
+
+def _scored_agent_sort_key(sa: ScoredAgent) -> Tuple[float, int, int, str]:
+    return (
+        -sa.score,
+        -sa.metrics.closed_trades,
+        -sa.metrics.signals,
+        sa.label,
+    )
 
 
 class PlayerComposer:
@@ -269,6 +279,8 @@ class PlayerComposer:
         *,
         fallback: bool,
     ) -> List[ScoredAgent]:
+        if _is_genetics_profile(profile) and regime not in GENETICS_PROFILE_REGIMES:
+            return []
         k = profile.max_agents
         if profile.allowed_labels:
             k = max(k, len(profile.allowed_labels), 1000)
@@ -283,6 +295,21 @@ class PlayerComposer:
         if profile.allowed_labels:
             allowed = set(profile.allowed_labels)
             scored = [row for row in scored if row.label in allowed]
+            if _is_genetics_profile(profile):
+                selected = {row.label for row in scored}
+                for label in profile.allowed_labels:
+                    if label in selected:
+                        continue
+                    row = self._selector.score_registered(
+                        label,
+                        regime,
+                        include_quarantined=True,
+                    )
+                    if row is None or not row.metrics.has_data or row.score <= 0.0:
+                        continue
+                    scored.append(row)
+                    selected.add(label)
+                scored.sort(key=_scored_agent_sort_key)
         return list(scored[:profile.max_agents])
 
     def _build(

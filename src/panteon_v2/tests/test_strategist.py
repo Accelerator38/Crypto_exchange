@@ -101,6 +101,31 @@ class TestStrategistQuarantineFilter(unittest.TestCase):
         with self.assertRaises(ValueError):
             st.consider_switch(Regime.BULLISH, current_bar=1)
 
+    def test_genetics_player_can_use_quarantined_raw_genetics_after_player_metrics_exist(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "GeneticsResearch", Regime.BEARISH, 7, 0.4, start_id=1)
+        _add_perf(perf, "Fallback", Regime.BEARISH, 7, 0.1, start_id=100)
+        qm = QuarantineManager(seed={"GeneticsGenomeEnsemble"})
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsGenomeEnsemble"]),
+                _make_player("FallbackPlayer", ["Fallback"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                switch_margin=0.0,
+                min_score_to_switch=-1.0,
+                streak_needed=1,
+                hard_policy_genetics_min_closed_trades=5,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BEARISH, current_bar=10)
+
+        self.assertEqual(decision.new_leader.label, "GeneticsResearch")
+
 
 class TestStrategistSwitching(unittest.TestCase):
     def setUp(self):
@@ -475,6 +500,59 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(by_label["AlphaPlayer"].score_source, "v3_soft_shadow")
         self.assertGreater(by_label["AlphaPlayer"].score, by_label["BetaPlayer"].score)
 
+    def test_v3_soft_shadow_score_requires_current_actionable_leader(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("AlphaPlayer", ["AlphaAgent"]),
+                _make_player("BetaPlayer", ["BetaAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_soft_shadow_score=True,
+                v3_current_actionable_gate_enabled=True,
+                v3_shadow_rolling_min_closed_trades=2,
+                v3_shadow_rolling_window_bars=24,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="AlphaPlayer",
+                regime="bullish",
+                realized_pnl_usd=4.0,
+                closed_trades=2,
+                winning_trades=2,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="BetaPlayer",
+                regime="bullish",
+                realized_pnl_usd=20.0,
+                closed_trades=2,
+                winning_trades=2,
+            ),
+        ])
+        st.update_current_actionable_labels({"AlphaPlayer"})
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "AlphaPlayer")
+        rejections = {row.label: row.reason for row in decision.candidate_rejections}
+        self.assertIn("BetaPlayer", rejections)
+        self.assertIn("current actionability gate", rejections["BetaPlayer"])
+
     def test_v3_entry_causal_score_prefers_actionable_winner(self):
         st = Strategist(
             PerformanceMemory(trade_fraction=1.0),
@@ -531,6 +609,14 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         by_label = {row.label: row for row in decision.candidate_scores}
         self.assertEqual(by_label["DensePlayer"].score_source, "v3_entry_causal")
         self.assertGreater(by_label["DensePlayer"].score, by_label["SparsePlayer"].score)
+        self.assertEqual(by_label["DensePlayer"].recent_bars, 5)
+        self.assertEqual(by_label["DensePlayer"].recent_actionable_bars, 5)
+        self.assertEqual(by_label["DensePlayer"].recent_filled, 5)
+        self.assertAlmostEqual(by_label["DensePlayer"].actionable_share, 1.0)
+        self.assertAlmostEqual(by_label["DensePlayer"].recent_pnl_usd, 30.0)
+        self.assertEqual(by_label["SparsePlayer"].recent_bars, 5)
+        self.assertEqual(by_label["SparsePlayer"].recent_actionable_bars, 1)
+        self.assertAlmostEqual(by_label["SparsePlayer"].actionable_share, 0.2)
 
     def test_v3_shadow_position_gate_blocks_incompatible_shadow_book(self):
         st = Strategist(
@@ -854,6 +940,150 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         by_label = {row.label: row for row in decision.candidate_scores}
         self.assertNotIn("RiskyPlayer", by_label)
 
+    def test_v3_real_loss_rescue_allows_moderate_loser_with_strong_actionable_shadow(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "RiskyPlayer", Regime.BULLISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BULLISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "RiskyPlayer", Regime.BULLISH, 20, -0.07, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("RiskyPlayer", ["RiskyAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=1,
+                v3_entry_causal_min_filled=1,
+                v3_real_loss_kill_min_closed_trades=20,
+                v3_real_loss_kill_pnl_pct=-1.0,
+                v3_real_loss_rescue_enabled=True,
+                v3_real_loss_rescue_min_virtual_pnl_pct=10.0,
+                v3_real_loss_rescue_max_virtual_dd_pct=50.0,
+                v3_real_loss_rescue_min_actionable_share=0.20,
+                v3_real_loss_rescue_min_recent_filled=2,
+                v3_real_loss_rescue_max_real_loss_pct=-3.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 6):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="RiskyPlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=8.0,
+                    closed_trades=2,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=1.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=6)
+
+        self.assertEqual(decision.new_leader.label, "RiskyPlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertNotIn("RiskyPlayer", reasons)
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertGreater(by_label["RiskyPlayer"].score, by_label["SafePlayer"].score)
+
+    def test_v3_real_loss_rescue_does_not_rescue_genetics_by_default(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "GeneticsResearch", Regime.BULLISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BULLISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "GeneticsResearch", Regime.BULLISH, 20, -0.07, start_id=2000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsCore"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=1,
+                v3_entry_causal_min_filled=1,
+                v3_real_loss_kill_min_closed_trades=20,
+                v3_real_loss_kill_pnl_pct=-1.0,
+                v3_real_loss_rescue_enabled=True,
+                v3_real_loss_rescue_min_virtual_pnl_pct=10.0,
+                v3_real_loss_rescue_max_virtual_dd_pct=50.0,
+                v3_real_loss_rescue_min_actionable_share=0.20,
+                v3_real_loss_rescue_min_recent_filled=2,
+                v3_real_loss_rescue_max_real_loss_pct=-3.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 6):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="GeneticsResearch",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=8.0,
+                    closed_trades=2,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=1.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=6)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 real-loss kill", reasons)
+        self.assertIn(
+            "GeneticsResearch",
+            {item.label for item in decision.candidate_rejections},
+        )
+
     def test_v3_persistent_loss_kill_uses_all_regime_real_history(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)
         real_perf = PerformanceMemory(trade_fraction=1.0)
@@ -921,6 +1151,227 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         reasons = " ".join(item.reason for item in decision.candidate_rejections)
         self.assertIn("v3 persistent realized-loss kill", reasons)
 
+    def test_v3_probation_loss_kill_cuts_solo_after_small_bad_sample(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "BadAgent", Regime.BULLISH, 20, 5.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_BadPlayer", ["BadAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_probation_loss_kill_min_closed_trades=2,
+                v3_probation_loss_kill_pnl_pct=-0.15,
+                v3_probation_loss_kill_win_rate_pct=50.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"Solo_BadPlayer": -2.0},
+            trade_counts_by_player={"Solo_BadPlayer": 2},
+            win_counts_by_player={"Solo_BadPlayer": 1},
+            initial_capital=1000.0,
+        )
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 probation realized-loss kill", reasons)
+
+    def test_v3_probation_loss_kill_allows_strong_shadow_rescue(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "Antonius_conservative", Regime.NEUTRAL, 80, 0.5, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.NEUTRAL, 20, 0.05, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Antonius_conservative", ["ResearchValidatorAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=0.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_probation_loss_kill_min_closed_trades=1,
+                v3_probation_loss_kill_pnl_pct=-0.03,
+                v3_probation_loss_kill_win_rate_pct=50.0,
+                v3_probation_loss_kill_label_prefixes=("Antonius_",),
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=3.0,
+                hard_policy_experimental_min_bar=0,
+                hard_policy_experimental_min_closed_trades=0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"Antonius_conservative": -0.4},
+            trade_counts_by_player={"Antonius_conservative": 1},
+            win_counts_by_player={"Antonius_conservative": 0},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="Antonius_conservative",
+                    regime="neutral",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "Antonius_conservative")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertNotIn("v3 probation realized-loss kill", reasons)
+
+    def test_v3_realized_profit_lock_rejects_large_giveback_after_peak(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "FadingAgent", Regime.BULLISH, 20, 5.0, start_id=1)
+        _add_perf(virtual_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Fixed_FadingPlayer", ["FadingAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_realized_profit_lock_min_closed_trades=10,
+                v3_realized_profit_lock_min_peak_pnl_pct=0.75,
+                v3_realized_profit_lock_max_giveback_pct=0.55,
+                v3_realized_profit_lock_floor_pnl_pct=0.25,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"Fixed_FadingPlayer": 11.0},
+            trade_counts_by_player={"Fixed_FadingPlayer": 20},
+            win_counts_by_player={"Fixed_FadingPlayer": 12},
+            initial_capital=1000.0,
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"Fixed_FadingPlayer": 2.0},
+            trade_counts_by_player={"Fixed_FadingPlayer": 25},
+            win_counts_by_player={"Fixed_FadingPlayer": 13},
+            initial_capital=1000.0,
+        )
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("v3 realized profit-lock", reasons)
+
+    def test_v3_panteon_equity_guard_selects_no_trade_after_portfolio_giveback(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "StrongAgent", Regime.BULLISH, 20, 5.0, start_id=1)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[_make_player("StrongPlayer", ["StrongAgent"])],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_panteon_equity_guard_enabled=True,
+                v3_panteon_equity_guard_min_peak_pnl_pct=2.0,
+                v3_panteon_equity_guard_max_giveback_pct=1.0,
+                v3_panteon_equity_guard_floor_pnl_pct=2.0,
+                v3_panteon_equity_guard_cooldown_bars=24,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"StrongPlayer": 35.0},
+            trade_counts_by_player={"StrongPlayer": 30},
+            win_counts_by_player={"StrongPlayer": 18},
+            initial_capital=1000.0,
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"StrongPlayer": 15.0},
+            trade_counts_by_player={"StrongPlayer": 36},
+            win_counts_by_player={"StrongPlayer": 20},
+            initial_capital=1000.0,
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=100)
+
+        self.assertEqual(decision.new_leader.label, "NoTrade")
+        self.assertIn("v3 panteon equity guard", decision.reason)
+
+    def test_v3_panteon_equity_guard_waits_for_min_peak(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "StrongAgent", Regime.BULLISH, 20, 5.0, start_id=1)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[_make_player("StrongPlayer", ["StrongAgent"])],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                v3_real_loss_kill_min_closed_trades=0,
+                v3_panteon_equity_guard_enabled=True,
+                v3_panteon_equity_guard_min_peak_pnl_pct=5.0,
+                v3_panteon_equity_guard_max_giveback_pct=1.0,
+                v3_panteon_equity_guard_floor_pnl_pct=2.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"StrongPlayer": 35.0},
+            trade_counts_by_player={"StrongPlayer": 30},
+            win_counts_by_player={"StrongPlayer": 18},
+            initial_capital=1000.0,
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={"StrongPlayer": 15.0},
+            trade_counts_by_player={"StrongPlayer": 36},
+            win_counts_by_player={"StrongPlayer": 20},
+            initial_capital=1000.0,
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=100)
+
+        self.assertEqual(decision.new_leader.label, "StrongPlayer")
+
     def test_v3_persistent_loss_kill_spares_strong_virtual_edge(self):
         virtual_perf = PerformanceMemory(trade_fraction=1.0)
         real_perf = PerformanceMemory(trade_fraction=1.0)
@@ -956,6 +1407,287 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertEqual(decision.new_leader.label, "StrongPlayer")
         reasons = " ".join(item.reason for item in decision.candidate_rejections)
         self.assertNotIn("v3 persistent realized-loss kill", reasons)
+
+    def test_hard_policy_denies_known_bad_real_leaders(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "PlayerFunding", Regime.BEARISH, 30, 10.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.BEARISH, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_PlayerFunding", ["PlayerFunding"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        decision = st.consider_switch(Regime.BEARISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("hard policy denylist", reasons)
+
+    def test_hard_policy_denies_persistently_weak_profile_leaders(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "DefaultEnsemble", Regime.BULLISH, 30, 5.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.BULLISH, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("DefaultEnsemble", ["MomentumScalper"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                hard_policy_deny_labels=("DefaultEnsemble",),
+            ),
+        )
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("hard policy denylist: DefaultEnsemble", reasons)
+
+    def test_hard_policy_rejects_untrained_genetics_but_allows_trained_genetics(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsGenomeEnsemble"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        blocked = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(blocked.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in blocked.candidate_rejections)
+        self.assertIn("untrained genetics", reasons)
+
+        trained_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(trained_perf, "GeneticsGenomeEnsemble", Regime.BULLISH, 30, 2.0, start_id=100)
+        _add_perf(trained_perf, "SafeAgent", Regime.BULLISH, 8, 0.2, start_id=1000)
+        trained = Strategist(
+            trained_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsGenomeEnsemble"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        allowed = trained.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(allowed.new_leader.label, "GeneticsResearch")
+
+    def test_hard_policy_uses_aggregate_genetics_sample_when_regime_slice_is_sparse(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "GeneticsResearch", Regime.BEARISH, 30, 0.2, start_id=1)
+        _add_perf(perf, "GeneticsResearch", Regime.CRASH, 8, 0.2, start_id=1000)
+        _add_perf(perf, "SafeAgent", Regime.CRASH, 8, 0.1, start_id=2000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsCore"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                hard_policy_genetics_min_closed_trades=20,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.CRASH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "GeneticsResearch")
+
+    def test_hard_policy_enforces_specialist_regime_allowlist(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "FundingArb", Regime.BULLISH, 30, 5.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.BULLISH, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_FundingArb", ["FundingArb"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        bullish = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(bullish.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in bullish.candidate_rejections)
+        self.assertIn("hard policy regime allowlist", reasons)
+
+        bearish_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(bearish_perf, "FundingArb", Regime.BEARISH, 30, 5.0, start_id=1)
+        _add_perf(bearish_perf, "SafeAgent", Regime.BEARISH, 8, 0.4, start_id=1000)
+        bearish = Strategist(
+            bearish_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_FundingArb", ["FundingArb"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        decision = bearish.consider_switch(Regime.BEARISH, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "Solo_FundingArb")
+
+    def test_hard_policy_blocks_experimental_composites_until_shadow_mature(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "Optimal_StaticRotator", Regime.NEUTRAL, 40, 1.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.NEUTRAL, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Optimal_StaticRotator", ["ResearchValidatorAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                hard_policy_experimental_min_bar=5000,
+                hard_policy_experimental_min_closed_trades=30,
+            ),
+        )
+
+        early = st.consider_switch(Regime.NEUTRAL, current_bar=100)
+
+        self.assertEqual(early.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in early.candidate_rejections)
+        self.assertIn("hard policy experimental maturity", reasons)
+
+        mature = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Optimal_StaticRotator", ["ResearchValidatorAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                hard_policy_experimental_min_bar=5000,
+                hard_policy_experimental_min_closed_trades=30,
+            ),
+        )
+        allowed = mature.consider_switch(Regime.NEUTRAL, current_bar=6000)
+
+        self.assertEqual(allowed.new_leader.label, "Optimal_StaticRotator")
+
+    def test_hard_policy_allows_antonius_manual_regime_override(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "LiveCrashHunter", Regime.NEUTRAL, 30, 5.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.NEUTRAL, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Antonius_strategy", ["LiveCrashHunter"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                hard_policy_experimental_min_bar=0,
+                hard_policy_experimental_min_closed_trades=0,
+            ),
+        )
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "Antonius_strategy")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertNotIn("hard policy regime allowlist", reasons)
+
+    def test_hard_policy_allows_specialist_by_market_tag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "ResearchValidatorAgent", Regime.BULLISH, 30, 5.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.BULLISH, 8, 0.4, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_ResearchValidatorAgent", ["ResearchValidatorAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+
+        plain = st.consider_switch(Regime.BULLISH, current_bar=1)
+
+        self.assertEqual(plain.new_leader.label, "SafePlayer")
+
+        tagged = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_ResearchValidatorAgent", ["ResearchValidatorAgent"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(cooldown_bars=0, streak_needed=1),
+        )
+        noisy = tagged.consider_switch(
+            Regime.BULLISH,
+            current_bar=1,
+            market_tags=("noisy",),
+        )
+
+        self.assertEqual(noisy.new_leader.label, "Solo_ResearchValidatorAgent")
+
+    def test_hard_policy_penalizes_neutral_low_actionability_research_leader(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "MeanRevAgent", Regime.NEUTRAL, 30, 1.0, start_id=1)
+        _add_perf(perf, "SafeAgent", Regime.NEUTRAL, 30, 0.8, start_id=1000)
+        st = Strategist(
+            perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("MeanRevResearch", ["MeanRevAgent"]),
+                _make_player("SafeNeutral", ["SafeAgent"]),
+            ],
+            config=StrategistConfig(
+                hard_policy_neutral_penalty=10.0,
+                hard_policy_low_actionability_share=0.10,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        for bar in range(1, 25):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="MeanRevResearch",
+                    regime="neutral",
+                    signals=0,
+                    filled=0,
+                    realized_pnl_usd=0.0,
+                    closed_trades=0,
+                )
+            ])
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=25)
+
+        self.assertEqual(decision.new_leader.label, "SafeNeutral")
+        by_label = {row.label: row for row in decision.candidate_scores}
+        self.assertLess(by_label["MeanRevResearch"].score, by_label["SafeNeutral"].score)
 
     def test_player_session_overlay_penalizes_current_session_underperformance(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -1075,6 +1807,390 @@ class TestStrategistRealPromotionGate(unittest.TestCase):
 
         self.assertEqual(decision.new_leader.label, "StrongPlayer")
         self.assertEqual(decision.candidate_rejections, ())
+
+    def test_real_promotion_gate_keeps_current_probation_leader_until_loss_budget(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        player = _make_player("ProbationPlayer", ["ProbationAgent"])
+        _add_perf(virtual_perf, "ProbationAgent", Regime.BULLISH, 30, 0.2, start_id=1)
+        _add_perf(real_perf, "ProbationPlayer", Regime.BULLISH, 5, -0.01, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[player],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=999.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st._current = player
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=10)
+
+        self.assertEqual(decision.new_leader.label, "ProbationPlayer")
+        self.assertNotIn(
+            "probation score",
+            " ".join(item.reason for item in decision.candidate_rejections),
+        )
+
+    def test_v3_probation_shadow_rescue_promotes_actionable_shadow_candidate(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "StrongPlayer", Regime.BULLISH, 80, 0.20, start_id=1)
+        _add_perf(real_perf, "StrongPlayer", Regime.BULLISH, 3, 0.05, start_id=1000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[_make_player("StrongPlayer", ["StrongAgent"])],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=0.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=20,
+                v3_entry_causal_min_filled=3,
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=4.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="StrongPlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "StrongPlayer")
+        self.assertEqual(decision.candidate_rejections, ())
+        self.assertEqual(decision.candidate_scores[0].score_source, "v3_entry_causal_probation_rescue")
+        self.assertGreater(decision.candidate_scores[0].score, 0.0)
+
+    def test_v3_probation_shadow_rescue_does_not_promote_genetics_by_default(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "GeneticsResearch", Regime.BULLISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BULLISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "GeneticsResearch", Regime.BULLISH, 3, 0.05, start_id=2000)
+        _add_perf(real_perf, "SafePlayer", Regime.BULLISH, 20, 0.01, start_id=3000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsCore"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=0.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=3,
+                v3_entry_causal_min_filled=3,
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=4.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="GeneticsResearch",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=0.5,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("genetics probation disabled", reasons)
+
+    def test_v3_probation_shadow_rescue_allows_genetics_research_in_bearish_when_enabled(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "GeneticsResearch", Regime.BEARISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BEARISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "GeneticsResearch", Regime.BEARISH, 3, 0.05, start_id=2000)
+        _add_perf(real_perf, "SafePlayer", Regime.BEARISH, 20, 0.01, start_id=3000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsGenomeEnsemble"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=999.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=20,
+                v3_entry_causal_min_filled=3,
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_allow_genetics=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=4.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="GeneticsResearch",
+                    regime="bearish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bearish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=0.5,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BEARISH, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "GeneticsResearch")
+        self.assertEqual(decision.candidate_rejections, ())
+        self.assertEqual(decision.candidate_scores[0].score_source, "v3_entry_causal_probation_rescue")
+
+    def test_v3_probation_shadow_rescue_does_not_promote_raw_genetics_core_when_enabled(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "GeneticsCore", Regime.BEARISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BEARISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "GeneticsCore", Regime.BEARISH, 3, 0.05, start_id=2000)
+        _add_perf(real_perf, "SafePlayer", Regime.BEARISH, 20, 0.01, start_id=3000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsCore", ["GeneticsCore"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=999.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=3,
+                v3_entry_causal_min_filled=3,
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_allow_genetics=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=4.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="GeneticsCore",
+                    regime="bearish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bearish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=0.5,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BEARISH, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("genetics probation ineligible", reasons)
+
+    def test_v3_probation_shadow_rescue_does_not_promote_genetics_research_outside_bearish_crash(self):
+        virtual_perf = PerformanceMemory(trade_fraction=1.0)
+        real_perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(virtual_perf, "GeneticsResearch", Regime.BULLISH, 80, 0.20, start_id=1)
+        _add_perf(virtual_perf, "SafePlayer", Regime.BULLISH, 20, 0.05, start_id=1000)
+        _add_perf(real_perf, "GeneticsResearch", Regime.BULLISH, 3, 0.05, start_id=2000)
+        _add_perf(real_perf, "SafePlayer", Regime.BULLISH, 20, 0.01, start_id=3000)
+        st = Strategist(
+            virtual_perf,
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("GeneticsResearch", ["GeneticsGenomeEnsemble"]),
+                _make_player("SafePlayer", ["SafeAgent"]),
+            ],
+            real_perf=real_perf,
+            config=StrategistConfig(
+                real_promotion_gate_enabled=True,
+                real_promotion_min_closed_trades=20,
+                real_promotion_min_pnl_pct=0.0,
+                real_promotion_loss_budget_pct=-1.0,
+                real_promotion_probation_min_score=999.0,
+                use_v3_rolling_score=True,
+                use_v3_entry_causal_score=True,
+                v3_shadow_rolling_min_closed_trades=3,
+                v3_entry_causal_min_filled=3,
+                v3_probation_shadow_rescue_enabled=True,
+                v3_probation_shadow_rescue_allow_genetics=True,
+                v3_probation_shadow_rescue_min_virtual_pnl_pct=10.0,
+                v3_probation_shadow_rescue_max_virtual_dd_pct=50.0,
+                v3_probation_shadow_rescue_min_actionable_share=0.50,
+                v3_probation_shadow_rescue_min_recent_filled=3,
+                v3_probation_shadow_rescue_min_recent_pnl_usd=4.0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=1000.0,
+        )
+        for bar in range(1, 4):
+            st.update_shadow_actor_updates([
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="GeneticsResearch",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=2.0,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+                ShadowActorUpdated(
+                    bar=bar,
+                    actor_type="player",
+                    actor_label="SafePlayer",
+                    regime="bullish",
+                    signals=1,
+                    filled=1,
+                    realized_pnl_usd=0.5,
+                    closed_trades=1,
+                    winning_trades=1,
+                ),
+            ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=4)
+
+        self.assertEqual(decision.new_leader.label, "SafePlayer")
+        reasons = " ".join(item.reason for item in decision.candidate_rejections)
+        self.assertIn("genetics probation ineligible", reasons)
 
 
 if __name__ == "__main__":

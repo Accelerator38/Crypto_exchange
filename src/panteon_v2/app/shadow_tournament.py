@@ -134,19 +134,37 @@ class ProductionShadowTournament:
         self._player_clones: Dict[str, Player] = {}
         self._signal_id = _SHADOW_SIGNAL_ID_START
         self._last_updates: List[ShadowActorUpdated] = []
+        self._last_agent_signals: Dict[str, Tuple[Signal, ...]] = {}
+        self._last_player_signals: Dict[str, Tuple[Signal, ...]] = {}
+        self._last_market: Optional[MarketSnapshot] = None
         self._refresh_shadow_agents()
 
     def last_actor_updates(self) -> Tuple[ShadowActorUpdated, ...]:
         return tuple(self._last_updates)
 
-    def last_player_open_positions(self) -> Dict[str, Tuple[Dict[str, str], ...]]:
-        out: Dict[str, Tuple[Dict[str, str], ...]] = {}
+    def last_player_signals(self) -> Dict[str, Tuple[Signal, ...]]:
+        return {
+            label: tuple(signals)
+            for label, signals in self._last_player_signals.items()
+        }
+
+    def last_agent_signals(self) -> Dict[str, Tuple[Signal, ...]]:
+        return {
+            label: tuple(signals)
+            for label, signals in self._last_agent_signals.items()
+        }
+
+    def last_player_open_positions(self) -> Dict[str, Tuple[Dict[str, object], ...]]:
+        out: Dict[str, Tuple[Dict[str, object], ...]] = {}
         prefix = "player:"
         for actor_key, runtime in self._runtimes.items():
             if not actor_key.startswith(prefix):
                 continue
             label = actor_key[len(prefix):]
-            out[label] = _position_payloads(runtime.open_positions())
+            out[label] = _position_payloads(
+                runtime.open_positions(),
+                market=self._last_market,
+            )
         return out
 
     def run_bar(
@@ -157,7 +175,10 @@ class ProductionShadowTournament:
         balance_usd: float,
     ) -> ShadowStepSummary:
         virtual_balance = max(float(balance_usd or 0.0), self._balance_floor)
+        self._last_market = market
         self._last_updates = []
+        self._last_agent_signals = {}
+        self._last_player_signals = {}
         self._refresh_shadow_agents()
         agent_summary = self._run_agents(market, balance_usd=virtual_balance)
         player_summary = self._run_players(market, players, balance_usd=virtual_balance)
@@ -188,6 +209,12 @@ class ProductionShadowTournament:
                 signals,
                 balance_usd=balance_usd,
             )
+            filled_signals = tuple(
+                result.signal for result in results if result.is_success
+            )
+            if filled_signals:
+                self._last_agent_signals[agent.label] = filled_signals
+            _sync_actor_from_results(agent, results)
             _add_execution_counts(
                 counts,
                 results,
@@ -240,6 +267,12 @@ class ProductionShadowTournament:
                 signals,
                 balance_usd=balance_usd,
             )
+            filled_signals = tuple(
+                result.signal for result in results if result.is_success
+            )
+            if filled_signals:
+                self._last_player_signals[player.label] = filled_signals
+            _sync_actor_from_results(shadow_player, results)
             _add_execution_counts(
                 counts,
                 results,
@@ -503,16 +536,73 @@ def _empty_counts() -> Dict[str, int]:
     return {"signals": 0, "filled": 0, "rejected": 0, "blocked": 0}
 
 
-def _position_payloads(open_positions: Dict[str, object]) -> Tuple[Dict[str, str], ...]:
-    payloads: List[Dict[str, str]] = []
+def _sync_actor_from_results(actor, results: Sequence[ExecutionResult]) -> None:
+    sync = getattr(actor, "sync_from_execution_results", None)
+    if callable(sync):
+        try:
+            sync(results)
+        except Exception:
+            log.debug("shadow actor sync failed for %s", getattr(actor, "label", actor), exc_info=True)
+    agents = getattr(actor, "agents", None)
+    if not agents:
+        return
+    by_agent: Dict[str, List[ExecutionResult]] = {}
+    for result in results or ():
+        label = _result_agent_label(result)
+        if label:
+            by_agent.setdefault(label, []).append(result)
+    for agent in agents:
+        label = str(getattr(agent, "label", "") or "")
+        agent_results = by_agent.get(label, [])
+        if not agent_results:
+            continue
+        sync = getattr(agent, "sync_from_execution_results", None)
+        if not callable(sync):
+            continue
+        try:
+            sync(agent_results)
+        except Exception:
+            log.debug("shadow agent sync failed for %s", label, exc_info=True)
+
+
+def _position_payloads(
+    open_positions: Dict[str, object],
+    *,
+    market: Optional[MarketSnapshot] = None,
+) -> Tuple[Dict[str, object], ...]:
+    payloads: List[Dict[str, object]] = []
     for key, pos in (open_positions or {}).items():
         sym = str(getattr(pos, "sym", key) or key).upper()
         side = str(getattr(pos, "side", "") or "").lower()
         if sym and side in ("long", "short"):
+            opened_bar = int(getattr(pos, "opened_bar", 0) or 0)
+            current_bar = int(getattr(market, "bar", opened_bar) or opened_bar)
+            age_bars = max(0, current_bar - opened_bar) if opened_bar > 0 else 0
+            entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
+            qty = float(getattr(pos, "qty", 0.0) or 0.0)
+            current_price = 0.0
+            if market is not None:
+                current_price = float((market.prices or {}).get(sym, 0.0) or 0.0)
+            if current_price <= 0:
+                current_price = entry_price
+            unrealized = 0.0
+            if entry_price > 0 and current_price > 0 and qty > 0:
+                if side == "long":
+                    unrealized = (current_price - entry_price) * qty
+                else:
+                    unrealized = (entry_price - current_price) * qty
             payloads.append({
                 "sym": sym,
                 "side": side,
-                "opened_bar": int(getattr(pos, "opened_bar", 0) or 0),
+                "opened_bar": opened_bar,
+                "age_bars": age_bars,
+                "entry_price": entry_price,
+                "current_price": current_price,
+                "qty": qty,
+                "unrealized_pnl_usd": unrealized,
+                "stop_price": getattr(pos, "stop_price", None),
+                "take_profit_price": getattr(pos, "take_profit_price", None),
+                "fresh": age_bars <= 1,
             })
     payloads.sort(key=lambda item: (item["sym"], item["side"]))
     return tuple(payloads)

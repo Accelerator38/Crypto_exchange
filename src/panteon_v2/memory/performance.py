@@ -151,6 +151,7 @@ class PerformanceMemory:
         # Записанные signals — для bookkeeping (avoid double-counting if
         # update_from_signal вызывается отдельно):
         self._seen_signal_ids: set = set()
+        self._aggregate_cache: Dict[str, Metrics] = {}
 
     # ── Обновление ──────────────────────────────────────────────────
 
@@ -246,7 +247,12 @@ class PerformanceMemory:
             state = self._state.get((label, regime))
             return state.snapshot_as_metrics() if state else Metrics.empty()
         # Агрегат по всем регимам
-        return self._aggregate_metrics(label)
+        cached = self._aggregate_cache.get(label)
+        if cached is not None:
+            return cached
+        metrics = self._aggregate_metrics(label)
+        self._aggregate_cache[label] = metrics
+        return metrics
 
     def per_regime_for_label(
         self,
@@ -313,6 +319,7 @@ class PerformanceMemory:
         """Восстановление из snapshot()."""
         self._trade_fraction = float(snapshot.get("trade_fraction", _DEFAULT_TRADE_FRACTION))
         self._state.clear()
+        self._aggregate_cache.clear()
         for key, payload in (snapshot.get("state") or {}).items():
             label, regime_str = key.split("|", 1)
             regime = Regime.from_string(regime_str)
@@ -327,6 +334,7 @@ class PerformanceMemory:
 
     def _get_or_create(self, label: str, regime: Regime) -> _LabelRegimeState:
         key = (label, regime)
+        self._aggregate_cache.pop(label, None)
         if key not in self._state:
             self._state[key] = _LabelRegimeState()
         return self._state[key]

@@ -1,0 +1,14 @@
+# Wide-architecture local-search smoke override.
+# Loaded as an overlay on top of settings_genetic.txt via GENETICS_SETTINGS_FILE.
+n_hidden1 = 192
+n_hidden2 = 96
+n_hidden3 = 48
+
+# The wider genome has roughly 2x more parameters than the promoted baseline.
+# Keep mutations local so the transfer seed is not destroyed before validation.
+mutation_sigma = 0.04
+sigma_min = 0.01
+exploit_sigma_on_best_floor = 0.01
+phase2_sigma = 0.015
+layer_sigma_mult = 0.55,0.45,0.40,0.55
+local_sigma_mult = 0.04

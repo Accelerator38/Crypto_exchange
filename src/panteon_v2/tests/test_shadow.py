@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Dict, List
 
 from panteon_v2.domain.types import Action, MarketSnapshot, Regime
@@ -11,6 +12,7 @@ from panteon_v2.replay.v1_parser import V1Session, V1Signal
 from panteon_v2.selection import AgentRegistry
 from panteon_v2.shadow import (
     CallableFeed,
+    GeneticsRegimeRouterV2AgentAdapter,
     GeneticsV2AgentAdapter,
     ReplayFeed,
     ShadowRunner,
@@ -210,6 +212,200 @@ class TestGeneticsV2AgentAdapter(unittest.TestCase):
 # ════════════════════════════════════════════════════════════════════
 # feed
 # ════════════════════════════════════════════════════════════════════
+
+
+    def test_legacy_genetics_signature_keeps_month_and_portfolio_value(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.kwargs_seen = None
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                self.kwargs_seen = {
+                    "month": month,
+                    "portfolio_value": portfolio_value,
+                }
+                return {"BTC": 3}
+
+        agent = LegacyGeneticsAgent()
+        wrapped = GeneticsV2AgentAdapter(
+            label="GeneticsCore",
+            v1_agent=agent,
+            portfolio_value_fn=lambda: 4321.0,
+        )
+        snap = make_market_snapshot(
+            bar=10,
+            prices={"BTC": 100.0},
+            regime="bullish",
+            month=7,
+        )
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["BTC"], Action.FUT_LONG_FULL)
+        self.assertEqual(
+            agent.kwargs_seen,
+            {"month": 7, "portfolio_value": 4321.0},
+        )
+
+    def test_syncs_filled_futures_position_into_legacy_genetics_state(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.synced = None
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 0}
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                self.synced = {
+                    "symbol": symbol,
+                    "spot_qty": spot_qty,
+                    "spot_entry": spot_entry,
+                    "fut_qty": fut_qty,
+                    "fut_entry": fut_entry,
+                }
+
+        agent = LegacyGeneticsAgent()
+        wrapped = GeneticsV2AgentAdapter("GeneticsCore", agent)
+        result = SimpleNamespace(
+            status="filled",
+            signal=SimpleNamespace(sym="BTC", action=Action.FUT_SHORT_FULL),
+            trade=SimpleNamespace(sym="BTC", qty=2.5, fill_price=99.0),
+        )
+
+        wrapped.sync_from_execution_results([result])
+
+        self.assertEqual(
+            agent.synced,
+            {
+                "symbol": "BTC",
+                "spot_qty": 0.0,
+                "spot_entry": 0.0,
+                "fut_qty": -2.5,
+                "fut_entry": 99.0,
+            },
+        )
+
+    def test_shadow_clone_sync_does_not_mutate_source_genetics_state(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.synced = None
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 0}
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                self.synced = (symbol, fut_qty, fut_entry)
+
+        source_agent = LegacyGeneticsAgent()
+        wrapped = GeneticsV2AgentAdapter("GeneticsCore", source_agent)
+        clone = wrapped.clone_for_shadow()
+        result = SimpleNamespace(
+            status="filled",
+            signal=SimpleNamespace(sym="BTC", action=Action.FUT_LONG_FULL),
+            trade=SimpleNamespace(sym="BTC", qty=1.0, fill_price=101.0),
+        )
+
+        clone.sync_from_execution_results([result])
+
+        self.assertIsNone(source_agent.synced)
+        self.assertEqual(clone.v1_agent.synced, ("BTC", 1.0, 101.0))
+
+    def test_regime_gate_blocks_genetics_opens_but_allows_closes(self):
+        class LegacyGeneticsAgent:
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 3, "ETH": 5}
+
+        wrapped = GeneticsV2AgentAdapter(
+            "GeneticsGenomeEnsemble",
+            LegacyGeneticsAgent(),
+            allowed_open_regimes=(Regime.BEARISH,),
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="neutral",
+        )
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["BTC"], Action.HOLD)
+        self.assertEqual(result["ETH"], Action.FUT_CLOSE_ALL)
+
+    def test_regime_router_uses_selected_agent_only_when_confident(self):
+        class LegacyGeneticsAgent:
+            def __init__(self, action):
+                self.action = action
+                self.calls = 0
+
+            def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+                self.calls += 1
+                return {"BTC": self.action}
+
+        baseline = LegacyGeneticsAgent(3)
+        neutral = LegacyGeneticsAgent(4)
+        wrapped = GeneticsRegimeRouterV2AgentAdapter(
+            label="GeneticsRegimeRouter",
+            baseline_agent=baseline,
+            regime_agents={"neutral": neutral},
+            min_regime_confidence=0.70,
+        )
+
+        high_conf = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            regime_confidence=0.90,
+        )
+        low_conf = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 101.0},
+            regime="neutral",
+            regime_confidence=0.40,
+        )
+        crash = make_market_snapshot(
+            bar=3,
+            prices={"BTC": 102.0},
+            regime="crash",
+            regime_confidence=1.0,
+        )
+
+        self.assertEqual(wrapped.act(high_conf)["BTC"], Action.FUT_SHORT_FULL)
+        self.assertEqual(wrapped.act(low_conf)["BTC"], Action.FUT_LONG_FULL)
+        self.assertEqual(wrapped.act(crash)["BTC"], Action.FUT_LONG_FULL)
+        self.assertEqual(neutral.calls, 1)
+        self.assertEqual(baseline.calls, 2)
+
+    def test_regime_router_syncs_filled_positions_to_all_children(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.synced = []
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 0}
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                self.synced.append((symbol, spot_qty, spot_entry, fut_qty, fut_entry))
+
+        baseline = LegacyGeneticsAgent()
+        bearish = LegacyGeneticsAgent()
+        neutral = LegacyGeneticsAgent()
+        wrapped = GeneticsRegimeRouterV2AgentAdapter(
+            label="GeneticsRegimeRouter",
+            baseline_agent=baseline,
+            regime_agents={"bearish": bearish, "neutral": neutral},
+        )
+        result = SimpleNamespace(
+            status="filled",
+            signal=SimpleNamespace(sym="BTC", action=Action.FUT_SHORT_FULL),
+            trade=SimpleNamespace(sym="BTC", qty=2.0, fill_price=99.0),
+        )
+
+        wrapped.sync_from_execution_results([result])
+
+        expected = [("BTC", 0.0, 0.0, -2.0, 99.0)]
+        self.assertEqual(baseline.synced, expected)
+        self.assertEqual(bearish.synced, expected)
+        self.assertEqual(neutral.synced, expected)
 
 
 class TestReplayFeed(unittest.TestCase):

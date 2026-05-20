@@ -401,6 +401,10 @@ class TestStartupFailClosed(unittest.TestCase):
             "v2_max_api_error_streak": 2,
             "v2_max_stale_feed_polls": 7,
             "v2_pending_order_timeout_sec": 90,
+            "v2_genetics_probation_execution_enabled": "on",
+            "v2_genetics_probation_risk_mult": 0.2,
+            "v2_genetics_probation_max_real_trades": 7,
+            "v2_genetics_probation_require_shadow_confirmation": "off",
         })
 
         self.assertEqual(cfg.max_daily_loss_pct, 4.5)
@@ -408,6 +412,31 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(cfg.max_api_error_streak, 2)
         self.assertEqual(cfg.max_stale_feed_polls, 7)
         self.assertEqual(cfg.pending_order_timeout_sec, 90)
+        self.assertTrue(cfg.genetics_probation_execution_enabled)
+        self.assertEqual(cfg.genetics_probation_risk_mult, 0.2)
+        self.assertEqual(cfg.genetics_probation_max_real_trades, 7)
+        self.assertFalse(cfg.genetics_probation_require_shadow_confirmation)
+
+    def test_executable_soft_top1_strategy_is_resolved_from_settings(self):
+        from panteon_v2.app.startup import _strategist_config_from_settings
+
+        cfg = _strategist_config_from_settings({
+            "v2_executable_soft_top1_enabled": "on",
+            "v2_probation_loss_kill_min_closed_trades": 2,
+            "v2_probation_loss_kill_pnl_pct": -0.15,
+            "v2_probation_loss_kill_win_rate_pct": 50,
+            "v2_probation_loss_kill_all_labels": "on",
+        })
+
+        self.assertTrue(cfg.use_v3_rolling_score)
+        self.assertTrue(cfg.use_v3_soft_shadow_score)
+        self.assertTrue(cfg.v3_current_actionable_gate_enabled)
+        self.assertEqual(cfg.v3_shadow_rolling_window_bars, 24)
+        self.assertEqual(cfg.v3_shadow_rolling_min_closed_trades, 20)
+        self.assertEqual(cfg.v3_probation_loss_kill_min_closed_trades, 2)
+        self.assertEqual(cfg.v3_probation_loss_kill_pnl_pct, -0.15)
+        self.assertEqual(cfg.v3_probation_loss_kill_win_rate_pct, 50)
+        self.assertEqual(cfg.v3_probation_loss_kill_label_prefixes, ())
 
 
 class TestKillSwitches(unittest.TestCase):

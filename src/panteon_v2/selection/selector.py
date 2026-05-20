@@ -177,16 +177,16 @@ class AgentSelector:
         self._ensure_session_baseline(regime)
         for label in self._registry.all_labels():
             # SYNCHRONIZATION POINT: фильтруем карантин ДО скоринга.
-            if self._qm.is_quarantined(label):
+            row = self.score_registered(
+                label,
+                regime,
+                include_quarantined=False,
+                ensure_baseline=False,
+            )
+            if row is None:
                 continue
-            agent = self._registry.get(label)
-            if agent is None:  # parano
-                continue
-            metrics = self._perf.get(label, regime=regime)
-            score = float(self._scorer(metrics, regime))
-            score = self._apply_session_overlay(label, regime, metrics, score)
-            if score > threshold:
-                scored.append(ScoredAgent(agent=agent, score=score, metrics=metrics))
+            if row.score > threshold:
+                scored.append(row)
 
         scored.sort(
             key=lambda sa: (
@@ -216,6 +216,27 @@ class AgentSelector:
         if len(result) >= max(1, int(min_count)):
             return result
         return self.select(regime, k, min_score=fallback_threshold)
+
+    def score_registered(
+        self,
+        label: str,
+        regime: Regime,
+        *,
+        include_quarantined: bool = False,
+        ensure_baseline: bool = True,
+    ) -> Optional[ScoredAgent]:
+        """Score one registered agent label."""
+        if not include_quarantined and self._qm.is_quarantined(label):
+            return None
+        agent = self._registry.get(label)
+        if agent is None:
+            return None
+        if ensure_baseline:
+            self._ensure_session_baseline(regime)
+        metrics = self._perf.get(label, regime=regime)
+        score = float(self._scorer(metrics, regime))
+        score = self._apply_session_overlay(label, regime, metrics, score)
+        return ScoredAgent(agent=agent, score=score, metrics=metrics)
 
     def capture_session_baseline(self, regime: Optional[Regime] = None) -> None:
         """Capture current memory as the start-of-session baseline."""

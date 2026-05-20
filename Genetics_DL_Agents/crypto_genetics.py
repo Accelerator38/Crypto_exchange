@@ -94,34 +94,54 @@ def _load_genetic_settings() -> dict:
     """Загружает settings_genetic.txt из папки скрипта или текущей директории."""
     import os as _os
     script_dir = _os.path.dirname(_os.path.abspath(__file__))
-    candidates = [
+    env_path = _os.environ.get("GENETICS_SETTINGS_FILE")
+    base_candidates = [
         _os.path.join(script_dir, "settings_genetic.txt"),
         "settings_genetic.txt",
     ]
-    path = next((p for p in candidates if _os.path.exists(p)), None)
-    if path is None:
+    paths = []
+    base_path = next((p for p in base_candidates if p and _os.path.exists(p)), None)
+    if base_path is not None:
+        paths.append(base_path)
+    if env_path:
+        if _os.path.exists(env_path):
+            env_abs = _os.path.normcase(_os.path.abspath(env_path))
+            existing = {_os.path.normcase(_os.path.abspath(p)) for p in paths}
+            if env_abs not in existing:
+                paths.append(env_path)
+        elif not _is_worker():
+            print(f"  [genetic_settings] GENETICS_SETTINGS_FILE not found: {env_path}")
+    if not paths:
         return {}
     cfg = {}
-    try:
-        with open(path, encoding="utf-8") as _f:
-            for line in _f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                key = key.strip().lower()
-                val = val.strip()
-                if "#" in val:
-                    val = val[:val.index("#")].strip()
-                if key and val:
-                    cfg[key] = val
-        if not _is_worker():
-            print(f"  [genetic_settings] Загружено {len(cfg)} параметров из {path}")
-    except Exception as _e:
-        if not _is_worker():
-            print(f"  [genetic_settings] Ошибка чтения {path}: {_e}")
+    loaded_paths = []
+    for path in paths:
+        try:
+            loaded = 0
+            with open(path, encoding="utf-8") as _f:
+                for line in _f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, _, val = line.partition("=")
+                    key = key.strip().lower()
+                    val = val.strip()
+                    if "#" in val:
+                        val = val[:val.index("#")].strip()
+                    if key and val:
+                        cfg[key] = val
+                        loaded += 1
+            loaded_paths.append(f"{path} ({loaded})")
+        except Exception as _e:
+            if not _is_worker():
+                print(f"  [genetic_settings] РћС€РёР±РєР° С‡С‚РµРЅРёСЏ {path}: {_e}")
+    if loaded_paths and not _is_worker():
+        print(
+            f"  [genetic_settings] Р—Р°РіСЂСѓР¶РµРЅРѕ {len(cfg)} "
+            f"РїР°СЂР°РјРµС‚СЂРѕРІ РёР· " + " + ".join(loaded_paths)
+        )
     return cfg
 
 def _gscfg_f(cfg, key, default):
@@ -274,6 +294,14 @@ ROBUST_CONC_MAX_PCT     = _gscfg_f(_GS, 'robust_concentration_max_pct', 30.0)
 ROBUST_CONC_PENALTY_W   = _gscfg_f(_GS, 'robust_concentration_penalty_w', 0.25)
 ROBUST_POS_PERIOD_TARGET = _gscfg_f(_GS, 'robust_positive_period_target', 0.55)
 ROBUST_POS_PERIOD_PENALTY_W = _gscfg_f(_GS, 'robust_positive_period_penalty_w', 5.0)
+FITNESS_CORE_ROBUST_BLEND = _gscfg_f(_GS, 'fitness_core_robust_blend', 0.35)
+FITNESS_OUTLIER_CONC_MAX_PCT = _gscfg_f(_GS, 'fitness_outlier_concentration_max_pct', 20.0)
+FITNESS_OUTLIER_CONC_PENALTY_W = _gscfg_f(_GS, 'fitness_outlier_concentration_penalty_w', 0.35)
+FITNESS_MIN_CORE_MEAN_RET = _gscfg_f(_GS, 'fitness_min_core_mean_ret', 0.20)
+FITNESS_MEAN_RET_FLOOR_PENALTY_W = _gscfg_f(_GS, 'fitness_mean_ret_floor_penalty_w', 20.0)
+FITNESS_NEGATIVE_PERIOD_TARGET = _gscfg_f(_GS, 'fitness_negative_period_target', 0.0)
+FITNESS_NEGATIVE_PERIOD_PENALTY_W = _gscfg_f(_GS, 'fitness_negative_period_penalty_w', 6.0)
+REGIME_GENOME_MIN_FITNESS = _gscfg_f(_GS, 'regime_genome_min_fitness', 0.0)
 
 # ── [6] Пороги вознаграждения за период ───────────────────────────────────────
 WIN1_PROFIT_THRESH  = _gscfg_f(_GS, 'win1_profit_thresh',  1.0)   # мини-победа ≥1%
@@ -2005,6 +2033,54 @@ def _simulate_batch_python(actions_arr: np.ndarray, prices: np.ndarray,
 # FITNESS FUNCTION v8 — 3-ФАЗНЫЙ АДАПТИВНЫЙ
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _weighted_trimmed_period_mean(period_rets: np.ndarray, weights: np.ndarray) -> np.ndarray:
+    """Return per-genome weighted trimmed mean using the configured trim fraction."""
+    if period_rets.ndim != 2:
+        raise ValueError("period_rets must be a 2D array")
+    G, P = period_rets.shape
+    if P == 0:
+        return np.zeros(G, dtype=np.float64)
+
+    arr = np.asarray(period_rets, dtype=np.float64)
+    arr = np.where(np.isfinite(arr), arr, 0.0)
+    w = np.asarray(weights, dtype=np.float64)
+    if w.shape != (P,):
+        w = np.ones(P, dtype=np.float64) / max(P, 1)
+    w = w / (w.sum() + 1e-9)
+
+    trim_fraction = max(0.0, min(float(ROBUST_TRIM_FRACTION), 0.45))
+    trim_n = int(np.floor(P * trim_fraction))
+    if trim_n <= 0 or P - 2 * trim_n <= 0:
+        return (arr * w[None, :]).sum(axis=1)
+
+    order = np.argsort(arr, axis=1)
+    sorted_arr = np.take_along_axis(arr, order, axis=1)
+    sorted_w = np.take_along_axis(np.broadcast_to(w, (G, P)), order, axis=1)
+    mid_arr = sorted_arr[:, trim_n:P - trim_n]
+    mid_w = sorted_w[:, trim_n:P - trim_n]
+    return (mid_arr * mid_w).sum(axis=1) / (mid_w.sum(axis=1) + 1e-9)
+
+
+def _positive_contribution_pct(period_rets: np.ndarray) -> np.ndarray:
+    """Return each genome's largest positive period as a share of total positive return."""
+    if period_rets.ndim != 2:
+        raise ValueError("period_rets must be a 2D array")
+    G, P = period_rets.shape
+    if P == 0:
+        return np.zeros(G, dtype=np.float64)
+
+    arr = np.asarray(period_rets, dtype=np.float64)
+    arr = np.where(np.isfinite(arr), arr, 0.0)
+    positives = np.where(arr > 0.0, arr, 0.0)
+    positive_sum = positives.sum(axis=1)
+    max_positive = positives.max(axis=1)
+    return np.where(
+        positive_sum > 0.0,
+        max_positive / (positive_sum + 1e-12) * 100.0,
+        0.0,
+    )
+
+
 def _compute_robust_fitness_adjustment(period_rets: np.ndarray) -> np.ndarray:
     """Vectorized anti-overfit adjustment for period-return distributions."""
     if period_rets.ndim != 2:
@@ -2090,6 +2166,12 @@ def _compute_fitness(period_rets: np.ndarray,
 
     mean_r_weighted = (period_rets * w_norm[None, :]).sum(axis=1)
     mean_r          = period_rets.mean(axis=1)
+    core_blend      = max(0.0, min(float(FITNESS_CORE_ROBUST_BLEND), 1.0))
+    trimmed_mean_weighted = _weighted_trimmed_period_mean(period_rets, w_norm)
+    core_mean_r     = (
+        (1.0 - core_blend) * mean_r_weighted
+        + core_blend * trimmed_mean_weighted
+    )
     mean_r_tiled    = mean_r_weighted[:, None]
     deviations      = period_rets - mean_r_tiled
     weighted_var    = ((deviations ** 2) * w_norm[None, :]).sum(axis=1)
@@ -2104,8 +2186,8 @@ def _compute_fitness(period_rets: np.ndarray,
     worst_pen = np.where(worst_ret < MIN_RET_THRESH,
                          (MIN_RET_THRESH - worst_ret) * 0.5, 0.0)
 
-    calmar_scaled = mean_r_weighted / (mean_dd + 5.0) * 5.0
-    sharpe_scaled = mean_r_weighted / (full_std + 3.0) * 3.0
+    calmar_scaled = core_mean_r / (mean_dd + 5.0) * 5.0
+    sharpe_scaled = core_mean_r / (full_std + 3.0) * 3.0
 
     mean_trade_rate = period_trade_rates.mean(axis=1)
     inactivity_pen  = np.where(
@@ -2290,6 +2372,21 @@ def _compute_fitness(period_rets: np.ndarray,
         excess = max(0, mx - NEG_STREAK_THRESH)
         neg_streak_pen[gi] = excess * NEG_STREAK_PEN_W
 
+    outlier_contribution_pct = _positive_contribution_pct(period_rets)
+    outlier_concentration_pen = (
+        np.maximum(0.0, outlier_contribution_pct - float(FITNESS_OUTLIER_CONC_MAX_PCT))
+        * float(FITNESS_OUTLIER_CONC_PENALTY_W)
+    )
+    mean_return_floor_pen = (
+        np.maximum(0.0, float(FITNESS_MIN_CORE_MEAN_RET) - core_mean_r)
+        * float(FITNESS_MEAN_RET_FLOOR_PENALTY_W)
+    )
+    negative_period_rate = (period_rets < 0.0).mean(axis=1)
+    negative_period_pen = (
+        np.maximum(0.0, negative_period_rate - float(FITNESS_NEGATIVE_PERIOD_TARGET))
+        * float(FITNESS_NEGATIVE_PERIOD_PENALTY_W)
+    )
+
     # ══ ЕДИНАЯ СБАЛАНСИРОВАННАЯ ФОРМУЛА v2 (FIX 3+4) ═══════════════════════════
     #
     # Изменения vs v1:
@@ -2303,9 +2400,9 @@ def _compute_fitness(period_rets: np.ndarray,
     #   Стало: fitness→balanced: avg + pos_rate + consistency - neg_streaks
     #
     # Прогрессивный бонус за доходность
-    progressive_return_bonus = np.tanh(np.maximum(0.0, mean_r_weighted - 0.5) / 3.0) * 0.40
+    progressive_return_bonus = np.tanh(np.maximum(0.0, core_mean_r - 0.5) / 3.0) * 0.40
 
-    fitness = (2.5    * mean_r_weighted                   # сильный сигнал возврата
+    fitness = (2.5    * core_mean_r                       # сильный сигнал возврата
           + 1.5    * calmar_scaled * CALMAR_WEIGHT_ADJ    # risk-adjusted (drawdown), снижен
           + 0.5    * sharpe_scaled                        # risk-adjusted (volatility)
           + 0.35   * daily_sharpe_scores                  # внутридневная стабильность
@@ -2329,7 +2426,10 @@ def _compute_fitness(period_rets: np.ndarray,
           - invalid_open_logit_max_pen                    # penalty for concentrated invalid-open pressure
           - action_feasibility_pen                        # feasibility-first action contract gate
           - 0.20            * stop_pen                    # штраф за частые стопы
-          - neg_streak_pen)                               # FIX 4: штраф за серию убытков
+          - neg_streak_pen                                # FIX 4: штраф за серию убытков
+          - outlier_concentration_pen                     # core anti-overfit guard
+          - mean_return_floor_pen                         # do not reward low-return safety
+          - negative_period_pen)                          # do not hide losing months behind low turnover
 
     if ROBUST_FITNESS_ENABLED:
         fitness = fitness + _compute_robust_fitness_adjustment(period_rets)
@@ -3953,7 +4053,10 @@ class GeneticTrainer:
                   f"(phase1: gen 1..{phase1_gens}, no migration)")
 
     # ──  Сохранение лучшего генома по режимам ───────────────────────────
-    def _save_best_per_regime(self, br: list, genome: Optional[np.ndarray] = None):
+    def _save_best_per_regime(self,
+                              br: list,
+                              genome: Optional[np.ndarray] = None,
+                              candidate_fitness: Optional[float] = None):
         """
         Обновляет best_genome_regime_{regime}.npy при улучшении среднего
         возврата по этому режиму. Одновременно обновляет best_island_{regime}.npy
@@ -3961,6 +4064,9 @@ class GeneticTrainer:
         """
         g = genome if genome is not None else self.best_g
         if g is None:
+            return
+        fit_gate = float(candidate_fitness if candidate_fitness is not None else getattr(self, "best_fit", -np.inf))
+        if fit_gate < float(REGIME_GENOME_MIN_FITNESS):
             return
         updated = []
         for i, entry in enumerate(self.precomp):
@@ -4007,6 +4113,8 @@ class GeneticTrainer:
             best_fit_local = float(island_fits[best_local_k])
             best_slot      = island_idx[best_local_k]
             regime         = ISLAND_TO_REGIME.get(island_id, f"island{island_id}")
+            if best_fit_local < float(REGIME_GENOME_MIN_FITNESS):
+                continue
 
             cur_best = self._island_best_fits.get(island_id, -np.inf)
             if best_fit_local > cur_best:
@@ -5097,7 +5205,7 @@ class GeneticTrainer:
                     # не совпадают с self.precomp → пропускаем _save_best_per_regime.
                     # В Phase 2 маппинг корректен.
                     if br and not _in_phase1_now:
-                        self._save_best_per_regime(br)
+                        self._save_best_per_regime(br, candidate_fitness=bf)
 
                 # В Phase 2 (стабилизация): подавляем escape-burst sigma, только exploit
                 if _in_phase2_now:
@@ -5124,7 +5232,10 @@ class GeneticTrainer:
                             island_br = rets[best_slot]
                             if island_br and not _in_phase1_now:
                                 self._save_best_per_regime(
-                                    island_br, genome=self.pop[best_slot])
+                                    island_br,
+                                    genome=self.pop[best_slot],
+                                    candidate_fitness=float(island_fits_local[best_k]),
+                                )
 
                 # Force diversity inject после MAX_RESTARTS_NO_IMPROVE
                 # (только в Phase 3 — в Phase 2 популяция намеренно гомогенна вокруг best_g)

@@ -17,10 +17,11 @@ ShadowRunner, но работает с реальным Exchange-адаптер�
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from ..attribution import (
     AgentVoteFailed,
@@ -37,7 +38,13 @@ from ..attribution import (
 )
 from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from ..execution import ExecutionResult, ExecutionStatus
-from ..selection import EnsemblePlayer, SwitchDecision, ThresholdProfile, WeightedConsensus
+from ..selection import (
+    EnsemblePlayer,
+    RotatingAgentPlayer,
+    SwitchDecision,
+    ThresholdProfile,
+    WeightedConsensus,
+)
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
 from .live_state import (
@@ -51,6 +58,9 @@ from .live_state import (
 
 log = logging.getLogger(__name__)
 _DEFAULT_SOLO_AGENT_CANDIDATE_LIMIT = 3
+_REGIME_SWITCH_ADAPTIVE_MIN_CLOSED_TRADES = 20
+_SHADOW_STATE_PLAYER_PREFIXES = ("Antonius_",)
+_SHADOW_POSITION_REPLAY_AGENT = "ShadowPositionReplay"
 
 
 def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
@@ -145,6 +155,49 @@ def _decision_context(pipeline: ProductionPipeline, market: MarketSnapshot) -> D
     }
 
 
+def _market_policy_tags(market: MarketSnapshot) -> Tuple[str, ...]:
+    tags: List[str] = []
+    for attr in ("market_tags", "policy_tags", "tags"):
+        value = getattr(market, attr, ())
+        if isinstance(value, str):
+            tags.append(value)
+        else:
+            try:
+                tags.extend(str(item) for item in (value or ()))
+            except TypeError:
+                continue
+    for attr in (
+        "noise_bucket",
+        "range_bucket",
+        "vol_bucket",
+        "actionability_bucket",
+        "market_noise",
+        "market_volatility",
+    ):
+        value = getattr(market, attr, "")
+        if value:
+            tags.append(str(value))
+    bool_tags = {
+        "is_noisy": "noisy",
+        "noisy": "noisy",
+        "is_high_range": "high_range",
+        "high_range": "high_range",
+        "is_low_actionability": "low_actionability",
+        "low_actionability": "low_actionability",
+    }
+    for attr, tag in bool_tags.items():
+        if bool(getattr(market, attr, False)):
+            tags.append(tag)
+    normalized: List[str] = []
+    seen = set()
+    for raw in tags:
+        tag = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if tag and tag not in seen:
+            seen.add(tag)
+            normalized.append(tag)
+    return tuple(normalized)
+
+
 def _signal_context(context: Dict[str, str], *, decision_id: str, signal: Signal) -> Dict[str, str]:
     event_context = dict(context)
     event_context["decision_id"] = str(decision_id or "")
@@ -204,7 +257,11 @@ def _drop_quarantined_candidates(
         if pipeline.qm.is_quarantined(getattr(player, "label", "")):
             continue
         agents = getattr(player, "agents", ()) or ()
-        if any(pipeline.qm.is_quarantined(getattr(agent, "label", "")) for agent in agents):
+        if any(
+            pipeline.qm.is_quarantined(getattr(agent, "label", ""))
+            and not _allows_quarantined_genetics_agent(player, agent)
+            for agent in agents
+        ):
             continue
         filtered.append(player)
     return filtered
@@ -213,6 +270,12 @@ def _drop_quarantined_candidates(
 # ────────────────────────────────────────────────────────────────────
 # StepResult
 # ────────────────────────────────────────────────────────────────────
+
+
+def _allows_quarantined_genetics_agent(player: EnsemblePlayer, agent) -> bool:
+    player_label = str(getattr(player, "label", "") or "").lower()
+    agent_label = str(getattr(agent, "label", "") or "").lower()
+    return "genetic" in player_label and "genetic" in agent_label
 
 
 @dataclass(frozen=True)
@@ -249,6 +312,7 @@ class StepResult:
     fallback_candidate: str = ""
     fallback_reason: str = ""
     blocked_reasons: Dict[str, int] = field(default_factory=dict)
+    causal_decision: Dict[str, Any] = field(default_factory=dict)
     error:         Optional[str] = None
 
 
@@ -391,6 +455,7 @@ def _run_one_bar(
     candidates = _compose_candidates(pipeline, market.regime)
     shadow_summary = _run_shadow_tournament(pipeline, market, candidates)
     _capture_pending_shadow_updates(pipeline)
+    _sync_current_actionable_labels_to_strategist(pipeline)
 
     # 3. Карантин (раз в N bar-ов) после shadow-обновлений perf
     if market.bar - last_qm_bar >= recompute_every:
@@ -464,10 +529,16 @@ def _run_one_bar(
     pipeline.strategist.update_candidates(candidates)
     _sync_strategist_realized_snapshot(pipeline)
     try:
+        switch_kwargs = {
+            "current_bar": market.bar,
+            "regime_confidence": float(getattr(market, "regime_confidence", 1.0) or 1.0),
+        }
+        market_tags = _market_policy_tags(market)
+        if market_tags:
+            switch_kwargs["market_tags"] = market_tags
         decision: SwitchDecision = pipeline.strategist.consider_switch(
             market.regime,
-            current_bar=market.bar,
-            regime_confidence=float(getattr(market, "regime_confidence", 1.0) or 1.0),
+            **switch_kwargs,
         )
     except ValueError:
         return (
@@ -573,15 +644,36 @@ def _run_one_bar(
                 "signal_guard": signal_guard,
                 "signal_id_counter": signal_id_counter,
             }
+    shadow_position_replay_reason = ""
+    if (
+        selected_leader.label != "NoTrade"
+        and vote_attempt["raw_signal_count"] == 0
+    ):
+        replay_attempt = _find_selected_shadow_position_replay(
+            pipeline,
+            market,
+            selected_leader,
+            signal_id_counter=signal_id_counter,
+        )
+        if replay_attempt is not None:
+            vote_attempt = replay_attempt
+            shadow_position_replay_reason = (
+                "selected leader emitted no raw signals; fresh shadow position replay used"
+            )
     fallback_used = False
     fallback_skipped = False
     fallback_candidate = ""
-    fallback_reason = ""
+    fallback_reason = shadow_position_replay_reason
     if vote_attempt["raw_signal_count"] == 0:
-        fallback_enabled = bool(getattr(pipeline, "actionable_fallback_enabled", False))
+        forced_no_trade_reason = str(getattr(decision, "reason", "") or "")
+        forced_no_trade = forced_no_trade_reason.startswith("v3 panteon equity guard")
+        fallback_enabled = (
+            bool(getattr(pipeline, "actionable_fallback_enabled", False))
+            and not forced_no_trade
+        )
         fallback_attempt = None
         if fallback_enabled:
-            fallback_attempt = _find_actionable_candidate_vote(
+            fallback_attempt = _find_actionable_candidate_from_shadow_registry(
                 pipeline,
                 market,
                 candidates,
@@ -604,14 +696,23 @@ def _run_one_bar(
             )
             if fallback_skipped:
                 fallback_reason = (
+                    "portfolio equity guard active; fallback disabled"
+                    if forced_no_trade
+                    else
                     "actionable fallback disabled: selected leader emitted no raw signals"
                     if not fallback_enabled
-                    else "no actionable fallback candidate emitted raw signals"
+                    else "no actionable fallback candidate passed signal guard"
                 )
     raw_signals = vote_attempt["raw_signals"]
     raw_signal_count = vote_attempt["raw_signal_count"]
     leader_vote_error_count = vote_attempt["leader_vote_error_count"]
     signal_guard = vote_attempt["signal_guard"]
+    signal_guard = _apply_genetics_probation_execution_overlay(
+        pipeline,
+        market,
+        executed_leader,
+        signal_guard,
+    )
     signal_id_counter = vote_attempt["signal_id_counter"]
     signals = signal_guard.signals
     if signals:
@@ -697,6 +798,26 @@ def _run_one_bar(
             fallback_candidate=fallback_candidate,
             fallback_reason=fallback_reason,
             blocked_reasons=blocked_reasons,
+            causal_decision=_causal_decision_payload(
+                market=market,
+                selected_leader=selected_leader,
+                executed_leader=executed_leader,
+                decision=decision,
+                raw_signals=raw_signals,
+                executable_signals=signals,
+                signal_guard=signal_guard,
+                leader_vote_error_count=leader_vote_error_count,
+                fallback_used=fallback_used,
+                fallback_skipped=fallback_skipped,
+                fallback_candidate=fallback_candidate,
+                fallback_reason=fallback_reason,
+                shadow_position_replay_used=bool(shadow_position_replay_reason),
+                n_filled=n_filled,
+                n_rejected=n_rejected,
+                n_blocked=n_blocked,
+                blocked_reasons=blocked_reasons,
+                pipeline=pipeline,
+            ),
             error=(
                 f"kill switch active: {kill_reason_after_execution}"
                 if kill_reason_after_execution else None
@@ -721,8 +842,363 @@ def _compose_candidates(
                 candidates.append(player)
         except Exception:
             log.exception("compose failed for profile %s", profile.label)
+    candidates.extend(_compose_regime_switch_agent_candidates(pipeline, regime, candidates))
+    candidates.extend(_compose_fixed_agent_candidates(pipeline, candidates))
+    candidates.extend(_compose_rotating_agent_candidates(pipeline, regime, candidates))
     candidates.extend(_compose_solo_agent_candidates(pipeline, regime, candidates))
-    return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if _candidate_is_real_executable(candidate)
+    ]
+
+
+def _compose_regime_switch_agent_candidates(
+    pipeline: ProductionPipeline,
+    regime: Regime,
+    existing: Sequence[EnsemblePlayer],
+) -> List[EnsemblePlayer]:
+    specs = tuple(getattr(pipeline, "regime_switch_player_sets", ()) or ())
+    if not specs:
+        return []
+    registry = getattr(pipeline, "registry", None)
+    if registry is None:
+        return []
+    qm = getattr(pipeline, "qm", None)
+    existing_labels = {player.label for player in existing}
+    out: List[EnsemblePlayer] = []
+    for raw_spec in specs:
+        label, regime_agents = _regime_switch_player_spec_parts(raw_spec)
+        agent_labels = regime_agents.get(regime.label, ())
+        if not label or not agent_labels or label in existing_labels:
+            continue
+        if qm is not None and qm.is_quarantined(label):
+            continue
+        valid_agents = []
+        valid_labels = []
+        for agent_label in agent_labels:
+            if qm is not None and qm.is_quarantined(agent_label):
+                continue
+            agent = registry.get(agent_label)
+            if agent is None:
+                continue
+            valid_agents.append(agent)
+            valid_labels.append(agent.label)
+        if not valid_agents:
+            continue
+        if len(valid_agents) == 1:
+            agent = valid_agents[0]
+            out.append(EnsemblePlayer(
+                label=label,
+                agents=[agent],
+                weights={agent.label: 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+                affinity=regime,
+            ))
+        else:
+            ordered_labels = _rank_regime_switch_agent_labels(
+                pipeline,
+                regime,
+                tuple(valid_labels),
+            )
+            out.append(RotatingAgentPlayer(
+                label=label,
+                agents=valid_agents,
+                regime_agent_order={regime.label: ordered_labels},
+                fallback_agent_order=(),
+                affinity=regime,
+            ))
+        existing_labels.add(label)
+    return out
+
+
+def _regime_switch_player_spec_parts(raw_spec: object) -> Tuple[str, Dict[str, Tuple[str, ...]]]:
+    if isinstance(raw_spec, dict):
+        label = str(raw_spec.get("label") or "").strip()
+        raw_mapping = raw_spec.get("regime_agents") or raw_spec.get("agents") or {}
+    else:
+        try:
+            parts = tuple(raw_spec)  # type: ignore[arg-type]
+        except TypeError:
+            return "", {}
+        if len(parts) < 2:
+            return "", {}
+        label = str(parts[0] or "").strip()
+        raw_mapping = parts[1]
+    if not isinstance(raw_mapping, dict):
+        return label, {}
+    aliases = {
+        "bull": "bullish",
+        "bear": "bearish",
+        "beearish": "bearish",
+        "downtrend": "bearish",
+        "uptrend": "bullish",
+        "flat": "neutral",
+        "sideways": "neutral",
+        "panic": "crash",
+    }
+    regime_agents: Dict[str, str] = {}
+    for raw_regime, raw_agent in raw_mapping.items():
+        key = str(raw_regime or "").strip().lower()
+        key = aliases.get(key, key)
+        agent_labels = _agent_label_tuple(raw_agent)
+        if key and agent_labels:
+            regime_agents[key] = agent_labels
+    return label, regime_agents
+
+
+def _agent_label_tuple(raw_agent: object) -> Tuple[str, ...]:
+    if isinstance(raw_agent, str):
+        values = (raw_agent,)
+    else:
+        try:
+            values = tuple(raw_agent)  # type: ignore[arg-type]
+        except TypeError:
+            values = (raw_agent,)
+    labels: List[str] = []
+    for value in values:
+        label = str(value or "").strip()
+        if label and label not in labels:
+            labels.append(label)
+    return tuple(labels)
+
+
+def _rank_regime_switch_agent_labels(
+    pipeline: ProductionPipeline,
+    regime: Regime,
+    agent_labels: Tuple[str, ...],
+) -> Tuple[str, ...]:
+    selector = getattr(pipeline, "selector", None)
+    scorer = getattr(selector, "score_registered", None)
+    if not callable(scorer):
+        return agent_labels
+    ranked: List[Tuple[bool, float, float, int, int, int, str]] = []
+    for index, agent_label in enumerate(agent_labels):
+        row = None
+        try:
+            row = scorer(
+                agent_label,
+                regime,
+                include_quarantined=False,
+            )
+        except TypeError:
+            try:
+                row = scorer(agent_label, regime)
+            except Exception:
+                row = None
+        except Exception:
+            row = None
+        metrics = getattr(row, "metrics", None)
+        closed = int(getattr(metrics, "closed_trades", 0) or 0)
+        has_data = (
+            bool(getattr(metrics, "has_data", False))
+            and closed >= _REGIME_SWITCH_ADAPTIVE_MIN_CLOSED_TRADES
+        )
+        score = _safe_float_or_zero(getattr(row, "score", 0.0))
+        pnl_pct = _safe_float_or_zero(getattr(metrics, "pnl_pct", 0.0))
+        signals = int(getattr(metrics, "signals", 0) or 0)
+        ranked.append((has_data, pnl_pct, score, closed, signals, index, agent_label))
+    if not any(item[0] for item in ranked):
+        return agent_labels
+    ranked.sort(
+        key=lambda item: (
+            not item[0],
+            -item[1],
+            -item[2],
+            -item[3],
+            -item[4],
+            item[5],
+        )
+    )
+    return tuple(item[6] for item in ranked)
+
+
+def _compose_fixed_agent_candidates(
+    pipeline: ProductionPipeline,
+    existing: Sequence[EnsemblePlayer],
+) -> List[EnsemblePlayer]:
+    specs = tuple(getattr(pipeline, "fixed_agent_player_sets", ()) or ())
+    if not specs:
+        return []
+    registry = getattr(pipeline, "registry", None)
+    if registry is None:
+        return []
+    qm = getattr(pipeline, "qm", None)
+    existing_labels = {player.label for player in existing}
+    fixed: List[EnsemblePlayer] = []
+    for raw_spec in specs:
+        label, agent_labels = _fixed_agent_player_spec_parts(raw_spec)
+        if not label or not agent_labels or label in existing_labels:
+            continue
+        if qm is not None and qm.is_quarantined(label):
+            continue
+        agents = []
+        invalid = False
+        seen_agents = set()
+        for agent_label in agent_labels:
+            if agent_label in seen_agents:
+                invalid = True
+                break
+            seen_agents.add(agent_label)
+            if qm is not None and qm.is_quarantined(agent_label):
+                invalid = True
+                break
+            agent = registry.get(agent_label)
+            if agent is None:
+                invalid = True
+                break
+            agents.append(agent)
+        if invalid or not agents:
+            continue
+        weight = 1.0 / len(agents)
+        fixed.append(EnsemblePlayer(
+            label=label,
+            agents=agents,
+            weights={agent.label: weight for agent in agents},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            affinity=None,
+        ))
+        existing_labels.add(label)
+    return fixed
+
+
+def _compose_rotating_agent_candidates(
+    pipeline: ProductionPipeline,
+    regime: Regime,
+    existing: Sequence[EnsemblePlayer],
+) -> List[RotatingAgentPlayer]:
+    specs = tuple(getattr(pipeline, "rotating_agent_player_sets", ()) or ())
+    if not specs:
+        return []
+    registry = getattr(pipeline, "registry", None)
+    if registry is None:
+        return []
+    qm = getattr(pipeline, "qm", None)
+    existing_labels = {player.label for player in existing}
+    out: List[RotatingAgentPlayer] = []
+    for raw_spec in specs:
+        label, regime_orders, fallback_order = _rotating_agent_player_spec_parts(raw_spec)
+        if not label or label in existing_labels:
+            continue
+        if qm is not None and qm.is_quarantined(label):
+            continue
+        agent_labels = []
+        for labels in regime_orders.values():
+            agent_labels.extend(labels)
+        agent_labels.extend(fallback_order)
+        filtered_labels: List[str] = []
+        seen = set()
+        for agent_label in agent_labels:
+            if agent_label in seen:
+                continue
+            seen.add(agent_label)
+            if qm is not None and qm.is_quarantined(agent_label):
+                continue
+            if registry.get(agent_label) is None:
+                continue
+            filtered_labels.append(agent_label)
+        if not filtered_labels:
+            continue
+        agents = [registry.get(agent_label) for agent_label in filtered_labels]
+        valid_agents = [agent for agent in agents if agent is not None]
+        if not valid_agents:
+            continue
+        valid_set = {agent.label for agent in valid_agents}
+        filtered_orders = {
+            key: tuple(agent_label for agent_label in labels if agent_label in valid_set)
+            for key, labels in regime_orders.items()
+        }
+        filtered_fallback = tuple(
+            agent_label for agent_label in fallback_order if agent_label in valid_set
+        )
+        if not filtered_orders.get(regime.label) and not filtered_fallback:
+            continue
+        out.append(RotatingAgentPlayer(
+            label=label,
+            agents=valid_agents,
+            regime_agent_order=filtered_orders,
+            fallback_agent_order=filtered_fallback,
+            affinity=regime,
+        ))
+        existing_labels.add(label)
+    return out
+
+
+def _rotating_agent_player_spec_parts(
+    raw_spec: object,
+) -> Tuple[str, Dict[str, Tuple[str, ...]], Tuple[str, ...]]:
+    if isinstance(raw_spec, dict):
+        label = str(raw_spec.get("label") or "").strip()
+        raw_mapping = raw_spec.get("regime_agent_order") or raw_spec.get("agents") or {}
+        raw_fallback = raw_spec.get("fallback_agent_order") or raw_spec.get("fallback") or ()
+    else:
+        try:
+            parts = tuple(raw_spec)  # type: ignore[arg-type]
+        except TypeError:
+            return "", {}, ()
+        if len(parts) < 2:
+            return "", {}, ()
+        label = str(parts[0] or "").strip()
+        raw_mapping = parts[1]
+        raw_fallback = parts[2] if len(parts) >= 3 else ()
+    if not isinstance(raw_mapping, dict):
+        return label, {}, ()
+    aliases = {
+        "bull": "bullish",
+        "bear": "bearish",
+        "beearish": "bearish",
+        "downtrend": "bearish",
+        "uptrend": "bullish",
+        "flat": "neutral",
+        "sideways": "neutral",
+        "panic": "crash",
+    }
+    orders: Dict[str, Tuple[str, ...]] = {}
+    for raw_regime, raw_agents in raw_mapping.items():
+        key = str(raw_regime or "").strip().lower()
+        key = aliases.get(key, key)
+        agents = _agent_label_sequence(raw_agents)
+        if key and agents:
+            orders[key] = agents
+    return label, orders, _agent_label_sequence(raw_fallback)
+
+
+def _agent_label_sequence(raw_agents: object) -> Tuple[str, ...]:
+    if isinstance(raw_agents, str):
+        return tuple(part.strip() for part in raw_agents.split(",") if part.strip())
+    try:
+        return tuple(str(part).strip() for part in raw_agents if str(part).strip())  # type: ignore[union-attr]
+    except TypeError:
+        return ()
+
+
+def _fixed_agent_player_spec_parts(raw_spec: object) -> Tuple[str, Tuple[str, ...]]:
+    if isinstance(raw_spec, dict):
+        label = str(raw_spec.get("label") or "").strip()
+        raw_agents = raw_spec.get("agent_labels") or raw_spec.get("agents") or ()
+    else:
+        try:
+            parts = tuple(raw_spec)  # type: ignore[arg-type]
+        except TypeError:
+            return "", ()
+        if len(parts) < 2:
+            return "", ()
+        label = str(parts[0] or "").strip()
+        raw_agents = parts[1]
+    if isinstance(raw_agents, str):
+        agent_labels = tuple(
+            part.strip() for part in raw_agents.split(",") if part.strip()
+        )
+    else:
+        try:
+            agent_labels = tuple(
+                str(part).strip() for part in raw_agents if str(part).strip()
+            )
+        except TypeError:
+            return label, ()
+    return label, agent_labels
 
 
 def _compose_solo_agent_candidates(
@@ -756,6 +1232,8 @@ def _compose_solo_agent_candidates(
     for row in scored:
         if float(getattr(row.metrics, "pnl_pct", 0.0) or 0.0) <= 0.0:
             continue
+        if not _agent_is_real_executable(row.agent):
+            continue
         label = f"Solo_{row.label}"
         if label in existing_labels:
             continue
@@ -768,6 +1246,79 @@ def _compose_solo_agent_candidates(
             affinity=None,
         ))
     return solo
+
+
+def _agent_is_real_executable(agent: object) -> bool:
+    if bool(getattr(agent, "shadow_only", False)):
+        return False
+    if getattr(agent, "live_trading_eligible", True) is False:
+        return False
+    return True
+
+
+def _candidate_is_real_executable(candidate: object) -> bool:
+    return all(
+        _agent_is_real_executable(agent)
+        for agent in (getattr(candidate, "agents", ()) or ())
+    )
+
+
+def _candidate_uses_shadow_state_entry_gate(candidate: object) -> bool:
+    label = str(getattr(candidate, "label", "") or "")
+    return label.startswith(_SHADOW_STATE_PLAYER_PREFIXES)
+
+
+def _filter_shadow_state_entry_signals(
+    pipeline: ProductionPipeline,
+    player: EnsemblePlayer,
+    raw_signals: Sequence[Signal],
+) -> List[Signal]:
+    signals = list(raw_signals or ())
+    if not signals or not _candidate_uses_shadow_state_entry_gate(player):
+        return signals
+    player_label = str(getattr(player, "label", "") or "")
+    kept: List[Signal] = []
+    for signal in signals:
+        action = getattr(signal, "action", None)
+        if action is None or not getattr(action, "is_open", False):
+            kept.append(signal)
+            continue
+        if str(getattr(signal, "by_agent", "") or "") == _SHADOW_POSITION_REPLAY_AGENT:
+            kept.append(signal)
+            continue
+        if _shadow_position_confirms_positive_open(pipeline, player_label, signal):
+            kept.append(signal)
+    return kept
+
+
+def _shadow_position_confirms_positive_open(
+    pipeline: ProductionPipeline,
+    player_label: str,
+    signal: Signal,
+) -> bool:
+    side = str(getattr(getattr(signal, "action", None), "side", "") or "").lower()
+    symbol = str(getattr(signal, "sym", "") or "").upper()
+    if not symbol or side not in {"long", "short"}:
+        return False
+    positions_by_player = dict(
+        getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    )
+    max_age_bars = _shadow_position_replay_max_age(pipeline)
+    for payload in positions_by_player.get(str(player_label), ()) or ():
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("sym") or "").upper() != symbol:
+            continue
+        if str(payload.get("side") or "").lower() != side:
+            continue
+        age_bars = _safe_nonnegative_int(payload.get("age_bars"))
+        if age_bars is not None and age_bars > max_age_bars:
+            continue
+        unrealized = _safe_float_or_none(payload.get("unrealized_pnl_usd"))
+        if unrealized is None or unrealized <= 0.0:
+            continue
+        return True
+    return False
 
 
 def _vote_candidate_for_real_signals(
@@ -790,6 +1341,7 @@ def _vote_candidate_for_real_signals(
         _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace_id)
         raw_signals = []
     _record_agent_vote_failures(pipeline, market, leader, trace_id=trace_id)
+    raw_signals = _filter_shadow_state_entry_signals(pipeline, leader, raw_signals)
     raw_signal_count = len(raw_signals)
     leader_vote_error_count = len(getattr(leader, "last_vote_errors", []) or [])
     next_signal_id = signal_id_counter
@@ -819,6 +1371,126 @@ def _vote_candidate_for_real_signals(
         "signal_guard": signal_guard,
         "signal_id_counter": next_signal_id,
     }
+
+
+def _apply_genetics_probation_execution_overlay(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    leader: EnsemblePlayer,
+    signal_guard,
+):
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return signal_guard
+    label = str(getattr(leader, "label", "") or "")
+    labels = _string_tuple(
+        getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
+    )
+    if label not in labels:
+        return signal_guard
+    max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
+    if max_real_trades > 0 and _real_closed_trades_for_label(pipeline, label) >= max_real_trades:
+        return signal_guard
+
+    allowed_regimes = {
+        item.lower()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_allowed_regimes", ("bearish", "crash")),
+        )
+    }
+    regime_key = str(getattr(market.regime, "label", market.regime) or "").lower()
+    regime_allowed = not allowed_regimes or regime_key in allowed_regimes
+    require_shadow_confirmation = bool(
+        getattr(cfg, "genetics_probation_require_shadow_confirmation", True)
+    )
+    max_risk_mult = max(
+        0.0,
+        min(1.0, float(getattr(cfg, "genetics_probation_risk_mult", 0.25) or 0.25)),
+    )
+
+    kept: List[Signal] = []
+    dropped = 0
+    details = list(getattr(signal_guard, "details", []) or [])
+    changed = False
+    for signal in getattr(signal_guard, "signals", []) or []:
+        if not signal.action.is_open:
+            kept.append(signal)
+            continue
+        sym = str(signal.sym).upper()
+        agent_label = str(signal.by_agent or "-")
+        if not regime_allowed:
+            dropped += 1
+            changed = True
+            details.append(f"genetics_regime_blocked:{sym}:{agent_label}:{regime_key}")
+            continue
+        if require_shadow_confirmation and not _shadow_confirms_signal(
+            pipeline,
+            label,
+            signal,
+        ):
+            dropped += 1
+            changed = True
+            details.append(f"genetics_shadow_unconfirmed:{sym}:{agent_label}")
+            continue
+        old_risk_mult = max(0.0, float(signal.risk_mult or 0.0))
+        new_risk_mult = min(old_risk_mult, max_risk_mult)
+        if abs(new_risk_mult - old_risk_mult) > 1e-12:
+            changed = True
+            details.append(
+                f"genetics_probation_sized:{sym}:{agent_label}:risk_mult={new_risk_mult:.4f}"
+            )
+            kept.append(replace(signal, risk_mult=new_risk_mult))
+        else:
+            kept.append(signal)
+    if not changed:
+        return signal_guard
+    return replace(
+        signal_guard,
+        signals=kept,
+        filtered=int(getattr(signal_guard, "filtered", 0) or 0) + dropped,
+        details=details,
+    )
+
+
+def _shadow_confirms_signal(
+    pipeline: ProductionPipeline,
+    player_label: str,
+    signal: Signal,
+) -> bool:
+    registry = dict(getattr(pipeline, "_current_shadow_player_signals", {}) or {})
+    shadow_signals = tuple(registry.get(str(player_label), ()) or ())
+    sym = str(signal.sym).upper()
+    for shadow_signal in shadow_signals:
+        if str(getattr(shadow_signal, "sym", "") or "").upper() != sym:
+            continue
+        if getattr(shadow_signal, "action", None) == signal.action:
+            return True
+    return False
+
+
+def _real_closed_trades_for_label(
+    pipeline: ProductionPipeline,
+    label: str,
+) -> int:
+    perf = getattr(pipeline, "real_perf", None)
+    getter = getattr(perf, "get", None)
+    if not callable(getter):
+        return 0
+    try:
+        metrics = getter(label)
+    except Exception:
+        return 0
+    return max(0, int(getattr(metrics, "closed_trades", 0) or 0))
+
+
+def _string_tuple(value: object) -> Tuple[str, ...]:
+    if isinstance(value, str):
+        item = value.strip()
+        return (item,) if item else ()
+    try:
+        return tuple(str(item).strip() for item in (value or ()) if str(item).strip())
+    except TypeError:
+        return ()
 
 
 def _cash_flat_close_signals(
@@ -854,6 +1526,536 @@ def _cash_flat_close_signals(
     return signals
 
 
+def _find_actionable_candidate_from_shadow_registry(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    candidates: List[EnsemblePlayer],
+    decision: SwitchDecision,
+    *,
+    skip_label: str,
+    signal_id_counter: int,
+    trace_id: str,
+) -> Optional[Dict[str, Any]]:
+    candidates_by_label = {candidate.label: candidate for candidate in candidates}
+    rejected_labels = _fallback_safety_rejected_labels(
+        getattr(decision, "candidate_rejections", ()) or ()
+    )
+    score_rows = {
+        str(getattr(row, "label", "") or ""): row
+        for row in getattr(decision, "candidate_scores", ()) or ()
+        if str(getattr(row, "label", "") or "")
+    }
+    min_score = getattr(pipeline, "actionable_fallback_min_score", None)
+    registry = {
+        str(label): tuple(signals or ())
+        for label, signals in dict(
+            getattr(pipeline, "_current_shadow_player_signals", {}) or {}
+        ).items()
+    }
+    attempts: List[Tuple[Tuple[float, int, int], Dict[str, Any]]] = []
+    ordered_labels = [
+        label
+        for label in registry.keys()
+        if label in candidates_by_label
+    ]
+    ordered_labels.extend(
+        row.label
+        for row in getattr(decision, "candidate_scores", ()) or ()
+        if row.label in candidates_by_label and row.label not in ordered_labels
+    )
+    ordered_labels.extend(
+        candidate.label
+        for candidate in candidates
+        if candidate.label not in ordered_labels
+    )
+    for order, label in enumerate(ordered_labels):
+        if label in rejected_labels:
+            continue
+        shadow_signals = registry.get(label, ())
+        if not shadow_signals:
+            continue
+        row = score_rows.get(label)
+        row_has_data = bool(getattr(row, "has_data", False)) if row is not None else False
+        row_score: Optional[float] = None
+        threshold: Optional[float] = None
+        if min_score is not None:
+            try:
+                threshold = float(min_score)
+            except (TypeError, ValueError):
+                continue
+        if row is not None:
+            try:
+                row_score = float(getattr(row, "score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if row_score < 0.0:
+                continue
+            if row_has_data and threshold is not None and row_score < threshold:
+                continue
+        candidate = candidates_by_label.get(label)
+        if candidate is None:
+            continue
+        raw_signals, next_signal_id = _real_signals_from_shadow_registry(
+            shadow_signals,
+            market,
+            candidate,
+            signal_id_counter=signal_id_counter,
+        )
+        raw_signals = _filter_shadow_state_entry_signals(
+            pipeline,
+            candidate,
+            raw_signals,
+        )
+        if raw_signals:
+            next_signal_id = max(signal.id for signal in raw_signals) + 1
+        if not raw_signals:
+            continue
+        signal_guard = filter_real_signals_against_tracker(
+            raw_signals,
+            player=candidate,
+            pipeline=pipeline,
+            bar_index=market.bar,
+            max_new_opens_per_bar=getattr(
+                getattr(pipeline, "live_execution", None),
+                "max_new_opens_per_bar",
+                1,
+            ),
+            max_open_positions=getattr(
+                getattr(pipeline, "risk_config", None),
+                "max_open_positions",
+                None,
+            ),
+        )
+        if len(getattr(signal_guard, "signals", ()) or ()) <= 0:
+            continue
+        ranking_score = row_score if row_score is not None else 0.0
+        executable_signals = len(getattr(signal_guard, "signals", ()) or ())
+        raw_signal_count = len(raw_signals)
+        attempt = {
+            "leader": candidate,
+            "raw_signals": raw_signals,
+            "raw_signal_count": raw_signal_count,
+            "leader_vote_error_count": 0,
+            "signal_guard": signal_guard,
+            "signal_id_counter": next_signal_id,
+        }
+        attempts.append((
+            (ranking_score, executable_signals, raw_signal_count, -order),
+            attempt,
+        ))
+    attempted_labels = {attempt["leader"].label for _rank, attempt in attempts}
+    agent_registry = {
+        str(label): tuple(signals or ())
+        for label, signals in dict(
+            getattr(pipeline, "_current_shadow_agent_signals", {}) or {}
+        ).items()
+    }
+    for order, agent_label in enumerate(sorted(agent_registry.keys())):
+        solo_label = f"Solo_{agent_label}"
+        if solo_label == skip_label or solo_label in attempted_labels:
+            continue
+        if solo_label in rejected_labels:
+            continue
+        shadow_signals = agent_registry.get(agent_label, ())
+        if not shadow_signals:
+            continue
+        candidate = candidates_by_label.get(solo_label)
+        if candidate is None:
+            source_agent = getattr(pipeline, "registry", None)
+            agent = source_agent.get(agent_label) if source_agent is not None else None
+            if agent is None:
+                continue
+            candidate = EnsemblePlayer(
+                label=solo_label,
+                agents=[agent],
+                weights={agent.label: 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+                affinity=market.regime,
+            )
+        safety_issue = _fallback_candidate_safety_issue(
+            pipeline,
+            candidate,
+            market,
+        )
+        if safety_issue:
+            continue
+        ranking_score = _fallback_registry_score(
+            pipeline,
+            solo_label,
+            agent_label,
+            market.regime,
+            current_bar=market.bar,
+        )
+        threshold = None
+        if min_score is not None:
+            try:
+                threshold = float(min_score)
+            except (TypeError, ValueError):
+                continue
+        if ranking_score < 0.0:
+            continue
+        if threshold is not None and ranking_score < threshold:
+            continue
+        raw_signals, next_signal_id = _real_signals_from_shadow_registry(
+            shadow_signals,
+            market,
+            candidate,
+            signal_id_counter=signal_id_counter,
+        )
+        if not raw_signals:
+            continue
+        signal_guard = filter_real_signals_against_tracker(
+            raw_signals,
+            player=candidate,
+            pipeline=pipeline,
+            bar_index=market.bar,
+            max_new_opens_per_bar=getattr(
+                getattr(pipeline, "live_execution", None),
+                "max_new_opens_per_bar",
+                1,
+            ),
+            max_open_positions=getattr(
+                getattr(pipeline, "risk_config", None),
+                "max_open_positions",
+                None,
+            ),
+        )
+        if len(getattr(signal_guard, "signals", ()) or ()) <= 0:
+            continue
+        executable_signals = len(getattr(signal_guard, "signals", ()) or ())
+        raw_signal_count = len(raw_signals)
+        attempt = {
+            "leader": candidate,
+            "raw_signals": raw_signals,
+            "raw_signal_count": raw_signal_count,
+            "leader_vote_error_count": 0,
+            "signal_guard": signal_guard,
+            "signal_id_counter": next_signal_id,
+        }
+        attempts.append((
+            (ranking_score, executable_signals, raw_signal_count, -len(ordered_labels) - order),
+            attempt,
+        ))
+    if not attempts:
+        return None
+    attempts.sort(key=lambda item: item[0], reverse=True)
+    return attempts[0][1]
+
+
+def _fallback_safety_rejected_labels(rejections: Sequence[object]) -> set[str]:
+    prefixes = (
+        "hard policy denylist",
+        "hard policy untrained genetics",
+        "hard policy regime allowlist",
+        "hard policy experimental maturity",
+        "uses quarantined agent",
+        "v3 real-loss kill",
+        "v3 persistent real-loss kill",
+        "v3 persistent realized-loss kill",
+        "v3 probation realized-loss kill",
+        "v3 realized profit-lock",
+        "real promotion gate:",
+        "promotion gate: max_dd_pct",
+    )
+    labels: set[str] = set()
+    for rejection in rejections or ():
+        label = str(getattr(rejection, "label", "") or "")
+        reason = str(getattr(rejection, "reason", "") or "")
+        if label and reason.startswith(prefixes):
+            labels.add(label)
+    return labels
+
+
+def _fallback_candidate_safety_issue(
+    pipeline: ProductionPipeline,
+    candidate: EnsemblePlayer,
+    market: MarketSnapshot,
+) -> bool:
+    if not _candidate_is_real_executable(candidate):
+        return True
+    strategist = getattr(pipeline, "strategist", None)
+    validate = getattr(strategist, "_validate", None)
+    if callable(validate):
+        try:
+            if validate(candidate) is not None:
+                return True
+        except Exception:
+            log.debug("fallback safety quarantine validation failed", exc_info=True)
+            return True
+    validate_hard_policy = getattr(strategist, "_validate_hard_policy", None)
+    if callable(validate_hard_policy):
+        try:
+            issue = validate_hard_policy(
+                candidate,
+                market.regime,
+                current_bar=market.bar,
+                market_tags=_market_policy_tags(market),
+            )
+            if issue is not None:
+                return True
+        except Exception:
+            log.debug("fallback hard-policy validation failed", exc_info=True)
+            return True
+    validate_real_loss = getattr(strategist, "_validate_v3_real_loss", None)
+    if callable(validate_real_loss):
+        try:
+            if validate_real_loss(
+                candidate,
+                market.regime,
+                current_bar=market.bar,
+            ) is not None:
+                return True
+        except Exception:
+            log.debug("fallback real-loss validation failed", exc_info=True)
+            return True
+    return False
+
+
+def _fallback_registry_score(
+    pipeline: ProductionPipeline,
+    solo_label: str,
+    agent_label: str,
+    regime: Regime,
+    *,
+    current_bar: int,
+) -> float:
+    entry_score = _fallback_entry_causal_score(
+        pipeline,
+        labels=(solo_label, agent_label),
+        regime=regime,
+        current_bar=current_bar,
+    )
+    if entry_score is not None:
+        return entry_score
+    perf = getattr(pipeline, "perf", None)
+    getter = getattr(perf, "get", None)
+    if not callable(getter):
+        return 0.0
+    try:
+        regime_metrics = getter(agent_label, regime)
+        aggregate_metrics = getter(agent_label)
+    except Exception:
+        log.debug("fallback registry score lookup failed", exc_info=True)
+        return 0.0
+    metrics = regime_metrics if regime_metrics.has_data else aggregate_metrics
+    if not metrics.has_data:
+        try:
+            solo_metrics = getter(solo_label, regime)
+            if not solo_metrics.has_data:
+                solo_metrics = getter(solo_label)
+            metrics = solo_metrics if solo_metrics.has_data else metrics
+        except Exception:
+            pass
+    if not metrics.has_data:
+        return 0.0
+    win_component = min(100.0, max(0.0, float(metrics.win_rate or 0.0))) * 0.02
+    trade_component = min(100, max(0, int(metrics.closed_trades or 0))) * 0.01
+    dd_penalty = max(0.0, float(metrics.max_dd_pct or 0.0)) * 0.15
+    return float(metrics.pnl_pct or 0.0) + win_component + trade_component - dd_penalty
+
+
+def _fallback_entry_causal_score(
+    pipeline: ProductionPipeline,
+    *,
+    labels: Sequence[str],
+    regime: Regime,
+    current_bar: int,
+) -> Optional[float]:
+    strategist = getattr(pipeline, "strategist", None)
+    state = getattr(strategist, "_entry_causal_score", None)
+    scorer = getattr(state, "score_with_stats", None)
+    if not callable(scorer):
+        return None
+    min_filled = int(getattr(state, "min_filled", 0) or 0)
+    for label in labels:
+        if not label:
+            continue
+        try:
+            stats = scorer(
+                label=label,
+                regime=regime.label,
+                current_bar=current_bar,
+            )
+        except Exception:
+            log.debug("fallback entry-causal score lookup failed", exc_info=True)
+            continue
+        if getattr(stats, "has_data", False):
+            return float(getattr(stats, "score", 0.0) or 0.0)
+        recent_filled = int(getattr(stats, "recent_filled", 0) or 0)
+        recent_pnl = float(getattr(stats, "recent_pnl_usd", 0.0) or 0.0)
+        if min_filled > 0 and recent_filled >= min_filled and recent_pnl < 0.0:
+            return -1.0
+    return None
+
+
+def _real_signals_from_shadow_registry(
+    shadow_signals: Sequence[Signal],
+    market: MarketSnapshot,
+    player: EnsemblePlayer,
+    *,
+    signal_id_counter: int,
+) -> Tuple[List[Signal], int]:
+    out: List[Signal] = []
+    next_signal_id = int(signal_id_counter)
+    for shadow_signal in shadow_signals or ():
+        action = getattr(shadow_signal, "action", None)
+        if action is None or getattr(action, "is_hold", False):
+            continue
+        symbol = str(getattr(shadow_signal, "sym", "") or "").upper()
+        if symbol not in market.prices:
+            continue
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if price <= 0:
+            continue
+        out.append(replace(
+            shadow_signal,
+            id=next_signal_id,
+            bar=market.bar,
+            sym=symbol,
+            action=action,
+            price=price,
+            regime=market.regime,
+            by_player=player.label,
+            position_scope="",
+            timestamp=market.timestamp,
+        ))
+        next_signal_id += 1
+    return out, next_signal_id
+
+
+def _find_selected_shadow_position_replay(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    selected_leader: EnsemblePlayer,
+    *,
+    signal_id_counter: int,
+) -> Optional[Dict[str, Any]]:
+    if not _shadow_position_replay_enabled(pipeline):
+        return None
+    positions_by_player = dict(
+        getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    )
+    shadow_positions = tuple(
+        positions_by_player.get(str(selected_leader.label), ()) or ()
+    )
+    if not shadow_positions:
+        return None
+    raw_signals, next_signal_id = _real_signals_from_shadow_positions(
+        shadow_positions,
+        market,
+        selected_leader,
+        signal_id_counter=signal_id_counter,
+        max_age_bars=_shadow_position_replay_max_age(pipeline),
+    )
+    if not raw_signals:
+        return None
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=selected_leader,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=getattr(
+            getattr(pipeline, "live_execution", None),
+            "max_new_opens_per_bar",
+            1,
+        ),
+        max_open_positions=getattr(
+            getattr(pipeline, "risk_config", None),
+            "max_open_positions",
+            None,
+        ),
+    )
+    if len(getattr(signal_guard, "signals", ()) or ()) <= 0:
+        return None
+    return {
+        "leader": selected_leader,
+        "raw_signals": raw_signals,
+        "raw_signal_count": len(raw_signals),
+        "leader_vote_error_count": 0,
+        "signal_guard": signal_guard,
+        "signal_id_counter": next_signal_id,
+    }
+
+
+def _shadow_position_replay_enabled(pipeline: ProductionPipeline) -> bool:
+    cfg = getattr(getattr(pipeline, "strategist", None), "_config", None)
+    return bool(
+        getattr(cfg, "v3_shadow_fresh_handoff_enabled", False)
+        or getattr(cfg, "v3_shadow_flat_handoff_enabled", False)
+    )
+
+
+def _shadow_position_replay_max_age(pipeline: ProductionPipeline) -> int:
+    cfg = getattr(getattr(pipeline, "strategist", None), "_config", None)
+    try:
+        return max(0, int(getattr(cfg, "v3_shadow_fresh_handoff_max_age_bars", 1) or 0))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _real_signals_from_shadow_positions(
+    shadow_positions: Sequence[object],
+    market: MarketSnapshot,
+    player: EnsemblePlayer,
+    *,
+    signal_id_counter: int,
+    max_age_bars: int,
+) -> Tuple[List[Signal], int]:
+    out: List[Signal] = []
+    next_signal_id = int(signal_id_counter)
+    for payload in shadow_positions or ():
+        if not isinstance(payload, dict):
+            continue
+        symbol = str(payload.get("sym") or "").upper()
+        if symbol not in market.prices:
+            continue
+        side = str(payload.get("side") or "").lower()
+        if side == "long":
+            action = Action.FUT_LONG_FULL
+        elif side == "short":
+            action = Action.FUT_SHORT_FULL
+        else:
+            continue
+        age_bars = _safe_nonnegative_int(payload.get("age_bars"))
+        if age_bars is None:
+            opened_bar = _safe_nonnegative_int(payload.get("opened_bar"))
+            age_bars = (
+                max(0, int(market.bar) - opened_bar)
+                if opened_bar is not None and opened_bar > 0
+                else 0
+            )
+        if age_bars > max_age_bars:
+            continue
+        if _shadow_position_has_nonpositive_unrealized(payload):
+            continue
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if price <= 0:
+            continue
+        out.append(Signal(
+            id=next_signal_id,
+            bar=market.bar,
+            sym=symbol,
+            action=action,
+            price=price,
+            regime=market.regime,
+            by_player=player.label,
+            by_agent="ShadowPositionReplay",
+            position_scope="",
+            timestamp=market.timestamp,
+        ))
+        next_signal_id += 1
+    return out, next_signal_id
+
+
+def _safe_nonnegative_int(value: object) -> Optional[int]:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, out)
+
+
 def _find_actionable_candidate_vote(
     pipeline: ProductionPipeline,
     market: MarketSnapshot,
@@ -865,6 +2067,19 @@ def _find_actionable_candidate_vote(
     trace_id: str,
 ) -> Optional[Dict[str, Any]]:
     candidates_by_label = {candidate.label: candidate for candidate in candidates}
+    rejected_labels = {
+        str(getattr(rejection, "label", "") or "")
+        for rejection in getattr(decision, "candidate_rejections", ()) or ()
+    }
+    score_rows = {
+        str(getattr(row, "label", "") or ""): row
+        for row in getattr(decision, "candidate_scores", ()) or ()
+        if str(getattr(row, "label", "") or "")
+    }
+    min_score = getattr(pipeline, "actionable_fallback_min_score", None)
+    require_has_data = bool(
+        getattr(pipeline, "actionable_fallback_require_has_data", False)
+    )
     ordered_labels = [
         row.label
         for row in getattr(decision, "candidate_scores", ()) or ()
@@ -878,8 +2093,28 @@ def _find_actionable_candidate_vote(
     for label in ordered_labels:
         if label == skip_label:
             continue
+        if label in rejected_labels:
+            continue
+        row = score_rows.get(label)
+        if require_has_data and (
+            row is None or not bool(getattr(row, "has_data", False))
+        ):
+            continue
+        if min_score is not None:
+            if row is None:
+                continue
+            try:
+                row_score = float(getattr(row, "score", 0.0) or 0.0)
+                threshold = float(min_score)
+            except (TypeError, ValueError):
+                continue
+            if row_score < threshold:
+                continue
         candidate = candidates_by_label.get(label)
         if candidate is None:
+            continue
+        snapshot = _capture_vote_state(candidate)
+        if snapshot is None:
             continue
         attempt = _vote_candidate_for_real_signals(
             pipeline,
@@ -888,9 +2123,38 @@ def _find_actionable_candidate_vote(
             signal_id_counter=signal_id_counter,
             trace_id=trace_id,
         )
-        if attempt["raw_signal_count"] > 0:
+        if len(getattr(attempt["signal_guard"], "signals", ()) or ()) > 0:
             return attempt
+        _restore_vote_state(snapshot)
     return None
+
+
+def _capture_vote_state(
+    player: EnsemblePlayer,
+) -> Optional[Tuple[Tuple[object, Dict[str, Any]], ...]]:
+    objects: List[object] = [player]
+    objects.extend(getattr(player, "agents", ()) or ())
+    captured: List[Tuple[object, Dict[str, Any]]] = []
+    try:
+        for obj in objects:
+            state = getattr(obj, "__dict__", None)
+            if not isinstance(state, dict):
+                continue
+            captured.append((obj, copy.deepcopy(state)))
+    except Exception:
+        return None
+    return tuple(captured)
+
+
+def _restore_vote_state(
+    snapshot: Tuple[Tuple[object, Dict[str, Any]], ...],
+) -> None:
+    for obj, state in reversed(snapshot):
+        target = getattr(obj, "__dict__", None)
+        if not isinstance(target, dict):
+            continue
+        target.clear()
+        target.update(copy.deepcopy(state))
 
 
 def _run_shadow_tournament(
@@ -951,21 +2215,361 @@ def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
     getter = getattr(tournament, "last_actor_updates", None)
     if not callable(getter):
         pipeline._pending_shadow_actor_updates = ()
+        pipeline._current_shadow_agent_signals = {}
+        pipeline._current_shadow_player_signals = {}
+        pipeline._current_actionable_player_labels = set()
         return
     try:
         pipeline._pending_shadow_actor_updates = tuple(getter())
     except Exception:
         log.debug("failed to capture shadow updates for strategist", exc_info=True)
         pipeline._pending_shadow_actor_updates = ()
+    agent_signals_getter = getattr(tournament, "last_agent_signals", None)
+    if callable(agent_signals_getter):
+        try:
+            pipeline._current_shadow_agent_signals = dict(agent_signals_getter())
+        except Exception:
+            log.debug("failed to capture current shadow agent signals", exc_info=True)
+            pipeline._current_shadow_agent_signals = {}
+    else:
+        pipeline._current_shadow_agent_signals = {}
+    signals_getter = getattr(tournament, "last_player_signals", None)
+    if callable(signals_getter):
+        try:
+            pipeline._current_shadow_player_signals = dict(signals_getter())
+        except Exception:
+            log.debug("failed to capture current shadow player signals", exc_info=True)
+            pipeline._current_shadow_player_signals = {}
+    else:
+        pipeline._current_shadow_player_signals = {}
     positions_getter = getattr(tournament, "last_player_open_positions", None)
     if not callable(positions_getter):
         pipeline._pending_shadow_player_positions = None
+    else:
+        try:
+            pipeline._pending_shadow_player_positions = dict(positions_getter())
+        except Exception:
+            log.debug("failed to capture shadow positions for strategist", exc_info=True)
+            pipeline._pending_shadow_player_positions = None
+    pipeline._current_actionable_player_labels = _current_actionable_player_labels(
+        getattr(pipeline, "_pending_shadow_actor_updates", ()) or (),
+        getattr(pipeline, "_current_shadow_player_signals", {}) or {},
+        getattr(pipeline, "_current_shadow_agent_signals", {}) or {},
+        positions_by_player=getattr(pipeline, "_pending_shadow_player_positions", {}) or {},
+        max_shadow_position_age_bars=_shadow_position_replay_max_age(pipeline),
+    )
+
+
+def _current_actionable_player_labels(
+    updates: Sequence[object],
+    signals_by_player: Dict[str, Sequence[Signal]],
+    signals_by_agent: Optional[Dict[str, Sequence[Signal]]] = None,
+    positions_by_player: Optional[Dict[str, Sequence[object]]] = None,
+    max_shadow_position_age_bars: int = 1,
+) -> set[str]:
+    labels = {
+        str(label).strip()
+        for label, signals in dict(signals_by_player or {}).items()
+        if str(label).strip() and len(tuple(signals or ())) > 0
+    }
+    for label, signals in dict(signals_by_agent or {}).items():
+        clean = str(label).strip()
+        if clean and len(tuple(signals or ())) > 0:
+            labels.add(f"Solo_{clean}")
+    for event in updates or ():
+        actor_type = str(getattr(event, "actor_type", "") or "")
+        if actor_type not in {"agent", "player"}:
+            continue
+        label = str(getattr(event, "actor_label", "") or "").strip()
+        if not label:
+            continue
+        signals = int(getattr(event, "signals", 0) or 0)
+        filled = int(getattr(event, "filled", 0) or 0)
+        if signals > 0 or filled > 0:
+            labels.add(label if actor_type == "player" else f"Solo_{label}")
+    for label, positions in dict(positions_by_player or {}).items():
+        clean = str(label).strip()
+        if clean and any(
+            _is_fresh_shadow_position_payload(
+                item,
+                max_age_bars=max_shadow_position_age_bars,
+            )
+            for item in positions or ()
+        ):
+            labels.add(clean)
+    return labels
+
+
+def _is_fresh_shadow_position_payload(
+    payload: object,
+    *,
+    max_age_bars: int = 1,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    sym = str(payload.get("sym") or "").strip()
+    side = str(payload.get("side") or "").lower()
+    if not sym or side not in {"long", "short"}:
+        return False
+    if _shadow_position_has_nonpositive_unrealized(payload):
+        return False
+    age_bars = _safe_nonnegative_int(payload.get("age_bars"))
+    if age_bars is None:
+        return bool(payload.get("fresh") is True)
+    return age_bars <= max(0, int(max_age_bars))
+
+
+def _shadow_position_has_nonpositive_unrealized(payload: Dict[str, object]) -> bool:
+    unrealized = _safe_float_or_none(payload.get("unrealized_pnl_usd"))
+    return unrealized is not None and unrealized <= 0.0
+
+
+def _safe_float_or_none(value: object) -> Optional[float]:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _causal_decision_payload(
+    *,
+    market: MarketSnapshot,
+    selected_leader: EnsemblePlayer,
+    executed_leader: EnsemblePlayer,
+    decision: SwitchDecision,
+    raw_signals: Sequence[Signal],
+    executable_signals: Sequence[Signal],
+    signal_guard: object,
+    leader_vote_error_count: int,
+    fallback_used: bool,
+    fallback_skipped: bool,
+    fallback_candidate: str,
+    fallback_reason: str,
+    shadow_position_replay_used: bool,
+    n_filled: int,
+    n_rejected: int,
+    n_blocked: int,
+    blocked_reasons: Dict[str, int],
+    pipeline: ProductionPipeline,
+) -> Dict[str, object]:
+    selected_label = str(getattr(selected_leader, "label", "") or "")
+    executed_label = str(getattr(executed_leader, "label", "") or "")
+    return {
+        "bar": int(getattr(market, "bar", 0) or 0),
+        "timestamp": _timestamp_payload(getattr(market, "timestamp", None)),
+        "regime": getattr(getattr(market, "regime", None), "label", str(getattr(market, "regime", ""))),
+        "regime_confidence": _safe_float_or_zero(
+            getattr(market, "regime_confidence", 0.0),
+        ),
+        "selected_leader": selected_label,
+        "executed_leader": executed_label,
+        "decision_reason": str(getattr(decision, "reason", "") or ""),
+        "decision_score": _safe_float_or_zero(getattr(decision, "score", 0.0)),
+        "decision_margin": _safe_float_or_zero(getattr(decision, "margin", 0.0)),
+        "leader_changed": bool(getattr(decision, "switched", False)),
+        "leader_vote_error_count": int(leader_vote_error_count),
+        "switch_gate_reason": str(getattr(decision, "switch_gate_reason", "") or ""),
+        "best_label": str(getattr(decision, "best_label", "") or ""),
+        "best_score": _safe_float_or_zero(getattr(decision, "best_score", 0.0)),
+        "current_label": str(getattr(decision, "current_label", "") or ""),
+        "current_score": _safe_float_or_zero(getattr(decision, "current_score", 0.0)),
+        "required_margin": _safe_float_or_zero(getattr(decision, "required_margin", 0.0)),
+        "cooldown_passed": bool(getattr(decision, "cooldown_passed", True)),
+        "cooldown_blocked": bool(getattr(decision, "cooldown_blocked", False)),
+        "fallback_used": bool(fallback_used),
+        "fallback_skipped": bool(fallback_skipped),
+        "fallback_candidate": str(fallback_candidate or ""),
+        "fallback_reason": str(fallback_reason or ""),
+        "shadow_position_replay_used": bool(shadow_position_replay_used),
+        "prices": _float_mapping(getattr(market, "prices", {}) or {}),
+        "funding": _float_mapping(getattr(market, "funding", {}) or {}),
+        "current_actionable_labels": sorted(
+            str(label)
+            for label in (getattr(pipeline, "_current_actionable_player_labels", set()) or set())
+        ),
+        "selected_shadow_positions": _shadow_position_payloads_for_label(
+            pipeline,
+            selected_label,
+        ),
+        "executed_shadow_positions": _shadow_position_payloads_for_label(
+            pipeline,
+            executed_label,
+        ),
+        "selected_shadow_signal_count": _shadow_signal_count_for_label(
+            pipeline,
+            selected_label,
+        ),
+        "executed_shadow_signal_count": _shadow_signal_count_for_label(
+            pipeline,
+            executed_label,
+        ),
+        "raw_signal_count": len(tuple(raw_signals or ())),
+        "executable_signal_count": len(tuple(executable_signals or ())),
+        "raw_signals": [_signal_payload(sig) for sig in raw_signals or ()],
+        "executable_signals": [_signal_payload(sig) for sig in executable_signals or ()],
+        "guarded_signals": [_signal_payload(sig) for sig in executable_signals or ()],
+        "filtered_real_signals": int(getattr(signal_guard, "filtered", 0) or 0),
+        "signal_filter_details": tuple(
+            str(item) for item in (getattr(signal_guard, "details", ()) or ())
+        ),
+        "n_filled": int(n_filled),
+        "n_rejected": int(n_rejected),
+        "n_blocked": int(n_blocked),
+        "blocked_reasons": {
+            str(key): int(value)
+            for key, value in dict(blocked_reasons or {}).items()
+        },
+        "candidate_scores": _candidate_score_payloads(decision),
+        "candidate_rejections": _candidate_rejection_payloads(decision),
+    }
+
+
+def _signal_payload(signal: Signal) -> Dict[str, object]:
+    action = getattr(signal, "action", None)
+    regime = getattr(signal, "regime", None)
+    return {
+        "id": int(getattr(signal, "id", 0) or 0),
+        "bar": int(getattr(signal, "bar", 0) or 0),
+        "sym": str(getattr(signal, "sym", "") or ""),
+        "action": getattr(action, "name", str(action or "")),
+        "side": str(getattr(action, "side", "") or ""),
+        "price": _safe_float_or_zero(getattr(signal, "price", 0.0)),
+        "regime": getattr(regime, "label", str(regime or "")),
+        "by_player": str(getattr(signal, "by_player", "") or ""),
+        "by_agent": str(getattr(signal, "by_agent", "") or ""),
+        "position_scope": str(getattr(signal, "position_scope", "") or ""),
+        "risk_mult": _safe_float_or_zero(getattr(signal, "risk_mult", 1.0)),
+        "timestamp": _timestamp_payload(getattr(signal, "timestamp", None)),
+    }
+
+
+def _shadow_position_payloads_for_label(
+    pipeline: ProductionPipeline,
+    label: str,
+) -> List[Dict[str, object]]:
+    positions_by_player = getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    if not isinstance(positions_by_player, dict):
+        return []
+    out: List[Dict[str, object]] = []
+    for payload in positions_by_player.get(label, ()) or ():
+        if not isinstance(payload, dict):
+            continue
+        out.append({
+            "sym": str(payload.get("sym") or ""),
+            "side": str(payload.get("side") or ""),
+            "opened_bar": _safe_nonnegative_int(payload.get("opened_bar")),
+            "age_bars": _safe_nonnegative_int(payload.get("age_bars")),
+            "entry_price": _safe_float_or_none(payload.get("entry_price")),
+            "current_price": _safe_float_or_none(payload.get("current_price")),
+            "qty": _safe_float_or_none(payload.get("qty")),
+            "unrealized_pnl_usd": _safe_float_or_none(payload.get("unrealized_pnl_usd")),
+            "stop_price": _safe_float_or_none(payload.get("stop_price")),
+            "take_profit_price": _safe_float_or_none(payload.get("take_profit_price")),
+            "fresh": bool(payload.get("fresh", False)),
+        })
+    return out
+
+
+def _shadow_signal_count_for_label(pipeline: ProductionPipeline, label: str) -> int:
+    signals_by_player = getattr(pipeline, "_current_shadow_player_signals", {}) or {}
+    if not isinstance(signals_by_player, dict):
+        return 0
+    return len(tuple(signals_by_player.get(label, ()) or ()))
+
+
+def _candidate_score_payloads(
+    decision: SwitchDecision,
+    *,
+    limit: int = 20,
+) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    for row in tuple(getattr(decision, "candidate_scores", ()) or ())[:limit]:
+        rows.append({
+            "label": str(getattr(row, "label", "") or ""),
+            "rank": int(getattr(row, "rank", 0) or 0),
+            "score": _safe_float_or_zero(getattr(row, "score", 0.0)),
+            "score_source": str(getattr(row, "score_source", "") or ""),
+            "has_data": bool(getattr(row, "has_data", False)),
+            "closed_trades": int(getattr(row, "closed_trades", 0) or 0),
+            "signals": int(getattr(row, "signals", 0) or 0),
+            "execution_failures": int(getattr(row, "execution_failures", 0) or 0),
+            "uncertainty_penalty": _safe_float_or_zero(
+                getattr(row, "uncertainty_penalty", 0.0),
+            ),
+            "agent_labels": tuple(
+                str(item) for item in (getattr(row, "agent_labels", ()) or ())
+            ),
+            "session_score_delta": _safe_float_or_zero(
+                getattr(row, "session_score_delta", 0.0),
+            ),
+            "session_pnl_pct": _safe_float_or_zero(
+                getattr(row, "session_pnl_pct", 0.0),
+            ),
+            "recent_bars": int(getattr(row, "recent_bars", 0) or 0),
+            "recent_actionable_bars": int(
+                getattr(row, "recent_actionable_bars", 0) or 0,
+            ),
+            "actionable_share": _safe_float_or_zero(
+                getattr(row, "actionable_share", 0.0),
+            ),
+            "recent_filled": int(getattr(row, "recent_filled", 0) or 0),
+            "recent_pnl_usd": _safe_float_or_zero(
+                getattr(row, "recent_pnl_usd", 0.0),
+            ),
+        })
+    return rows
+
+
+def _candidate_rejection_payloads(
+    decision: SwitchDecision,
+    *,
+    limit: int = 50,
+) -> List[Dict[str, object]]:
+    return [
+        {
+            "label": str(getattr(row, "label", "") or ""),
+            "reason": str(getattr(row, "reason", "") or ""),
+        }
+        for row in tuple(getattr(decision, "candidate_rejections", ()) or ())[:limit]
+    ]
+
+
+def _float_mapping(values: Dict[str, object]) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    for key, value in dict(values or {}).items():
+        parsed = _safe_float_or_none(value)
+        if parsed is not None:
+            out[str(key)] = parsed
+    return out
+
+
+def _safe_float_or_zero(value: object) -> float:
+    parsed = _safe_float_or_none(value)
+    return parsed if parsed is not None else 0.0
+
+
+def _timestamp_payload(value: object) -> str:
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return str(isoformat())
+        except Exception:
+            return str(value or "")
+    return str(value or "")
+
+
+def _sync_current_actionable_labels_to_strategist(pipeline: ProductionPipeline) -> None:
+    updater = getattr(
+        getattr(pipeline, "strategist", None),
+        "update_current_actionable_labels",
+        None,
+    )
+    if not callable(updater):
         return
     try:
-        pipeline._pending_shadow_player_positions = dict(positions_getter())
+        updater(getattr(pipeline, "_current_actionable_player_labels", set()) or set())
     except Exception:
-        log.debug("failed to capture shadow positions for strategist", exc_info=True)
-        pipeline._pending_shadow_player_positions = None
+        log.debug("failed to sync current actionable labels into strategist", exc_info=True)
 
 
 def _emit_candidate_audit_events(
@@ -1004,6 +2608,11 @@ def _emit_candidate_audit_events(
                 0.0,
             ),
             session_stale_penalty=getattr(row, "session_stale_penalty", 0.0),
+            recent_bars=getattr(row, "recent_bars", 0),
+            recent_actionable_bars=getattr(row, "recent_actionable_bars", 0),
+            actionable_share=getattr(row, "actionable_share", 0.0),
+            recent_filled=getattr(row, "recent_filled", 0),
+            recent_pnl_usd=getattr(row, "recent_pnl_usd", 0.0),
         ))
     for row in getattr(decision, "candidate_rejections", ()) or ():
         pipeline.event_log.emit(CandidateRejected(

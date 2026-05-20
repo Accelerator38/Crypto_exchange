@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ..domain.types import Metrics, Regime
 from ..memory import PerformanceMemory, QuarantineManager
@@ -79,6 +79,31 @@ class StrategistConfig:
     player_session_pnl_cap_pct: float = 3.0
     player_session_min_activity: int = 1
     candidate_ttl_bars: int = 30
+    hard_policy_enabled: bool = True
+    hard_policy_deny_labels: Tuple[str, ...] = (
+        "Solo_PlayerFunding",
+        "Solo_LiveAfterShock",
+        "Solo_CarryFlowAgentV2",
+    )
+    hard_policy_genetics_min_closed_trades: int = 20
+    hard_policy_neutral_penalty_labels: Tuple[str, ...] = (
+        "TrendResearch",
+        "DefaultEnsemble",
+        "DefensiveResearch",
+        "MeanRevResearch",
+    )
+    hard_policy_neutral_penalty: float = 0.35
+    hard_policy_low_actionability_share: float = 0.05
+    hard_policy_min_actionability_bars: int = 12
+    hard_policy_manual_regime_override_labels: Tuple[str, ...] = ("Antonius_strategy",)
+    hard_policy_experimental_real_labels: Tuple[str, ...] = (
+        "Antonius_strategy",
+        "Antonius_conservative",
+        "Optimal_StaticRotator",
+    )
+    hard_policy_experimental_min_bar: int = 5000
+    hard_policy_experimental_min_closed_trades: int = 30
+    hard_policy_experimental_min_pnl_pct: float = 0.0
     real_promotion_gate_enabled: bool = False
     no_trade_when_all_rejected: bool = True
     real_promotion_min_closed_trades: int = 20
@@ -89,6 +114,7 @@ class StrategistConfig:
     use_v3_rolling_score: bool = False
     use_v3_entry_causal_score: bool = False
     use_v3_soft_shadow_score: bool = False
+    v3_current_actionable_gate_enabled: bool = False
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
@@ -102,12 +128,44 @@ class StrategistConfig:
     v3_virtual_only_score_cap: float = 0.35
     v3_real_loss_kill_min_closed_trades: int = 3
     v3_real_loss_kill_pnl_pct: float = -1.0
+    v3_real_loss_rescue_enabled: bool = False
+    v3_real_loss_rescue_min_virtual_pnl_pct: float = 10.0
+    v3_real_loss_rescue_max_virtual_dd_pct: float = 50.0
+    v3_real_loss_rescue_min_actionable_share: float = 0.05
+    v3_real_loss_rescue_min_recent_filled: int = 1
+    v3_real_loss_rescue_max_real_loss_pct: float = -3.0
+    v3_real_loss_rescue_allow_genetics: bool = False
+    v3_probation_shadow_rescue_enabled: bool = False
+    v3_probation_shadow_rescue_min_virtual_pnl_pct: float = 10.0
+    v3_probation_shadow_rescue_max_virtual_dd_pct: float = 50.0
+    v3_probation_shadow_rescue_min_actionable_share: float = 0.05
+    v3_probation_shadow_rescue_min_recent_filled: int = 1
+    v3_probation_shadow_rescue_min_recent_pnl_usd: float = 0.0
+    v3_probation_shadow_rescue_allow_genetics: bool = False
     v3_persistent_loss_kill_min_closed_trades: int = 0
     v3_persistent_loss_kill_pnl_pct: float = -2.0
     v3_persistent_loss_kill_win_rate_pct: float = 0.0
     v3_persistent_loss_requires_virtual_weakness: bool = True
     v3_persistent_loss_virtual_max_pnl_pct: float = 0.0
     v3_persistent_loss_virtual_min_dd_pct: float = 25.0
+    v3_probation_loss_kill_min_closed_trades: int = 0
+    v3_probation_loss_kill_pnl_pct: float = -0.15
+    v3_probation_loss_kill_win_rate_pct: float = 50.0
+    v3_probation_loss_kill_label_prefixes: Tuple[str, ...] = (
+        "Solo_",
+        "Fixed_",
+        "Antonius_",
+        "Optimal_",
+    )
+    v3_realized_profit_lock_min_closed_trades: int = 0
+    v3_realized_profit_lock_min_peak_pnl_pct: float = 0.75
+    v3_realized_profit_lock_max_giveback_pct: float = 0.55
+    v3_realized_profit_lock_floor_pnl_pct: float = 0.25
+    v3_panteon_equity_guard_enabled: bool = False
+    v3_panteon_equity_guard_min_peak_pnl_pct: float = 2.0
+    v3_panteon_equity_guard_max_giveback_pct: float = 1.0
+    v3_panteon_equity_guard_floor_pnl_pct: float = 2.0
+    v3_panteon_equity_guard_cooldown_bars: int = 720
     v3_score_config: RollingDecisionScoreConfig = field(
         default_factory=RollingDecisionScoreConfig
     )
@@ -147,6 +205,18 @@ class StrategistConfig:
             raise ValueError("player_session_min_activity must be >= 0")
         if self.candidate_ttl_bars < 0:
             raise ValueError("candidate_ttl_bars must be >= 0")
+        if self.hard_policy_genetics_min_closed_trades < 0:
+            raise ValueError("hard_policy_genetics_min_closed_trades must be >= 0")
+        if self.hard_policy_neutral_penalty < 0:
+            raise ValueError("hard_policy_neutral_penalty must be >= 0")
+        if not 0.0 <= self.hard_policy_low_actionability_share <= 1.0:
+            raise ValueError("hard_policy_low_actionability_share must be in [0, 1]")
+        if self.hard_policy_min_actionability_bars < 0:
+            raise ValueError("hard_policy_min_actionability_bars must be >= 0")
+        if self.hard_policy_experimental_min_bar < 0:
+            raise ValueError("hard_policy_experimental_min_bar must be >= 0")
+        if self.hard_policy_experimental_min_closed_trades < 0:
+            raise ValueError("hard_policy_experimental_min_closed_trades must be >= 0")
         if self.real_promotion_min_closed_trades < 0:
             raise ValueError("real_promotion_min_closed_trades must be >= 0")
         if self.real_promotion_max_drawdown_pct < 0:
@@ -165,12 +235,40 @@ class StrategistConfig:
             raise ValueError("v3_shadow_fresh_handoff_max_age_bars must be >= 0")
         if self.v3_real_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_real_loss_kill_min_closed_trades must be >= 0")
+        if not 0.0 <= self.v3_real_loss_rescue_min_actionable_share <= 1.0:
+            raise ValueError("v3_real_loss_rescue_min_actionable_share must be in [0, 1]")
+        if self.v3_real_loss_rescue_min_recent_filled < 0:
+            raise ValueError("v3_real_loss_rescue_min_recent_filled must be >= 0")
+        if self.v3_real_loss_rescue_max_virtual_dd_pct < 0:
+            raise ValueError("v3_real_loss_rescue_max_virtual_dd_pct must be >= 0")
+        if not 0.0 <= self.v3_probation_shadow_rescue_min_actionable_share <= 1.0:
+            raise ValueError("v3_probation_shadow_rescue_min_actionable_share must be in [0, 1]")
+        if self.v3_probation_shadow_rescue_min_recent_filled < 0:
+            raise ValueError("v3_probation_shadow_rescue_min_recent_filled must be >= 0")
+        if self.v3_probation_shadow_rescue_max_virtual_dd_pct < 0:
+            raise ValueError("v3_probation_shadow_rescue_max_virtual_dd_pct must be >= 0")
         if self.v3_persistent_loss_kill_min_closed_trades < 0:
             raise ValueError("v3_persistent_loss_kill_min_closed_trades must be >= 0")
         if not 0.0 <= self.v3_persistent_loss_kill_win_rate_pct <= 100.0:
             raise ValueError("v3_persistent_loss_kill_win_rate_pct must be in [0, 100]")
         if self.v3_persistent_loss_virtual_min_dd_pct < 0:
             raise ValueError("v3_persistent_loss_virtual_min_dd_pct must be >= 0")
+        if self.v3_probation_loss_kill_min_closed_trades < 0:
+            raise ValueError("v3_probation_loss_kill_min_closed_trades must be >= 0")
+        if not 0.0 <= self.v3_probation_loss_kill_win_rate_pct <= 100.0:
+            raise ValueError("v3_probation_loss_kill_win_rate_pct must be in [0, 100]")
+        if self.v3_realized_profit_lock_min_closed_trades < 0:
+            raise ValueError("v3_realized_profit_lock_min_closed_trades must be >= 0")
+        if self.v3_realized_profit_lock_min_peak_pnl_pct < 0:
+            raise ValueError("v3_realized_profit_lock_min_peak_pnl_pct must be >= 0")
+        if self.v3_realized_profit_lock_max_giveback_pct < 0:
+            raise ValueError("v3_realized_profit_lock_max_giveback_pct must be >= 0")
+        if self.v3_panteon_equity_guard_min_peak_pnl_pct < 0:
+            raise ValueError("v3_panteon_equity_guard_min_peak_pnl_pct must be >= 0")
+        if self.v3_panteon_equity_guard_max_giveback_pct < 0:
+            raise ValueError("v3_panteon_equity_guard_max_giveback_pct must be >= 0")
+        if self.v3_panteon_equity_guard_cooldown_bars < 0:
+            raise ValueError("v3_panteon_equity_guard_cooldown_bars must be >= 0")
         if not isinstance(self.v3_score_config, RollingDecisionScoreConfig):
             raise ValueError("v3_score_config must be RollingDecisionScoreConfig")
 
@@ -200,6 +298,11 @@ class CandidateScore:
     session_pnl_pct: float = 0.0
     session_underperformance_penalty: float = 0.0
     session_stale_penalty: float = 0.0
+    recent_bars: int = 0
+    recent_actionable_bars: int = 0
+    actionable_share: float = 0.0
+    recent_filled: int = 0
+    recent_pnl_usd: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -310,6 +413,9 @@ class Strategist:
         self._realized_pnl_by_player: Dict[str, float] = {}
         self._realized_trade_counts_by_player: Dict[str, int] = {}
         self._realized_win_counts_by_player: Dict[str, int] = {}
+        self._realized_peak_pnl_by_player: Dict[str, float] = {}
+        self._panteon_realized_peak_pnl_usd: float = 0.0
+        self._panteon_equity_guard_until_bar: int = -1
         self._realized_initial_capital: float = 0.0
         self._shadow_rolling_by_player_regime: Dict[
             Tuple[str, str],
@@ -332,6 +438,7 @@ class Strategist:
         ] = {}
         self._real_position_signature: Tuple[Tuple[str, str], ...] = ()
         self._shadow_position_snapshot_seen: bool = False
+        self._current_actionable_labels: Optional[set[str]] = None
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -339,6 +446,16 @@ class Strategist:
         """Обновить список кандидатов. Если current не в новом списке —
         он всё равно остаётся current до следующего switch."""
         self._candidates = list(candidates)
+
+    def update_current_actionable_labels(self, labels: Optional[Iterable[str]]) -> None:
+        if labels is None:
+            self._current_actionable_labels = None
+            return
+        self._current_actionable_labels = {
+            str(label).strip()
+            for label in labels
+            if str(label).strip()
+        }
 
     def capture_session_baseline(self, regime: Optional[Regime] = None) -> None:
         regimes = [regime] if regime is not None else list(Regime)
@@ -375,42 +492,88 @@ class Strategist:
             str(label): max(0, int(value or 0))
             for label, value in dict(win_counts_by_player or {}).items()
         }
+        for label, pnl in self._realized_pnl_by_player.items():
+            self._realized_peak_pnl_by_player[label] = max(
+                float(self._realized_peak_pnl_by_player.get(label, pnl) or 0.0),
+                float(pnl),
+            )
+        total_pnl = sum(float(value or 0.0) for value in self._realized_pnl_by_player.values())
+        self._panteon_realized_peak_pnl_usd = max(
+            float(self._panteon_realized_peak_pnl_usd or 0.0),
+            float(total_pnl),
+        )
         self._realized_initial_capital = max(0.0, float(initial_capital or 0.0))
 
     def update_shadow_actor_updates(self, updates: Sequence[object]) -> None:
         for event in updates or ():
-            if str(self._object_value(event, "actor_type") or "") != "player":
+            actor_type = str(self._object_value(event, "actor_type") or "")
+            if actor_type not in {"agent", "player"}:
                 continue
-            label = str(self._object_value(event, "actor_label") or "").strip()
-            if not label:
+            actor_label = str(self._object_value(event, "actor_label") or "").strip()
+            if not actor_label:
                 continue
             regime = str(self._object_value(event, "regime") or "").strip().lower() or "neutral"
-            state = self._shadow_rolling_by_player_regime.setdefault(
-                (label, regime),
-                _ShadowRollingActorState(),
+            labels = (
+                (actor_label,)
+                if actor_type == "player"
+                else (f"Solo_{actor_label}",)
             )
-            state.append(
-                bar=self._safe_int(self._object_value(event, "bar")),
-                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
-                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
-                wins=self._safe_int(self._object_value(event, "winning_trades")),
-            )
-            self._soft_shadow_score.update(
-                bar=self._safe_int(self._object_value(event, "bar")),
-                label=label,
-                regime=regime,
-                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
-                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
-            )
-            self._entry_causal_score.update(
-                bar=self._safe_int(self._object_value(event, "bar")),
-                label=label,
-                regime=regime,
-                pnl_usd=self._safe_float(self._object_value(event, "realized_pnl_usd")),
-                closed_trades=self._safe_int(self._object_value(event, "closed_trades")),
-                signals=self._safe_int(self._object_value(event, "signals")),
-                filled=self._safe_int(self._object_value(event, "filled")),
-            )
+            bar = self._safe_int(self._object_value(event, "bar"))
+            pnl_usd = self._safe_float(self._object_value(event, "realized_pnl_usd"))
+            closed_trades = self._safe_int(self._object_value(event, "closed_trades"))
+            wins = self._safe_int(self._object_value(event, "winning_trades"))
+            signals = self._safe_int(self._object_value(event, "signals"))
+            filled = self._safe_int(self._object_value(event, "filled"))
+            for label in labels:
+                self._update_shadow_actor_score_state(
+                    label=label,
+                    regime=regime,
+                    bar=bar,
+                    pnl_usd=pnl_usd,
+                    closed_trades=closed_trades,
+                    wins=wins,
+                    signals=signals,
+                    filled=filled,
+                )
+
+    def _update_shadow_actor_score_state(
+        self,
+        *,
+        label: str,
+        regime: str,
+        bar: int,
+        pnl_usd: float,
+        closed_trades: int,
+        wins: int,
+        signals: int,
+        filled: int,
+    ) -> None:
+        state = self._shadow_rolling_by_player_regime.setdefault(
+            (label, regime),
+            _ShadowRollingActorState(),
+        )
+        state.append(
+            bar=bar,
+            pnl_usd=pnl_usd,
+            closed_trades=closed_trades,
+            wins=wins,
+        )
+        self._soft_shadow_score.update(
+            bar=bar,
+            label=label,
+            regime=regime,
+            pnl_usd=pnl_usd,
+            closed_trades=closed_trades,
+        )
+        self._entry_causal_score.update(
+            bar=bar,
+            label=label,
+            regime=regime,
+            pnl_usd=pnl_usd,
+            closed_trades=closed_trades,
+            signals=signals,
+            filled=filled,
+        )
 
     def update_shadow_position_snapshot(
         self,
@@ -440,6 +603,7 @@ class Strategist:
         regime: Regime,
         current_bar: int,
         regime_confidence: float = 1.0,
+        market_tags: Sequence[str] = (),
     ) -> SwitchDecision:
         """Главная функция. Решает: сменить лидера или оставить.
 
@@ -447,6 +611,7 @@ class Strategist:
         (или того же самого, если switched=False).
         """
         # 1. Фильтруем кандидатов: убираем тех, кто использует карантинных
+        market_tags_tuple = self._normalize_market_tags(market_tags)
         candidates = self._candidate_pool_for_bar(current_bar)
         eligible: List[Player] = []
         disqualified: List[_DisqualificationReason] = []
@@ -458,6 +623,7 @@ class Strategist:
                     regime,
                     current_bar=current_bar,
                     regime_confidence=regime_confidence,
+                    market_tags=market_tags_tuple,
                 )
             if issue is None:
                 eligible.append(cand)
@@ -467,12 +633,26 @@ class Strategist:
             CandidateRejection(label=d.label, reason=d.reason)
             for d in disqualified
         )
+        equity_guard_reason = self._panteon_equity_guard_reason(
+            current_bar=current_bar
+        )
+        if equity_guard_reason:
+            return self._select_no_trade(
+                current_bar=current_bar,
+                candidate_rejections=candidate_rejections,
+                reason=equity_guard_reason,
+            )
 
         if not eligible:
+            hard_policy_rejected = any(
+                str(d.reason).startswith("hard policy ") for d in disqualified
+            )
             if (
                 (
                     self._config.real_promotion_gate_enabled
                     or self._config.use_v3_rolling_score
+                    or self._config.v3_current_actionable_gate_enabled
+                    or hard_policy_rejected
                 )
                 and self._config.no_trade_when_all_rejected
             ):
@@ -505,7 +685,12 @@ class Strategist:
 
         # 2. Скорим каждого
         self._ensure_session_baseline(eligible, regime)
-        scored_rows = self._rank_candidates(eligible, regime, current_bar=current_bar)
+        scored_rows = self._rank_candidates(
+            eligible,
+            regime,
+            current_bar=current_bar,
+            market_tags=market_tags_tuple,
+        )
         by_label = {cand.label: cand for cand in eligible}
         best_row = scored_rows[0]
         best_score = best_row.score
@@ -582,7 +767,12 @@ class Strategist:
                 cooldown_blocked=False,
             )
 
-        current_score = self._score_player(self._current, regime, current_bar=current_bar)
+        current_score = self._score_player(
+            self._current,
+            regime,
+            current_bar=current_bar,
+            market_tags=market_tags_tuple,
+        )
         margin = best_score - current_score
         urgent = (
             current_score <= self._config.hard_negative
@@ -810,6 +1000,8 @@ class Strategist:
         """Q4 sanity check: лидер не должен использовать карантинных."""
         for label in player.agent_labels:
             if self._qm.is_quarantined(label):
+                if self._is_genetics_candidate(player) and self._is_genetics_label(label):
+                    continue
                 return _DisqualificationReason(
                     label=player.label,
                     reason=f"uses quarantined agent {label!r}",
@@ -823,12 +1015,28 @@ class Strategist:
         *,
         current_bar: int,
         regime_confidence: float,
+        market_tags: Sequence[str] = (),
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
         if player.label == self._no_trade.label:
             return None
+        issue = self._validate_hard_policy(
+            player,
+            regime,
+            current_bar=current_bar,
+            market_tags=market_tags,
+        )
+        if issue is not None:
+            return issue
+        issue = self._validate_current_actionability(player)
+        if issue is not None:
+            return issue
         if cfg.use_v3_rolling_score:
-            issue = self._validate_v3_real_loss(player, regime)
+            issue = self._validate_v3_real_loss(
+                player,
+                regime,
+                current_bar=current_bar,
+            )
             if issue is not None:
                 return issue
             issue = self._validate_v3_shadow_position_gate(
@@ -853,7 +1061,12 @@ class Strategist:
         )
         if virtual_gate_enabled:
             metrics = self._promotion_metrics(player, regime)
-            score = self._score_player(player, regime, current_bar=current_bar)
+            score = self._score_player(
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
+            )
             if metrics.closed_trades < cfg.min_live_closed_trades:
                 return _DisqualificationReason(
                     label=player.label,
@@ -877,8 +1090,142 @@ class Strategist:
                 )
         if cfg.real_promotion_gate_enabled:
             if score is None:
-                score = self._score_player(player, regime, current_bar=current_bar)
-            return self._validate_real_promotion(player, regime, score)
+                score = self._score_player(
+                    player,
+                    regime,
+                    current_bar=current_bar,
+                    market_tags=market_tags,
+                )
+            return self._validate_real_promotion(
+                player,
+                regime,
+                score,
+                current_bar=current_bar,
+            )
+        return None
+
+    def _validate_current_actionability(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        if not self._config.v3_current_actionable_gate_enabled:
+            return None
+        if player.label == self._no_trade.label:
+            return None
+        labels = self._current_actionable_labels
+        if labels is not None and player.label in labels:
+            return None
+        return _DisqualificationReason(
+            label=player.label,
+            reason=(
+                "current actionability gate: no current raw/shadow signal "
+                "or fresh shadow fill"
+            ),
+        )
+
+    def _validate_hard_policy(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int = 0,
+        market_tags: Sequence[str] = (),
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        if not cfg.hard_policy_enabled or player.label == self._no_trade.label:
+            return None
+        deny_labels = {str(label) for label in cfg.hard_policy_deny_labels}
+        if player.label in deny_labels:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=f"hard policy denylist: {player.label}",
+            )
+        if self._is_genetics_candidate(player):
+            metrics = self._promotion_metrics(player, regime)
+            aggregate = self._virtual_persistent_metrics(player)
+            if aggregate.closed_trades > metrics.closed_trades:
+                metrics = aggregate
+            if metrics.closed_trades < cfg.hard_policy_genetics_min_closed_trades:
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=(
+                        "hard policy untrained genetics: closed_trades "
+                        f"{metrics.closed_trades} < "
+                        f"{cfg.hard_policy_genetics_min_closed_trades}"
+                    ),
+                )
+        issue = self._validate_experimental_real_maturity(
+            player,
+            regime,
+            current_bar=current_bar,
+        )
+        if issue is not None:
+            return issue
+        if player.label in {str(label) for label in cfg.hard_policy_manual_regime_override_labels}:
+            return None
+        specialist = self._solo_specialist_label(player)
+        if not specialist:
+            return None
+        allowed_regimes, allowed_tags = self._specialist_allow_policy(specialist)
+        if not allowed_regimes and not allowed_tags:
+            return None
+        regime_key = regime.label
+        tag_set = set(self._normalize_market_tags(market_tags))
+        if regime_key in allowed_regimes or tag_set.intersection(allowed_tags):
+            return None
+        return _DisqualificationReason(
+            label=player.label,
+            reason=(
+                "hard policy regime allowlist: "
+                f"{specialist} allowed in regimes "
+                f"{'/'.join(sorted(allowed_regimes)) or '-'}"
+                f" or tags {'/'.join(sorted(allowed_tags)) or '-'}"
+            ),
+        )
+
+    def _validate_experimental_real_maturity(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        experimental_labels = {
+            str(label)
+            for label in cfg.hard_policy_experimental_real_labels
+            if str(label)
+        }
+        if player.label not in experimental_labels:
+            return None
+        min_bar = int(cfg.hard_policy_experimental_min_bar)
+        if min_bar > 0 and int(current_bar) < min_bar:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    "hard policy experimental maturity: bar "
+                    f"{int(current_bar)} < {min_bar}"
+                ),
+            )
+        metrics = self._promotion_metrics(player, regime)
+        min_trades = int(cfg.hard_policy_experimental_min_closed_trades)
+        if metrics.closed_trades < min_trades:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    "hard policy experimental maturity: shadow closed_trades "
+                    f"{metrics.closed_trades} < {min_trades}"
+                ),
+            )
+        if metrics.pnl_pct < cfg.hard_policy_experimental_min_pnl_pct:
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    "hard policy experimental maturity: shadow pnl_pct "
+                    f"{metrics.pnl_pct:.2f} < "
+                    f"{cfg.hard_policy_experimental_min_pnl_pct:.2f}"
+                ),
+            )
         return None
 
     def _validate_v3_shadow_position_gate(
@@ -934,6 +1281,8 @@ class Strategist:
         self,
         player: Player,
         regime: Regime,
+        *,
+        current_bar: int,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
         if cfg.v3_real_loss_kill_min_closed_trades > 0:
@@ -942,6 +1291,13 @@ class Strategist:
                 metrics.closed_trades >= cfg.v3_real_loss_kill_min_closed_trades
                 and metrics.pnl_pct <= cfg.v3_real_loss_kill_pnl_pct
             ):
+                if self._has_v3_real_loss_rescue(
+                    player,
+                    regime,
+                    current_bar=current_bar,
+                    real_metrics=metrics,
+                ):
+                    return None
                 return _DisqualificationReason(
                     label=player.label,
                     reason=(
@@ -950,7 +1306,53 @@ class Strategist:
                         f"{metrics.closed_trades} real closed trades"
                     ),
                 )
+        issue = self._validate_v3_realized_profit_lock(player)
+        if issue is not None:
+            return issue
+        issue = self._validate_v3_probation_realized_loss(
+            player,
+            regime,
+            current_bar=current_bar,
+        )
+        if issue is not None:
+            return issue
         return self._validate_v3_persistent_loss(player)
+
+    def _has_v3_real_loss_rescue(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int,
+        real_metrics: Metrics,
+    ) -> bool:
+        cfg = self._config
+        if not cfg.v3_real_loss_rescue_enabled:
+            return False
+        if (
+            self._is_genetics_candidate(player)
+            and not cfg.v3_real_loss_rescue_allow_genetics
+        ):
+            return False
+        if real_metrics.pnl_pct < cfg.v3_real_loss_rescue_max_real_loss_pct:
+            return False
+        virtual = self._virtual_persistent_metrics(player)
+        if not virtual.has_data:
+            return False
+        if virtual.pnl_pct < cfg.v3_real_loss_rescue_min_virtual_pnl_pct:
+            return False
+        if virtual.max_dd_pct > cfg.v3_real_loss_rescue_max_virtual_dd_pct:
+            return False
+        stats = self._entry_causal_score.score_with_stats(
+            label=player.label,
+            regime=regime.label,
+            current_bar=current_bar,
+        )
+        if stats.actionable_share < cfg.v3_real_loss_rescue_min_actionable_share:
+            return False
+        if stats.recent_filled < cfg.v3_real_loss_rescue_min_recent_filled:
+            return False
+        return True
 
     def _validate_v3_persistent_loss(
         self,
@@ -987,6 +1389,126 @@ class Strategist:
                 f"win_rate {win_rate:.2f}% with {metrics.closed_trades} "
                 "all-regime real closed trades"
             ),
+        )
+
+    def _validate_v3_probation_realized_loss(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        min_trades = int(cfg.v3_probation_loss_kill_min_closed_trades)
+        if min_trades <= 0:
+            return None
+        label = player.label
+        prefixes = tuple(
+            str(prefix)
+            for prefix in cfg.v3_probation_loss_kill_label_prefixes
+            if str(prefix)
+        )
+        if prefixes and not label.startswith(prefixes):
+            return None
+        closed_trades = int(self._realized_trade_counts_by_player.get(label, 0) or 0)
+        if closed_trades < min_trades:
+            return None
+        initial_capital = float(self._realized_initial_capital or 0.0)
+        if initial_capital <= 0:
+            return None
+        pnl_usd = float(self._realized_pnl_by_player.get(label, 0.0) or 0.0)
+        pnl_pct = pnl_usd / initial_capital * 100.0
+        wins = int(self._realized_win_counts_by_player.get(label, 0) or 0)
+        win_rate = wins / closed_trades * 100.0 if closed_trades > 0 else 0.0
+        pnl_breach = pnl_pct <= cfg.v3_probation_loss_kill_pnl_pct
+        weak_negative_edge = (
+            cfg.v3_probation_loss_kill_win_rate_pct > 0.0
+            and pnl_pct < 0.0
+            and win_rate <= cfg.v3_probation_loss_kill_win_rate_pct
+        )
+        if not (pnl_breach or weak_negative_edge):
+            return None
+        if self._has_v3_probation_shadow_rescue(
+            player,
+            regime,
+            current_bar=current_bar,
+        ):
+            return None
+        return _DisqualificationReason(
+            label=label,
+            reason=(
+                f"v3 probation realized-loss kill: pnl_usd {pnl_usd:.2f}, "
+                f"pnl_pct {pnl_pct:.2f}, win_rate {win_rate:.2f}% with "
+                f"{closed_trades} realized closed trades"
+            ),
+        )
+
+    def _validate_v3_realized_profit_lock(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        cfg = self._config
+        min_trades = int(cfg.v3_realized_profit_lock_min_closed_trades)
+        if min_trades <= 0:
+            return None
+        label = player.label
+        closed_trades = int(self._realized_trade_counts_by_player.get(label, 0) or 0)
+        if closed_trades < min_trades:
+            return None
+        initial_capital = float(self._realized_initial_capital or 0.0)
+        if initial_capital <= 0:
+            return None
+        pnl_usd = float(self._realized_pnl_by_player.get(label, 0.0) or 0.0)
+        peak_usd = float(self._realized_peak_pnl_by_player.get(label, pnl_usd) or 0.0)
+        pnl_pct = pnl_usd / initial_capital * 100.0
+        peak_pct = peak_usd / initial_capital * 100.0
+        giveback_pct = max(0.0, peak_pct - pnl_pct)
+        if peak_pct < cfg.v3_realized_profit_lock_min_peak_pnl_pct:
+            return None
+        if pnl_pct > cfg.v3_realized_profit_lock_floor_pnl_pct:
+            return None
+        if giveback_pct < cfg.v3_realized_profit_lock_max_giveback_pct:
+            return None
+        return _DisqualificationReason(
+            label=label,
+            reason=(
+                f"v3 realized profit-lock: pnl_pct {pnl_pct:.2f}, "
+                f"peak_pnl_pct {peak_pct:.2f}, giveback_pct {giveback_pct:.2f} "
+                f"with {closed_trades} realized closed trades"
+            ),
+        )
+
+    def _panteon_equity_guard_reason(self, *, current_bar: int) -> Optional[str]:
+        cfg = self._config
+        if not cfg.v3_panteon_equity_guard_enabled:
+            return None
+        if int(current_bar) <= int(self._panteon_equity_guard_until_bar):
+            return (
+                "v3 panteon equity guard: cooldown active until bar "
+                f"{self._panteon_equity_guard_until_bar}"
+            )
+        initial_capital = float(self._realized_initial_capital or 0.0)
+        if initial_capital <= 0:
+            return None
+        pnl_usd = sum(
+            float(value or 0.0) for value in self._realized_pnl_by_player.values()
+        )
+        peak_usd = max(float(self._panteon_realized_peak_pnl_usd or 0.0), pnl_usd)
+        peak_pct = peak_usd / initial_capital * 100.0
+        pnl_pct = pnl_usd / initial_capital * 100.0
+        giveback_pct = max(0.0, peak_pct - pnl_pct)
+        if peak_pct < cfg.v3_panteon_equity_guard_min_peak_pnl_pct:
+            return None
+        if giveback_pct < cfg.v3_panteon_equity_guard_max_giveback_pct:
+            return None
+        if pnl_pct > cfg.v3_panteon_equity_guard_floor_pnl_pct:
+            return None
+        cooldown = int(cfg.v3_panteon_equity_guard_cooldown_bars)
+        self._panteon_equity_guard_until_bar = int(current_bar) + max(0, cooldown)
+        return (
+            "v3 panteon equity guard: realized pnl_pct "
+            f"{pnl_pct:.2f}, peak_pnl_pct {peak_pct:.2f}, "
+            f"giveback_pct {giveback_pct:.2f}"
         )
 
     def _validate_v3_persistent_realized_loss(
@@ -1041,6 +1563,8 @@ class Strategist:
         player: Player,
         regime: Regime,
         score: float,
+        *,
+        current_bar: int,
     ) -> Optional[_DisqualificationReason]:
         cfg = self._config
         metrics = self._real_promotion_metrics(player, regime)
@@ -1053,6 +1577,30 @@ class Strategist:
                 ),
             )
         if metrics.closed_trades < cfg.real_promotion_min_closed_trades:
+            if self._current is not None and player.label == self._current.label:
+                return None
+            if (
+                self._is_genetics_candidate(player)
+                and not self._allows_genetics_probation_shadow_rescue(player, regime)
+            ):
+                if cfg.v3_probation_shadow_rescue_allow_genetics:
+                    reason = (
+                        "real promotion gate: genetics probation ineligible for "
+                        "scoped rescue with "
+                    )
+                else:
+                    reason = "real promotion gate: genetics probation disabled with "
+                return _DisqualificationReason(
+                    label=player.label,
+                    reason=f"{reason}{metrics.closed_trades} real closed trades",
+                )
+            if self._has_v3_probation_shadow_rescue(
+                player,
+                regime,
+                current_bar=current_bar,
+                real_metrics=metrics,
+            ):
+                return None
             if score >= cfg.real_promotion_probation_min_score:
                 return None
             return _DisqualificationReason(
@@ -1080,6 +1628,50 @@ class Strategist:
                 ),
             )
         return None
+
+    def _has_v3_probation_shadow_rescue(
+        self,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int,
+        real_metrics: Optional[Metrics] = None,
+    ) -> bool:
+        cfg = self._config
+        if not (
+            cfg.real_promotion_gate_enabled
+            and cfg.v3_probation_shadow_rescue_enabled
+        ):
+            return False
+        if (
+            self._is_genetics_candidate(player)
+            and not self._allows_genetics_probation_shadow_rescue(player, regime)
+        ):
+            return False
+        metrics = real_metrics or self._real_promotion_metrics(player, regime)
+        if metrics.closed_trades >= cfg.real_promotion_min_closed_trades:
+            return False
+        if metrics.pnl_pct < cfg.real_promotion_loss_budget_pct:
+            return False
+        virtual = self._virtual_persistent_metrics(player)
+        if not virtual.has_data:
+            return False
+        if virtual.pnl_pct < cfg.v3_probation_shadow_rescue_min_virtual_pnl_pct:
+            return False
+        if virtual.max_dd_pct > cfg.v3_probation_shadow_rescue_max_virtual_dd_pct:
+            return False
+        stats = self._entry_causal_score.score_with_stats(
+            label=player.label,
+            regime=regime.label,
+            current_bar=current_bar,
+        )
+        if stats.actionable_share < cfg.v3_probation_shadow_rescue_min_actionable_share:
+            return False
+        if stats.recent_filled < cfg.v3_probation_shadow_rescue_min_recent_filled:
+            return False
+        if stats.recent_pnl_usd < cfg.v3_probation_shadow_rescue_min_recent_pnl_usd:
+            return False
+        return True
 
     def _real_promotion_metrics(self, player: Player, regime: Regime) -> Metrics:
         real_perf = getattr(self, "_real_perf", None)
@@ -1465,9 +2057,15 @@ class Strategist:
         regime: Regime,
         *,
         current_bar: int = 0,
+        market_tags: Sequence[str] = (),
     ) -> Tuple[CandidateScore, ...]:
         rows = [
-            self._score_player_detail(player, regime, current_bar=current_bar)
+            self._score_player_detail(
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
+            )
             for player in candidates
         ]
         rows.sort(
@@ -1487,8 +2085,14 @@ class Strategist:
         regime: Regime,
         *,
         current_bar: int = 0,
+        market_tags: Sequence[str] = (),
     ) -> float:
-        return self._score_player_detail(player, regime, current_bar=current_bar).score
+        return self._score_player_detail(
+            player,
+            regime,
+            current_bar=current_bar,
+            market_tags=market_tags,
+        ).score
 
     def _score_player_detail(
         self,
@@ -1496,10 +2100,23 @@ class Strategist:
         regime: Regime,
         *,
         current_bar: int = 0,
+        market_tags: Sequence[str] = (),
     ) -> CandidateScore:
         """Score для игрока plus forensic details."""
         if self._config.use_v3_rolling_score:
-            return self._score_player_detail_v3(player, regime, current_bar=current_bar)
+            row = self._score_player_detail_v3(
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
+            )
+            return self._apply_hard_policy_score_penalty(
+                row,
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
+            )
 
         agent_labels = tuple(player.agent_labels)
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
@@ -1522,22 +2139,28 @@ class Strategist:
             ) = self._apply_player_session_overlay(player, regime, score)
             score, penalty = self._apply_uncertainty_penalty(score, own_metrics)
             score = self._apply_execution_penalty(score, own_metrics)
-            return CandidateScore(
-                label=player.label,
-                score=score,
-                rank=0,
-                has_data=True,
-                closed_trades=own_metrics.closed_trades,
-                signals=own_metrics.signals,
-                execution_failures=own_metrics.execution_failures,
-                score_source=score_source,
-                uncertainty_penalty=penalty,
-                agent_labels=agent_labels,
-                memory_keys_read=memory_keys,
-                session_score_delta=session_delta,
-                session_pnl_pct=session_pnl,
-                session_underperformance_penalty=session_underperformance,
-                session_stale_penalty=session_stale,
+            return self._apply_hard_policy_score_penalty(
+                CandidateScore(
+                    label=player.label,
+                    score=score,
+                    rank=0,
+                    has_data=True,
+                    closed_trades=own_metrics.closed_trades,
+                    signals=own_metrics.signals,
+                    execution_failures=own_metrics.execution_failures,
+                    score_source=score_source,
+                    uncertainty_penalty=penalty,
+                    agent_labels=agent_labels,
+                    memory_keys_read=memory_keys,
+                    session_score_delta=session_delta,
+                    session_pnl_pct=session_pnl,
+                    session_underperformance_penalty=session_underperformance,
+                    session_stale_penalty=session_stale,
+                ),
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
             )
 
         agent_scores = []
@@ -1556,18 +2179,24 @@ class Strategist:
                 )
         if not agent_scores:
             penalty = self._config.zero_score_uncertainty_penalty
-            return CandidateScore(
-                label=player.label,
-                score=-penalty,
-                rank=0,
-                has_data=False,
-                closed_trades=0,
-                signals=0,
-                execution_failures=0,
-                score_source="no_data",
-                uncertainty_penalty=penalty,
-                agent_labels=agent_labels,
-                memory_keys_read=memory_keys,
+            return self._apply_hard_policy_score_penalty(
+                CandidateScore(
+                    label=player.label,
+                    score=-penalty,
+                    rank=0,
+                    has_data=False,
+                    closed_trades=0,
+                    signals=0,
+                    execution_failures=0,
+                    score_source="no_data",
+                    uncertainty_penalty=penalty,
+                    agent_labels=agent_labels,
+                    memory_keys_read=memory_keys,
+                ),
+                player,
+                regime,
+                current_bar=current_bar,
+                market_tags=market_tags,
             )
         base_score = sum(agent_scores) / len(agent_scores)
         if has_closed_experience:
@@ -1586,22 +2215,28 @@ class Strategist:
             execution_failures=agg_exec_failures,
         )
         score, penalty = self._apply_uncertainty_penalty(score, metrics_view)
-        return CandidateScore(
-            label=player.label,
-            score=score,
-            rank=0,
-            has_data=True,
-            closed_trades=agg_closed,
-            signals=agg_signals,
-            execution_failures=agg_exec_failures,
-            score_source="agents",
-            uncertainty_penalty=penalty,
-            agent_labels=agent_labels,
-            memory_keys_read=memory_keys,
-            session_score_delta=session_delta,
-            session_pnl_pct=session_pnl,
-            session_underperformance_penalty=session_underperformance,
-            session_stale_penalty=session_stale,
+        return self._apply_hard_policy_score_penalty(
+            CandidateScore(
+                label=player.label,
+                score=score,
+                rank=0,
+                has_data=True,
+                closed_trades=agg_closed,
+                signals=agg_signals,
+                execution_failures=agg_exec_failures,
+                score_source="agents",
+                uncertainty_penalty=penalty,
+                agent_labels=agent_labels,
+                memory_keys_read=memory_keys,
+                session_score_delta=session_delta,
+                session_pnl_pct=session_pnl,
+                session_underperformance_penalty=session_underperformance,
+                session_stale_penalty=session_stale,
+            ),
+            player,
+            regime,
+            current_bar=current_bar,
+            market_tags=market_tags,
         )
 
     def _score_player_detail_v3(
@@ -1610,6 +2245,7 @@ class Strategist:
         regime: Regime,
         *,
         current_bar: int = 0,
+        market_tags: Sequence[str] = (),
     ) -> CandidateScore:
         agent_labels = tuple(player.agent_labels)
         memory_keys = (self._memory_key(player.label, regime),) + tuple(
@@ -1727,19 +2363,48 @@ class Strategist:
             current_bar=current_bar,
         )
         score = float(stats.score)
+        has_data = stats.has_data
+        score_source = "v3_entry_causal"
         if not stats.has_data:
-            score = min(score, float(self._config.v3_score_config.no_data_score))
+            if self._has_v3_probation_shadow_rescue(
+                player,
+                regime,
+                current_bar=current_bar,
+            ):
+                fill_confidence = (
+                    1.0
+                    if self._config.v3_entry_causal_min_filled <= 0
+                    else min(
+                        1.0,
+                        stats.recent_filled
+                        / max(1, self._config.v3_entry_causal_min_filled),
+                    )
+                )
+                actionability_factor = (
+                    stats.actionable_share
+                    ** self._config.v3_entry_causal_actionability_weight
+                    if self._config.v3_entry_causal_actionability_weight > 0.0
+                    else 1.0
+                )
+                score = max(
+                    float(self._config.v3_score_config.no_data_score),
+                    float(stats.recent_pnl_usd) * fill_confidence * actionability_factor,
+                )
+                has_data = True
+                score_source = "v3_entry_causal_probation_rescue"
+            else:
+                score = min(score, float(self._config.v3_score_config.no_data_score))
         capital = max(1e-9, float(self._realized_initial_capital or 0.0))
         session_pnl_pct = float(stats.recent_pnl_usd) / capital * 100.0
         return CandidateScore(
             label=player.label,
             score=score,
             rank=0,
-            has_data=stats.has_data,
+            has_data=has_data,
             closed_trades=int(stats.closed_trades),
             signals=int(stats.recent_signals),
             execution_failures=0,
-            score_source="v3_entry_causal",
+            score_source=score_source,
             uncertainty_penalty=0.0,
             agent_labels=agent_labels,
             memory_keys_read=memory_keys,
@@ -1747,6 +2412,11 @@ class Strategist:
             session_pnl_pct=session_pnl_pct,
             session_underperformance_penalty=max(0.0, -session_pnl_pct),
             session_stale_penalty=max(0.0, 1.0 - stats.actionable_share),
+            recent_bars=int(stats.recent_bars),
+            recent_actionable_bars=int(stats.recent_actionable_bars),
+            actionable_share=float(stats.actionable_share),
+            recent_filled=int(stats.recent_filled),
+            recent_pnl_usd=float(stats.recent_pnl_usd),
         )
 
     def _score_player_detail_v3_shadow(
@@ -1799,6 +2469,115 @@ class Strategist:
             session_underperformance_penalty=max(0.0, -score),
             session_stale_penalty=0.0,
         )
+
+    def _apply_hard_policy_score_penalty(
+        self,
+        row: CandidateScore,
+        player: Player,
+        regime: Regime,
+        *,
+        current_bar: int,
+        market_tags: Sequence[str] = (),
+    ) -> CandidateScore:
+        cfg = self._config
+        if (
+            not cfg.hard_policy_enabled
+            or cfg.hard_policy_neutral_penalty <= 0.0
+            or regime is not Regime.NEUTRAL
+            or player.label == self._no_trade.label
+            or player.label not in set(cfg.hard_policy_neutral_penalty_labels)
+        ):
+            return row
+        tag_set = set(self._normalize_market_tags(market_tags))
+        penalize = bool({"noisy", "low_actionability"}.intersection(tag_set))
+        if not penalize:
+            stats = self._entry_causal_score.score_with_stats(
+                label=player.label,
+                regime=regime.label,
+                current_bar=current_bar,
+            )
+            penalize = (
+                stats.recent_bars >= cfg.hard_policy_min_actionability_bars
+                and stats.actionable_share <= cfg.hard_policy_low_actionability_share
+            )
+        if not penalize:
+            return row
+        penalty = float(cfg.hard_policy_neutral_penalty)
+        return replace(
+            row,
+            score=float(row.score) - penalty,
+            session_stale_penalty=float(row.session_stale_penalty) + penalty,
+        )
+
+    @staticmethod
+    def _normalize_market_tags(tags: Sequence[str]) -> Tuple[str, ...]:
+        out: List[str] = []
+        seen = set()
+        for raw in tags or ():
+            tag = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+            while "__" in tag:
+                tag = tag.replace("__", "_")
+            if not tag:
+                continue
+            aliases = {
+                "highrange": "high_range",
+                "rangehigh": "high_range",
+                "range_high": "high_range",
+                "high_vol": "high_range",
+                "high_volatility": "high_range",
+                "noise": "noisy",
+                "high_noise": "noisy",
+                "low_action": "low_actionability",
+                "low_actionable": "low_actionability",
+            }
+            tag = aliases.get(tag, tag)
+            if tag in seen:
+                continue
+            seen.add(tag)
+            out.append(tag)
+        return tuple(out)
+
+    @staticmethod
+    def _is_genetics_candidate(player: Player) -> bool:
+        labels = (player.label, *tuple(player.agent_labels))
+        return any("genetic" in str(label).lower() for label in labels)
+
+    def _allows_genetics_probation_shadow_rescue(
+        self,
+        player: Player,
+        regime: Regime,
+    ) -> bool:
+        if not self._config.v3_probation_shadow_rescue_allow_genetics:
+            return False
+        if str(player.label) != "GeneticsResearch":
+            return False
+        return regime in (Regime.BEARISH, Regime.CRASH)
+
+    @staticmethod
+    def _is_genetics_label(label: str) -> bool:
+        return "genetic" in str(label).lower()
+
+    @staticmethod
+    def _solo_specialist_label(player: Player) -> str:
+        agent_labels = tuple(str(label) for label in player.agent_labels)
+        if len(agent_labels) == 1:
+            return agent_labels[0]
+        label = str(player.label or "")
+        if label.startswith("Solo_"):
+            return label[len("Solo_"):]
+        return ""
+
+    @staticmethod
+    def _specialist_allow_policy(label: str) -> Tuple[frozenset[str], frozenset[str]]:
+        if label == "FundingArb":
+            return frozenset({"bearish"}), frozenset()
+        if label == "VolBreakoutHunter" or "VolBreakout" in label:
+            return frozenset({"bullish"}), frozenset({"high_range"})
+        if label == "LiveCrashHunter" or "CrashHunter" in label:
+            return frozenset({"bearish", "crash"}), frozenset()
+        if label == "ResearchValidatorAgent":
+            return frozenset({"neutral"}), frozenset({"noisy"})
+        return frozenset(), frozenset()
 
     @staticmethod
     def _memory_key(label: str, regime: Regime) -> str:

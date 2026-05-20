@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
 from panteon_v2.domain.types import Action
 from panteon_v2.app.agent_bootstrap import _ensure_paths, known_labels
@@ -67,6 +70,7 @@ class TestNewStrategyAgents(unittest.TestCase):
         labels = set(known_labels())
         self.assertIn("NeutralLiquiditySweep", labels)
         self.assertIn("AnchorFlowMomentum", labels)
+        self.assertNotIn("CarryFlowAgentV2", labels)
 
         profile_by_label = {profile.label: profile for profile in PRODUCTION_PROFILES}
         self.assertIn("NeutralEdgeResearch", profile_by_label)
@@ -74,6 +78,71 @@ class TestNewStrategyAgents(unittest.TestCase):
         self.assertIn("NeutralLiquiditySweep", neutral_edge.bias)
         self.assertIn("AnchorFlowMomentum", neutral_edge.bias)
         self.assertIn("ResearchValidatorAgent", neutral_edge.bias)
+        defensive = profile_by_label["DefensiveResearch"]
+        self.assertNotIn("CarryFlowAgentV2", defensive.bias)
+
+
+class TestGenomeEnsembleAgent(unittest.TestCase):
+    def test_votes_from_legacy_genetics_agents_without_bar_index_kwarg(self):
+        calls = []
+
+        class LongVoter:
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                calls.append((type(self).__name__, month, portfolio_value))
+                return {"BTC": 3}
+
+        class HoldVoter:
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                calls.append((type(self).__name__, month, portfolio_value))
+                return {"BTC": 0}
+
+        fake_module = types.ModuleType("crypto_genetics")
+        fake_module.GeneticsBullishAgent = LongVoter
+        fake_module.GeneticsBearishAgent = LongVoter
+        fake_module.GeneticsNeutralAgent = HoldVoter
+
+        with patch.dict(sys.modules, {"crypto_genetics": fake_module}):
+            from agents_v2 import GenomeEnsembleAgent
+
+            agent = GenomeEnsembleAgent()
+            result = agent.act(
+                {"BTC": 100.0},
+                {"BTC": 1000.0},
+                month=5,
+                portfolio_value=12345.0,
+                bar_index=77,
+            )
+
+        self.assertEqual(result["BTC"], 3)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(call[1:] == (5, 12345.0) for call in calls))
+
+    def test_forwards_position_sync_to_loaded_regime_genetics_agents(self):
+        sync_calls = []
+
+        class SyncableVoter:
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                return {"BTC": 0}
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                sync_calls.append(
+                    (type(self).__name__, symbol, spot_qty, spot_entry, fut_qty, fut_entry)
+                )
+
+        fake_module = types.ModuleType("crypto_genetics")
+        fake_module.GeneticsBullishAgent = SyncableVoter
+        fake_module.GeneticsBearishAgent = SyncableVoter
+        fake_module.GeneticsNeutralAgent = SyncableVoter
+
+        with patch.dict(sys.modules, {"crypto_genetics": fake_module}):
+            from agents_v2 import GenomeEnsembleAgent
+
+            agent = GenomeEnsembleAgent()
+            agent.act({"BTC": 100.0}, {"BTC": 1000.0}, month=5, portfolio_value=1000.0)
+            agent.update_from_exchange("BTC", 0.0, 0.0, 1.5, 101.0)
+
+        self.assertEqual(len(sync_calls), 3)
+        self.assertTrue(all(call[1:] == ("BTC", 0.0, 0.0, 1.5, 101.0) for call in sync_calls))
 
 
 if __name__ == "__main__":

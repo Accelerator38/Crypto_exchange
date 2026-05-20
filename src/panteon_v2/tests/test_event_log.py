@@ -125,6 +125,11 @@ class TestEventLog(unittest.TestCase):
                 selected_by_pantheon=True,
                 memory_keys_read=("P|bullish", "A|bullish"),
                 agent_labels=("A",),
+                recent_bars=12,
+                recent_actionable_bars=6,
+                actionable_share=0.5,
+                recent_filled=4,
+                recent_pnl_usd=9.5,
             ))
 
             with open(path, "r", encoding="utf-8") as f:
@@ -132,6 +137,8 @@ class TestEventLog(unittest.TestCase):
             self.assertIn("CandidateScored", payload)
             self.assertIn("memory_keys_read", payload)
             self.assertIn("selected_by_pantheon", payload)
+            self.assertIn("actionable_share", payload)
+            self.assertIn("recent_filled", payload)
 
     def test_execution_attributed_event_serializes_outcome_bucket(self):
         with tempfile.TemporaryDirectory() as td:

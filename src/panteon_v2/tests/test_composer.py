@@ -149,7 +149,7 @@ class TestPlayerComposer(unittest.TestCase):
 
         player = composer.compose_from_profile_with_fallback(
             PROFILE_GENETICS_RESEARCH,
-            Regime.BULLISH,
+            Regime.BEARISH,
         )
 
         self.assertIsNotNone(player)
@@ -157,10 +157,78 @@ class TestPlayerComposer(unittest.TestCase):
         self.assertTrue(
             all(label.startswith("Genetics") for label in player.agent_labels)
         )
+        self.assertIn("GeneticsCore", player.agent_labels)
+        self.assertNotIn("GeneticsGenomeEnsemble", player.agent_labels)
+        self.assertNotIn("GeneticsBullish", player.agent_labels)
         self.assertLessEqual(
             len(player.agent_labels),
             PROFILE_GENETICS_RESEARCH.max_agents,
         )
+
+    def test_genetics_profile_can_score_quarantined_core_from_player_context(self):
+        registry = AgentRegistry()
+        for label in ["GeneticsCore", "GeneticsGenomeEnsemble"]:
+            registry.register(FakeAgent(label, {"BTC": Action.FUT_LONG_FULL}))
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "GeneticsCore", Regime.BEARISH, 20, 3.0, start_id=1)
+        _add_perf(perf, "GeneticsGenomeEnsemble", Regime.BEARISH, 20, 0.2, start_id=500)
+        composer = PlayerComposer(
+            AgentSelector(
+                registry,
+                perf,
+                QuarantineManager(seed={"GeneticsCore"}),
+            )
+        )
+
+        player = composer.compose_from_profile_with_fallback(
+            PROFILE_GENETICS_RESEARCH,
+            Regime.BEARISH,
+        )
+
+        self.assertIsNotNone(player)
+        self.assertIn("GeneticsCore", player.agent_labels)
+
+    def test_genetics_profile_seeds_core_before_performance_history_exists(self):
+        registry = AgentRegistry()
+        registry.register(FakeAgent("GeneticsCore", {"BTC": Action.FUT_LONG_FULL}))
+        registry.register(FakeAgent("LiveTrendFollow", {"BTC": Action.FUT_LONG_FULL}))
+        composer = PlayerComposer(
+            AgentSelector(
+                registry,
+                PerformanceMemory(trade_fraction=1.0),
+                QuarantineManager(seed=set()),
+            )
+        )
+
+        player = composer.compose_from_profile_with_fallback(
+            PROFILE_GENETICS_RESEARCH,
+            Regime.BEARISH,
+        )
+
+        self.assertIsNotNone(player)
+        self.assertEqual(player.agent_labels, ["GeneticsCore"])
+
+    def test_genetics_profile_is_limited_to_bearish_and_crash_regimes(self):
+        registry = AgentRegistry()
+        registry.register(FakeAgent("GeneticsCore", {"BTC": Action.FUT_LONG_FULL}))
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "GeneticsCore", Regime.NEUTRAL, 30, 1.0, start_id=1)
+        _add_perf(perf, "GeneticsCore", Regime.BEARISH, 30, 1.0, start_id=1000)
+        composer = PlayerComposer(
+            AgentSelector(registry, perf, QuarantineManager(seed=set()))
+        )
+
+        neutral = composer.compose_from_profile_with_fallback(
+            PROFILE_GENETICS_RESEARCH,
+            Regime.NEUTRAL,
+        )
+        bearish = composer.compose_from_profile_with_fallback(
+            PROFILE_GENETICS_RESEARCH,
+            Regime.BEARISH,
+        )
+
+        self.assertIsNone(neutral)
+        self.assertIsNotNone(bearish)
 
 
 class TestComposerCarantineGuarantee(unittest.TestCase):
