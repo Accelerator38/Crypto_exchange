@@ -39,6 +39,34 @@ def build_walk_forward_report(
     }
 
 
+def build_walk_forward_report_from_events(
+    *,
+    results_root: str = "Results",
+    events: Iterable[Mapping],
+) -> dict:
+    event_rows = [dict(event) for event in events if isinstance(event, Mapping)]
+    regime_by_bar = _regime_map(event_rows)
+    closed = _closed_trades(event_rows, regime_by_bar)
+    fills = _fills(event_rows)
+    sessions = _session_summary(Path(results_root))
+
+    by_regime = {}
+    for regime in (r.label for r in Regime):
+        subset = [trade for trade in closed if trade.get("regime") == regime]
+        if subset:
+            by_regime[regime] = _trade_stats(subset, fills=[])
+
+    totals = _trade_stats(closed, fills=fills)
+    return {
+        "results_root": str(Path(results_root)),
+        "event_logs": [],
+        "sessions": sessions,
+        "totals": totals,
+        "by_regime": by_regime,
+        "by_actor": _actor_stats(closed),
+    }
+
+
 def write_walk_forward_report(
     *,
     results_root: str = "Results",
@@ -46,6 +74,22 @@ def write_walk_forward_report(
     output_path: Optional[str] = None,
 ) -> str:
     report = build_walk_forward_report(results_root=results_root, event_logs=event_logs)
+    path = Path(output_path) if output_path else Path(results_root) / "walk_forward_report.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    return str(path)
+
+
+def write_walk_forward_report_from_events(
+    *,
+    results_root: str = "Results",
+    events: Iterable[Mapping],
+    output_path: Optional[str] = None,
+) -> str:
+    report = build_walk_forward_report_from_events(
+        results_root=results_root,
+        events=events,
+    )
     path = Path(output_path) if output_path else Path(results_root) / "walk_forward_report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -99,6 +143,8 @@ def _regime_map(events: Iterable[Mapping]) -> dict[int, str]:
 def _closed_trades(events: Iterable[Mapping], regime_by_bar: Mapping[int, str]) -> list[dict]:
     out: list[dict] = []
     last_regime = Regime.NEUTRAL.label
+    open_regime_by_signal_id: dict[int, str] = {}
+    open_regime_by_sym: dict[str, str] = {}
     for event in events:
         try:
             bar = int(event.get("bar", 0) or 0)
@@ -106,16 +152,40 @@ def _closed_trades(events: Iterable[Mapping], regime_by_bar: Mapping[int, str]) 
             bar = 0
         if bar in regime_by_bar:
             last_regime = regime_by_bar[bar]
-        if _event_type(event) != "PositionClosed":
+        event_type = _event_type(event)
+        if event_type == "PositionOpened":
+            open_regime = _normalize_regime(
+                event.get("open_regime") or regime_by_bar.get(bar, last_regime)
+            )
+            signal_id = _int(event.get("signal_id"), default=-1)
+            if signal_id >= 0:
+                open_regime_by_signal_id[signal_id] = open_regime
+            sym = str(event.get("sym") or "")
+            if sym:
+                open_regime_by_sym[sym] = open_regime
             continue
+        if event_type != "PositionClosed":
+            continue
+        close_regime = _normalize_regime(regime_by_bar.get(bar, last_regime))
+        open_signal_id = _int(event.get("open_signal_id"), default=-1)
+        sym = str(event.get("sym") or "")
+        entry_regime = _normalize_regime(
+            event.get("open_regime")
+            or event.get("entry_regime")
+            or open_regime_by_signal_id.get(open_signal_id)
+            or open_regime_by_sym.get(sym)
+            or close_regime
+        )
         pnl = _float(event.get("realized_pnl"))
         out.append({
             "bar": bar,
-            "sym": str(event.get("sym") or ""),
+            "sym": sym,
             "realized_pnl": pnl,
             "by_player": str(event.get("by_player") or ""),
             "by_agent": str(event.get("by_agent") or ""),
-            "regime": regime_by_bar.get(bar, last_regime),
+            "regime": entry_regime,
+            "entry_regime": entry_regime,
+            "exit_regime": close_regime,
         })
     return out
 
@@ -220,6 +290,13 @@ def _float(value) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _int(value, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _as_float_list(value) -> list[float]:

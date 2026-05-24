@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Sequence, Union
 
 from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
-from ..selection import AgentRegistry, PlayerProfile, StrategistConfig
+from ..selection import AgentRegistry, FlashAllocatorConfig, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import optional_labels, register_all_v1_agents
@@ -248,6 +248,13 @@ def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
             if probation_loss_kill_all
             else ("Solo_", "Fixed_", "Antonius_", "Optimal_")
         ),
+        v3_shadow_fresh_handoff_require_positive_unrealized=bool_any(
+            (
+                "v2_shadow_fresh_handoff_require_positive_unrealized",
+                "v3_shadow_fresh_handoff_require_positive_unrealized",
+            ),
+            True,
+        ),
     )
 
 
@@ -343,6 +350,697 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if raw is None:
         return bool(default)
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _settings_bool(settings: dict, names: Sequence[str], default: bool = False) -> bool:
+    for name in names:
+        if name not in settings:
+            continue
+        value = settings.get(name)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+        return bool(default)
+    return bool(default)
+
+
+def _settings_float(settings: dict, names: Sequence[str], default: float) -> float:
+    for name in names:
+        if name not in settings:
+            continue
+        try:
+            return float(settings.get(name))
+        except (TypeError, ValueError):
+            return float(default)
+    return float(default)
+
+
+def _settings_optional_float(
+    settings: dict,
+    names: Sequence[str],
+    default: float | None = None,
+) -> float | None:
+    for name in names:
+        if name not in settings:
+            continue
+        value = settings.get(name)
+        if value in (None, ""):
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _settings_str(settings: dict, names: Sequence[str], default: str) -> str:
+    for name in names:
+        if name not in settings:
+            continue
+        value = settings.get(name)
+        if value in (None, ""):
+            return str(default)
+        return str(value).strip()
+    return str(default)
+
+
+def _settings_csv_tuple(settings: dict, names: Sequence[str]) -> tuple[str, ...]:
+    for name in names:
+        if name not in settings:
+            continue
+        raw = settings.get(name)
+        if raw is None:
+            return ()
+        if isinstance(raw, str):
+            return tuple(item.strip() for item in raw.split(",") if item.strip())
+        if isinstance(raw, (list, tuple, set)):
+            return tuple(str(item).strip() for item in raw if str(item).strip())
+        text = str(raw).strip()
+        return (text,) if text else ()
+    return ()
+
+
+def _load_exchange_settings(exchange_name: str) -> dict:
+    try:
+        from .exchange_profile import load_exchange_profile
+
+        return dict(load_exchange_profile(exchange_name).parsed_settings or {})
+    except Exception:
+        return {}
+
+
+def _flash_enabled_from_settings(settings: dict, default: bool = False) -> bool:
+    return _settings_bool(
+        settings,
+        (
+            "panteon_flash_enabled",
+            "v2_flash_enabled",
+            "flash_enabled",
+        ),
+        default,
+    )
+
+
+def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfig:
+    return FlashAllocatorConfig(
+        min_score_to_trade=_settings_float(
+            settings,
+            (
+                "panteon_flash_min_score_to_trade",
+                "v2_flash_min_score_to_trade",
+                "flash_min_score_to_trade",
+            ),
+            0.0,
+        ),
+        actionable_bonus=_settings_float(
+            settings,
+            (
+                "panteon_flash_actionable_bonus",
+                "v2_flash_actionable_bonus",
+                "flash_actionable_bonus",
+            ),
+            0.25,
+        ),
+        no_data_score=_settings_float(
+            settings,
+            (
+                "panteon_flash_no_data_score",
+                "v2_flash_no_data_score",
+                "flash_no_data_score",
+            ),
+            0.0,
+        ),
+        min_closed_trades_to_trade=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_min_closed_trades_to_trade",
+                "v2_flash_min_closed_trades_to_trade",
+                "flash_min_closed_trades_to_trade",
+            ),
+            3.0,
+        )),
+        min_pnl_pct_to_trade=_settings_float(
+            settings,
+            (
+                "panteon_flash_min_pnl_pct_to_trade",
+                "v2_flash_min_pnl_pct_to_trade",
+                "flash_min_pnl_pct_to_trade",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_shadow_confirmation_enabled",
+                "v2_flash_shadow_confirmation_enabled",
+                "flash_shadow_confirmation_enabled",
+            ),
+            False,
+        ),
+        shadow_symbol_confirmation_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_symbol_shadow_confirmation_enabled",
+                "v2_flash_symbol_shadow_confirmation_enabled",
+                "flash_symbol_shadow_confirmation_enabled",
+            ),
+            False,
+        ),
+        shadow_actor_fallback_confirmation_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_shadow_actor_fallback_confirmation_enabled",
+                "v2_flash_shadow_actor_fallback_confirmation_enabled",
+                "flash_shadow_actor_fallback_confirmation_enabled",
+            ),
+            False,
+        ),
+        shadow_base_fallback_confirmation_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_shadow_base_fallback_confirmation_enabled",
+                "v2_flash_shadow_base_fallback_confirmation_enabled",
+                "flash_shadow_base_fallback_confirmation_enabled",
+            ),
+            False,
+        ),
+        shadow_signal_handoff_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_shadow_signal_handoff_enabled",
+                "v2_flash_shadow_signal_handoff_enabled",
+                "flash_shadow_signal_handoff_enabled",
+            ),
+            False,
+        ),
+        shadow_actor_fallback_min_base_score=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_actor_fallback_min_base_score",
+                "v2_flash_shadow_actor_fallback_min_base_score",
+                "flash_shadow_actor_fallback_min_base_score",
+            ),
+            0.0,
+        ),
+        shadow_base_fallback_actor_keys=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_shadow_base_fallback_actor_keys",
+                "v2_flash_shadow_base_fallback_actor_keys",
+                "flash_shadow_base_fallback_actor_keys",
+            ),
+        ),
+        actor_switch_margin=_settings_float(
+            settings,
+            (
+                "panteon_flash_actor_switch_margin",
+                "v2_flash_actor_switch_margin",
+                "flash_actor_switch_margin",
+            ),
+            0.0,
+        ),
+        anchor_actor_keys=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_anchor_actor_keys",
+                "v2_flash_anchor_actor_keys",
+                "flash_anchor_actor_keys",
+            ),
+        ),
+        portfolio_actor_keys=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_portfolio_actor_keys",
+                "v2_flash_portfolio_actor_keys",
+                "flash_portfolio_actor_keys",
+            ),
+        ),
+        portfolio_shadow_bootstrap_min_closed_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_portfolio_shadow_bootstrap_min_closed_enabled",
+                "v2_flash_portfolio_shadow_bootstrap_min_closed_enabled",
+                "flash_portfolio_shadow_bootstrap_min_closed_enabled",
+            ),
+            False,
+        ),
+        anchor_min_score_to_trade=_settings_optional_float(
+            settings,
+            (
+                "panteon_flash_anchor_min_score_to_trade",
+                "v2_flash_anchor_min_score_to_trade",
+                "flash_anchor_min_score_to_trade",
+            ),
+            None,
+        ),
+        anchor_shadow_min_score=_settings_optional_float(
+            settings,
+            (
+                "panteon_flash_anchor_shadow_min_score",
+                "v2_flash_anchor_shadow_min_score",
+                "flash_anchor_shadow_min_score",
+            ),
+            None,
+        ),
+        anchor_min_score_advantage=_settings_float(
+            settings,
+            (
+                "panteon_flash_anchor_min_score_advantage",
+                "v2_flash_anchor_min_score_advantage",
+                "flash_anchor_min_score_advantage",
+            ),
+            0.0,
+        ),
+        prefer_solo_player_wrappers_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_prefer_solo_player_wrappers_enabled",
+                "v2_flash_prefer_solo_player_wrappers_enabled",
+                "flash_prefer_solo_player_wrappers_enabled",
+            ),
+            False,
+        ),
+        prefer_proven_solo_player_wrappers_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_prefer_proven_solo_player_wrappers_enabled",
+                "v2_flash_prefer_proven_solo_player_wrappers_enabled",
+                "flash_prefer_proven_solo_player_wrappers_enabled",
+            ),
+            False,
+        ),
+        proven_solo_min_score_advantage=_settings_float(
+            settings,
+            (
+                "panteon_flash_proven_solo_min_score_advantage",
+                "v2_flash_proven_solo_min_score_advantage",
+                "flash_proven_solo_min_score_advantage",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_min_score=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_min_score",
+                "v2_flash_shadow_min_score",
+                "flash_shadow_min_score",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_min_closed_trades",
+                "v2_flash_shadow_min_closed_trades",
+                "flash_shadow_min_closed_trades",
+            ),
+            50.0,
+        )),
+        shadow_confirmation_min_full_open_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_min_full_open_closed_trades",
+                "v2_flash_shadow_min_full_open_closed_trades",
+                "flash_shadow_min_full_open_closed_trades",
+            ),
+            0.0,
+        )),
+        shadow_quality_confirmation_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_shadow_quality_confirmation_enabled",
+                "v2_flash_shadow_quality_confirmation_enabled",
+                "flash_shadow_quality_confirmation_enabled",
+            ),
+            False,
+        ),
+        shadow_confirmation_min_win_rate_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_min_win_rate_pct",
+                "v2_flash_shadow_min_win_rate_pct",
+                "flash_shadow_min_win_rate_pct",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_max_recent_downside_usd=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_max_recent_downside_usd",
+                "v2_flash_shadow_max_recent_downside_usd",
+                "flash_shadow_max_recent_downside_usd",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_min_pnl_per_trade_lcb_usd=_settings_optional_float(
+            settings,
+            (
+                "panteon_flash_shadow_min_pnl_per_trade_lcb_usd",
+                "v2_flash_shadow_min_pnl_per_trade_lcb_usd",
+                "flash_shadow_min_pnl_per_trade_lcb_usd",
+            ),
+            None,
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_z=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_pnl_per_trade_lcb_z",
+                "v2_flash_shadow_pnl_per_trade_lcb_z",
+                "flash_shadow_pnl_per_trade_lcb_z",
+            ),
+            1.0,
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_penalty_floor_usd=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_pnl_per_trade_lcb_penalty_floor_usd",
+                "v2_flash_shadow_pnl_per_trade_lcb_penalty_floor_usd",
+                "flash_shadow_pnl_per_trade_lcb_penalty_floor_usd",
+            ),
+            0.0,
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_penalty_weight=_settings_float(
+            settings,
+            (
+                "panteon_flash_shadow_pnl_per_trade_lcb_penalty_weight",
+                "v2_flash_shadow_pnl_per_trade_lcb_penalty_weight",
+                "flash_shadow_pnl_per_trade_lcb_penalty_weight",
+            ),
+            0.0,
+        ),
+        max_signals_per_actor=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_max_signals_per_actor",
+                "v2_flash_max_signals_per_actor",
+                "flash_max_signals_per_actor",
+            ),
+            0.0,
+        )),
+        open_overextension_guard_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_overextension_guard_enabled",
+                "v2_flash_overextension_guard_enabled",
+                "flash_overextension_guard_enabled",
+            ),
+            False,
+        ),
+        overextension_lookback_bars=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_overextension_lookback_bars",
+                "v2_flash_overextension_lookback_bars",
+                "flash_overextension_lookback_bars",
+            ),
+            12.0,
+        )),
+        short_overextension_return_floor_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_short_overextension_return_floor_pct",
+                "v2_flash_short_overextension_return_floor_pct",
+                "flash_short_overextension_return_floor_pct",
+            ),
+            -8.0,
+        ),
+        long_overextension_return_ceiling_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_long_overextension_return_ceiling_pct",
+                "v2_flash_long_overextension_return_ceiling_pct",
+                "flash_long_overextension_return_ceiling_pct",
+            ),
+            8.0,
+        ),
+        overextension_volatility_normalized_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_overextension_volatility_normalized_enabled",
+                "v2_flash_overextension_volatility_normalized_enabled",
+                "flash_overextension_volatility_normalized_enabled",
+            ),
+            False,
+        ),
+        short_overextension_z_floor=_settings_float(
+            settings,
+            (
+                "panteon_flash_short_overextension_z_floor",
+                "v2_flash_short_overextension_z_floor",
+                "flash_short_overextension_z_floor",
+            ),
+            -2.5,
+        ),
+        long_overextension_z_ceiling=_settings_float(
+            settings,
+            (
+                "panteon_flash_long_overextension_z_ceiling",
+                "v2_flash_long_overextension_z_ceiling",
+                "flash_long_overextension_z_ceiling",
+            ),
+            2.5,
+        ),
+        overextension_min_volatility_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_overextension_min_volatility_pct",
+                "v2_flash_overextension_min_volatility_pct",
+                "flash_overextension_min_volatility_pct",
+            ),
+            0.1,
+        ),
+        denied_open_symbols=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_denied_open_symbols",
+                "v2_flash_denied_open_symbols",
+                "flash_denied_open_symbols",
+            ),
+        ),
+        denied_open_regimes=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_denied_open_regimes",
+                "v2_flash_denied_open_regimes",
+                "flash_denied_open_regimes",
+            ),
+        ),
+        degradation_guard_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_guard_enabled",
+                "v2_flash_degradation_guard_enabled",
+                "flash_degradation_guard_enabled",
+            ),
+            False,
+        ),
+        degradation_actor_guard_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_actor_guard_enabled",
+                "v2_flash_degradation_actor_guard_enabled",
+                "flash_degradation_actor_guard_enabled",
+            ),
+            False,
+        ),
+        degradation_actor_scope=_settings_str(
+            settings,
+            (
+                "panteon_flash_degradation_actor_scope",
+                "v2_flash_degradation_actor_scope",
+                "flash_degradation_actor_scope",
+            ),
+            "actor",
+        ),
+        degradation_signal_cooldown_bars=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_signal_cooldown_bars",
+                "v2_flash_degradation_signal_cooldown_bars",
+                "flash_degradation_signal_cooldown_bars",
+            ),
+            0.0,
+        )),
+        degradation_actor_cooldown_bars=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_actor_cooldown_bars",
+                "v2_flash_degradation_actor_cooldown_bars",
+                "flash_degradation_actor_cooldown_bars",
+            ),
+            0.0,
+        )),
+        degradation_symbol_guard_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_symbol_guard_enabled",
+                "v2_flash_degradation_symbol_guard_enabled",
+                "flash_degradation_symbol_guard_enabled",
+            ),
+            False,
+        ),
+        degradation_symbol_cooldown_bars=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_symbol_cooldown_bars",
+                "v2_flash_degradation_symbol_cooldown_bars",
+                "flash_degradation_symbol_cooldown_bars",
+            ),
+            0.0,
+        )),
+        degradation_symbol_window_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_symbol_window_closed_trades",
+                "v2_flash_degradation_symbol_window_closed_trades",
+                "flash_degradation_symbol_window_closed_trades",
+            ),
+            0.0,
+        )),
+        degradation_symbol_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_symbol_min_closed_trades",
+                "v2_flash_degradation_symbol_min_closed_trades",
+                "flash_degradation_symbol_min_closed_trades",
+            ),
+            0.0,
+        )),
+        degradation_symbol_max_recent_pnl_usd=_settings_optional_float(
+            settings,
+            (
+                "panteon_flash_degradation_symbol_max_recent_pnl_usd",
+                "v2_flash_degradation_symbol_max_recent_pnl_usd",
+                "flash_degradation_symbol_max_recent_pnl_usd",
+            ),
+            None,
+        ),
+        degradation_window_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_window_closed_trades",
+                "v2_flash_degradation_window_closed_trades",
+                "flash_degradation_window_closed_trades",
+            ),
+            3.0,
+        )),
+        degradation_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_min_closed_trades",
+                "v2_flash_degradation_min_closed_trades",
+                "flash_degradation_min_closed_trades",
+            ),
+            3.0,
+        )),
+        degradation_max_recent_pnl_usd=_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_max_recent_pnl_usd",
+                "v2_flash_degradation_max_recent_pnl_usd",
+                "flash_degradation_max_recent_pnl_usd",
+            ),
+            -25.0,
+        ),
+        degradation_reserve_actor_cap=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_reserve_actor_cap",
+                "v2_flash_degradation_reserve_actor_cap",
+                "flash_degradation_reserve_actor_cap",
+            ),
+            False,
+        ),
+        degradation_recovery_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_recovery_enabled",
+                "v2_flash_degradation_recovery_enabled",
+                "flash_degradation_recovery_enabled",
+            ),
+            False,
+        ),
+        degradation_recovery_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_recovery_min_closed_trades",
+                "v2_flash_degradation_recovery_min_closed_trades",
+                "flash_degradation_recovery_min_closed_trades",
+            ),
+            3.0,
+        )),
+        degradation_recovery_min_recent_pnl_usd=_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_recovery_min_recent_pnl_usd",
+                "v2_flash_degradation_recovery_min_recent_pnl_usd",
+                "flash_degradation_recovery_min_recent_pnl_usd",
+            ),
+            0.0,
+        ),
+    )
+
+
+def _resolve_flash_enabled(exchange_name: str) -> bool:
+    env_default = (
+        _env_flag(f"{exchange_name.upper()}_PANTEON_FLASH_ENABLED", False)
+        or _env_flag(f"{exchange_name.upper()}_PANTEON_FLASH", False)
+        or _env_flag("PANTEON_FLASH_ENABLED", False)
+        or _env_flag("PANTEON_FLASH", False)
+    )
+    return _flash_enabled_from_settings(
+        _load_exchange_settings(exchange_name),
+        default=env_default,
+    )
+
+
+def _resolve_flash_allocator_config(exchange_name: str) -> FlashAllocatorConfig:
+    return _flash_allocator_config_from_settings(_load_exchange_settings(exchange_name))
+
+
+def _flash_stale_position_exit_config_from_settings(settings: dict) -> dict[str, object]:
+    return {
+        "enabled": _settings_bool(
+            settings,
+            (
+                "panteon_flash_stale_position_exit_enabled",
+                "v2_flash_stale_position_exit_enabled",
+                "flash_stale_position_exit_enabled",
+            ),
+            False,
+        ),
+        "max_age_bars": max(0, int(_settings_float(
+            settings,
+            (
+                "panteon_flash_stale_position_exit_max_age_bars",
+                "v2_flash_stale_position_exit_max_age_bars",
+                "flash_stale_position_exit_max_age_bars",
+            ),
+            168.0,
+        ))),
+        "require_nonpositive_unrealized": _settings_bool(
+            settings,
+            (
+                "panteon_flash_stale_position_exit_require_nonpositive_unrealized",
+                "v2_flash_stale_position_exit_require_nonpositive_unrealized",
+                "flash_stale_position_exit_require_nonpositive_unrealized",
+            ),
+            True,
+        ),
+    }
+
+
+def _resolve_flash_stale_position_exit_config(exchange_name: str) -> dict[str, object]:
+    return _flash_stale_position_exit_config_from_settings(
+        _load_exchange_settings(exchange_name)
+    )
 
 
 def _resolve_include_genetics(value: Optional[bool]) -> bool:
@@ -769,6 +1467,9 @@ def start_production(
     risk_config = _risk_config_from_trade_fraction(trade_fraction)
     strategist_config = _resolve_strategist_config(exchange)
     live_execution_config = _resolve_live_execution_config(exchange)
+    flash_enabled = _resolve_flash_enabled(exchange)
+    flash_allocator_config = _resolve_flash_allocator_config(exchange)
+    flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
     log.info("[%s] v2 risk capital_fraction=%.2f%%",
              exchange, risk_config.capital_fraction * 100.0)
     log.info(
@@ -781,6 +1482,21 @@ def start_production(
         live_execution_config.max_stale_feed_polls,
         live_execution_config.pending_order_timeout_sec,
     )
+    if flash_enabled:
+        log.info(
+            "[%s] Panteon_Flash enabled: min_score=%.4f actionable_bonus=%.4f no_data_score=%.4f",
+            exchange,
+            flash_allocator_config.min_score_to_trade,
+            flash_allocator_config.actionable_bonus,
+            flash_allocator_config.no_data_score,
+        )
+        if flash_stale_exit_config["enabled"]:
+            log.info(
+                "[%s] Panteon_Flash stale-position exit enabled: max_age_bars=%d require_nonpositive_unrealized=%s",
+                exchange,
+                int(flash_stale_exit_config["max_age_bars"]),
+                bool(flash_stale_exit_config["require_nonpositive_unrealized"]),
+            )
 
     # 2. Регистрируем v1-агенты. Они получают актуальный v2 balance.
     registry = AgentRegistry()
@@ -843,11 +1559,22 @@ def start_production(
         strategist_config=strategist_config,
         risk_config=risk_config,
         live_execution_config=live_execution_config,
+        flash_enabled=flash_enabled,
+        flash_allocator_config=flash_allocator_config,
         perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
     )
     pipeline.mode = mode
     pipeline.timeframe = _resolve_timeframe(exchange)
+    pipeline.flash_stale_position_exit_enabled = bool(
+        flash_stale_exit_config["enabled"]
+    )
+    pipeline.flash_stale_position_exit_max_age_bars = int(
+        flash_stale_exit_config["max_age_bars"]
+    )
+    pipeline.flash_stale_position_exit_require_nonpositive_unrealized = bool(
+        flash_stale_exit_config["require_nonpositive_unrealized"]
+    )
     pipeline_holder["pipeline"] = pipeline
     log.info("Pipeline built: %d profiles, capital=$%.2f",
              len(pipeline.profiles), pipeline.initial_capital)

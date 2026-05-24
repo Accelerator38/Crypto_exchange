@@ -215,13 +215,19 @@ class DegradationGate:
 
 
 def _metrics_delta(current: Metrics, baseline: Metrics) -> Metrics:
+    closed_trades = max(0, int(current.closed_trades) - int(baseline.closed_trades))
+    wins = max(0, int(current.wins) - int(baseline.wins))
+    losses = max(0, int(current.losses) - int(baseline.losses))
+    if wins + losses > closed_trades:
+        wins = min(wins, closed_trades)
+        losses = min(losses, max(0, closed_trades - wins))
     return Metrics(
         pnl_pct=float(current.pnl_pct) - float(baseline.pnl_pct),
-        closed_trades=max(0, int(current.closed_trades) - int(baseline.closed_trades)),
+        closed_trades=closed_trades,
         entries=max(0, int(current.entries) - int(baseline.entries)),
         signals=max(0, int(current.signals) - int(baseline.signals)),
-        wins=max(0, int(current.wins) - int(baseline.wins)),
-        losses=max(0, int(current.losses) - int(baseline.losses)),
+        wins=wins,
+        losses=losses,
         max_dd_pct=max(0.0, float(current.max_dd_pct) - float(baseline.max_dd_pct)),
         blocked_signals=max(
             0, int(current.blocked_signals) - int(baseline.blocked_signals)
@@ -235,4 +241,7 @@ def _metrics_delta(current: Metrics, baseline: Metrics) -> Metrics:
         execution_failures=max(
             0, int(current.execution_failures) - int(baseline.execution_failures)
         ),
+        pnl_gross_pct=float(current.pnl_gross_pct) - float(baseline.pnl_gross_pct),
+        fee_pct=max(0.0, float(current.fee_pct) - float(baseline.fee_pct)),
+        funding_pct=float(current.funding_pct) - float(baseline.funding_pct),
     )

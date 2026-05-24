@@ -17,8 +17,8 @@ EnsemblePlayer заменяет в v1 всю иерархию:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union, cast
 
 from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from .agent import Agent
@@ -40,7 +40,7 @@ class Player(Protocol):
     label: str
     affinity: Optional[Regime]  # None = универсальный
 
-    def vote(self, market: MarketSnapshot, *, signal_id_start: int) -> List[Signal]:
+    def vote(self, market: MarketSnapshot, *, signal_id_start: int) -> "VoteResult":
         ...
 
     @property
@@ -59,6 +59,24 @@ class VoteError:
     reason: str
 
 
+VoteResult = Tuple[List[Signal], List[VoteError]]
+LegacyVoteResult = Union[VoteResult, List[Signal], Tuple[Signal, ...]]
+
+
+def normalize_vote_result(result: LegacyVoteResult | object) -> VoteResult:
+    """Return ``(signals, errors)`` for both new and legacy Player.vote results."""
+    if (
+        isinstance(result, tuple)
+        and len(result) == 2
+        and isinstance(result[0], list)
+        and isinstance(result[1], list)
+    ):
+        return cast(VoteResult, result)
+    if result is None:
+        return [], []
+    return list(cast(Sequence[Signal], result)), []
+
+
 # ────────────────────────────────────────────────────────────────────
 # EnsemblePlayer
 # ────────────────────────────────────────────────────────────────────
@@ -75,13 +93,17 @@ class NoTradePlayer:
     def agent_labels(self) -> List[str]:
         return []
 
+    @property
+    def actor_type(self) -> str:
+        return "no_trade"
+
     def vote(
         self,
         market: MarketSnapshot,
         *,
         signal_id_start: int,
-    ) -> List[Signal]:
-        return []
+    ) -> VoteResult:
+        return [], []
 
 
 @dataclass
@@ -108,8 +130,6 @@ class EnsemblePlayer:
     voting:       VotingPolicy
     thresholds:   ThresholdProfile
     affinity:     Optional[Regime] = None
-    last_vote_errors: List[VoteError] = field(default_factory=list, init=False, repr=False)
-
     def __post_init__(self) -> None:
         if not self.label:
             raise ValueError("EnsemblePlayer.label must be non-empty")
@@ -136,19 +156,22 @@ class EnsemblePlayer:
     def agent_labels(self) -> List[str]:
         return sorted(self.weights.keys())
 
+    @property
+    def actor_type(self) -> str:
+        return "ensemble"
+
     def vote(
         self,
         market: MarketSnapshot,
         *,
         signal_id_start: int,
-    ) -> List[Signal]:
+    ) -> VoteResult:
         """Сначала собираем голоса всех агентов, потом агрегируем
         через VotingPolicy, затем превращаем в Signal-ы."""
         if not self.agents:
-            self.last_vote_errors = []
-            return []
+            return [], []
 
-        self.last_vote_errors = []
+        errors: List[VoteError] = []
         votes: Dict[str, Dict[str, Action]] = {}
         for agent in self.agents:
             try:
@@ -156,7 +179,7 @@ class EnsemblePlayer:
             except Exception as exc:
                 # Агент не должен падать в production. Если упал —
                 # его как будто нет в этом баре.
-                self.last_vote_errors.append(VoteError(
+                errors.append(VoteError(
                     agent_label=agent.label,
                     reason=f"{type(exc).__name__}: {exc}",
                 ))
@@ -209,7 +232,7 @@ class EnsemblePlayer:
                 timestamp=market.timestamp,
             ))
             sid += 1
-        return signals
+        return signals, errors
 
     def _main_contributor(
         self,
@@ -250,8 +273,6 @@ class RotatingAgentPlayer:
     regime_agent_order: Mapping[str, Sequence[str]]
     fallback_agent_order: Sequence[str] = ()
     affinity: Optional[Regime] = None
-    last_vote_errors: List[VoteError] = field(default_factory=list, init=False, repr=False)
-
     def __post_init__(self) -> None:
         if not self.label:
             raise ValueError("RotatingAgentPlayer.label must be non-empty")
@@ -264,20 +285,25 @@ class RotatingAgentPlayer:
     def agent_labels(self) -> List[str]:
         return sorted(self._agents_by_label)
 
+    @property
+    def actor_type(self) -> str:
+        return "ensemble"
+
     def vote(
         self,
         market: MarketSnapshot,
         *,
         signal_id_start: int,
-    ) -> List[Signal]:
-        self.last_vote_errors = []
+    ) -> VoteResult:
+        errors: List[VoteError] = []
         if not self.agents:
-            return []
+            return [], []
         for agent_label in self._ordered_labels(market.regime):
             agent = self._agents_by_label.get(agent_label)
             if agent is None:
                 continue
-            cleaned = self._agent_actions(agent, market)
+            cleaned, agent_errors = self._agent_actions(agent, market)
+            errors.extend(agent_errors)
             if not any(not action.is_hold for action in cleaned.values()):
                 continue
             return self._signals_from_actions(
@@ -285,8 +311,8 @@ class RotatingAgentPlayer:
                 market,
                 by_agent=agent.label,
                 signal_id_start=signal_id_start,
-            )
-        return []
+            ), errors
+        return [], errors
 
     def _ordered_labels(self, regime: Regime) -> Tuple[str, ...]:
         ordered: List[str] = []
@@ -304,11 +330,12 @@ class RotatingAgentPlayer:
         self,
         agent: Agent,
         market: MarketSnapshot,
-    ) -> Dict[str, Action]:
+    ) -> Tuple[Dict[str, Action], List[VoteError]]:
+        errors: List[VoteError] = []
         try:
             raw_actions = agent.act(market)
         except Exception as exc:
-            self.last_vote_errors.append(VoteError(
+            errors.append(VoteError(
                 agent_label=agent.label,
                 reason=f"{type(exc).__name__}: {exc}",
             ))
@@ -323,7 +350,7 @@ class RotatingAgentPlayer:
                 except (ValueError, TypeError):
                     continue
             cleaned[sym] = action
-        return cleaned
+        return cleaned, errors
 
     def _signals_from_actions(
         self,

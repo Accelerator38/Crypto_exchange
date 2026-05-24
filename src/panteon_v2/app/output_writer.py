@@ -15,6 +15,7 @@ import os
 import shutil
 import time
 import html
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +68,8 @@ class OutputWriterConfig:
     dashboard_html:       str = "dashboard.html"
     events_jsonl:         str = "events.jsonl"
     causal_entry_decisions_jsonl: str = "causal_entry_decisions.jsonl"
+    compact_causal_entry_decisions: bool = False
+    compact_causal_entry_top_rejected_candidates: int = 5
     latest_dir:           Optional[str] = None
 
 
@@ -162,6 +165,7 @@ class OutputWriter:
 
     def write(self, step: StepResult) -> None:
         """Вызывается после каждого bar (через on_step callback)."""
+        self._ensure_output_dir()
         self._last_step = step
         self._accumulate_shadow_counts(step)
         self._accumulate_fallback_counts(step)
@@ -190,6 +194,7 @@ class OutputWriter:
         message: str = "",
     ) -> None:
         """Update operator-visible files when no market bar has arrived yet."""
+        self._ensure_output_dir()
         self._write_status(
             self._last_step,
             run_state=run_state,
@@ -234,6 +239,10 @@ class OutputWriter:
             parts.append(f"external_position_signals={step.n_external_position_signals}")
         if step.blocked_reasons:
             parts.append(f"blocked_reasons={self._format_reason_counts(step.blocked_reasons)}")
+        flash_payload = self._flash_status_payload(step)
+        flash_actors = flash_payload.get("selected_actors_by_symbol", {})
+        if flash_actors:
+            parts.append(f"flash_actors={self._format_symbol_actor_map(flash_actors)}")
         if step.fallback_used or step.fallback_skipped or step.fallback_candidate or step.fallback_reason:
             parts.append(f"fallback_used={step.fallback_used}")
             parts.append(f"fallback_skipped={step.fallback_skipped}")
@@ -257,6 +266,8 @@ class OutputWriter:
         if not payload:
             return
         row = dict(payload)
+        if self._config.compact_causal_entry_decisions:
+            row = self._compact_causal_entry_decision(row)
         row.setdefault("bar", step.bar)
         row.setdefault("regime", step.regime.label)
         row.setdefault("selected_leader", step.selected_leader or step.leader or "")
@@ -270,6 +281,110 @@ class OutputWriter:
                 f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
         except Exception:
             log.exception("causal_entry_decisions.jsonl write failed")
+
+    def _compact_causal_entry_decision(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        out = dict(row)
+        decisions = out.get("flash_decisions")
+        if isinstance(decisions, list):
+            out["flash_decisions"] = [
+                self._compact_flash_decision(
+                    decision,
+                    top_rejected_candidates=max(
+                        0,
+                        int(self._config.compact_causal_entry_top_rejected_candidates),
+                    ),
+                )
+                for decision in decisions
+            ]
+        return out
+
+    @staticmethod
+    def _compact_flash_decision(
+        decision: Any,
+        *,
+        top_rejected_candidates: int = 5,
+    ) -> Any:
+        if not isinstance(decision, dict):
+            return decision
+        out = dict(decision)
+        candidates = decision.get("candidates")
+        if not isinstance(candidates, list):
+            return out
+
+        rejected_candidates = [
+            dict(candidate)
+            for candidate in candidates
+            if isinstance(candidate, dict) and bool(candidate.get("rejected"))
+        ]
+        rejection_counts = Counter(
+            str(candidate.get("reason") or "")
+            for candidate in rejected_candidates
+        )
+        out["candidate_count"] = len(candidates)
+        out["rejected_candidate_count"] = len(rejected_candidates)
+        out["eligible_candidate_count"] = len(candidates) - len(rejected_candidates)
+        out["candidate_rejection_counts"] = dict(sorted(rejection_counts.items()))
+        out["top_rejected_candidates"] = [
+            OutputWriter._compact_candidate_audit(candidate)
+            for candidate in sorted(
+                rejected_candidates,
+                key=lambda item: int(item.get("rank") or 0),
+            )[:top_rejected_candidates]
+        ]
+
+        selected_actor = str(decision.get("selected_actor") or "")
+        actor_type = str(decision.get("actor_type") or "")
+        original_selected_actor = str(decision.get("original_selected_actor") or "")
+        original_actor_type = str(decision.get("original_actor_type") or "")
+        compact_candidates: List[Dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            label = str(candidate.get("label") or "")
+            candidate_type = str(candidate.get("actor_type") or "")
+            is_selected = (
+                label == selected_actor
+                and (not actor_type or candidate_type == actor_type)
+            )
+            is_original_selected = bool(original_selected_actor) and (
+                label == original_selected_actor
+                and (not original_actor_type or candidate_type == original_actor_type)
+            )
+            if not (is_selected or is_original_selected):
+                continue
+            key = (label, candidate_type)
+            if key in seen:
+                continue
+            seen.add(key)
+            compact_candidates.append(dict(candidate))
+
+        out["candidates"] = compact_candidates
+        return out
+
+    @staticmethod
+    def _compact_candidate_audit(candidate: Dict[str, Any]) -> Dict[str, Any]:
+        keys = (
+            "label",
+            "actor_type",
+            "actor_key",
+            "action",
+            "rank",
+            "score",
+            "base_score",
+            "effective_score",
+            "gate_score",
+            "reason",
+            "shadow_score",
+            "shadow_closed_trades",
+            "shadow_win_rate_pct",
+            "shadow_recent_downside_usd",
+            "shadow_pnl_per_trade_lcb_usd",
+            "shadow_pnl_per_trade_lcb_penalty",
+            "lookback_return_z",
+        )
+        return {key: candidate[key] for key in keys if key in candidate}
 
     def _write_status(
         self,
@@ -428,6 +543,7 @@ class OutputWriter:
             "last_bar": shadow_bar,
             "last_summary": getattr(self._pipeline, "shadow_last_summary", None),
         }
+        flash = self._flash_status_payload(step)
         decision_debug = self._decision_debug(
             step=step,
             shadow_bar=shadow_bar,
@@ -487,6 +603,7 @@ class OutputWriter:
             "real_trades":      real_trades,
             "live_state_sync":  getattr(self._pipeline, "live_state_sync", None),
             "shadow":           shadow,
+            "flash":            flash,
             "decision_debug":   decision_debug,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
             "quarantine_records": self._quarantine_records(),
@@ -542,11 +659,17 @@ class OutputWriter:
                 "fallback_session": dict(self._fallback_session_counts),
                 "signal_filter_details": [],
                 "blocked_reasons_bar": {},
+                "flash_enabled": bool(getattr(self._pipeline, "flash_enabled", False)),
+                "flash_selected_actors_by_symbol": {},
+                "flash_actor_types_by_symbol": {},
+                "flash_scores_by_symbol": {},
+                "flash_decisions_count": 0,
                 "step_error": "",
             })
             return debug
         selected_leader = step.selected_leader or step.leader or ""
         executed_leader = step.executed_leader or step.leader or ""
+        flash_payload = self._flash_status_payload(step)
         debug.update({
             "leader": step.leader or "",
             "selected_leader": selected_leader,
@@ -578,9 +701,38 @@ class OutputWriter:
             "fallback_session": dict(self._fallback_session_counts),
             "signal_filter_details": list(step.signal_filter_details[:20]),
             "blocked_reasons_bar": dict(blocked_reasons),
+            "flash_enabled": bool(flash_payload.get("enabled", False)),
+            "flash_selected_actors_by_symbol": dict(
+                flash_payload.get("selected_actors_by_symbol", {}) or {}
+            ),
+            "flash_actor_types_by_symbol": dict(
+                flash_payload.get("actor_types_by_symbol", {}) or {}
+            ),
+            "flash_scores_by_symbol": dict(
+                flash_payload.get("scores_by_symbol", {}) or {}
+            ),
+            "flash_decisions_count": len(flash_payload.get("decisions", []) or []),
             "step_error": step.error or "",
         })
         return debug
+
+    def _flash_status_payload(self, step: Optional[StepResult]) -> Dict[str, object]:
+        causal = dict(getattr(step, "causal_decision", {}) or {}) if step is not None else {}
+        selected = dict(getattr(step, "selected_actors_by_symbol", {}) or {}) if step is not None else {}
+        if not selected:
+            selected = dict(causal.get("flash_selected_actors_by_symbol") or {})
+        decisions = list(causal.get("flash_decisions") or [])
+        return {
+            "enabled": bool(
+                getattr(self._pipeline, "flash_enabled", False)
+                or causal.get("flash_enabled")
+                or selected
+            ),
+            "selected_actors_by_symbol": selected,
+            "actor_types_by_symbol": dict(causal.get("flash_actor_types_by_symbol") or {}),
+            "scores_by_symbol": dict(causal.get("flash_scores_by_symbol") or {}),
+            "decisions": decisions,
+        }
 
     def _refresh_account_view(self, *, realized_pnl: float = 0.0) -> Dict[str, float]:
         try:
@@ -880,6 +1032,11 @@ class OutputWriter:
         # AGENTS: registered agent labels from PerformanceMemory
         agents: Dict[str, dict] = {}
         agent_labels = set(self._pipeline.registry.all_labels())
+        agent_labels.update(
+            str(label)
+            for label in (getattr(self._pipeline, "shadow_agent_labels", ()) or ())
+            if str(label)
+        )
         for label in sorted(agent_labels):
             metrics_agg = self._pipeline.perf.get(label)
             if not metrics_agg.has_data:
@@ -1111,6 +1268,7 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
     @staticmethod
     def _write_json_atomic(path: str, data: dict) -> None:
         """Атомарная запись: пишем в tmp + rename."""
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         tmp = path + ".tmp"
         last_exc: Optional[Exception] = None
         for attempt in range(5):
@@ -1153,6 +1311,13 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
             for reason, count in sorted(reasons.items())
         )
 
+    @staticmethod
+    def _format_symbol_actor_map(values: Dict[str, object]) -> str:
+        return ",".join(
+            f"{symbol}:{actor}"
+            for symbol, actor in sorted((str(k), str(v)) for k, v in dict(values or {}).items())
+        )
+
     @property
     def output_dir(self) -> str:
         return self._config.output_dir
@@ -1160,6 +1325,7 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
     def close(self) -> None:
         """Финальная фиксация state перед выходом."""
         try:
+            self._ensure_output_dir()
             self._write_status(
                 self._last_step,
                 run_state="stopped",
@@ -1174,3 +1340,6 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
                 f.write(f"{'='*70}\n")
         except Exception:
             log.exception("close failed")
+
+    def _ensure_output_dir(self) -> None:
+        Path(self._config.output_dir).mkdir(parents=True, exist_ok=True)

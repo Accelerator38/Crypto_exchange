@@ -43,6 +43,8 @@ from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import (
     AgentRegistry,
     AgentSelector,
+    FlashAllocator,
+    FlashAllocatorConfig,
     PROFILE_BOMBERMAN_STRONG,
     PROFILE_DEFAULT_ENSEMBLE,
     PROFILE_DEFENSIVE_RESEARCH,
@@ -261,6 +263,7 @@ class ProductionPipeline:
     selector:    AgentSelector
     composer:    PlayerComposer
     strategist:  Strategist
+    flash_allocator: Optional[FlashAllocator]
     executor:    TradeExecutor
     event_log:   EventLog
     ledger:      AttributionLedger
@@ -291,6 +294,8 @@ class ProductionPipeline:
     shadow_last_summary: Optional[dict] = None
     live_execution: LiveExecutionConfig = field(default_factory=LiveExecutionConfig)
     kill_switch: KillSwitchState = field(default_factory=KillSwitchState)
+    flash_enabled: bool = False
+    shadow_agent_labels: tuple[str, ...] = ()
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -310,6 +315,8 @@ def build_production_pipeline(
     risk_config:        Optional[RiskLimitsConfig] = None,
     health_config:      Optional[SymbolHealthConfig] = None,
     live_execution_config: Optional[LiveExecutionConfig] = None,
+    flash_enabled:     bool = False,
+    flash_allocator_config: Optional[FlashAllocatorConfig] = None,
     degradation_config: Optional[DegradationGateConfig] = None,
     perf_trade_fraction: float = 0.10,
     jsonl_event_log:    Optional[str] = None,
@@ -342,6 +349,7 @@ def build_production_pipeline(
     risk_config = risk_config or RiskLimitsConfig()
     health_config = health_config or SymbolHealthConfig()
     live_execution_config = live_execution_config or LiveExecutionConfig()
+    flash_allocator_config = flash_allocator_config or FlashAllocatorConfig()
     degradation_config = degradation_config or DegradationGateConfig()
 
     event_log = EventLog(
@@ -377,6 +385,12 @@ def build_production_pipeline(
         scoring_config=scoring_config,
         real_perf=real_perf,
     )
+    flash_allocator = FlashAllocator(
+        perf=virtual_perf,
+        qm=qm,
+        config=flash_allocator_config,
+        scoring_config=scoring_config,
+    )
     executor = TradeExecutor(
         exchange=exchange,
         health=health,
@@ -404,6 +418,7 @@ def build_production_pipeline(
         selector=selector,
         composer=composer,
         strategist=strategist,
+        flash_allocator=flash_allocator,
         executor=executor,
         event_log=event_log,
         ledger=ledger,
@@ -415,6 +430,7 @@ def build_production_pipeline(
         exchange_name=getattr(exchange, "name", "UNKNOWN"),
         current_balance=initial_capital,
         live_execution=live_execution_config,
+        flash_enabled=bool(flash_enabled),
     )
 
 
@@ -424,6 +440,8 @@ def build_dryrun_pipeline(
     initial_capital: float = 1000.0,
     seed_quarantine: Sequence[str] = (),
     profiles:        Optional[Sequence[PlayerProfile]] = None,
+    flash_enabled:   bool = False,
+    flash_allocator_config: Optional[FlashAllocatorConfig] = None,
 ) -> ProductionPipeline:
     """Аналогично build_production_pipeline, но с FakeExchange.
 
@@ -435,4 +453,6 @@ def build_dryrun_pipeline(
         initial_capital=initial_capital,
         seed_quarantine=seed_quarantine,
         profiles=profiles,
+        flash_enabled=flash_enabled,
+        flash_allocator_config=flash_allocator_config,
     )

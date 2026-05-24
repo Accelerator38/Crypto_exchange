@@ -11,13 +11,16 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
 
+from ..domain.types import Action, MarketSnapshot, Regime
 from ..selection import AgentRegistry
 from ..shadow.adapters import (
     GeneticsRegimeRouterV2AgentAdapter,
@@ -72,6 +75,290 @@ OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
 ]
 
 OPTIONAL_SPECIAL_AGENTS: Tuple[str, ...] = ("GeneticsRegimeRouter",)
+
+EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS: Tuple[str, ...] = (
+    "FIL/USDT",
+    "AVAX/USDT",
+    "SOL/USDT",
+    "APT/USDT",
+    "NEAR/USDT",
+    "BNB/USDT",
+    "ETC/USDT",
+)
+
+EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
+    Tuple[
+        str,
+        str,
+        Tuple[Action, ...],
+        Tuple[str, ...],
+        Tuple[str, ...],
+        Tuple[str, ...],
+    ],
+    ...
+] = (
+    (
+        "MomentumScalperShortOnly",
+        "MomentumScalper",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL, Action.FUT_CLOSE_ALL),
+        (),
+        (),
+        (),
+    ),
+    (
+        "MomentumScalperSpotQuality",
+        "MomentumScalper",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
+        EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS,
+        (),
+        (),
+    ),
+    (
+        "VolBreakoutSpotOnly",
+        "VolBreakoutHunter",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
+        (),
+        (),
+        (),
+    ),
+    (
+        "MomentumScalperShortCrashOnly",
+        "MomentumScalper",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL),
+        (),
+        (),
+        ("crash",),
+    ),
+    (
+        "MomentumScalperShortBearOnly",
+        "MomentumScalper",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL),
+        (),
+        (),
+        ("bearish",),
+    ),
+    (
+        "MomentumScalperSpotPullbackOnly",
+        "MomentumScalper",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL),
+        (),
+        (),
+        ("neutral", "bullish"),
+    ),
+    (
+        "ResearchValidatorNeutralOnly",
+        "ResearchValidatorAgent",
+        (),
+        (),
+        (),
+        ("neutral",),
+    ),
+    (
+        "FundingArbBearOnly",
+        "FundingArb",
+        (),
+        (),
+        (),
+        ("bearish",),
+    ),
+    (
+        "CrashPanicCrashOnly",
+        "CrashPanicShortAgent",
+        (),
+        (),
+        (),
+        ("crash",),
+    ),
+)
+
+
+@dataclass
+class ActionFilterAgent:
+    """Wrap an agent under a new label and expose only a narrow action slice."""
+
+    label: str
+    base_agent: Any
+    allowed_actions: Tuple[Action, ...] = ()
+    allowed_symbols: Tuple[str, ...] = ()
+    denied_symbols: Tuple[str, ...] = ()
+    allowed_regimes: Tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        self.allowed_actions = tuple(
+            action if isinstance(action, Action) else Action(int(action))
+            for action in self.allowed_actions
+        )
+        self.allowed_symbols = tuple(
+            _normalize_symbol(symbol) for symbol in self.allowed_symbols
+        )
+        self.denied_symbols = tuple(
+            _normalize_symbol(symbol) for symbol in self.denied_symbols
+        )
+        self.allowed_regimes = tuple(
+            _normalize_regime_label(regime)
+            for regime in self.allowed_regimes
+        )
+
+    def clone_for_shadow(self) -> Optional["ActionFilterAgent"]:
+        base_clone = _clone_agent_for_wrapper(self.base_agent)
+        if base_clone is None:
+            return None
+        return ActionFilterAgent(
+            label=self.label,
+            base_agent=base_clone,
+            allowed_actions=self.allowed_actions,
+            allowed_symbols=self.allowed_symbols,
+            denied_symbols=self.denied_symbols,
+            allowed_regimes=self.allowed_regimes,
+        )
+
+    def act(self, market: MarketSnapshot) -> dict[str, Action]:
+        try:
+            raw = self.base_agent.act(market)
+        except Exception:
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+
+        allowed_actions = frozenset(self.allowed_actions)
+        allowed_symbols = frozenset(self.allowed_symbols)
+        denied_symbols = frozenset(self.denied_symbols)
+        allowed_regimes = frozenset(self.allowed_regimes)
+        regime_label = _normalize_regime_label(market.regime)
+        out: dict[str, Action] = {}
+        for raw_symbol, raw_action in raw.items():
+            symbol = _normalize_symbol(raw_symbol)
+            if symbol not in market.prices:
+                continue
+            action = _coerce_action(raw_action)
+            if action is None or action.is_hold:
+                continue
+            if allowed_actions and action not in allowed_actions:
+                continue
+            if allowed_symbols and symbol not in allowed_symbols:
+                continue
+            if symbol in denied_symbols:
+                continue
+            if allowed_regimes and regime_label not in allowed_regimes:
+                out[symbol] = Action.HOLD
+                continue
+            out[symbol] = action
+        return out
+
+    def sync_from_execution_results(self, results) -> None:
+        sync = getattr(self.base_agent, "sync_from_execution_results", None)
+        if callable(sync):
+            sync(results)
+
+
+def _normalize_symbol(symbol: Any) -> str:
+    return str(symbol or "").strip().upper()
+
+
+def _normalize_regime_label(regime: Any) -> str:
+    label = getattr(regime, "label", None)
+    if label is None:
+        label = getattr(regime, "name", None)
+    if label is None:
+        label = regime
+    return Regime.from_string(str(label or "")).label
+
+
+def _coerce_action(value: Any) -> Optional[Action]:
+    if isinstance(value, Action):
+        return value
+    try:
+        return Action(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _clone_agent_for_wrapper(agent: Any) -> Optional[Any]:
+    clone = getattr(agent, "clone_for_shadow", None)
+    if callable(clone):
+        try:
+            cloned = clone()
+        except Exception as exc:
+            log.warning(
+                "Failed to clone %s via clone_for_shadow: %s",
+                getattr(agent, "label", type(agent).__name__),
+                type(exc).__name__,
+            )
+            return None
+        if cloned is None:
+            log.warning(
+                "Failed to clone %s via clone_for_shadow: returned None",
+                getattr(agent, "label", type(agent).__name__),
+            )
+        return cloned
+    try:
+        return copy.deepcopy(agent)
+    except Exception as exc:
+        log.warning(
+            "Failed to deepcopy %s for wrapper: %s",
+            getattr(agent, "label", type(agent).__name__),
+            type(exc).__name__,
+        )
+        return None
+
+
+def experimental_flash_agent_labels() -> List[str]:
+    return [
+        label
+        for label, _base, _actions, _allowed, _denied, _regimes
+        in EXPERIMENTAL_FLASH_AGENT_SPECS
+    ]
+
+
+def register_experimental_flash_agents(
+    registry: AgentRegistry,
+    *,
+    skip_missing: bool = True,
+) -> List[str]:
+    registered: List[str] = []
+    for (
+        label,
+        base_label,
+        actions,
+        allowed_symbols,
+        denied_symbols,
+        allowed_regimes,
+    ) in EXPERIMENTAL_FLASH_AGENT_SPECS:
+        base_agent = registry.get(base_label)
+        if base_agent is None:
+            if skip_missing:
+                log.warning(
+                    "Skipping experimental Flash agent %s: base %s missing",
+                    label,
+                    base_label,
+                )
+                continue
+            raise ValueError(f"base agent {base_label!r} is not registered")
+        base_clone = _clone_agent_for_wrapper(base_agent)
+        if base_clone is None:
+            if skip_missing:
+                log.warning(
+                    "Skipping experimental Flash agent %s: base %s clone failed",
+                    label,
+                    base_label,
+                )
+                continue
+            raise ValueError(
+                f"base agent {base_label!r} could not be cloned for wrapper {label!r}"
+            )
+        registry.register(
+            ActionFilterAgent(
+                label=label,
+                base_agent=base_clone,
+                allowed_actions=actions,
+                allowed_symbols=allowed_symbols,
+                denied_symbols=denied_symbols,
+                allowed_regimes=allowed_regimes,
+            ),
+            replace=True,
+        )
+        registered.append(label)
+    return registered
 
 
 def _env_flag(name: str, default: bool = False) -> bool:

@@ -39,6 +39,15 @@ class TestEnsemblePlayerConstruction(unittest.TestCase):
         self.assertTrue(hasattr(p, "vote"))
         self.assertTrue(hasattr(p, "agent_labels"))
 
+    def test_ensemble_actor_type_is_explicit(self):
+        a = FakeAgent("X")
+        p = EnsemblePlayer(
+            label="T", agents=[a], weights={"X": 1.0},
+            voting=WeightedConsensus(), thresholds=ThresholdProfile(),
+        )
+
+        self.assertEqual(p.actor_type, "ensemble")
+
     def test_empty_label_rejected(self):
         with self.assertRaises(ValueError):
             EnsemblePlayer(
@@ -75,7 +84,8 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0})
-        signals = p.vote(market, signal_id_start=10)
+        signals, errors = p.vote(market, signal_id_start=10)
+        self.assertEqual(errors, [])
         self.assertEqual(len(signals), 1)
         s = signals[0]
         self.assertEqual(s.id, 10)
@@ -93,7 +103,8 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             voting=WeightedConsensus(), thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0, "ETH": 50.0})
-        signals = p.vote(market, signal_id_start=100)
+        signals, errors = p.vote(market, signal_id_start=100)
+        self.assertEqual(errors, [])
         self.assertEqual(len(signals), 2)
         ids = sorted([s.id for s in signals])
         # Должны быть последовательны
@@ -107,8 +118,9 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             voting=WeightedConsensus(), thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0})
-        signals = p.vote(market, signal_id_start=1)
+        signals, errors = p.vote(market, signal_id_start=1)
         self.assertEqual(signals, [])
+        self.assertEqual(errors, [])
 
     def test_unknown_sym_filtered(self):
         # Агент возвращает sym, которого нет в market.prices
@@ -118,8 +130,9 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             voting=WeightedConsensus(), thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0})
-        signals = p.vote(market, signal_id_start=1)
+        signals, errors = p.vote(market, signal_id_start=1)
         self.assertEqual(signals, [])
+        self.assertEqual(errors, [])
 
     def test_agent_exception_isolated(self):
         class CrashingAgent:
@@ -135,14 +148,15 @@ class TestEnsemblePlayerVote(unittest.TestCase):
         market = make_market(prices={"BTC": 100.0})
         # B всё равно даёт сигнал, но weight 0.5 ниже open_floor (=0.20):
         # достаточен, потому что 0.5 > 0.34. Должен пройти.
-        signals = p.vote(market, signal_id_start=1)
+        signals, errors = p.vote(market, signal_id_start=1)
         # Crash воспринимается как HOLD; B голосует FULL_LONG → score=0.5,
         # выше open_single. Открываем.
         self.assertEqual(len(signals), 1)
         self.assertTrue(signals[0].action.is_long_open)
-        self.assertEqual(len(p.last_vote_errors), 1)
-        self.assertEqual(p.last_vote_errors[0].agent_label, "Crash")
-        self.assertIn("boom", p.last_vote_errors[0].reason)
+        self.assertFalse(hasattr(p, "last_vote_errors"))
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].agent_label, "Crash")
+        self.assertIn("boom", errors[0].reason)
 
     def test_close_signal(self):
         a = FakeAgent("A", {"BTC": Action.FUT_CLOSE_ALL})
@@ -151,9 +165,10 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             voting=WeightedConsensus(), thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0})
-        signals = p.vote(market, signal_id_start=1)
+        signals, errors = p.vote(market, signal_id_start=1)
         self.assertEqual(len(signals), 1)
         self.assertTrue(signals[0].action.is_close)
+        self.assertEqual(errors, [])
 
     def test_attribution_to_max_weight(self):
         a1 = FakeAgent("Heavy", {"BTC": Action.FUT_LONG_FULL})
@@ -164,9 +179,10 @@ class TestEnsemblePlayerVote(unittest.TestCase):
             voting=WeightedConsensus(), thresholds=ThresholdProfile(),
         )
         market = make_market(prices={"BTC": 100.0})
-        signals = p.vote(market, signal_id_start=1)
+        signals, errors = p.vote(market, signal_id_start=1)
         # by_agent должен быть Heavy (больший вес)
         self.assertEqual(signals[0].by_agent, "Heavy")
+        self.assertEqual(errors, [])
 
     def test_signal_records_full_vote_weights_and_actions(self):
         a1 = FakeAgent("Heavy", {"BTC": Action.FUT_LONG_FULL})
@@ -181,12 +197,14 @@ class TestEnsemblePlayerVote(unittest.TestCase):
         )
         market = make_market(prices={"BTC": 100.0})
 
-        signal = p.vote(market, signal_id_start=1)[0]
+        signals, errors = p.vote(market, signal_id_start=1)
+        signal = signals[0]
 
         self.assertEqual(signal.vote_weights, {"Heavy": 0.5, "Light": 0.3, "Hold": 0.2})
         self.assertEqual(signal.vote_actions["Heavy"], Action.FUT_LONG_FULL)
         self.assertEqual(signal.vote_actions["Light"], Action.FUT_LONG_HALF)
         self.assertEqual(signal.vote_actions["Hold"], Action.HOLD)
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

@@ -175,6 +175,9 @@ class MarketSnapshot:
     funding:    Dict[str, float] = field(default_factory=dict)  # sym → funding rate
     month:      Optional[int] = None                # для seasonality агентов
 
+    lookback_returns_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
+    lookback_volatility_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.regime_confidence) <= 1.0:
             raise ValueError("MarketSnapshot.regime_confidence must be in [0, 1]")
@@ -291,6 +294,9 @@ class Metrics:
     rejected_signals: int = 0
     pending_signals: int = 0
     execution_failures: int = 0
+    pnl_gross_pct: float = 0.0
+    fee_pct: float = 0.0
+    funding_pct: float = 0.0
 
     def __post_init__(self) -> None:
         if self.closed_trades < 0 or self.entries < 0 or self.signals < 0:
@@ -325,6 +331,16 @@ class Metrics:
         if self.closed_trades <= 0:
             return 0.0
         return self.pnl_pct / self.closed_trades
+
+    @property
+    def pnl_net_pct(self) -> float:
+        """Net PnL percentage; pnl_pct is already net after fees and funding."""
+        return self.pnl_pct
+
+    @property
+    def trading_cost_pct(self) -> float:
+        """Explicit trading cost percentage; negative funding is a rebate."""
+        return self.fee_pct + self.funding_pct
 
     @property
     def has_data(self) -> bool:

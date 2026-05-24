@@ -9,7 +9,7 @@ from panteon_v2.app import OutputWriter, OutputWriterConfig
 from panteon_v2.app.bootstrap import build_production_pipeline
 from panteon_v2.app.main_loop import StepResult, _apply_degradation_gate
 from panteon_v2.attribution import QuarantineRecomputed
-from panteon_v2.domain.types import Action, Regime, Signal, Trade
+from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.execution import FakeExchange
 from panteon_v2.memory import (
     DegradationGate,
@@ -78,6 +78,61 @@ def _add_trade(
 
 
 class TestDegradationGate(unittest.TestCase):
+    def test_metrics_delta_keeps_trade_counts_consistent_and_net_fields(self) -> None:
+        from panteon_v2.memory.degradation import _metrics_delta
+
+        current = Metrics(
+            pnl_pct=3.0,
+            closed_trades=8,
+            wins=5,
+            losses=3,
+            pnl_gross_pct=5.0,
+            fee_pct=1.0,
+            funding_pct=0.75,
+        )
+        baseline = Metrics(
+            pnl_pct=1.0,
+            closed_trades=5,
+            wins=3,
+            losses=0,
+            pnl_gross_pct=2.0,
+            fee_pct=0.25,
+            funding_pct=0.25,
+        )
+
+        delta = _metrics_delta(current, baseline)
+
+        self.assertEqual(delta.closed_trades, 3)
+        self.assertEqual(delta.wins, 2)
+        self.assertEqual(delta.losses, 1)
+        self.assertLessEqual(delta.wins + delta.losses, delta.closed_trades)
+        self.assertAlmostEqual(delta.pnl_pct, 2.0)
+        self.assertAlmostEqual(delta.pnl_gross_pct, 3.0)
+        self.assertAlmostEqual(delta.fee_pct, 0.75)
+        self.assertAlmostEqual(delta.funding_pct, 0.5)
+
+    def test_metrics_delta_never_reports_negative_fee_delta(self) -> None:
+        from panteon_v2.memory.degradation import _metrics_delta
+
+        current = Metrics(
+            pnl_pct=1.0,
+            closed_trades=3,
+            wins=2,
+            losses=1,
+            fee_pct=0.25,
+        )
+        baseline = Metrics(
+            pnl_pct=0.5,
+            closed_trades=1,
+            wins=1,
+            losses=0,
+            fee_pct=0.75,
+        )
+
+        delta = _metrics_delta(current, baseline)
+
+        self.assertEqual(delta.fee_pct, 0.0)
+
     def test_session_loss_quarantines_genetics_agent_after_min_activity(self) -> None:
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager()

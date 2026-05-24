@@ -53,6 +53,39 @@ class TestWalkForwardReport(unittest.TestCase):
         self.assertIn("bullish", report["by_regime"])
         self.assertEqual(report["sessions"]["count"], 1)
 
+    def test_regime_stats_use_entry_regime_when_close_happens_after_regime_change(self):
+        from panteon_v2.analysis.walk_forward import build_walk_forward_report_from_events
+
+        events = [
+            {"_type": "RegimeDetected", "bar": 1, "regime": "bullish"},
+            {
+                "_type": "PositionOpened",
+                "bar": 1,
+                "signal_id": 101,
+                "sym": "BTC/USDT",
+            },
+            {"_type": "RegimeDetected", "bar": 2, "regime": "neutral"},
+            {
+                "_type": "PositionClosed",
+                "bar": 2,
+                "open_signal_id": 101,
+                "sym": "BTC/USDT",
+                "realized_pnl": -5.0,
+                "by_player": "P",
+                "by_agent": "A",
+            },
+        ]
+
+        report = build_walk_forward_report_from_events(
+            results_root="Results",
+            events=events,
+        )
+
+        self.assertIn("bullish", report["by_regime"])
+        self.assertNotIn("neutral", report["by_regime"])
+        self.assertEqual(report["by_regime"]["bullish"]["closed_trades"], 1)
+        self.assertAlmostEqual(report["by_regime"]["bullish"]["net_pnl"], -5.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

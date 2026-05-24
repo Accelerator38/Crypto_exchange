@@ -213,6 +213,8 @@ class ShadowActorUpdated(Event):
     realized_pnl_usd: float = 0.0
     closed_trades: int = 0
     winning_trades: int = 0
+    symbol_outcomes: Tuple[Tuple[str, float, int, int], ...] = ()
+    symbol_action_outcomes: Tuple[Tuple[str, str, float, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -404,6 +406,7 @@ class PositionOpened(Event):
     pending_age_sec: float = 0.0
     owner_scope: str = "panteon_owned"
     exchange_health_reason: str = ""
+    open_regime: str = ""
 
 
 @dataclass(frozen=True)
@@ -434,6 +437,8 @@ class PositionClosed(Event):
     pending_age_sec: float = 0.0
     owner_scope: str = "panteon_owned"
     exchange_health_reason: str = ""
+    open_action: str = ""
+    open_regime: str = ""
 
 
 # ────────────────────────────────────────────────────────────────────

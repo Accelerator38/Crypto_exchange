@@ -101,6 +101,7 @@ def regime_score(
     regime: Regime,
     *,
     config: ScoringConfig = DEFAULT_SCORING,
+    per_regime_configs: Mapping[Regime, ScoringConfig] | None = None,
     confidence: float = -1.0,  # -1 = compute from metrics.closed_trades
 ) -> float:
     """ЕДИНАЯ скоринговая функция для всех мест в Panteon v2.
@@ -124,16 +125,22 @@ def regime_score(
     if not metrics.has_data:
         return 0.0
 
+    if per_regime_configs:
+        config = per_regime_configs.get(regime, config)
+
     if confidence < 0:
         confidence = confidence_from_sample(metrics.closed_trades, config=config)
 
-    # Нет закрытых сделок → даём ослабленный сигнал
-    if metrics.closed_trades < 2:
-        # Только небольшой штраф за необкатанность, не отрицание полностью
-        return metrics.pnl_pct * 0.40 * confidence
+    # Единая формула: sharpe и win_bonus гасятся на малых выборках через свои
+    # собственные ворота (closed >= 2 / closed >= 3), но pnl и просадка
+    # учитываются всегда. Это снимает немонотонность в pnl_pct при closed < 2.
 
     pnl_component     = metrics.pnl_pct * config.pnl_weight
-    sharpe_component  = metrics.sharpe * config.sharpe_weight
+    sharpe_component  = (
+        metrics.sharpe * config.sharpe_weight
+        if metrics.closed_trades >= 2
+        else 0.0
+    )
     dd_component      = -abs(metrics.max_dd_pct) * config.max_dd_weight
     activity_component = (
         min(metrics.signals, config.activity_signals_cap)
@@ -155,7 +162,7 @@ def regime_score(
 
     # Inactivity penalty: если мало сигналов — небольшое штрафование,
     # чтобы Selector предпочитал активных при равном score.
-    if metrics.signals == 0 and metrics.entries == 0:
+    if metrics.closed_trades == 0 and metrics.signals == 0 and metrics.entries == 0:
         score -= config.inactivity_penalty
 
     return float(score)

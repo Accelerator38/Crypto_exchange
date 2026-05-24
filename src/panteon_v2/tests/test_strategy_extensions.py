@@ -2,17 +2,34 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import sys
 import types
 import unittest
 from unittest.mock import patch
 
-from panteon_v2.domain.types import Action
+from panteon_v2.domain.types import Action, MarketSnapshot, Regime
 from panteon_v2.app.agent_bootstrap import _ensure_paths, known_labels
 from panteon_v2.app.bootstrap import PRODUCTION_PROFILES
+from panteon_v2.selection import AgentRegistry
 
 
 _ensure_paths()
+
+
+def _flash_wrapper_market() -> MarketSnapshot:
+    return MarketSnapshot(
+        bar=1,
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        regime=Regime.NEUTRAL,
+        prices={
+            "BTC/USDT": 100.0,
+            "ETH/USDT": 10.0,
+            "DOGE/USDT": 0.1,
+            "SOL/USDT": 20.0,
+        },
+        volumes={},
+    )
 
 
 class TestNewStrategyAgents(unittest.TestCase):
@@ -80,6 +97,85 @@ class TestNewStrategyAgents(unittest.TestCase):
         self.assertIn("ResearchValidatorAgent", neutral_edge.bias)
         defensive = profile_by_label["DefensiveResearch"]
         self.assertNotIn("CarryFlowAgentV2", defensive.bias)
+
+
+class TestExperimentalFlashAgents(unittest.TestCase):
+    def test_action_filter_agent_keeps_allowed_actions_and_symbols(self):
+        from panteon_v2.app.agent_bootstrap import ActionFilterAgent
+
+        class StaticAgent:
+            label = "BaseAgent"
+
+            def act(self, _market):
+                return {
+                    "BTC/USDT": Action.FUT_SHORT_FULL,
+                    "ETH/USDT": Action.SPOT_BUY_FULL,
+                    "DOGE/USDT": Action.SPOT_BUY_FULL,
+                    "SOL/USDT": Action.SPOT_SELL_ALL,
+                }
+
+        short_only = ActionFilterAgent(
+            label="BaseShortOnly",
+            base_agent=StaticAgent(),
+            allowed_actions=(
+                Action.FUT_SHORT_HALF,
+                Action.FUT_SHORT_FULL,
+                Action.FUT_CLOSE_ALL,
+            ),
+        )
+        self.assertEqual(
+            short_only.act(_flash_wrapper_market()),
+            {"BTC/USDT": Action.FUT_SHORT_FULL},
+        )
+
+        spot_quality = ActionFilterAgent(
+            label="BaseSpotQuality",
+            base_agent=StaticAgent(),
+            allowed_actions=(
+                Action.SPOT_BUY_HALF,
+                Action.SPOT_BUY_FULL,
+                Action.SPOT_SELL_ALL,
+            ),
+            allowed_symbols=("ETH/USDT", "SOL/USDT"),
+        )
+        self.assertEqual(
+            spot_quality.act(_flash_wrapper_market()),
+            {
+                "ETH/USDT": Action.SPOT_BUY_FULL,
+                "SOL/USDT": Action.SPOT_SELL_ALL,
+            },
+        )
+
+    def test_register_experimental_flash_agents_adds_distinct_wrapper_labels(self):
+        from panteon_v2.app.agent_bootstrap import register_experimental_flash_agents
+
+        class StaticAgent:
+            def __init__(self, label):
+                self.label = label
+
+            def act(self, market):
+                return {symbol: Action.HOLD for symbol in market.prices}
+
+        registry = AgentRegistry()
+        registry.register(StaticAgent("MomentumScalper"))
+        registry.register(StaticAgent("VolBreakoutHunter"))
+
+        registered = register_experimental_flash_agents(registry)
+
+        self.assertEqual(
+            tuple(registered),
+            (
+                "MomentumScalperShortOnly",
+                "MomentumScalperSpotQuality",
+                "VolBreakoutSpotOnly",
+                "MomentumScalperShortCrashOnly",
+                "MomentumScalperShortBearOnly",
+                "MomentumScalperSpotPullbackOnly",
+            ),
+        )
+        for label in registered:
+            self.assertTrue(registry.has(label), label)
+            self.assertIsNot(registry.get(label), registry.get("MomentumScalper"))
 
 
 class TestGenomeEnsembleAgent(unittest.TestCase):

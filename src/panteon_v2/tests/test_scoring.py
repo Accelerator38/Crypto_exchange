@@ -74,6 +74,15 @@ class TestRegimeScore(unittest.TestCase):
         score_full = regime_score(m_full, Regime.BULLISH)
         self.assertGreater(score_full, score)
 
+    def test_few_closed_uses_same_pnl_weighted_formula_without_short_circuit(self):
+        cfg = ScoringConfig(pnl_weight=1.0, activity_weight=0.0, max_dd_weight=0.0)
+        m = Metrics(pnl_pct=2.0, closed_trades=1, entries=1, signals=2,
+                    wins=1, losses=0)
+
+        score = regime_score(m, Regime.BULLISH, config=cfg)
+
+        self.assertAlmostEqual(score, 2.0 / cfg.min_closed_for_full_confidence)
+
     def test_max_dd_penalty(self):
         m_low_dd = Metrics(pnl_pct=1.0, closed_trades=5, entries=5, signals=8,
                            wins=3, losses=2, max_dd_pct=0.5)
@@ -89,6 +98,17 @@ class TestRegimeScore(unittest.TestCase):
         # has_data = False → возвращаем 0, не применяем penalty
         self.assertEqual(regime_score(m, Regime.NEUTRAL), 0.0)
 
+    def test_closed_trades_without_fresh_entries_are_not_inactive(self):
+        m = Metrics(pnl_pct=1.0, closed_trades=5, entries=0, signals=0,
+                    wins=3, losses=2, sharpe=0.2)
+        penalized_cfg = ScoringConfig(inactivity_penalty=0.65)
+        neutral_cfg = ScoringConfig(inactivity_penalty=0.0)
+
+        self.assertEqual(
+            regime_score(m, Regime.NEUTRAL, config=penalized_cfg),
+            regime_score(m, Regime.NEUTRAL, config=neutral_cfg),
+        )
+
     def test_custom_config(self):
         cfg = ScoringConfig(pnl_weight=2.0)  # вдвое больше веса на pnl
         m = Metrics(pnl_pct=1.0, closed_trades=10, entries=10, signals=10,
@@ -97,6 +117,24 @@ class TestRegimeScore(unittest.TestCase):
         s_strong = regime_score(m, Regime.NEUTRAL, config=cfg)
         # При большем pnl_weight pnl-component вносит вдвое больше
         self.assertGreater(s_strong, s_default)
+
+    def test_per_regime_config_overrides_default_config(self):
+        m = Metrics(pnl_pct=1.0, closed_trades=10, entries=10, signals=10,
+                    wins=5, losses=5)
+        bearish_cfg = ScoringConfig(pnl_weight=3.0)
+
+        bearish_score = regime_score(
+            m,
+            Regime.BEARISH,
+            per_regime_configs={Regime.BEARISH: bearish_cfg},
+        )
+        bullish_score = regime_score(
+            m,
+            Regime.BULLISH,
+            per_regime_configs={Regime.BEARISH: bearish_cfg},
+        )
+
+        self.assertGreater(bearish_score, bullish_score)
 
     def test_explicit_confidence_overrides(self):
         m = Metrics(pnl_pct=1.0, closed_trades=10, entries=10, signals=10,

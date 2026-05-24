@@ -33,6 +33,9 @@ class TrackedPosition:
     by_agent:       str
     opened_at:      datetime
     opened_bar:     int = 0
+    open_action:    str = ""
+    open_regime:    str = ""
+    funding_open:   float = 0.0
 
 
 class PositionTracker:
@@ -93,6 +96,9 @@ class PositionTracker:
             by_agent=signal.by_agent,
             opened_at=trade.timestamp,
             opened_bar=signal.bar,
+            open_action=signal.action.name,
+            open_regime=signal.regime.label,
+            funding_open=trade.funding,
         )
         self._positions[sym] = pos
         return [PositionOpened(
@@ -104,6 +110,7 @@ class PositionTracker:
             side=trade.side,
             entry=trade.fill_price,
             qty=trade.qty,
+            open_regime=signal.regime.label,
         )]
 
     def on_close(
@@ -126,7 +133,13 @@ class PositionTracker:
             return_abs = (trade.fill_price - opened.entry_price) * opened.qty
         else:
             return_abs = (opened.entry_price - trade.fill_price) * opened.qty
-        net_pnl = return_abs - opened.fee_open - trade.fee
+        net_pnl = (
+            return_abs
+            - opened.fee_open
+            - trade.fee
+            - opened.funding_open
+            - trade.funding
+        )
 
         return [PositionClosed(
             bar=signal.bar,
@@ -142,6 +155,8 @@ class PositionTracker:
             realized_pnl=net_pnl,
             by_player=opened.by_player,    # атрибуция тому, кто ОТКРЫЛ
             by_agent=opened.by_agent,
+            open_action=opened.open_action,
+            open_regime=opened.open_regime,
         )]
 
     # ── Reconcile (для startup и периодической сверки с биржей) ────

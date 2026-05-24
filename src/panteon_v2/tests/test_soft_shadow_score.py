@@ -23,3 +23,134 @@ def test_soft_shadow_score_uses_lifetime_trade_count_but_scores_recent_pnl():
         regime="bullish",
         current_bar=5,
     ) == (2.0, 11)
+
+
+def test_soft_shadow_score_can_scope_by_symbol():
+    state = SoftShadowScoreState(window_bars=24, min_closed_trades=1)
+    state.update(
+        bar=10,
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        pnl_usd=2.0,
+        closed_trades=1,
+    )
+    state.update(
+        bar=10,
+        label="Alpha",
+        regime="bullish",
+        symbol="ETH",
+        pnl_usd=-1.0,
+        closed_trades=1,
+    )
+
+    assert state.score_with_trade_count(
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        current_bar=11,
+    ) == (2.0, 1)
+    assert state.score_with_trade_count(
+        label="Alpha",
+        regime="bullish",
+        symbol="ETH",
+        current_bar=11,
+    ) == (-1.0, 1)
+    assert state.score_with_trade_count(
+        label="Alpha",
+        regime="bullish",
+        symbol="SOL",
+        current_bar=11,
+    ) == (0.0, 0)
+
+
+def test_soft_shadow_score_can_scope_by_symbol_and_action():
+    state = SoftShadowScoreState(window_bars=24, min_closed_trades=1)
+    state.update(
+        bar=10,
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="long",
+        pnl_usd=2.0,
+        closed_trades=1,
+    )
+    state.update(
+        bar=10,
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="short",
+        pnl_usd=-1.0,
+        closed_trades=1,
+    )
+
+    assert state.score_with_trade_count(
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="long",
+        current_bar=11,
+    ) == (2.0, 1)
+    assert state.score_with_trade_count(
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="short",
+        current_bar=11,
+    ) == (-1.0, 1)
+
+
+def test_soft_shadow_stats_include_win_rate_and_recent_downside():
+    state = SoftShadowScoreState(window_bars=24, min_closed_trades=1)
+    state.update(
+        bar=10,
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="long",
+        pnl_usd=5.0,
+        closed_trades=2,
+        winning_trades=2,
+    )
+    state.update(
+        bar=11,
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="long",
+        pnl_usd=-3.0,
+        closed_trades=2,
+        winning_trades=0,
+    )
+
+    stats = state.stats(
+        label="Alpha",
+        regime="bullish",
+        symbol="BTC",
+        action="long",
+        current_bar=12,
+    )
+
+    assert stats.score == 2.0
+    assert stats.closed_trades == 4
+    assert stats.winning_trades == 2
+    assert stats.losing_trades == 2
+    assert stats.win_rate_pct == 50.0
+    assert stats.recent_downside_usd == 3.0
+
+
+def test_soft_shadow_stats_include_pnl_per_trade_lcb_inputs():
+    state = SoftShadowScoreState(window_bars=24, min_closed_trades=1)
+    state.update(bar=10, label="Alpha", regime="bullish", pnl_usd=2.0, closed_trades=1)
+    state.update(bar=11, label="Alpha", regime="bullish", pnl_usd=4.0, closed_trades=1)
+    state.update(bar=12, label="Alpha", regime="bullish", pnl_usd=6.0, closed_trades=1)
+
+    stats = state.stats(label="Alpha", regime="bullish", current_bar=13)
+    payload = stats.as_confirmation_payload()
+
+    assert stats.pnl_per_trade_mean_usd == 4.0
+    assert stats.pnl_per_trade_std_usd == 2.0
+    assert payload["pnl_per_trade_mean_usd"] == 4.0
+    assert payload["pnl_per_trade_std_usd"] == 2.0
+    assert payload["pnl_per_trade_lcb_usd"] == 4.0 - 2.0 / (3 ** 0.5)

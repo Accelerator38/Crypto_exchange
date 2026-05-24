@@ -1,0 +1,1484 @@
+{
+  "best_run": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashRound3Deny8EntryRegime_Full2022_2026_20260524\\RETRODATE_MARKET\\2026-05-23_21-15-29_retrodate_market_v2",
+  "symbol_guard_run": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashPreLiveSymbolGuard_Full2022_2026_20260524\\RETRODATE_MARKET\\2026-05-24_00-20-33_retrodate_market_v2",
+  "best_metrics": {
+    "pnl_pct": 105.41947342265982,
+    "max_drawdown_pct": 4.192825808316343,
+    "panteon_alpha_pct": 43.080235092683,
+    "beats_best_component": true,
+    "best_component_pnl_pct": 62.33923832997682,
+    "panteon_advantage": 10.274749551301335,
+    "dominance_equity_ratio": 1.2653716719128405,
+    "panteon_lcb_dominance": true,
+    "no_trade_decision_share_pct": 99.85691949140042,
+    "flash_selected_signals": 1067,
+    "flash_executable_selected_signals": 836,
+    "flash_selected_filtered_before_execution": 231,
+    "flash_missing_execution_signals": 0,
+    "flash_filtered_before_execution_share_pct": 21.649484536082475,
+    "flash_executable_fill_rate_pct": 99.88038277511961,
+    "flash_filter_detail_counts": {
+      "max_position_saturated": 5,
+      "rate_limited_open": 226,
+      "reverse_close": 9
+    },
+    "allocation_no_trade_share_pct": 0.0,
+    "standalone_vs_flash_selection_alpha_pct": -29.254402546080687,
+    "standalone_vs_flash_standalone_pnl_pct": 68.19753595856521,
+    "standalone_vs_flash_selected_pnl_pct": 38.94313341248452,
+    "actor_switches": 1853,
+    "actor_switches_per_day": 1.1588794788273615,
+    "churn_budget_max_actor_switches_per_day": 24.0,
+    "churn_budget_pass": true,
+    "regime_floor_pass": true,
+    "regime_floor_failed_regimes": [],
+    "regime_floor_insufficient_regimes": [
+      "crash"
+    ],
+    "regime_floor_min_closed_trades": 30,
+    "ensemble_lift_pct": 31.576806469573256,
+    "ensemble_lift_pass": true,
+    "output_dir": "Results\\PanteonFlashRound3Deny8EntryRegime_Full2022_2026_20260524\\RETRODATE_MARKET\\2026-05-23_21-15-29_retrodate_market_v2",
+    "bars_processed": 38375
+  },
+  "symbol_guard_metrics": {
+    "pnl_pct": 100.50062548750829,
+    "max_drawdown_pct": 4.294402824971131,
+    "panteon_alpha_pct": 38.161387157531465,
+    "beats_best_component": true,
+    "best_component_pnl_pct": 62.33923832997682,
+    "panteon_advantage": 8.886308227917114,
+    "dominance_equity_ratio": 1.2350718627862673,
+    "panteon_lcb_dominance": true,
+    "no_trade_decision_share_pct": 99.85758997175937,
+    "flash_selected_signals": 1062,
+    "flash_executable_selected_signals": 832,
+    "flash_selected_filtered_before_execution": 230,
+    "flash_missing_execution_signals": 0,
+    "flash_filtered_before_execution_share_pct": 21.657250470809792,
+    "flash_executable_fill_rate_pct": 99.8798076923077,
+    "flash_filter_detail_counts": {
+      "max_position_saturated": 4,
+      "rate_limited_open": 226,
+      "reverse_close": 9
+    },
+    "allocation_no_trade_share_pct": 0.0,
+    "standalone_vs_flash_selection_alpha_pct": -29.30727985313597,
+    "standalone_vs_flash_standalone_pnl_pct": 68.19753595856521,
+    "standalone_vs_flash_selected_pnl_pct": 38.89025610542924,
+    "actor_switches": 1843,
+    "actor_switches_per_day": 1.152625407166124,
+    "churn_budget_max_actor_switches_per_day": 24.0,
+    "churn_budget_pass": true,
+    "regime_floor_pass": true,
+    "regime_floor_failed_regimes": [],
+    "regime_floor_insufficient_regimes": [
+      "crash"
+    ],
+    "regime_floor_min_closed_trades": 30,
+    "ensemble_lift_pct": 31.576806469573256,
+    "ensemble_lift_pass": true,
+    "output_dir": "Results\\PanteonFlashPreLiveSymbolGuard_Full2022_2026_20260524\\RETRODATE_MARKET\\2026-05-24_00-20-33_retrodate_market_v2",
+    "bars_processed": 38375
+  },
+  "component_benchmark": {
+    "summary": {
+      "panteon_pnl_usd": 1054.1947342265983,
+      "panteon_pnl_pct": 105.41947342265982,
+      "best_component_label": "Antonius_conservative",
+      "best_component_type": "player",
+      "best_component_pnl_usd": 623.3923832997682,
+      "best_component_pnl_pct": 62.33923832997682,
+      "panteon_alpha_pct": 43.080235092683,
+      "min_alpha_pct": 2.0,
+      "panteon_beats_best_component": true,
+      "excluded_component_labels": [
+        "DefaultEnsemble",
+        "DefensiveResearch",
+        "Fixed_BearDefense",
+        "Fixed_BullBreakout",
+        "Fixed_CoreDiversified",
+        "Fixed_NeutralValidator",
+        "Fixed_RegimePullback",
+        "Fixed_RotationFlow",
+        "Fixed_TrendRecovery",
+        "MeanRevResearch",
+        "NeutralEdgeResearch",
+        "Perfect_CrashSwitch",
+        "Perfect_GeneticsBearCrash",
+        "Perfect_MeanRev",
+        "Perfect_NeutralValidator",
+        "Perfect_OIBreakout",
+        "Solo_BullRotationAgent",
+        "Solo_CarryFlowAgentV2",
+        "Solo_GeneticsCore",
+        "Solo_LiveAfterShock",
+        "Solo_LiveMeanRev",
+        "Solo_LiveOIBreakout",
+        "Solo_LiveRegimePullback",
+        "Solo_LiveTrendFollow",
+        "Solo_PlayerFunding",
+        "Solo_RichardDennis",
+        "TrendResearch"
+      ]
+    },
+    "components": [
+      {
+        "actor_type": "player",
+        "label": "Antonius_conservative",
+        "pnl_usd": 623.3923832997682,
+        "pnl_pct": 62.33923832997682,
+        "closed_trades": 1398,
+        "wins": 654,
+        "win_rate_pct": 46.78111587982833
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_MomentumScalper",
+        "pnl_usd": 589.1502119926638,
+        "pnl_pct": 58.915021199266384,
+        "closed_trades": 2112,
+        "wins": 986,
+        "win_rate_pct": 46.68560606060606
+      },
+      {
+        "actor_type": "agent",
+        "label": "RichardDennis",
+        "pnl_usd": 307.62431860403564,
+        "pnl_pct": 30.762431860403566,
+        "closed_trades": 1211,
+        "wins": 275,
+        "win_rate_pct": 22.708505367464905
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_ResearchValidatorAgent",
+        "pnl_usd": 233.752641122045,
+        "pnl_pct": 23.3752641122045,
+        "closed_trades": 373,
+        "wins": 167,
+        "win_rate_pct": 44.77211796246649
+      },
+      {
+        "actor_type": "agent",
+        "label": "ResearchValidatorAgent",
+        "pnl_usd": 99.96449791705547,
+        "pnl_pct": 9.996449791705547,
+        "closed_trades": 350,
+        "wins": 145,
+        "win_rate_pct": 41.42857142857143
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveOIBreakout",
+        "pnl_usd": 92.82514759298832,
+        "pnl_pct": 9.282514759298833,
+        "closed_trades": 1424,
+        "wins": 622,
+        "win_rate_pct": 43.67977528089887
+      },
+      {
+        "actor_type": "agent",
+        "label": "VolBreakoutHunter",
+        "pnl_usd": 82.65224827639197,
+        "pnl_pct": 8.265224827639198,
+        "closed_trades": 592,
+        "wins": 248,
+        "win_rate_pct": 41.891891891891895
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_VolBreakoutHunter",
+        "pnl_usd": 78.20055052986771,
+        "pnl_pct": 7.820055052986771,
+        "closed_trades": 80,
+        "wins": 26,
+        "win_rate_pct": 32.5
+      },
+      {
+        "actor_type": "player",
+        "label": "BombermanStrong",
+        "pnl_usd": 61.215055749089004,
+        "pnl_pct": 6.1215055749089,
+        "closed_trades": 14,
+        "wins": 11,
+        "win_rate_pct": 78.57142857142857
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveRegimePullback",
+        "pnl_usd": 30.094133079864395,
+        "pnl_pct": 3.0094133079864394,
+        "closed_trades": 2273,
+        "wins": 858,
+        "win_rate_pct": 37.747470303563574
+      },
+      {
+        "actor_type": "agent",
+        "label": "NeutralLiquiditySweep",
+        "pnl_usd": 17.441493387170482,
+        "pnl_pct": 1.7441493387170481,
+        "closed_trades": 32,
+        "wins": 20,
+        "win_rate_pct": 62.5
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_NeutralRangeScalper",
+        "pnl_usd": 3.0937384372579615,
+        "pnl_pct": 0.3093738437257962,
+        "closed_trades": 4,
+        "wins": 3,
+        "win_rate_pct": 75.0
+      },
+      {
+        "actor_type": "agent",
+        "label": "PlayerFunding",
+        "pnl_usd": 1.0864861355113145,
+        "pnl_pct": 0.10864861355113144,
+        "closed_trades": 8328,
+        "wins": 3544,
+        "win_rate_pct": 42.5552353506244
+      },
+      {
+        "actor_type": "agent",
+        "label": "AnchorFlowMomentum",
+        "pnl_usd": 0.0,
+        "pnl_pct": 0.0,
+        "closed_trades": 0,
+        "wins": 0,
+        "win_rate_pct": 0.0
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_BearReliefFadeAgent",
+        "pnl_usd": 0.0,
+        "pnl_pct": 0.0,
+        "closed_trades": 0,
+        "wins": 0,
+        "win_rate_pct": 0.0
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_CrashPanicShortAgent",
+        "pnl_usd": 0.0,
+        "pnl_pct": 0.0,
+        "closed_trades": 0,
+        "wins": 0,
+        "win_rate_pct": 0.0
+      },
+      {
+        "actor_type": "agent",
+        "label": "NeutralRangeScalper",
+        "pnl_usd": -2.580408496075683,
+        "pnl_pct": -0.2580408496075683,
+        "closed_trades": 7,
+        "wins": 4,
+        "win_rate_pct": 57.14285714285714
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_NeutralLiquiditySweep",
+        "pnl_usd": -2.7735338125274938,
+        "pnl_pct": -0.2773533812527494,
+        "closed_trades": 1,
+        "wins": 0,
+        "win_rate_pct": 0.0
+      },
+      {
+        "actor_type": "agent",
+        "label": "BearReliefFadeAgent",
+        "pnl_usd": -20.604111757882045,
+        "pnl_pct": -2.060411175788204,
+        "closed_trades": 50,
+        "wins": 16,
+        "win_rate_pct": 32.0
+      },
+      {
+        "actor_type": "agent",
+        "label": "BullRotationAgent",
+        "pnl_usd": -42.409811863782615,
+        "pnl_pct": -4.240981186378261,
+        "closed_trades": 287,
+        "wins": 103,
+        "win_rate_pct": 35.88850174216028
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_LiveVolCompress",
+        "pnl_usd": -42.49503388275427,
+        "pnl_pct": -4.249503388275428,
+        "closed_trades": 41,
+        "wins": 15,
+        "win_rate_pct": 36.58536585365854
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveCrashHunter",
+        "pnl_usd": -44.431175195880044,
+        "pnl_pct": -4.443117519588005,
+        "closed_trades": 1625,
+        "wins": 763,
+        "win_rate_pct": 46.95384615384615
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_LiveCrashHunter",
+        "pnl_usd": -56.23354553749782,
+        "pnl_pct": -5.623354553749782,
+        "closed_trades": 525,
+        "wins": 253,
+        "win_rate_pct": 48.19047619047619
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveVolCompress",
+        "pnl_usd": -67.35951345022778,
+        "pnl_pct": -6.735951345022778,
+        "closed_trades": 2739,
+        "wins": 1119,
+        "win_rate_pct": 40.854326396495075
+      },
+      {
+        "actor_type": "agent",
+        "label": "FundingArb",
+        "pnl_usd": -69.13473337589843,
+        "pnl_pct": -6.913473337589844,
+        "closed_trades": 4312,
+        "wins": 1814,
+        "win_rate_pct": 42.06864564007421
+      },
+      {
+        "actor_type": "agent",
+        "label": "CrashPanicShortAgent",
+        "pnl_usd": -89.58322589761724,
+        "pnl_pct": -8.958322589761723,
+        "closed_trades": 580,
+        "wins": 197,
+        "win_rate_pct": 33.96551724137931
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveMeanRev",
+        "pnl_usd": -94.4985344639766,
+        "pnl_pct": -9.449853446397661,
+        "closed_trades": 1571,
+        "wins": 853,
+        "win_rate_pct": 54.29662635264163
+      },
+      {
+        "actor_type": "agent",
+        "label": "MomentumScalper",
+        "pnl_usd": -116.39795146163297,
+        "pnl_pct": -11.639795146163296,
+        "closed_trades": 5968,
+        "wins": 2490,
+        "win_rate_pct": 41.7225201072386
+      },
+      {
+        "actor_type": "player",
+        "label": "Solo_FundingArb",
+        "pnl_usd": -358.58541562948153,
+        "pnl_pct": -35.858541562948155,
+        "closed_trades": 354,
+        "wins": 147,
+        "win_rate_pct": 41.52542372881356
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveAfterShock",
+        "pnl_usd": -485.22722823852774,
+        "pnl_pct": -48.522722823852774,
+        "closed_trades": 6012,
+        "wins": 2798,
+        "win_rate_pct": 46.540252827677975
+      },
+      {
+        "actor_type": "agent",
+        "label": "LiveTrendFollow",
+        "pnl_usd": -507.92451863637115,
+        "pnl_pct": -50.79245186363711,
+        "closed_trades": 3723,
+        "wins": 1508,
+        "win_rate_pct": 40.504969110932045
+      },
+      {
+        "actor_type": "player",
+        "label": "Optimal_StaticRotator",
+        "pnl_usd": -568.7568797483525,
+        "pnl_pct": -56.87568797483525,
+        "closed_trades": 10280,
+        "wins": 4546,
+        "win_rate_pct": 44.22178988326848
+      }
+    ]
+  },
+  "standalone_vs_flash": {
+    "summary": {
+      "target_count": 2,
+      "targets_with_flash_selection": 2,
+      "total_standalone_pnl_usd": 681.9753595856521,
+      "total_standalone_pnl_pct": 68.19753595856521,
+      "total_flash_selected_pnl_usd": 389.4313341248452,
+      "total_flash_selected_pnl_pct": 38.94313341248452,
+      "total_selection_alpha_usd": -292.5440254608069,
+      "total_selection_alpha_pct": -29.254402546080687
+    },
+    "actors": [
+      {
+        "label": "Solo_MomentumScalper",
+        "standalone_actor_type": "player",
+        "flash_actor_key": "ensemble:Solo_MomentumScalper",
+        "flash_actor_type": "ensemble",
+        "standalone_pnl_usd": 589.1502119926638,
+        "standalone_pnl_pct": 58.915021199266384,
+        "standalone_closed_trades": 2112,
+        "standalone_wins": 986,
+        "standalone_win_rate_pct": 46.68560606060606,
+        "flash_selected_pnl_usd": 276.5628697134889,
+        "flash_selected_pnl_pct": 27.65628697134889,
+        "flash_selected_signals": 521,
+        "flash_executable_selected_signals": 450,
+        "flash_selected_filtered_before_execution": 71,
+        "flash_filled_signals": 449,
+        "flash_closed_trades": 260,
+        "selection_alpha_usd": -312.5873422791749,
+        "selection_alpha_pct": -31.25873422791749,
+        "flash_capture_ratio_pct": 46.942675073998394,
+        "best_signal_keys": [
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|FIL/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "FIL/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 15,
+            "filled_signals": 13,
+            "closed_trades": 13,
+            "realized_pnl_usd": 136.7724530887621,
+            "realized_pnl_pct": 13.67724530887621
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "APT/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 12,
+            "filled_signals": 12,
+            "closed_trades": 12,
+            "realized_pnl_usd": 114.26031265463804,
+            "realized_pnl_pct": 11.426031265463804
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|LTC/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "LTC/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 22,
+            "filled_signals": 16,
+            "closed_trades": 16,
+            "realized_pnl_usd": 43.27944644251167,
+            "realized_pnl_pct": 4.3279446442511675
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|ETH/USDT|FUT_SHORT_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "ETH/USDT",
+            "action": "FUT_SHORT_FULL",
+            "selected_signals": 18,
+            "filled_signals": 15,
+            "closed_trades": 15,
+            "realized_pnl_usd": 26.0554345966195,
+            "realized_pnl_pct": 2.60554345966195
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|BTC/USDT|FUT_SHORT_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "BTC/USDT",
+            "action": "FUT_SHORT_FULL",
+            "selected_signals": 13,
+            "filled_signals": 13,
+            "closed_trades": 13,
+            "realized_pnl_usd": 25.230155379345184,
+            "realized_pnl_pct": 2.5230155379345183
+          }
+        ],
+        "worst_signal_keys": [
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|BNB/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "BNB/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 17,
+            "filled_signals": 15,
+            "closed_trades": 15,
+            "realized_pnl_usd": -43.493250338659976,
+            "realized_pnl_pct": -4.349325033865998
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|SOL/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "SOL/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 13,
+            "filled_signals": 9,
+            "closed_trades": 9,
+            "realized_pnl_usd": -30.122719743063016,
+            "realized_pnl_pct": -3.0122719743063016
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|NEAR/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "NEAR/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 20,
+            "filled_signals": 12,
+            "closed_trades": 12,
+            "realized_pnl_usd": -29.598344276459706,
+            "realized_pnl_pct": -2.9598344276459705
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|ETH/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "ETH/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 20,
+            "filled_signals": 16,
+            "closed_trades": 15,
+            "realized_pnl_usd": -23.333970356919053,
+            "realized_pnl_pct": -2.333397035691905
+          },
+          {
+            "signal_key": "ensemble:Solo_MomentumScalper|XRP/USDT|FUT_LONG_FULL",
+            "actor_key": "ensemble:Solo_MomentumScalper",
+            "symbol": "XRP/USDT",
+            "action": "FUT_LONG_FULL",
+            "selected_signals": 13,
+            "filled_signals": 7,
+            "closed_trades": 7,
+            "realized_pnl_usd": -20.679817147923533,
+            "realized_pnl_pct": -2.0679817147923534
+          }
+        ]
+      },
+      {
+        "label": "LiveOIBreakout",
+        "standalone_actor_type": "agent",
+        "flash_actor_key": "agent:LiveOIBreakout",
+        "flash_actor_type": "agent",
+        "standalone_pnl_usd": 92.82514759298832,
+        "standalone_pnl_pct": 9.282514759298833,
+        "standalone_closed_trades": 1424,
+        "standalone_wins": 622,
+        "standalone_win_rate_pct": 43.67977528089887,
+        "flash_selected_pnl_usd": 112.86846441135631,
+        "flash_selected_pnl_pct": 11.286846441135632,
+        "flash_selected_signals": 120,
+        "flash_executable_selected_signals": 68,
+        "flash_selected_filtered_before_execution": 52,
+        "flash_filled_signals": 68,
+        "flash_closed_trades": 41,
+        "selection_alpha_usd": 20.043316818367998,
+        "selection_alpha_pct": 2.0043316818367996,
+        "flash_capture_ratio_pct": 121.59255044360631,
+        "best_signal_keys": [
+          {
+            "signal_key": "agent:LiveOIBreakout|ADA/USDT|SPOT_BUY_FULL",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "ADA/USDT",
+            "action": "SPOT_BUY_FULL",
+            "selected_signals": 10,
+            "filled_signals": 10,
+            "closed_trades": 10,
+            "realized_pnl_usd": 108.85006459605702,
+            "realized_pnl_pct": 10.885006459605702
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|DOGE/USDT|SPOT_BUY_FULL",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "DOGE/USDT",
+            "action": "SPOT_BUY_FULL",
+            "selected_signals": 2,
+            "filled_signals": 2,
+            "closed_trades": 2,
+            "realized_pnl_usd": 23.560622713011366,
+            "realized_pnl_pct": 2.3560622713011363
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|ADA/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "ADA/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 5,
+            "filled_signals": 5,
+            "closed_trades": 5,
+            "realized_pnl_usd": 14.398405718469222,
+            "realized_pnl_pct": 1.4398405718469223
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|DOGE/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "DOGE/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 4,
+            "filled_signals": 1,
+            "closed_trades": 1,
+            "realized_pnl_usd": 6.484912882033705,
+            "realized_pnl_pct": 0.6484912882033705
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|APT/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "APT/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 5,
+            "filled_signals": 4,
+            "closed_trades": 4,
+            "realized_pnl_usd": 5.429164801634475,
+            "realized_pnl_pct": 0.5429164801634475
+          }
+        ],
+        "worst_signal_keys": [
+          {
+            "signal_key": "agent:LiveOIBreakout|BNB/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "BNB/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 5,
+            "filled_signals": 3,
+            "closed_trades": 3,
+            "realized_pnl_usd": -15.402873985293494,
+            "realized_pnl_pct": -1.5402873985293493
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|ATOM/USDT|SPOT_BUY_FULL",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "ATOM/USDT",
+            "action": "SPOT_BUY_FULL",
+            "selected_signals": 11,
+            "filled_signals": 3,
+            "closed_trades": 3,
+            "realized_pnl_usd": -12.226075383392896,
+            "realized_pnl_pct": -1.2226075383392896
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|MATIC/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "MATIC/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 1,
+            "filled_signals": 1,
+            "closed_trades": 1,
+            "realized_pnl_usd": -9.209928946856138,
+            "realized_pnl_pct": -0.9209928946856137
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|DOT/USDT|SPOT_BUY_FULL",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "DOT/USDT",
+            "action": "SPOT_BUY_FULL",
+            "selected_signals": 1,
+            "filled_signals": 1,
+            "closed_trades": 1,
+            "realized_pnl_usd": -7.713480392156849,
+            "realized_pnl_pct": -0.7713480392156848
+          },
+          {
+            "signal_key": "agent:LiveOIBreakout|BTC/USDT|FUT_SHORT_HALF",
+            "actor_key": "agent:LiveOIBreakout",
+            "symbol": "BTC/USDT",
+            "action": "FUT_SHORT_HALF",
+            "selected_signals": 3,
+            "filled_signals": 2,
+            "closed_trades": 2,
+            "realized_pnl_usd": -3.061565790267122,
+            "realized_pnl_pct": -0.3061565790267122
+          }
+        ]
+      }
+    ]
+  },
+  "attribution_summary": {
+    "flash_decisions": 745734,
+    "selected_decisions": 1067,
+    "no_trade_decisions": 744667,
+    "selected_signals": 1067,
+    "selected_without_signal": 0,
+    "executable_selected_signals": 836,
+    "selected_filtered_before_execution": 231,
+    "filled_signals": 835,
+    "blocked_signals": 1,
+    "rejected_signals": 0,
+    "pending_signals": 0,
+    "missing_execution_signals": 0,
+    "unattributed_execution_events": 157,
+    "unattributed_closed_trades": 0,
+    "closed_trades": 496,
+    "winning_trades": 212,
+    "losing_trades": 284,
+    "realized_pnl_usd": 1054.1947342265976,
+    "filter_detail_counts": {
+      "rate_limited_open": 226,
+      "reverse_close": 9,
+      "max_position_saturated": 5
+    }
+  },
+  "actor_summary": {
+    "ensemble:Antonius_conservative": {
+      "actor_label": "Antonius_conservative",
+      "actor_type": "ensemble",
+      "selected_signals": 185,
+      "executable_selected_signals": 117,
+      "selected_filtered_before_execution": 68,
+      "filled_signals": 117,
+      "closed_trades": 102,
+      "realized_pnl_usd": 762.412886874653
+    },
+    "ensemble:Solo_MomentumScalper": {
+      "actor_label": "Solo_MomentumScalper",
+      "actor_type": "ensemble",
+      "selected_signals": 521,
+      "executable_selected_signals": 450,
+      "selected_filtered_before_execution": 71,
+      "filled_signals": 449,
+      "closed_trades": 260,
+      "realized_pnl_usd": 276.5628697134889
+    },
+    "agent:LiveOIBreakout": {
+      "actor_label": "LiveOIBreakout",
+      "actor_type": "agent",
+      "selected_signals": 120,
+      "executable_selected_signals": 68,
+      "selected_filtered_before_execution": 52,
+      "filled_signals": 68,
+      "closed_trades": 41,
+      "realized_pnl_usd": 112.86846441135631
+    },
+    "ensemble:Solo_LiveCrashHunter": {
+      "actor_label": "Solo_LiveCrashHunter",
+      "actor_type": "ensemble",
+      "selected_signals": 34,
+      "executable_selected_signals": 23,
+      "selected_filtered_before_execution": 11,
+      "filled_signals": 23,
+      "closed_trades": 19,
+      "realized_pnl_usd": 67.56450878675662
+    },
+    "ensemble:Solo_FundingArb": {
+      "actor_label": "Solo_FundingArb",
+      "actor_type": "ensemble",
+      "selected_signals": 20,
+      "executable_selected_signals": 12,
+      "selected_filtered_before_execution": 8,
+      "filled_signals": 12,
+      "closed_trades": 10,
+      "realized_pnl_usd": 32.277954778154374
+    },
+    "agent:LiveMeanRev": {
+      "actor_label": "LiveMeanRev",
+      "actor_type": "agent",
+      "selected_signals": 11,
+      "executable_selected_signals": 10,
+      "selected_filtered_before_execution": 1,
+      "filled_signals": 10,
+      "closed_trades": 1,
+      "realized_pnl_usd": 11.310454545454546
+    },
+    "agent:LiveRegimePullback": {
+      "actor_label": "LiveRegimePullback",
+      "actor_type": "agent",
+      "selected_signals": 46,
+      "executable_selected_signals": 43,
+      "selected_filtered_before_execution": 3,
+      "filled_signals": 43,
+      "closed_trades": 14,
+      "realized_pnl_usd": 3.411233255176649
+    },
+    "agent:BullRotationAgent": {
+      "actor_label": "BullRotationAgent",
+      "actor_type": "agent",
+      "selected_signals": 7,
+      "executable_selected_signals": 7,
+      "selected_filtered_before_execution": 0,
+      "filled_signals": 7,
+      "closed_trades": 0,
+      "realized_pnl_usd": 0.0
+    },
+    "agent:CrashPanicShortAgent": {
+      "actor_label": "CrashPanicShortAgent",
+      "actor_type": "agent",
+      "selected_signals": 6,
+      "executable_selected_signals": 6,
+      "selected_filtered_before_execution": 0,
+      "filled_signals": 6,
+      "closed_trades": 0,
+      "realized_pnl_usd": 0.0
+    },
+    "agent:FundingArb": {
+      "actor_label": "FundingArb",
+      "actor_type": "agent",
+      "selected_signals": 11,
+      "executable_selected_signals": 10,
+      "selected_filtered_before_execution": 1,
+      "filled_signals": 10,
+      "closed_trades": 3,
+      "realized_pnl_usd": -4.721565424916202
+    },
+    "agent:LiveAfterShock": {
+      "actor_label": "LiveAfterShock",
+      "actor_type": "agent",
+      "selected_signals": 18,
+      "executable_selected_signals": 17,
+      "selected_filtered_before_execution": 1,
+      "filled_signals": 17,
+      "closed_trades": 2,
+      "realized_pnl_usd": -7.03833656376649
+    },
+    "agent:LiveTrendFollow": {
+      "actor_label": "LiveTrendFollow",
+      "actor_type": "agent",
+      "selected_signals": 2,
+      "executable_selected_signals": 2,
+      "selected_filtered_before_execution": 0,
+      "filled_signals": 2,
+      "closed_trades": 2,
+      "realized_pnl_usd": -9.814809405990454
+    },
+    "ensemble:Solo_ResearchValidatorAgent": {
+      "actor_label": "Solo_ResearchValidatorAgent",
+      "actor_type": "ensemble",
+      "selected_signals": 3,
+      "executable_selected_signals": 3,
+      "selected_filtered_before_execution": 0,
+      "filled_signals": 3,
+      "closed_trades": 3,
+      "realized_pnl_usd": -10.599818623368437
+    },
+    "agent:RichardDennis": {
+      "actor_label": "RichardDennis",
+      "actor_type": "agent",
+      "selected_signals": 13,
+      "executable_selected_signals": 9,
+      "selected_filtered_before_execution": 4,
+      "filled_signals": 9,
+      "closed_trades": 6,
+      "realized_pnl_usd": -34.630077491151646
+    },
+    "ensemble:Solo_VolBreakoutHunter": {
+      "actor_label": "Solo_VolBreakoutHunter",
+      "actor_type": "ensemble",
+      "selected_signals": 9,
+      "executable_selected_signals": 7,
+      "selected_filtered_before_execution": 2,
+      "filled_signals": 7,
+      "closed_trades": 5,
+      "realized_pnl_usd": -41.24769068932597
+    },
+    "agent:MomentumScalper": {
+      "actor_label": "MomentumScalper",
+      "actor_type": "agent",
+      "selected_signals": 6,
+      "executable_selected_signals": 6,
+      "selected_filtered_before_execution": 0,
+      "filled_signals": 6,
+      "closed_trades": 2,
+      "realized_pnl_usd": -43.97154902405836
+    },
+    "ensemble:Optimal_StaticRotator": {
+      "actor_label": "Optimal_StaticRotator",
+      "actor_type": "ensemble",
+      "selected_signals": 55,
+      "executable_selected_signals": 46,
+      "selected_filtered_before_execution": 9,
+      "filled_signals": 46,
+      "closed_trades": 26,
+      "realized_pnl_usd": -60.189790915864904
+    }
+  },
+  "symbol_pnl": {
+    "XLM/USDT": {
+      "pnl": 358.6420723108734,
+      "closed": 14,
+      "signals": 26
+    },
+    "FIL/USDT": {
+      "pnl": 160.46276313630074,
+      "closed": 24,
+      "signals": 37
+    },
+    "APT/USDT": {
+      "pnl": 94.43557564358346,
+      "closed": 29,
+      "signals": 47
+    },
+    "ADA/USDT": {
+      "pnl": 105.23723406936017,
+      "closed": 19,
+      "signals": 34
+    },
+    "MATIC/USDT": {
+      "pnl": 67.3967736722739,
+      "closed": 31,
+      "signals": 54
+    },
+    "DOGE/USDT": {
+      "pnl": 102.27658298406116,
+      "closed": 27,
+      "signals": 47
+    },
+    "BNB/USDT": {
+      "pnl": -10.670373342667261,
+      "closed": 28,
+      "signals": 49
+    },
+    "NEAR/USDT": {
+      "pnl": 32.746558231187116,
+      "closed": 22,
+      "signals": 36
+    },
+    "LTC/USDT": {
+      "pnl": 18.778152238256403,
+      "closed": 29,
+      "signals": 52
+    },
+    "DOT/USDT": {
+      "pnl": 15.647792963247328,
+      "closed": 27,
+      "signals": 44
+    },
+    "AVAX/USDT": {
+      "pnl": -0.04284447790831791,
+      "closed": 33,
+      "signals": 57
+    },
+    "SOL/USDT": {
+      "pnl": 10.24706908536293,
+      "closed": 20,
+      "signals": 34
+    },
+    "ETH/USDT": {
+      "pnl": 42.136236429548944,
+      "closed": 36,
+      "signals": 57
+    },
+    "BTC/USDT": {
+      "pnl": 43.76112886763875,
+      "closed": 33,
+      "signals": 57
+    },
+    "ETC/USDT": {
+      "pnl": 66.15912062361224,
+      "closed": 35,
+      "signals": 60
+    },
+    "ICP/USDT": {
+      "pnl": 6.375554783146182,
+      "closed": 31,
+      "signals": 55
+    },
+    "ATOM/USDT": {
+      "pnl": 23.640438116794414,
+      "closed": 14,
+      "signals": 23
+    },
+    "LINK/USDT": {
+      "pnl": -31.908431867926485,
+      "closed": 9,
+      "signals": 14
+    },
+    "XRP/USDT": {
+      "pnl": -24.94991531490037,
+      "closed": 26,
+      "signals": 41
+    },
+    "TRX/USDT": {
+      "pnl": -26.176753925246913,
+      "closed": 9,
+      "signals": 12
+    }
+  },
+  "regime_pnl_best": [
+    [
+      "bearish",
+      575.305286959337
+    ],
+    [
+      "bullish",
+      412.0402753995886
+    ],
+    [
+      "crash",
+      -22.911209902968793
+    ],
+    [
+      "neutral",
+      89.76038177064096
+    ]
+  ],
+  "regime_pnl_symbol_guard": [
+    [
+      "bearish",
+      526.0799013345165
+    ],
+    [
+      "bullish",
+      411.5115023290358
+    ],
+    [
+      "crash",
+      -22.911209902968793
+    ],
+    [
+      "neutral",
+      90.32606111449893
+    ]
+  ],
+  "iteration_metrics": [
+    {
+      "period": "2025",
+      "name": "base_cap10",
+      "label": "Base cap10",
+      "category": "Fail",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDeny2025_20260522\\proven_solo_portfolio_hard_solo_momentum_cap10\\RETRODATE_MARKET\\2026-05-22_19-38-36_retrodate_market_v2",
+      "note": "Базовый Flash выбирал плохой selected subset: общая архитектура была прибыльной в компонентах, но выбранные сделки не переносили edge.",
+      "pnl_pct": 3.7561689771728144,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": -14.396465292194465,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": false,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": true,
+      "regime_floor_insufficient_regimes": [
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.6246575342465753,
+      "flash_selected_signals": 162,
+      "flash_executable_selected_signals": 105,
+      "dominance_equity_ratio": 0.878153666389079
+    },
+    {
+      "period": "2025",
+      "name": "generated_selected_deny",
+      "label": "Selected deny v1",
+      "category": "Intermediate",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDeny2025_20260522\\proven_solo_portfolio_hard_solo_momentum_cap10_generated_selected_deny\\RETRODATE_MARKET\\2026-05-22_19-50-35_retrodate_market_v2",
+      "note": "Первый слой запрета худших selected signal_key резко улучшил результат, но Пантеон всё ещё уступал лучшему компоненту.",
+      "pnl_pct": 16.173673550411415,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": -1.9789607189558645,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish",
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.4465753424657534,
+      "flash_selected_signals": 92,
+      "flash_executable_selected_signals": 77,
+      "dominance_equity_ratio": 0.9832508117047634
+    },
+    {
+      "period": "2025",
+      "name": "round2",
+      "label": "Round2 deny",
+      "category": "Success",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyRound2_2025_20260522\\RETRODATE_MARKET\\2026-05-22_20-05-53_retrodate_market_v2",
+      "note": "Второй слой selected-deny впервые дал доминацию Пантеона над лучшей составляющей на 2025.",
+      "pnl_pct": 21.346479172827625,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": 3.193844903460345,
+      "beats_best_component": true,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": true,
+      "regime_floor_insufficient_regimes": [
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.4958904109589041,
+      "flash_selected_signals": 104,
+      "flash_executable_selected_signals": 89,
+      "dominance_equity_ratio": 1.027031516675108
+    },
+    {
+      "period": "2025",
+      "name": "shadow_round2only_fail",
+      "label": "Broad shadow deny",
+      "category": "Fail",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyShadowFullRound2Only_2025_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_generated_selected_deny_shadow_full_round2only\\RETRODATE_MARKET\\2026-05-22_21-38-38_retrodate_market_v2",
+      "note": "Широкий full-shadow deny перерезал полезные ключи и вызвал over-selection fallback-кандидатов.",
+      "pnl_pct": 2.573673383662804,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": -15.578960885704475,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": false,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": true,
+      "regime_floor_insufficient_regimes": [
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.5506849315068493,
+      "flash_selected_signals": 129,
+      "flash_executable_selected_signals": 95,
+      "dominance_equity_ratio": 0.8681454630102687
+    },
+    {
+      "period": "2025",
+      "name": "atom_deny_wrong_base",
+      "label": "ATOM deny without round2",
+      "category": "Fail",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashSoloLiveCrashAtomDeny_2025_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_deny_solo_livecrash_atom_short\\RETRODATE_MARKET\\2026-05-22_21-56-24_retrodate_market_v2",
+      "note": "Одиночный ATOM deny без round2-базы не заменяет уже обученный слой запретов и ломает 2025.",
+      "pnl_pct": 2.995532925163452,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": -15.157101344203827,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": false,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": true,
+      "regime_floor_insufficient_regimes": [
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.6109589041095891,
+      "flash_selected_signals": 157,
+      "flash_executable_selected_signals": 102,
+      "dominance_equity_ratio": 0.8717159254388835
+    },
+    {
+      "period": "2025",
+      "name": "round2_plus_terminal_atom",
+      "label": "Round2 + terminal ATOM",
+      "category": "Recommended",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashRound2PlusTerminalAtom_2025_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_round2_plus_terminal_atom\\RETRODATE_MARKET\\2026-05-22_22-35-42_retrodate_market_v2",
+      "note": "Финальный устойчивый кандидат: сохраняет 2025 dominance и добавляет узкий guard против OOS-проблемы ATOM.",
+      "pnl_pct": 20.68125941629314,
+      "best_component_pnl_pct": 18.15263426936728,
+      "panteon_alpha_pct": 2.5286251469258616,
+      "beats_best_component": true,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": true,
+      "regime_floor_insufficient_regimes": [
+        "bullish",
+        "crash",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.4821917808219178,
+      "flash_selected_signals": 101,
+      "flash_executable_selected_signals": 86,
+      "dominance_equity_ratio": 1.0214013438004357
+    },
+    {
+      "period": "2026 H1",
+      "name": "round2",
+      "label": "Round2 deny",
+      "category": "Intermediate",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyRound2_2026H1_20260523\\RETRODATE_MARKET\\2026-05-22_21-02-19_retrodate_market_v2",
+      "note": "OOS прибыльный, но strict alpha 2 п.п. не достигнут.",
+      "pnl_pct": 10.136546207943772,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 1.8972874260814265,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.8043478260869565,
+      "flash_selected_signals": 57,
+      "flash_executable_selected_signals": 43,
+      "dominance_equity_ratio": 1.017528643926739
+    },
+    {
+      "period": "2026 H1",
+      "name": "round2_open2_fail",
+      "label": "Round2 open2",
+      "category": "Fail",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyRound2Open2_2026H1_20260523\\RETRODATE_MARKET\\2026-05-22_21-07-29_retrodate_market_v2",
+      "note": "Расширение числа новых открытий ухудшило OOS: прежние лимиты защищали от плохой экспозиции.",
+      "pnl_pct": 9.538706062919305,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 1.2994472810569597,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.7101449275362319,
+      "flash_selected_signals": 50,
+      "flash_executable_selected_signals": 48,
+      "dominance_equity_ratio": 1.0120053231672232
+    },
+    {
+      "period": "2026 H1",
+      "name": "shadow_3sources_fail",
+      "label": "Shadow deny 3 sources",
+      "category": "Fail",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyShadowFull_2026H1_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_generated_selected_deny_shadow_full\\RETRODATE_MARKET\\2026-05-22_21-29-03_retrodate_market_v2",
+      "note": "Слишком широкий deny из нескольких источников ухудшил результат относительно round2.",
+      "pnl_pct": 9.899313307221798,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 1.6600545253594525,
+      "beats_best_component": false,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.7318840579710145,
+      "flash_selected_signals": 52,
+      "flash_executable_selected_signals": 40,
+      "dominance_equity_ratio": 1.0153368984972913
+    },
+    {
+      "period": "2026 H1",
+      "name": "shadow_round2only_fail_is2025",
+      "label": "Shadow deny round2-only",
+      "category": "Overfit",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashGeneratedSelectedDenyShadowFullRound2Only_2026H1_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_generated_selected_deny_shadow_full_round2only\\RETRODATE_MARKET\\2026-05-22_21-33-49_retrodate_market_v2",
+      "note": "На 2026 H1 выглядит лучше финала, но провален 2025-контроль, поэтому непригоден как production policy.",
+      "pnl_pct": 13.373493512262078,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 5.134234730399733,
+      "beats_best_component": true,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.8768115942028986,
+      "flash_selected_signals": 64,
+      "flash_executable_selected_signals": 47,
+      "dominance_equity_ratio": 1.047434126842525
+    },
+    {
+      "period": "2026 H1",
+      "name": "atom_deny_wrong_base",
+      "label": "ATOM deny without round2",
+      "category": "Overfit",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashSoloLiveCrashAtomDeny_2026H1_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_deny_solo_livecrash_atom_short\\RETRODATE_MARKET\\2026-05-22_21-52-07_retrodate_market_v2",
+      "note": "Лучший одиночный OOS, но 2025 провален; это пример подгонки под одну проблему.",
+      "pnl_pct": 13.52541339260249,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 5.2861546107401445,
+      "beats_best_component": true,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish",
+        "neutral"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.8768115942028986,
+      "flash_selected_signals": 64,
+      "flash_executable_selected_signals": 47,
+      "dominance_equity_ratio": 1.0488376830202937
+    },
+    {
+      "period": "2026 H1",
+      "name": "round2_plus_terminal_atom",
+      "label": "Round2 + terminal ATOM",
+      "category": "Recommended",
+      "path": "C:\\Work\\Crypto_exchange\\Results\\PanteonFlashRound2PlusTerminalAtom_2026H1_20260523\\proven_solo_portfolio_hard_solo_momentum_cap10_round2_plus_terminal_atom\\RETRODATE_MARKET\\2026-05-22_22-31-22_retrodate_market_v2",
+      "note": "Лучший устойчивый вариант: проходит 2025 и 2026 H1, strict alpha и churn budget.",
+      "pnl_pct": 11.309435085425225,
+      "best_component_pnl_pct": 8.239258781862345,
+      "panteon_alpha_pct": 3.0701763035628797,
+      "beats_best_component": true,
+      "panteon_lcb_dominance": true,
+      "ensemble_lift_pass": true,
+      "regime_floor_pass": null,
+      "regime_floor_insufficient_regimes": [
+        "bearish"
+      ],
+      "churn_budget_pass": true,
+      "actor_switches_per_day": 0.7608695652173914,
+      "flash_selected_signals": 54,
+      "flash_executable_selected_signals": 40,
+      "dominance_equity_ratio": 1.0283647203252777
+    }
+  ],
+  "symbol_guard_diagnostics": {
+    "bars": 38375,
+    "degraded_nonempty_bars": 8087,
+    "degraded_symbol_bars": [
+      [
+        "LTC/USDT",
+        1440
+      ],
+      [
+        "LINK/USDT",
+        1440
+      ],
+      [
+        "APT/USDT",
+        1440
+      ],
+      [
+        "BNB/USDT",
+        1440
+      ],
+      [
+        "NEAR/USDT",
+        1440
+      ],
+      [
+        "AVAX/USDT",
+        720
+      ],
+      [
+        "MATIC/USDT",
+        720
+      ],
+      [
+        "ICP/USDT",
+        720
+      ]
+    ],
+    "rejected_candidates_by_symbol": [
+      [
+        "AVAX/USDT",
+        467
+      ],
+      [
+        "BNB/USDT",
+        294
+      ],
+      [
+        "NEAR/USDT",
+        292
+      ],
+      [
+        "APT/USDT",
+        264
+      ],
+      [
+        "LTC/USDT",
+        181
+      ],
+      [
+        "LINK/USDT",
+        154
+      ],
+      [
+        "ICP/USDT",
+        143
+      ],
+      [
+        "MATIC/USDT",
+        8
+      ]
+    ],
+    "top_rejected_actor_symbol_actions": [
+      [
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_SHORT_FULL",
+        60
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|AVAX/USDT|FUT_SHORT_FULL",
+        54
+      ],
+      [
+        "ensemble:Optimal_StaticRotator|AVAX/USDT|FUT_SHORT_FULL",
+        44
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|BNB/USDT|FUT_LONG_FULL",
+        37
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|LINK/USDT|FUT_LONG_FULL",
+        19
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|NEAR/USDT|FUT_SHORT_FULL",
+        16
+      ],
+      [
+        "ensemble:Optimal_StaticRotator|LTC/USDT|FUT_LONG_FULL",
+        15
+      ],
+      [
+        "ensemble:Antonius_conservative|LTC/USDT|FUT_LONG_FULL",
+        14
+      ],
+      [
+        "ensemble:Solo_FundingArb|LTC/USDT|FUT_LONG_FULL",
+        14
+      ],
+      [
+        "ensemble:Antonius_conservative|AVAX/USDT|FUT_SHORT_FULL",
+        13
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|LINK/USDT|FUT_SHORT_FULL",
+        11
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|LTC/USDT|FUT_SHORT_FULL",
+        10
+      ],
+      [
+        "ensemble:Antonius_conservative|NEAR/USDT|FUT_SHORT_FULL",
+        10
+      ],
+      [
+        "ensemble:Solo_MomentumScalper|NEAR/USDT|FUT_LONG_FULL",
+        10
+      ],
+      [
+        "ensemble:Antonius_conservative|LINK/USDT|FUT_SHORT_FULL",
+        9
+      ],
+      [
+        "ensemble:Solo_LiveCrashHunter|NEAR/USDT|FUT_SHORT_FULL",
+        9
+      ],
+      [
+        "ensemble:Solo_LiveCrashHunter|LTC/USDT|FUT_SHORT_FULL",
+        8
+      ],
+      [
+        "ensemble:Antonius_conservative|BNB/USDT|FUT_LONG_FULL",
+        8
+      ],
+      [
+        "ensemble:Optimal_StaticRotator|AVAX/USDT|FUT_SHORT_HALF",
+        6
+      ],
+      [
+        "agent:LiveAfterShock|LTC/USDT|SPOT_BUY_HALF",
+        6
+      ]
+    ]
+  }
+}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from panteon_v2.domain.types import Action, Regime, Signal, Trade
+from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.memory import PerformanceMemory
 from panteon_v2.scoring import regime_score
 
@@ -34,24 +34,29 @@ def _close_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
 
 
 def _open_trade(sig: Signal, fill_price: float = None, qty: float = 1.0,
-                fee: float = 0.0) -> Trade:
+                fee: float = 0.0, funding: float = 0.0) -> Trade:
     side = sig.action.side or "long"
     return Trade(
         signal_id=sig.id, bar=sig.bar, sym=sig.sym, side=side,
-        qty=qty, fill_price=fill_price or sig.price, fee=fee,
+        qty=qty, fill_price=fill_price or sig.price, fee=fee, funding=funding,
     )
 
 
 def _close_trade(open_sig: Signal, close_sig: Signal, fill_price: float,
-                 qty: float = 1.0, fee: float = 0.0) -> Trade:
+                 qty: float = 1.0, fee: float = 0.0,
+                 funding: float = 0.0) -> Trade:
     return Trade(
         signal_id=close_sig.id, bar=close_sig.bar, sym=close_sig.sym,
         side=open_sig.action.side or "long",
-        qty=qty, fill_price=fill_price, fee=fee,
+        qty=qty, fill_price=fill_price, fee=fee, funding=funding,
     )
 
 
 class TestPerformanceMemoryBasic(unittest.TestCase):
+    def test_metrics_pnl_net_docstring_states_pnl_pct_is_net(self):
+        doc = Metrics.pnl_net_pct.fget.__doc__ or ""
+        self.assertIn("pnl_pct is already net", doc)
+
     def test_get_empty(self):
         perf = PerformanceMemory()
         self.assertFalse(perf.get("X").has_data)
@@ -155,6 +160,39 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
         m = perf.get("AgentA", regime=Regime.BULLISH)
         # +10% raw return × 10% fraction = 1% PnL
         self.assertAlmostEqual(m.pnl_pct, 1.0, places=5)
+
+    def test_closed_trade_exposes_net_gross_and_cost_metrics(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+
+        perf.update_from_trade(_open_trade(os, fee=0.25, funding=0.10), os)
+        perf.update_from_trade(
+            _close_trade(os, cs, 110.0, fee=0.25, funding=0.40),
+            cs,
+        )
+
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertAlmostEqual(m.pnl_gross_pct, 10.0, places=5)
+        self.assertAlmostEqual(m.fee_pct, 0.50, places=5)
+        self.assertAlmostEqual(m.funding_pct, 0.50, places=5)
+        self.assertAlmostEqual(m.trading_cost_pct, 1.00, places=5)
+        self.assertAlmostEqual(m.pnl_net_pct, 9.00, places=5)
+        self.assertAlmostEqual(m.pnl_pct, m.pnl_net_pct, places=5)
+
+    def test_negative_funding_rebate_increases_net_pnl(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+
+        perf.update_from_trade(_open_trade(os, funding=-0.25), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0, funding=-0.25), cs)
+
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertAlmostEqual(m.pnl_gross_pct, 10.0, places=5)
+        self.assertAlmostEqual(m.funding_pct, -0.50, places=5)
+        self.assertAlmostEqual(m.trading_cost_pct, -0.50, places=5)
+        self.assertAlmostEqual(m.pnl_net_pct, 10.50, places=5)
 
 
     def test_cash_flat_close_is_attributed_to_original_opener(self):

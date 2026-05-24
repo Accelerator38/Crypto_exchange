@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -31,6 +32,7 @@ from ..attribution import (
     DecisionStarted,
     LeaderSelected,
     PlayerVoteFailed,
+    PositionClosed,
     QuarantineRecomputed,
     RegimeDetected,
     SignalEmitted,
@@ -40,13 +42,22 @@ from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from ..execution import ExecutionResult, ExecutionStatus
 from ..selection import (
     EnsemblePlayer,
+    FlashDecision,
     RotatingAgentPlayer,
     SwitchDecision,
     ThresholdProfile,
     WeightedConsensus,
 )
+from ..selection.player import normalize_vote_result
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
+from .flash_state import (
+    flash_degraded_actor_keys,
+    flash_degraded_open_symbols,
+    flash_degraded_signal_keys,
+    flash_open_position_sides_by_symbol,
+    flash_regime_degradation_key,
+)
 from .live_state import (
     filter_real_signals_against_tracker,
     is_external_position,
@@ -304,6 +315,7 @@ class StepResult:
     n_raw_signals: int = 0
     leader_vote_errors: int = 0
     leader_agent_labels: tuple[str, ...] = ()
+    selected_actors_by_symbol: Dict[str, str] = field(default_factory=dict)
     signal_filter_details: tuple[str, ...] = ()
     selected_leader: Optional[str] = None
     executed_leader: Optional[str] = None
@@ -314,6 +326,13 @@ class StepResult:
     blocked_reasons: Dict[str, int] = field(default_factory=dict)
     causal_decision: Dict[str, Any] = field(default_factory=dict)
     error:         Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _FlashExecutionActor:
+    label: str
+    agents: Tuple[Any, ...] = ()
+    agent_labels: Tuple[str, ...] = ()
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -495,6 +514,23 @@ def _run_one_bar(
         )
 
     decision_id = trace
+    context = _decision_context(pipeline, market)
+    health_reason = _exchange_health_open_block_reason(pipeline)
+
+    if bool(getattr(pipeline, "flash_enabled", False)):
+        return _run_flash_decision_path(
+            pipeline,
+            market,
+            candidates,
+            shadow_summary,
+            signal_id_counter=signal_id_counter,
+            last_qm_bar=last_qm_bar,
+            last_regime=last_regime,
+            trace=trace,
+            decision_id=decision_id,
+            context=context,
+            health_reason=health_reason,
+        )
 
     if not candidates:
         # Никаких eligible — пропускаем bar
@@ -513,8 +549,6 @@ def _run_one_bar(
         )
 
     # 5. Strategist
-    context = _decision_context(pipeline, market)
-    health_reason = _exchange_health_open_block_reason(pipeline)
     pipeline.event_log.emit(DecisionStarted(
         bar=market.bar,
         trace_id=trace,
@@ -825,6 +859,1132 @@ def _run_one_bar(
         ),
         signal_id_counter, last_qm_bar, last_regime,
     )
+
+
+def _run_flash_decision_path(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    candidates: Sequence[EnsemblePlayer],
+    shadow_summary: object,
+    *,
+    signal_id_counter: int,
+    last_qm_bar: int,
+    last_regime: Optional[Regime],
+    trace: str,
+    decision_id: str,
+    context: Dict[str, str],
+    health_reason: str,
+):
+    allocator = getattr(pipeline, "flash_allocator", None)
+    if allocator is None:
+        raise RuntimeError("flash_enabled=True but pipeline.flash_allocator is not configured")
+
+    candidates = tuple(
+        candidate
+        for candidate in candidates
+        if not _fallback_candidate_safety_issue(pipeline, candidate, market)
+    )
+    agents = _flash_real_agents(pipeline, market)
+    candidate_labels = tuple(dict.fromkeys(
+        [str(getattr(agent, "label", "") or "") for agent in agents]
+        + [str(getattr(candidate, "label", "") or "") for candidate in candidates]
+    ))
+    pipeline.event_log.emit(DecisionStarted(
+        bar=market.bar,
+        trace_id=trace,
+        decision_id=decision_id,
+        **context,
+        candidate_labels=tuple(label for label in candidate_labels if label),
+        shadow_total_signals=int(getattr(shadow_summary, "total_signals", 0) or 0),
+        shadow_total_filled=int(getattr(shadow_summary, "total_filled", 0) or 0),
+        shadow_total_rejected=int(getattr(shadow_summary, "total_rejected", 0) or 0),
+        shadow_total_blocked=int(getattr(shadow_summary, "total_blocked", 0) or 0),
+    ))
+
+    sync_player_agents_to_real_positions(
+        _FlashExecutionActor(
+            label="Panteon_Flash",
+            agents=tuple(agents),
+            agent_labels=tuple(str(getattr(agent, "label", "") or "") for agent in agents),
+        ),
+        pipeline,
+        bar_index=market.bar,
+        market_symbols=market.prices.keys(),
+    )
+    _flash_update_degradation_state_from_events(pipeline, current_bar=market.bar)
+    previous_flash_actors = dict(
+        getattr(pipeline, "_flash_previous_actor_by_symbol", {}) or {}
+    )
+    shadow_player_signals = _flash_shadow_player_signals_with_position_replay(
+        pipeline,
+        market,
+        candidates,
+        agents=agents,
+        signal_id_counter=signal_id_counter,
+    )
+    decisions = tuple(allocator.decide(
+        market,
+        agents=agents,
+        players=tuple(candidates),
+        signal_id_start=signal_id_counter,
+        actionable_labels=getattr(pipeline, "_current_actionable_player_labels", set()) or set(),
+        shadow_confirmation=_flash_shadow_confirmation_scores(
+            pipeline,
+            market,
+            agents=agents,
+            players=candidates,
+        ),
+        shadow_player_signals=shadow_player_signals,
+        shadow_agent_signals=getattr(
+            pipeline,
+            "_current_shadow_agent_signals",
+            {},
+        ) or {},
+        degraded_signal_keys=_flash_degraded_signal_keys(pipeline),
+        degraded_actor_keys=_flash_degraded_actor_keys(pipeline, market.regime),
+        degraded_open_symbols=_flash_degraded_open_symbols(pipeline),
+        promoted_signal_keys=_flash_promoted_signal_keys(pipeline),
+        previous_actor_by_symbol=previous_flash_actors,
+        open_position_sides_by_symbol=_flash_open_position_sides_by_symbol(pipeline),
+    ))
+    pipeline._flash_previous_actor_by_symbol = {
+        symbol: actor_key
+        for decision in decisions
+        for symbol, actor_key in (
+            (
+                str(getattr(decision, "symbol", "") or "").upper(),
+                _flash_previous_actor_key_from_decision(decision),
+            ),
+        )
+        if symbol and actor_key and actor_key != "NoTrade"
+    }
+    _flash_register_degradation_signal_keys(pipeline, decisions)
+    _emit_flash_audit_events(
+        pipeline,
+        market,
+        decisions,
+        decision_id=decision_id,
+        trace_id=trace,
+        context=context,
+    )
+    best_score = max((float(getattr(decision, "score", 0.0) or 0.0) for decision in decisions), default=0.0)
+    pipeline.event_log.emit(LeaderSelected(
+        bar=market.bar,
+        trace_id=trace,
+        player_label="Panteon_Flash",
+        previous_label="",
+        score=best_score,
+        margin=0.0,
+        is_urgent=False,
+        reason="flash per-symbol actor selection",
+        decision_id=decision_id,
+        **context,
+    ))
+
+    raw_signals = [decision.signal for decision in decisions if decision.signal is not None]
+    if raw_signals:
+        signal_id_counter = max(signal.id for signal in raw_signals) + 1
+    stale_close_signals = _flash_stale_position_close_signals(
+        pipeline,
+        market,
+        signal_id_start=signal_id_counter,
+        max_age_bars=_flash_stale_position_exit_max_age_bars(pipeline),
+        require_nonpositive_unrealized=_flash_stale_position_exit_requires_loss(pipeline),
+    )
+    if stale_close_signals:
+        signal_id_counter = max(signal.id for signal in stale_close_signals) + 1
+        raw_signals = stale_close_signals + raw_signals
+    raw_signal_count = len(raw_signals)
+    guard_actor = _flash_guard_actor(decisions, agents=agents, players=candidates)
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=guard_actor,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=getattr(
+            getattr(pipeline, "live_execution", None),
+            "max_new_opens_per_bar",
+            1,
+        ),
+        max_open_positions=getattr(
+            getattr(pipeline, "risk_config", None),
+            "max_open_positions",
+            None,
+        ),
+    )
+    signals = signal_guard.signals
+    for sig in signals:
+        signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+        if sig.action.is_open and health_reason:
+            signal_context["exchange_health_reason"] = health_reason
+        pipeline.event_log.emit(SignalEmitted(
+            bar=market.bar,
+            trace_id=trace,
+            signal=sig,
+            **signal_context,
+        ))
+        getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
+
+    n_filled = n_rejected = n_blocked = 0
+    blocked_reasons: Dict[str, int] = {}
+    for sig in signals:
+        try:
+            set_event_context = getattr(pipeline.executor, "set_event_context", None)
+            if callable(set_event_context):
+                signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+                if sig.action.is_open and health_reason:
+                    signal_context["exchange_health_reason"] = health_reason
+                set_event_context(signal_context)
+            res: ExecutionResult = pipeline.executor.execute(
+                sig,
+                balance_usd=pipeline.current_balance,
+            )
+        except Exception:
+            log.exception("execute failed for signal %d", sig.id)
+            _record_order_failure(pipeline, "execute exception")
+            n_rejected += 1
+            continue
+        if res.status == ExecutionStatus.FILLED:
+            n_filled += 1
+            _record_order_success(pipeline, sig, res)
+            _record_realized_result_for_strategy(pipeline, res)
+        elif res.status == ExecutionStatus.REJECTED:
+            _record_order_failure(pipeline, res.reason or "rejected")
+            n_rejected += 1
+        elif res.status == ExecutionStatus.PENDING:
+            _record_order_failure(pipeline, res.reason or "pending")
+            n_rejected += 1
+        elif res.status == ExecutionStatus.BLOCKED:
+            n_blocked += 1
+            reason = res.reason or "blocked"
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+        if _kill_switch_reason(pipeline):
+            break
+
+    _flash_update_degradation_state_from_events(pipeline, current_bar=market.bar)
+    selected_by_symbol = {
+        str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "selected_actor", "") or "")
+        for decision in decisions
+    }
+    kill_reason_after_execution = _kill_switch_reason(pipeline)
+    return (
+        StepResult(
+            bar=market.bar,
+            regime=market.regime,
+            leader="Panteon_Flash",
+            leader_changed=False,
+            n_signals=len(signals),
+            n_filled=n_filled,
+            n_rejected=n_rejected,
+            n_blocked=n_blocked,
+            n_shadow_signals=int(getattr(shadow_summary, "total_signals", 0) or 0),
+            n_shadow_filled=int(getattr(shadow_summary, "total_filled", 0) or 0),
+            n_shadow_rejected=int(getattr(shadow_summary, "total_rejected", 0) or 0),
+            n_shadow_blocked=int(getattr(shadow_summary, "total_blocked", 0) or 0),
+            n_shadow_actors=int(getattr(shadow_summary, "actors", 0) or 0),
+            n_filtered_real_signals=signal_guard.filtered,
+            n_stale_close_signals=signal_guard.stale_closes,
+            n_duplicate_open_signals=signal_guard.duplicate_opens,
+            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            n_max_position_saturated_open_signals=signal_guard.max_position_saturated_opens,
+            n_external_position_signals=signal_guard.external_position_signals,
+            n_raw_signals=raw_signal_count,
+            leader_vote_errors=0,
+            leader_agent_labels=guard_actor.agent_labels,
+            selected_actors_by_symbol=selected_by_symbol,
+            signal_filter_details=tuple(signal_guard.details),
+            selected_leader="Panteon_Flash",
+            executed_leader="Panteon_Flash",
+            blocked_reasons=blocked_reasons,
+            causal_decision=_flash_causal_decision_payload(
+                market=market,
+                decisions=decisions,
+                raw_signals=raw_signals,
+                executable_signals=signals,
+                signal_guard=signal_guard,
+                n_filled=n_filled,
+                n_rejected=n_rejected,
+                n_blocked=n_blocked,
+                blocked_reasons=blocked_reasons,
+                pipeline=pipeline,
+            ),
+            error=(
+                f"kill switch active: {kill_reason_after_execution}"
+                if kill_reason_after_execution else None
+            ),
+        ),
+        signal_id_counter,
+        last_qm_bar,
+        last_regime,
+    )
+
+
+def _flash_real_agents(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+) -> List[object]:
+    registry = getattr(pipeline, "registry", None)
+    all_agents = getattr(registry, "all_agents", None)
+    if not callable(all_agents):
+        return []
+    out: List[object] = []
+    for agent in all_agents():
+        if not _agent_is_real_executable(agent):
+            continue
+        if _flash_agent_safety_issue(pipeline, agent, market):
+            continue
+        out.append(agent)
+    return out
+
+
+def _flash_solo_candidate_for_agent(
+    agent: object,
+    regime: Regime,
+) -> EnsemblePlayer:
+    label = str(getattr(agent, "label", "") or "")
+    return EnsemblePlayer(
+        label=f"Solo_{label}",
+        agents=[agent],
+        weights={label: 1.0},
+        voting=WeightedConsensus(),
+        thresholds=ThresholdProfile(),
+        affinity=regime,
+    )
+
+
+def _flash_agent_safety_issue(
+    pipeline: ProductionPipeline,
+    agent: object,
+    market: MarketSnapshot,
+) -> bool:
+    label = str(getattr(agent, "label", "") or "")
+    if not label:
+        return True
+    candidate = EnsemblePlayer(
+        label=label,
+        agents=[agent],
+        weights={label: 1.0},
+        voting=WeightedConsensus(),
+        thresholds=ThresholdProfile(),
+        affinity=market.regime,
+    )
+    strategist = getattr(pipeline, "strategist", None)
+    validate = getattr(strategist, "_validate", None)
+    if callable(validate):
+        try:
+            if validate(candidate) is not None:
+                return True
+        except Exception:
+            log.debug("flash agent safety quarantine validation failed", exc_info=True)
+            return True
+    validate_hard_policy = getattr(strategist, "_validate_hard_policy", None)
+    if callable(validate_hard_policy):
+        try:
+            issue = validate_hard_policy(
+                candidate,
+                market.regime,
+                current_bar=market.bar,
+                market_tags=_market_policy_tags(market),
+            )
+            if issue is not None:
+                return True
+        except Exception:
+            log.debug("flash agent hard-policy validation failed", exc_info=True)
+            return True
+    validate_real_loss = getattr(strategist, "_validate_v3_real_loss", None)
+    if callable(validate_real_loss):
+        try:
+            if validate_real_loss(
+                candidate,
+                market.regime,
+                current_bar=market.bar,
+            ) is not None:
+                return True
+        except Exception:
+            log.debug("flash agent real-loss validation failed", exc_info=True)
+            return True
+    return False
+
+
+def _flash_guard_actor(
+    decisions: Sequence[FlashDecision],
+    *,
+    agents: Sequence[object],
+    players: Sequence[EnsemblePlayer],
+) -> _FlashExecutionActor:
+    selected_labels = {
+        str(getattr(decision, "selected_actor", "") or "")
+        for decision in decisions
+        if str(getattr(decision, "selected_actor", "") or "") != "NoTrade"
+    }
+    selected_agent_labels = {
+        str(getattr(getattr(decision, "signal", None), "by_agent", "") or "")
+        for decision in decisions
+        if getattr(decision, "signal", None) is not None
+    }
+    selected_agent_labels.discard("")
+
+    by_label = {str(getattr(agent, "label", "") or ""): agent for agent in agents}
+    out: List[object] = []
+    seen: set[str] = set()
+
+    def add_agent(agent: object) -> None:
+        label = str(getattr(agent, "label", "") or "")
+        if not label or label in seen:
+            return
+        seen.add(label)
+        out.append(agent)
+
+    for label in sorted(selected_labels | selected_agent_labels):
+        agent = by_label.get(label)
+        if agent is not None:
+            add_agent(agent)
+    for player in players:
+        if str(getattr(player, "label", "") or "") not in selected_labels:
+            continue
+        for agent in getattr(player, "agents", ()) or ():
+            add_agent(agent)
+
+    return _FlashExecutionActor(
+        label="Panteon_Flash",
+        agents=tuple(out),
+        agent_labels=tuple(str(getattr(agent, "label", "") or "") for agent in out),
+    )
+
+
+def _flash_shadow_confirmation_scores(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    agents: Sequence[object],
+    players: Sequence[EnsemblePlayer],
+) -> Dict[object, tuple[float, int]]:
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    if not bool(getattr(config, "shadow_confirmation_enabled", False)):
+        return {}
+    symbol_scoped = bool(getattr(config, "shadow_symbol_confirmation_enabled", False))
+    if symbol_scoped:
+        strategist = getattr(pipeline, "strategist", None)
+        label_scorer = getattr(strategist, "shadow_soft_score_for_label", None)
+        label_stats_scorer = getattr(strategist, "shadow_soft_stats_for_label", None)
+        label_all_scorer = getattr(
+            strategist,
+            "shadow_soft_score_for_label_all_regimes",
+            None,
+        )
+        label_all_stats_scorer = getattr(
+            strategist,
+            "shadow_soft_stats_for_label_all_regimes",
+            None,
+        )
+        signal_scorer = getattr(strategist, "shadow_soft_score_for_signal", None)
+        signal_all_scorer = getattr(
+            strategist,
+            "shadow_soft_score_for_signal_all_regimes",
+            None,
+        )
+        quality_enabled = bool(getattr(config, "shadow_quality_confirmation_enabled", False))
+        actor_fallback_enabled = bool(
+            getattr(config, "shadow_actor_fallback_confirmation_enabled", False)
+        )
+        stats_scorer = getattr(strategist, "shadow_soft_stats_for_signal", None)
+        all_stats_scorer = getattr(
+            strategist,
+            "shadow_soft_stats_for_signal_all_regimes",
+            None,
+        )
+        if not callable(signal_scorer):
+            return {}
+        scores: Dict[object, tuple[float, int]] = {}
+        symbols = tuple(sorted(str(symbol).upper() for symbol in market.prices))
+        confirmation_actions = (
+            Action.SPOT_BUY_HALF,
+            Action.SPOT_BUY_FULL,
+            Action.FUT_LONG_HALF,
+            Action.FUT_LONG_FULL,
+            Action.FUT_SHORT_HALF,
+            Action.FUT_SHORT_FULL,
+        )
+        for agent in agents:
+            label = str(getattr(agent, "label", "") or "")
+            if not label:
+                continue
+            portfolio_scope = _flash_portfolio_shadow_actor(config, "agent", label)
+            if actor_fallback_enabled and callable(label_scorer):
+                try:
+                    if quality_enabled and callable(label_stats_scorer):
+                        if portfolio_scope and callable(label_all_stats_scorer):
+                            scores[label] = label_all_stats_scorer(
+                                f"Solo_{label}",
+                                market.bar,
+                            )  # type: ignore[assignment,arg-type]
+                        else:
+                            scores[label] = label_stats_scorer(
+                                f"Solo_{label}",
+                                market.regime,
+                                market.bar,
+                            )  # type: ignore[assignment,arg-type]
+                    elif portfolio_scope and callable(label_all_scorer):
+                        scores[label] = tuple(
+                            label_all_scorer(f"Solo_{label}", market.bar)
+                        )  # type: ignore[arg-type]
+                    else:
+                        scores[label] = tuple(
+                            label_scorer(f"Solo_{label}", market.regime, market.bar)
+                        )  # type: ignore[arg-type]
+                except Exception:
+                    log.debug(
+                        "failed to score flash shadow agent fallback %s",
+                        label,
+                        exc_info=True,
+                    )
+            for symbol in symbols:
+                try:
+                    for action in confirmation_actions:
+                        if quality_enabled and callable(stats_scorer):
+                            if portfolio_scope and callable(all_stats_scorer):
+                                scores[(label, symbol, action.name)] = all_stats_scorer(
+                                    f"Solo_{label}",
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )  # type: ignore[assignment,arg-type]
+                            else:
+                                scores[(label, symbol, action.name)] = stats_scorer(
+                                    f"Solo_{label}",
+                                    market.regime,
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )  # type: ignore[assignment,arg-type]
+                        elif portfolio_scope and callable(signal_all_scorer):
+                            scores[(label, symbol, action.name)] = tuple(
+                                signal_all_scorer(
+                                    f"Solo_{label}",
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )
+                            )  # type: ignore[arg-type]
+                        else:
+                            scores[(label, symbol, action.name)] = tuple(
+                                signal_scorer(
+                                    f"Solo_{label}",
+                                    market.regime,
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )
+                            )  # type: ignore[arg-type]
+                except Exception:
+                    log.debug(
+                        "failed to score flash shadow agent %s/%s",
+                        label,
+                        symbol,
+                        exc_info=True,
+                    )
+        for player in players:
+            label = str(getattr(player, "label", "") or "")
+            if not label:
+                continue
+            portfolio_scope = _flash_portfolio_shadow_actor(config, "ensemble", label)
+            if actor_fallback_enabled and callable(label_scorer):
+                try:
+                    if quality_enabled and callable(label_stats_scorer):
+                        if portfolio_scope and callable(label_all_stats_scorer):
+                            scores[label] = label_all_stats_scorer(
+                                label,
+                                market.bar,
+                            )  # type: ignore[assignment,arg-type]
+                        else:
+                            scores[label] = label_stats_scorer(
+                                label,
+                                market.regime,
+                                market.bar,
+                            )  # type: ignore[assignment,arg-type]
+                    elif portfolio_scope and callable(label_all_scorer):
+                        scores[label] = tuple(label_all_scorer(label, market.bar))  # type: ignore[arg-type]
+                    else:
+                        scores[label] = tuple(label_scorer(label, market.regime, market.bar))  # type: ignore[arg-type]
+                except Exception:
+                    log.debug(
+                        "failed to score flash shadow player fallback %s",
+                        label,
+                        exc_info=True,
+                    )
+            for symbol in symbols:
+                try:
+                    for action in confirmation_actions:
+                        if quality_enabled and callable(stats_scorer):
+                            if portfolio_scope and callable(all_stats_scorer):
+                                scores[(label, symbol, action.name)] = all_stats_scorer(
+                                    label,
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )  # type: ignore[assignment,arg-type]
+                            else:
+                                scores[(label, symbol, action.name)] = stats_scorer(
+                                    label,
+                                    market.regime,
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )  # type: ignore[assignment,arg-type]
+                        elif portfolio_scope and callable(signal_all_scorer):
+                            scores[(label, symbol, action.name)] = tuple(
+                                signal_all_scorer(label, symbol, market.bar, action)
+                            )  # type: ignore[arg-type]
+                        else:
+                            scores[(label, symbol, action.name)] = tuple(
+                                signal_scorer(
+                                    label,
+                                    market.regime,
+                                    symbol,
+                                    market.bar,
+                                    action,
+                                )
+                            )  # type: ignore[arg-type]
+                except Exception:
+                    log.debug(
+                        "failed to score flash shadow player %s/%s",
+                        label,
+                        symbol,
+                        exc_info=True,
+                    )
+        return scores
+    scorer = getattr(
+        getattr(pipeline, "strategist", None),
+        "shadow_soft_score_for_label",
+        None,
+    )
+    all_scorer = getattr(
+        getattr(pipeline, "strategist", None),
+        "shadow_soft_score_for_label_all_regimes",
+        None,
+    )
+    if not callable(scorer):
+        return {}
+    scores: Dict[object, tuple[float, int]] = {}
+    for agent in agents:
+        label = str(getattr(agent, "label", "") or "")
+        if not label:
+            continue
+        try:
+            if (
+                _flash_portfolio_shadow_actor(config, "agent", label)
+                and callable(all_scorer)
+            ):
+                scores[label] = tuple(all_scorer(f"Solo_{label}", market.bar))  # type: ignore[arg-type]
+            else:
+                scores[label] = tuple(scorer(f"Solo_{label}", market.regime, market.bar))  # type: ignore[arg-type]
+        except Exception:
+            log.debug("failed to score flash shadow agent %s", label, exc_info=True)
+    for player in players:
+        label = str(getattr(player, "label", "") or "")
+        if not label:
+            continue
+        try:
+            if (
+                _flash_portfolio_shadow_actor(config, "ensemble", label)
+                and callable(all_scorer)
+            ):
+                scores[label] = tuple(all_scorer(label, market.bar))  # type: ignore[arg-type]
+            else:
+                scores[label] = tuple(scorer(label, market.regime, market.bar))  # type: ignore[arg-type]
+        except Exception:
+            log.debug("failed to score flash shadow player %s", label, exc_info=True)
+    return scores
+
+
+def _flash_portfolio_shadow_actor(
+    config: object,
+    actor_type: str,
+    label: str,
+) -> bool:
+    actors = {
+        str(item).strip()
+        for item in (getattr(config, "portfolio_actor_keys", ()) or ())
+        if str(item or "").strip()
+    }
+    if not actors:
+        return False
+    clean_label = str(label or "").strip()
+    return clean_label in actors or _flash_actor_key(actor_type, clean_label) in actors
+
+
+def _flash_register_degradation_signal_keys(
+    pipeline: ProductionPipeline,
+    decisions: Sequence[FlashDecision],
+) -> None:
+    if not _flash_degradation_guard_enabled(pipeline):
+        return
+    signal_key_by_id = dict(getattr(pipeline, "_flash_signal_key_by_id", {}) or {})
+    actor_key_by_id = dict(getattr(pipeline, "_flash_actor_key_by_id", {}) or {})
+    for decision in decisions or ():
+        signal = getattr(decision, "signal", None)
+        if signal is None:
+            continue
+        key = _flash_signal_key_from_decision(decision)
+        if not key:
+            continue
+        signal_id = int(getattr(signal, "id", 0) or 0)
+        signal_key_by_id[signal_id] = key
+        actor_key = _flash_actor_degradation_key(pipeline, decision, signal)
+        if actor_key:
+            actor_key_by_id[signal_id] = actor_key
+    pipeline._flash_signal_key_by_id = signal_key_by_id
+    pipeline._flash_actor_key_by_id = actor_key_by_id
+
+
+def _flash_update_degradation_state_from_events(
+    pipeline: ProductionPipeline,
+    *,
+    current_bar: int = 0,
+) -> None:
+    if not _flash_degradation_guard_enabled(pipeline):
+        return
+
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    window = max(1, int(getattr(config, "degradation_window_closed_trades", 3) or 3))
+    min_closed = max(1, int(getattr(config, "degradation_min_closed_trades", 3) or 3))
+    threshold = float(getattr(config, "degradation_max_recent_pnl_usd", -25.0) or 0.0)
+    recovery_enabled = bool(getattr(config, "degradation_recovery_enabled", False))
+    recovery_min_closed = max(
+        1,
+        int(getattr(config, "degradation_recovery_min_closed_trades", min_closed) or min_closed),
+    )
+    recovery_threshold = float(
+        getattr(config, "degradation_recovery_min_recent_pnl_usd", 0.0) or 0.0
+    )
+
+    cursor = int(getattr(pipeline, "_flash_degradation_event_cursor", 0) or 0)
+    events, event_count = _flash_event_log_tail(pipeline.event_log, cursor)
+    signal_key_by_id = dict(getattr(pipeline, "_flash_signal_key_by_id", {}) or {})
+    actor_key_by_id = dict(getattr(pipeline, "_flash_actor_key_by_id", {}) or {})
+    outcomes = dict(getattr(pipeline, "_flash_degradation_outcomes", {}) or {})
+    degraded = set(getattr(pipeline, "_flash_degraded_signal_keys", set()) or set())
+    signal_cooldown_bars = max(
+        0,
+        int(getattr(config, "degradation_signal_cooldown_bars", 0) or 0),
+    )
+    signal_degraded_until = {
+        str(signal_key): int(until)
+        for signal_key, until in (
+            getattr(pipeline, "_flash_degraded_signal_until", {}) or {}
+        ).items()
+        if str(signal_key or "") and int(until or 0) > 0
+    }
+    actor_guard_enabled = bool(
+        getattr(config, "degradation_actor_guard_enabled", False)
+    )
+    actor_cooldown_bars = max(
+        0,
+        int(getattr(config, "degradation_actor_cooldown_bars", 0) or 0),
+    )
+    now_bar = max(0, int(current_bar or 0))
+    actor_outcomes = dict(
+        getattr(pipeline, "_flash_degradation_actor_outcomes", {}) or {}
+    )
+    degraded_actors = set(
+        getattr(pipeline, "_flash_degraded_actor_keys", set()) or set()
+    )
+    actor_degraded_until = {
+        str(actor): int(until)
+        for actor, until in (
+            getattr(pipeline, "_flash_degraded_actor_until", {}) or {}
+        ).items()
+        if str(actor or "") and int(until or 0) > 0
+    }
+    symbol_guard_enabled = bool(
+        getattr(config, "degradation_symbol_guard_enabled", False)
+    )
+    symbol_cooldown_bars = max(
+        0,
+        int(getattr(config, "degradation_symbol_cooldown_bars", 0) or 0),
+    )
+    symbol_window = max(
+        1,
+        int(getattr(config, "degradation_symbol_window_closed_trades", 0) or window),
+    )
+    symbol_min_closed = max(
+        1,
+        int(getattr(config, "degradation_symbol_min_closed_trades", 0) or min_closed),
+    )
+    symbol_threshold_raw = getattr(
+        config,
+        "degradation_symbol_max_recent_pnl_usd",
+        None,
+    )
+    symbol_threshold = (
+        threshold
+        if symbol_threshold_raw is None
+        else float(symbol_threshold_raw)
+    )
+    symbol_outcomes = dict(
+        getattr(pipeline, "_flash_degradation_symbol_outcomes", {}) or {}
+    )
+    degraded_symbols = {
+        str(symbol).strip().upper()
+        for symbol in (getattr(pipeline, "_flash_degraded_open_symbols", set()) or set())
+        if str(symbol or "").strip()
+    }
+    symbol_degraded_until = {
+        str(symbol).strip().upper(): int(until)
+        for symbol, until in (
+            getattr(pipeline, "_flash_degraded_open_symbol_until", {}) or {}
+        ).items()
+        if str(symbol or "").strip() and int(until or 0) > 0
+    }
+    if signal_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            signal_key
+            for signal_key, until_bar in signal_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded.difference_update(expired)
+            for signal_key in expired:
+                signal_degraded_until.pop(signal_key, None)
+    if actor_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            actor
+            for actor, until_bar in actor_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded_actors.difference_update(expired)
+            for actor in expired:
+                actor_degraded_until.pop(actor, None)
+    if symbol_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            symbol
+            for symbol, until_bar in symbol_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded_symbols.difference_update(expired)
+            for symbol in expired:
+                symbol_degraded_until.pop(symbol, None)
+
+    for event in events:
+        if not isinstance(event, PositionClosed):
+            continue
+        signal_id = int(getattr(event, "open_signal_id", -1) or -1)
+        realized_pnl = float(getattr(event, "realized_pnl", 0.0) or 0.0)
+        if symbol_guard_enabled:
+            symbol = str(getattr(event, "sym", "") or "").strip().upper()
+            if symbol:
+                symbol_bucket = symbol_outcomes.get(symbol)
+                if (
+                    symbol_bucket is None
+                    or getattr(symbol_bucket, "maxlen", None) != symbol_window
+                ):
+                    symbol_bucket = deque(
+                        list(symbol_bucket or ())[-symbol_window:],
+                        maxlen=symbol_window,
+                    )
+                symbol_bucket.append(realized_pnl)
+                symbol_outcomes[symbol] = symbol_bucket
+                if (
+                    len(symbol_bucket) >= symbol_min_closed
+                    and sum(float(value) for value in symbol_bucket) <= symbol_threshold
+                ):
+                    degraded_symbols.add(symbol)
+                    if symbol_cooldown_bars > 0:
+                        event_bar = max(
+                            0,
+                            int(getattr(event, "bar", 0) or now_bar or 0),
+                        )
+                        until_bar = event_bar + symbol_cooldown_bars
+                        symbol_degraded_until[symbol] = max(
+                            int(symbol_degraded_until.get(symbol, 0) or 0),
+                            until_bar,
+                        )
+                elif (
+                    recovery_enabled
+                    and symbol in degraded_symbols
+                    and _flash_degradation_recent_pnl(
+                        symbol_bucket,
+                        recovery_min_closed,
+                    )
+                    >= recovery_threshold
+                ):
+                    degraded_symbols.discard(symbol)
+                    symbol_degraded_until.pop(symbol, None)
+        key = signal_key_by_id.get(signal_id)
+        if key:
+            bucket = outcomes.get(key)
+            if bucket is None or getattr(bucket, "maxlen", None) != window:
+                bucket = deque(list(bucket or ())[-window:], maxlen=window)
+            bucket.append(realized_pnl)
+            outcomes[key] = bucket
+            if len(bucket) >= min_closed and sum(float(value) for value in bucket) <= threshold:
+                degraded.add(key)
+                if signal_cooldown_bars > 0:
+                    event_bar = max(
+                        0,
+                        int(getattr(event, "bar", 0) or now_bar or 0),
+                    )
+                    until_bar = event_bar + signal_cooldown_bars
+                    signal_degraded_until[key] = max(
+                        int(signal_degraded_until.get(key, 0) or 0),
+                        until_bar,
+                    )
+            elif (
+                recovery_enabled
+                and key in degraded
+                and _flash_degradation_recent_pnl(bucket, recovery_min_closed)
+                >= recovery_threshold
+            ):
+                degraded.discard(key)
+                signal_degraded_until.pop(key, None)
+        if actor_guard_enabled:
+            actor_key = actor_key_by_id.get(signal_id)
+            if actor_key:
+                actor_bucket = actor_outcomes.get(actor_key)
+                if actor_bucket is None or getattr(actor_bucket, "maxlen", None) != window:
+                    actor_bucket = deque(list(actor_bucket or ())[-window:], maxlen=window)
+                actor_bucket.append(realized_pnl)
+                actor_outcomes[actor_key] = actor_bucket
+                if (
+                    len(actor_bucket) >= min_closed
+                    and sum(float(value) for value in actor_bucket) <= threshold
+                ):
+                    degraded_actors.add(actor_key)
+                    if actor_cooldown_bars > 0:
+                        event_bar = max(
+                            0,
+                            int(getattr(event, "bar", 0) or now_bar or 0),
+                        )
+                        until_bar = event_bar + actor_cooldown_bars
+                        actor_degraded_until[actor_key] = max(
+                            int(actor_degraded_until.get(actor_key, 0) or 0),
+                            until_bar,
+                        )
+                elif (
+                    recovery_enabled
+                    and actor_key in degraded_actors
+                    and _flash_degradation_recent_pnl(
+                        actor_bucket,
+                        recovery_min_closed,
+                    )
+                    >= recovery_threshold
+                ):
+                    degraded_actors.discard(actor_key)
+                    actor_degraded_until.pop(actor_key, None)
+
+    if signal_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            signal_key
+            for signal_key, until_bar in signal_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded.difference_update(expired)
+            for signal_key in expired:
+                signal_degraded_until.pop(signal_key, None)
+
+    if actor_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            actor
+            for actor, until_bar in actor_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded_actors.difference_update(expired)
+            for actor in expired:
+                actor_degraded_until.pop(actor, None)
+
+    if symbol_cooldown_bars > 0 and now_bar > 0:
+        expired = {
+            symbol
+            for symbol, until_bar in symbol_degraded_until.items()
+            if until_bar <= now_bar
+        }
+        if expired:
+            degraded_symbols.difference_update(expired)
+            for symbol in expired:
+                symbol_degraded_until.pop(symbol, None)
+
+    pipeline._flash_degradation_event_cursor = event_count
+    pipeline._flash_signal_key_by_id = signal_key_by_id
+    pipeline._flash_actor_key_by_id = actor_key_by_id
+    pipeline._flash_degradation_outcomes = outcomes
+    pipeline._flash_degraded_signal_keys = degraded
+    pipeline._flash_degraded_signal_until = signal_degraded_until
+    pipeline._flash_degradation_actor_outcomes = actor_outcomes
+    pipeline._flash_degraded_actor_keys = degraded_actors
+    pipeline._flash_degraded_actor_until = actor_degraded_until
+    pipeline._flash_degradation_symbol_outcomes = symbol_outcomes
+    pipeline._flash_degraded_open_symbols = degraded_symbols
+    pipeline._flash_degraded_open_symbol_until = symbol_degraded_until
+
+
+def _flash_degradation_recent_pnl(bucket: object, closed_trades: int) -> float:
+    values = [float(value) for value in list(bucket or ())]
+    closed = max(1, int(closed_trades or 1))
+    if len(values) < closed:
+        return float("-inf")
+    return sum(values[-closed:])
+
+
+def _flash_actor_degradation_key(
+    pipeline: ProductionPipeline,
+    decision: FlashDecision,
+    signal: Signal,
+) -> str:
+    actor_key = _flash_actor_key_from_decision(decision)
+    if not actor_key:
+        return ""
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    if getattr(config, "degradation_actor_scope", "actor") != "actor_regime":
+        return actor_key
+    return f"{actor_key}|regime:{_flash_regime_degradation_key(signal.regime)}"
+
+
+def _flash_regime_degradation_key(regime: Regime | str | int) -> str:
+    return flash_regime_degradation_key(regime)
+
+
+def _flash_open_position_sides_by_symbol(pipeline: ProductionPipeline) -> dict[str, str]:
+    return flash_open_position_sides_by_symbol(
+        tracker_positions_for_agent_sync(pipeline),
+        is_external=is_external_position,
+    )
+
+
+def _flash_event_log_tail(event_log: object, cursor: int) -> tuple[list[object], int]:
+    raw_events = getattr(event_log, "_events", None)
+    if isinstance(raw_events, list):
+        lock = getattr(event_log, "_lock", None)
+        if lock is not None:
+            with lock:
+                event_count = len(raw_events)
+                start = max(0, min(int(cursor or 0), event_count))
+                return list(raw_events[start:]), event_count
+        event_count = len(raw_events)
+        start = max(0, min(int(cursor or 0), event_count))
+        return list(raw_events[start:]), event_count
+
+    all_events = list(getattr(event_log, "all")())
+    event_count = len(all_events)
+    start = max(0, min(int(cursor or 0), event_count))
+    return all_events[start:], event_count
+
+
+def _flash_degraded_signal_keys(pipeline: ProductionPipeline) -> set[str]:
+    return flash_degraded_signal_keys(
+        pipeline,
+        guard_enabled=_flash_degradation_guard_enabled(pipeline),
+    )
+
+
+def _flash_degraded_actor_keys(
+    pipeline: ProductionPipeline,
+    regime: Regime | None = None,
+) -> set[str]:
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    return flash_degraded_actor_keys(
+        pipeline,
+        guard_enabled=_flash_degradation_guard_enabled(pipeline),
+        actor_guard_enabled=bool(
+            getattr(config, "degradation_actor_guard_enabled", False)
+        ),
+        actor_scope=str(getattr(config, "degradation_actor_scope", "actor")),
+        regime=regime,
+    )
+
+
+def _flash_degraded_open_symbols(pipeline: ProductionPipeline) -> set[str]:
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    return flash_degraded_open_symbols(
+        pipeline,
+        guard_enabled=_flash_degradation_guard_enabled(pipeline),
+        symbol_guard_enabled=bool(
+            getattr(config, "degradation_symbol_guard_enabled", False)
+        ),
+    )
+
+
+def _flash_promoted_signal_keys(pipeline: ProductionPipeline) -> set[str]:
+    return {
+        str(key).strip()
+        for key in (getattr(pipeline, "_flash_promoted_signal_keys", ()) or ())
+        if str(key or "").strip()
+    }
+
+
+def _flash_degradation_guard_enabled(pipeline: ProductionPipeline) -> bool:
+    allocator = getattr(pipeline, "flash_allocator", None)
+    config = getattr(allocator, "config", None)
+    return bool(getattr(config, "degradation_guard_enabled", False))
+
+
+def _flash_signal_key_from_decision(decision: FlashDecision) -> str:
+    signal = getattr(decision, "signal", None)
+    if signal is None:
+        return ""
+    actor_key = _flash_actor_key_from_decision(decision)
+    symbol = str(getattr(decision, "symbol", "") or getattr(signal, "sym", "") or "").upper()
+    action = getattr(decision, "action", getattr(signal, "action", Action.HOLD))
+    action_name = getattr(action, "name", str(action or "")).upper()
+    if not actor_key or not symbol or not action_name:
+        return ""
+    return f"{actor_key}|{symbol}|{action_name}"
+
+
+def _flash_actor_key_from_decision(
+    decision: FlashDecision,
+    *,
+    prefer_original: bool = False,
+) -> str:
+    if prefer_original:
+        selected_actor = str(
+            getattr(decision, "original_selected_actor", "") or ""
+        )
+        actor_type = str(getattr(decision, "original_actor_type", "") or "")
+        if not selected_actor:
+            selected_actor = str(getattr(decision, "selected_actor", "") or "")
+        if not actor_type:
+            actor_type = str(getattr(decision, "actor_type", "") or "")
+    else:
+        selected_actor = str(getattr(decision, "selected_actor", "") or "")
+        actor_type = str(getattr(decision, "actor_type", "") or "")
+    for row in getattr(decision, "candidates", ()) or ():
+        if getattr(row, "rejected", False):
+            continue
+        if str(getattr(row, "label", "") or "") != selected_actor:
+            continue
+        if str(getattr(row, "actor_type", "") or "") != actor_type:
+            continue
+        actor_key = str(getattr(row, "actor_key", "") or "")
+        if actor_key:
+            return actor_key
+    return _flash_actor_key(actor_type, selected_actor)
+
+
+def _flash_previous_actor_key_from_decision(decision: FlashDecision) -> str:
+    return _flash_actor_key_from_decision(
+        decision,
+        prefer_original=(
+            getattr(decision, "signal", None) is None
+            and bool(str(getattr(decision, "original_selected_actor", "") or ""))
+        ),
+    )
+
+
+def _flash_actor_key(actor_type: str, label: str) -> str:
+    if label == "NoTrade":
+        return "NoTrade"
+    clean_type = str(actor_type or "unknown").strip() or "unknown"
+    clean_label = str(label or "").strip()
+    return f"{clean_type}:{clean_label}"
 
 
 def _compose_candidates(
@@ -1336,14 +2496,23 @@ def _vote_candidate_for_real_signals(
         market_symbols=market.prices.keys(),
     )
     try:
-        raw_signals = leader.vote(market, signal_id_start=signal_id_counter)
+        raw_signals, vote_errors = normalize_vote_result(
+            leader.vote(market, signal_id_start=signal_id_counter)
+        )
     except Exception as exc:
         _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace_id)
         raw_signals = []
-    _record_agent_vote_failures(pipeline, market, leader, trace_id=trace_id)
+        vote_errors = []
+    _record_agent_vote_failures(
+        pipeline,
+        market,
+        leader,
+        trace_id=trace_id,
+        errors=vote_errors,
+    )
     raw_signals = _filter_shadow_state_entry_signals(pipeline, leader, raw_signals)
     raw_signal_count = len(raw_signals)
-    leader_vote_error_count = len(getattr(leader, "last_vote_errors", []) or [])
+    leader_vote_error_count = len(vote_errors)
     next_signal_id = signal_id_counter
     if raw_signals:
         next_signal_id = max(s.id for s in raw_signals) + 1
@@ -1520,6 +2689,91 @@ def _cash_flat_close_signals(
             regime=market.regime,
             by_player="NoTrade",
             by_agent="CashFlat",
+            timestamp=market.timestamp,
+        ))
+        sid += 1
+    return signals
+
+
+def _flash_stale_position_exit_enabled(pipeline: ProductionPipeline) -> bool:
+    return bool(getattr(pipeline, "flash_stale_position_exit_enabled", False))
+
+
+def _flash_stale_position_exit_max_age_bars(pipeline: ProductionPipeline) -> int:
+    if not _flash_stale_position_exit_enabled(pipeline):
+        return 0
+    try:
+        return max(0, int(getattr(pipeline, "flash_stale_position_exit_max_age_bars", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _flash_stale_position_exit_requires_loss(pipeline: ProductionPipeline) -> bool:
+    return bool(
+        getattr(
+            pipeline,
+            "flash_stale_position_exit_require_nonpositive_unrealized",
+            True,
+        )
+    )
+
+
+def _flash_stale_position_close_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_start: int,
+    max_age_bars: int,
+    require_nonpositive_unrealized: bool = True,
+) -> List[Signal]:
+    max_age = max(0, int(max_age_bars or 0))
+    if max_age <= 0:
+        return []
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return []
+
+    signals: List[Signal] = []
+    sid = int(signal_id_start)
+    try:
+        open_positions = tracker.all_open() or {}
+    except Exception:
+        log.debug("flash stale-position guard failed to read tracker", exc_info=True)
+        return []
+    for sym, pos in sorted(open_positions.items()):
+        if is_external_position(pos):
+            continue
+        opened_bar = _safe_nonnegative_int(getattr(pos, "opened_bar", 0))
+        if opened_bar is None or opened_bar <= 0:
+            continue
+        age_bars = max(0, int(market.bar) - opened_bar)
+        if age_bars < max_age:
+            continue
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if price <= 0:
+            continue
+        side = str(getattr(pos, "side", "") or "").lower()
+        entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
+        qty = float(getattr(pos, "qty", 0.0) or 0.0)
+        if require_nonpositive_unrealized:
+            if side == "long":
+                unrealized = (price - entry_price) * qty
+            elif side == "short":
+                unrealized = (entry_price - price) * qty
+            else:
+                continue
+            if unrealized > 0:
+                continue
+        signals.append(Signal(
+            id=sid,
+            bar=market.bar,
+            sym=symbol,
+            action=Action.FUT_CLOSE_ALL,
+            price=price,
+            regime=market.regime,
+            by_player="Panteon_Flash",
+            by_agent="StalePositionGuard",
             timestamp=market.timestamp,
         ))
         sid += 1
@@ -1851,7 +3105,7 @@ def _fallback_registry_score(
         return 0.0
     win_component = min(100.0, max(0.0, float(metrics.win_rate or 0.0))) * 0.02
     trade_component = min(100, max(0, int(metrics.closed_trades or 0))) * 0.01
-    dd_penalty = max(0.0, float(metrics.max_dd_pct or 0.0)) * 0.15
+    dd_penalty = max(0.0, float(metrics.max_dd_pct or 0.0)) * 0.50
     return float(metrics.pnl_pct or 0.0) + win_component + trade_component - dd_penalty
 
 
@@ -1947,6 +3201,9 @@ def _find_selected_shadow_position_replay(
         selected_leader,
         signal_id_counter=signal_id_counter,
         max_age_bars=_shadow_position_replay_max_age(pipeline),
+        require_positive_unrealized=(
+            _shadow_position_replay_requires_positive_unrealized(pipeline)
+        ),
     )
     if not raw_signals:
         return None
@@ -1994,6 +3251,15 @@ def _shadow_position_replay_max_age(pipeline: ProductionPipeline) -> int:
         return 1
 
 
+def _shadow_position_replay_requires_positive_unrealized(
+    pipeline: ProductionPipeline,
+) -> bool:
+    cfg = getattr(getattr(pipeline, "strategist", None), "_config", None)
+    return bool(
+        getattr(cfg, "v3_shadow_fresh_handoff_require_positive_unrealized", True)
+    )
+
+
 def _real_signals_from_shadow_positions(
     shadow_positions: Sequence[object],
     market: MarketSnapshot,
@@ -2001,6 +3267,7 @@ def _real_signals_from_shadow_positions(
     *,
     signal_id_counter: int,
     max_age_bars: int,
+    require_positive_unrealized: bool = True,
 ) -> Tuple[List[Signal], int]:
     out: List[Signal] = []
     next_signal_id = int(signal_id_counter)
@@ -2027,7 +3294,10 @@ def _real_signals_from_shadow_positions(
             )
         if age_bars > max_age_bars:
             continue
-        if _shadow_position_has_nonpositive_unrealized(payload):
+        if (
+            require_positive_unrealized
+            and _shadow_position_has_nonpositive_unrealized(payload)
+        ):
             continue
         price = float(market.prices.get(symbol, 0.0) or 0.0)
         if price <= 0:
@@ -2257,6 +3527,9 @@ def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
         getattr(pipeline, "_current_shadow_agent_signals", {}) or {},
         positions_by_player=getattr(pipeline, "_pending_shadow_player_positions", {}) or {},
         max_shadow_position_age_bars=_shadow_position_replay_max_age(pipeline),
+        require_positive_unrealized=(
+            _shadow_position_replay_requires_positive_unrealized(pipeline)
+        ),
     )
 
 
@@ -2266,6 +3539,7 @@ def _current_actionable_player_labels(
     signals_by_agent: Optional[Dict[str, Sequence[Signal]]] = None,
     positions_by_player: Optional[Dict[str, Sequence[object]]] = None,
     max_shadow_position_age_bars: int = 1,
+    require_positive_unrealized: bool = True,
 ) -> set[str]:
     labels = {
         str(label).strip()
@@ -2293,6 +3567,7 @@ def _current_actionable_player_labels(
             _is_fresh_shadow_position_payload(
                 item,
                 max_age_bars=max_shadow_position_age_bars,
+                require_positive_unrealized=require_positive_unrealized,
             )
             for item in positions or ()
         ):
@@ -2300,10 +3575,110 @@ def _current_actionable_player_labels(
     return labels
 
 
+def _flash_shadow_player_signals_with_position_replay(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    candidates: Sequence[EnsemblePlayer],
+    *,
+    agents: Sequence[object] = (),
+    signal_id_counter: int,
+) -> Dict[str, Tuple[Signal, ...]]:
+    signals_by_player: Dict[str, List[Signal]] = {
+        str(label).strip(): list(signals or ())
+        for label, signals in (
+            getattr(pipeline, "_current_shadow_player_signals", {}) or {}
+        ).items()
+        if str(label).strip()
+    }
+    if not _shadow_position_replay_enabled(pipeline):
+        return {
+            label: tuple(signals)
+            for label, signals in signals_by_player.items()
+            if signals
+        }
+
+    positions_by_player = dict(
+        getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    )
+    if not positions_by_player:
+        return {
+            label: tuple(signals)
+            for label, signals in signals_by_player.items()
+            if signals
+        }
+
+    next_signal_id = int(signal_id_counter)
+    max_age_bars = _shadow_position_replay_max_age(pipeline)
+    require_positive_unrealized = (
+        _shadow_position_replay_requires_positive_unrealized(pipeline)
+    )
+    seen_labels: set[str] = set()
+    replay_players: List[EnsemblePlayer] = []
+
+    def add_replay_player(player: EnsemblePlayer) -> None:
+        label = str(getattr(player, "label", "") or "").strip()
+        if not label or label in seen_labels:
+            return
+        seen_labels.add(label)
+        replay_players.append(player)
+
+    for player in candidates or ():
+        add_replay_player(player)
+
+    agents_by_solo_label = {
+        f"Solo_{label}": agent
+        for agent in agents or ()
+        for label in (str(getattr(agent, "label", "") or "").strip(),)
+        if label
+    }
+    for label in positions_by_player.keys():
+        if label in seen_labels:
+            continue
+        agent = agents_by_solo_label.get(str(label).strip())
+        if agent is None:
+            continue
+        add_replay_player(_flash_solo_candidate_for_agent(agent, market.regime))
+
+    for player in replay_players:
+        label = str(getattr(player, "label", "") or "").strip()
+        shadow_positions = tuple(positions_by_player.get(label, ()) or ())
+        if not shadow_positions:
+            continue
+        replay_signals, next_signal_id = _real_signals_from_shadow_positions(
+            shadow_positions,
+            market,
+            player,
+            signal_id_counter=next_signal_id,
+            max_age_bars=max_age_bars,
+            require_positive_unrealized=require_positive_unrealized,
+        )
+        if not replay_signals:
+            continue
+        player_signals = signals_by_player.setdefault(label, [])
+        active_symbols = {
+            str(getattr(signal, "sym", "") or "").upper()
+            for signal in player_signals
+            if not getattr(getattr(signal, "action", None), "is_hold", True)
+        }
+        for signal in replay_signals:
+            symbol = str(getattr(signal, "sym", "") or "").upper()
+            if not symbol or symbol in active_symbols:
+                continue
+            player_signals.append(signal)
+            active_symbols.add(symbol)
+
+    return {
+        label: tuple(signals)
+        for label, signals in signals_by_player.items()
+        if signals
+    }
+
+
 def _is_fresh_shadow_position_payload(
     payload: object,
     *,
     max_age_bars: int = 1,
+    require_positive_unrealized: bool = True,
 ) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -2311,7 +3686,10 @@ def _is_fresh_shadow_position_payload(
     side = str(payload.get("side") or "").lower()
     if not sym or side not in {"long", "short"}:
         return False
-    if _shadow_position_has_nonpositive_unrealized(payload):
+    if (
+        require_positive_unrealized
+        and _shadow_position_has_nonpositive_unrealized(payload)
+    ):
         return False
     age_bars = _safe_nonnegative_int(payload.get("age_bars"))
     if age_bars is None:
@@ -2421,6 +3799,77 @@ def _causal_decision_payload(
         },
         "candidate_scores": _candidate_score_payloads(decision),
         "candidate_rejections": _candidate_rejection_payloads(decision),
+    }
+
+
+def _flash_causal_decision_payload(
+    *,
+    market: MarketSnapshot,
+    decisions: Sequence[FlashDecision],
+    raw_signals: Sequence[Signal],
+    executable_signals: Sequence[Signal],
+    signal_guard: object,
+    n_filled: int,
+    n_rejected: int,
+    n_blocked: int,
+    blocked_reasons: Dict[str, int],
+    pipeline: ProductionPipeline,
+) -> Dict[str, object]:
+    selected_by_symbol = {
+        str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "selected_actor", "") or "")
+        for decision in decisions or ()
+    }
+    return {
+        "flash_enabled": True,
+        "bar": int(getattr(market, "bar", 0) or 0),
+        "timestamp": _timestamp_payload(getattr(market, "timestamp", None)),
+        "regime": getattr(getattr(market, "regime", None), "label", str(getattr(market, "regime", ""))),
+        "regime_confidence": _safe_float_or_zero(
+            getattr(market, "regime_confidence", 0.0),
+        ),
+        "selected_leader": "Panteon_Flash",
+        "executed_leader": "Panteon_Flash",
+        "decision_reason": "flash per-symbol actor selection",
+        "leader_changed": False,
+        "prices": _float_mapping(getattr(market, "prices", {}) or {}),
+        "funding": _float_mapping(getattr(market, "funding", {}) or {}),
+        "current_actionable_labels": sorted(
+            str(label)
+            for label in (getattr(pipeline, "_current_actionable_player_labels", set()) or set())
+        ),
+        "raw_signal_count": len(tuple(raw_signals or ())),
+        "executable_signal_count": len(tuple(executable_signals or ())),
+        "raw_signals": [_signal_payload(sig) for sig in raw_signals or ()],
+        "executable_signals": [_signal_payload(sig) for sig in executable_signals or ()],
+        "guarded_signals": [_signal_payload(sig) for sig in executable_signals or ()],
+        "filtered_real_signals": int(getattr(signal_guard, "filtered", 0) or 0),
+        "signal_filter_details": tuple(
+            str(item) for item in (getattr(signal_guard, "details", ()) or ())
+        ),
+        "n_filled": int(n_filled),
+        "n_rejected": int(n_rejected),
+        "n_blocked": int(n_blocked),
+        "blocked_reasons": {
+            str(key): int(value)
+            for key, value in dict(blocked_reasons or {}).items()
+        },
+        "flash_degraded_signal_keys": sorted(_flash_degraded_signal_keys(pipeline)),
+        "flash_degraded_open_symbols": sorted(_flash_degraded_open_symbols(pipeline)),
+        "flash_selected_actors_by_symbol": selected_by_symbol,
+        "flash_actor_types_by_symbol": {
+            str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "actor_type", "") or "")
+            for decision in decisions or ()
+        },
+        "flash_scores_by_symbol": {
+            str(getattr(decision, "symbol", "") or ""): _safe_float_or_zero(
+                getattr(decision, "score", 0.0),
+            )
+            for decision in decisions or ()
+        },
+        "flash_decisions": [
+            decision.as_dict()
+            for decision in decisions or ()
+        ],
     }
 
 
@@ -2625,15 +4074,70 @@ def _emit_candidate_audit_events(
         ))
 
 
+def _emit_flash_audit_events(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    decisions: Sequence[FlashDecision],
+    *,
+    decision_id: str,
+    trace_id: str,
+    context: Dict[str, str],
+) -> None:
+    regime_label = getattr(getattr(market, "regime", None), "label", str(getattr(market, "regime", "")))
+    for decision in decisions or ():
+        symbol_context = dict(context)
+        symbol_context["symbol"] = str(getattr(decision, "symbol", "") or "")
+        selected_label = str(getattr(decision, "selected_actor", "") or "")
+        for row in getattr(decision, "candidates", ()) or ():
+            row_label = str(getattr(row, "label", "") or "")
+            agent_labels = tuple(
+                str(label)
+                for label in (getattr(row, "agent_labels", ()) or ())
+                if str(label)
+            )
+            memory_keys = tuple(dict.fromkeys(
+                [f"{row_label}|{regime_label}"]
+                + [f"{label}|{regime_label}" for label in agent_labels]
+            ))
+            pipeline.event_log.emit(CandidateScored(
+                bar=market.bar,
+                trace_id=trace_id,
+                decision_id=decision_id,
+                **symbol_context,
+                player_label=row_label,
+                rank=int(getattr(row, "rank", 0) or 0),
+                score=float(getattr(row, "score", 0.0) or 0.0),
+                score_source="flash_per_symbol",
+                selected_by_pantheon=(row_label == selected_label),
+                has_data=bool(getattr(row, "has_data", False)),
+                closed_trades=int(getattr(row, "closed_trades", 0) or 0),
+                signals=0 if getattr(row, "action", Action.HOLD).is_hold else 1,
+                execution_failures=0,
+                uncertainty_penalty=0.0,
+                memory_keys_read=memory_keys,
+                agent_labels=agent_labels,
+            ))
+            if bool(getattr(row, "rejected", False)):
+                pipeline.event_log.emit(CandidateRejected(
+                    bar=market.bar,
+                    trace_id=trace_id,
+                    decision_id=decision_id,
+                    **symbol_context,
+                    player_label=row_label,
+                    reason=f"flash:{str(getattr(row, 'reason', '') or '')}",
+                ))
+
+
 def _record_agent_vote_failures(
     pipeline: ProductionPipeline,
     market: MarketSnapshot,
     player: EnsemblePlayer,
     *,
     trace_id: str,
+    errors: Optional[Sequence[object]] = None,
 ) -> int:
     count = 0
-    for err in getattr(player, "last_vote_errors", []) or []:
+    for err in (errors if errors is not None else getattr(player, "last_vote_errors", []) or []):
         label = str(getattr(err, "agent_label", "") or "")
         reason = str(getattr(err, "reason", "") or "")
         if not label:

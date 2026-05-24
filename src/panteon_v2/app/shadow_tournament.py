@@ -28,6 +28,7 @@ from ..execution import (
 )
 from ..memory import PerformanceMemory
 from ..selection import Agent, AgentRegistry, EnsemblePlayer, Player
+from ..selection.player import normalize_vote_result
 
 
 log = logging.getLogger(__name__)
@@ -241,12 +242,20 @@ class ProductionShadowTournament:
             if shadow_player is None:
                 continue
             try:
-                raw_signals = shadow_player.vote(market, signal_id_start=self._signal_id)
+                raw_signals, vote_errors = normalize_vote_result(
+                    shadow_player.vote(market, signal_id_start=self._signal_id)
+                )
             except Exception as exc:
                 log.debug("shadow player vote failed for %s", player.label, exc_info=True)
                 self._record_player_failure(player.label, market, exc)
                 raw_signals = []
-            self._record_player_agent_failures(player.label, shadow_player, market)
+                vote_errors = []
+            self._record_player_agent_failures(
+                player.label,
+                shadow_player,
+                market,
+                errors=vote_errors,
+            )
             if raw_signals:
                 self._signal_id = max(signal.id for signal in raw_signals) + 1
             signals = [
@@ -430,8 +439,10 @@ class ProductionShadowTournament:
         player_label: str,
         player: Player,
         market: MarketSnapshot,
+        *,
+        errors: Optional[Sequence[object]] = None,
     ) -> None:
-        for err in getattr(player, "last_vote_errors", []) or []:
+        for err in (errors if errors is not None else getattr(player, "last_vote_errors", []) or []):
             label = str(getattr(err, "agent_label", "") or "")
             reason = str(getattr(err, "reason", "") or "")
             if not label:
@@ -526,6 +537,8 @@ class ProductionShadowTournament:
             realized_pnl_usd=realized_pnl,
             closed_trades=closed_trades,
             winning_trades=winning_trades,
+            symbol_outcomes=_symbol_outcome_counts(results),
+            symbol_action_outcomes=_symbol_action_outcome_counts(results),
         )
         self._last_updates.append(event)
         if self._event_log is not None:
@@ -726,3 +739,88 @@ def _realized_counts(results: Iterable[ExecutionResult]) -> Tuple[float, int, in
         for _, count in getattr(result, "closed_trade_counts_by_player", ()) or ():
             closed_trades += int(count or 0)
     return realized_pnl, closed_trades, winning_trades
+
+
+def _symbol_outcome_counts(
+    results: Iterable[ExecutionResult],
+) -> Tuple[Tuple[str, float, int, int], ...]:
+    counts: Dict[str, Dict[str, float]] = {}
+    for result in results:
+        signal = result.signal
+        symbol = str(getattr(signal, "sym", "") or "").upper()
+        if not symbol:
+            continue
+        pnl = sum(
+            float(value or 0.0)
+            for _, value in getattr(result, "realized_pnl_by_player", ()) or ()
+        )
+        closed = sum(
+            int(value or 0)
+            for _, value in getattr(result, "closed_trade_counts_by_player", ()) or ()
+        )
+        wins = sum(
+            int(value or 0)
+            for _, value in getattr(result, "win_counts_by_player", ()) or ()
+        )
+        if closed <= 0 and abs(pnl) <= 1e-12 and wins <= 0:
+            continue
+        bucket = counts.setdefault(
+            symbol,
+            {"pnl": 0.0, "closed": 0.0, "wins": 0.0},
+        )
+        bucket["pnl"] += float(pnl)
+        bucket["closed"] += float(closed)
+        bucket["wins"] += float(wins)
+    return tuple(
+        (
+            symbol,
+            float(bucket["pnl"]),
+            int(bucket["closed"]),
+            int(bucket["wins"]),
+        )
+        for symbol, bucket in sorted(counts.items())
+    )
+
+
+def _symbol_action_outcome_counts(
+    results: Iterable[ExecutionResult],
+) -> Tuple[Tuple[str, str, float, int, int], ...]:
+    counts: Dict[Tuple[str, str], Dict[str, float]] = {}
+    for result in results:
+        for symbol_raw, action_raw, pnl_raw in (
+            getattr(result, "closed_position_outcomes", ()) or ()
+        ):
+            symbol = str(symbol_raw or "").upper()
+            action = _normalize_shadow_outcome_action(action_raw)
+            if not symbol or not action:
+                continue
+            pnl = float(pnl_raw or 0.0)
+            bucket = counts.setdefault(
+                (symbol, action),
+                {"pnl": 0.0, "closed": 0.0, "wins": 0.0},
+            )
+            bucket["pnl"] += pnl
+            bucket["closed"] += 1.0
+            if pnl > 0:
+                bucket["wins"] += 1.0
+    return tuple(
+        (
+            symbol,
+            action,
+            float(bucket["pnl"]),
+            int(bucket["closed"]),
+            int(bucket["wins"]),
+        )
+        for (symbol, action), bucket in sorted(counts.items())
+    )
+
+
+def _normalize_shadow_outcome_action(value: object) -> str:
+    action = str(value or "").strip().upper()
+    if action == "LONG":
+        return "FUT_LONG_FULL"
+    if action == "SHORT":
+        return "FUT_SHORT_FULL"
+    if action in Action.__members__ and Action[action].is_open:
+        return action
+    return ""

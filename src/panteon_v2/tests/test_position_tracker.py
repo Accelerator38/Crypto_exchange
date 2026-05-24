@@ -26,11 +26,11 @@ def _close_signal(sid: int = 2, sym: str = "BTC") -> Signal:
 
 
 def _trade(sig: Signal, fill_price: float = None, qty: float = 1.0,
-           fee: float = 0.0) -> Trade:
+           fee: float = 0.0, funding: float = 0.0) -> Trade:
     side = sig.action.side or "long"
     return Trade(
         signal_id=sig.id, bar=sig.bar, sym=sig.sym, side=side,
-        qty=qty, fill_price=fill_price or sig.price, fee=fee,
+        qty=qty, fill_price=fill_price or sig.price, fee=fee, funding=funding,
     )
 
 
@@ -108,6 +108,36 @@ class TestPositionTracker(unittest.TestCase):
         )
         # Gross pnl = 10, net = 10 - 0.5 - 0.55 = 8.95
         self.assertAlmostEqual(events[0].realized_pnl, 8.95, places=5)
+
+    def test_on_close_with_funding_costs(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, fee=0.50, funding=0.25),
+        )
+        cl_sig = _close_signal(sid=2)
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, fee=0.55, funding=0.25),
+        )
+        # Gross pnl = 10, net = 10 - fees 1.05 - funding 0.50 = 8.45
+        self.assertAlmostEqual(events[0].realized_pnl, 8.45, places=5)
+
+    def test_on_close_with_negative_funding_rebate(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, funding=-0.25),
+        )
+        cl_sig = _close_signal(sid=2)
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, funding=-0.25),
+        )
+        # Negative funding means rebate to the position.
+        self.assertAlmostEqual(events[0].realized_pnl, 10.50, places=5)
 
     def test_close_without_open_no_event(self):
         tracker = PositionTracker()

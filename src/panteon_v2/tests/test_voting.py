@@ -76,6 +76,18 @@ class TestWeightedConsensus(unittest.TestCase):
         out = self.policy.aggregate(votes, weights, self.thresholds, self.market)
         self.assertEqual(out.get("BTC"), Action.FUT_CLOSE_ALL)
 
+    def test_close_signal_requires_close_share_not_just_absolute_weight(self):
+        votes = {
+            "A": {"BTC": Action.FUT_CLOSE_ALL},
+            "B": {"BTC": Action.HOLD},
+        }
+        weights = {"A": 0.25, "B": 0.75}
+        thresholds = ThresholdProfile(close_multi=0.22)
+
+        out = self.policy.aggregate(votes, weights, thresholds, self.market)
+
+        self.assertNotIn("BTC", out)
+
     def test_zero_weight_ignored(self):
         votes = {
             "A": {"BTC": Action.FUT_LONG_FULL},
@@ -169,6 +181,53 @@ class TestRiskParity(unittest.TestCase):
         weights = policy._compute_weights(["A", "B"])
         self.assertAlmostEqual(weights["A"], 0.8, places=5)
         self.assertAlmostEqual(weights["B"], 0.2, places=5)
+
+
+class TestVotingPolicyInvariants(unittest.TestCase):
+    def test_risk_parity_with_equal_volatility_matches_weighted_consensus(self):
+        votes = {
+            "A": {"BTC": Action.FUT_LONG_FULL, "ETH": Action.FUT_CLOSE_ALL},
+            "B": {"BTC": Action.FUT_LONG_HALF, "ETH": Action.FUT_CLOSE_ALL},
+        }
+        weights = {"A": 0.5, "B": 0.5}
+        thresholds = ThresholdProfile()
+        market = make_market(prices={"BTC": 100.0, "ETH": 50.0})
+
+        weighted = WeightedConsensus().aggregate(votes, weights, thresholds, market)
+        risk_parity = RiskParity(volatilities={"A": 2.0, "B": 2.0}).aggregate(
+            votes,
+            weights,
+            thresholds,
+            market,
+        )
+
+        self.assertEqual(risk_parity, weighted)
+
+    def test_strong_open_consensus_is_subset_of_weighted_open_consensus(self):
+        thresholds = ThresholdProfile()
+        market = make_market(prices={"BTC": 100.0, "ETH": 50.0})
+        cases = (
+            {
+                "A": {"BTC": Action.FUT_LONG_FULL},
+                "B": {"BTC": Action.FUT_LONG_FULL},
+            },
+            {
+                "A": {"ETH": Action.FUT_SHORT_FULL},
+                "B": {"ETH": Action.HOLD},
+            },
+            {
+                "A": {"BTC": Action.FUT_LONG_FULL},
+                "B": {"BTC": Action.FUT_SHORT_FULL},
+            },
+        )
+        weights = {"A": 0.5, "B": 0.5}
+
+        for votes in cases:
+            strong = StrongConsensus().aggregate(votes, weights, thresholds, market)
+            weighted = WeightedConsensus().aggregate(votes, weights, thresholds, market)
+            for symbol, action in strong.items():
+                if action.is_open:
+                    self.assertEqual(weighted.get(symbol), action)
 
 
 if __name__ == "__main__":

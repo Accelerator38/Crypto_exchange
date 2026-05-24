@@ -3,26 +3,48 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
+import math
 from bisect import bisect_right
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Deque, Iterable, Optional, Sequence
+from typing import Any, Deque, Iterable, Mapping, Optional, Sequence
 
-from ..app.agent_bootstrap import register_all_v1_agents
+from ..app.agent_bootstrap import (
+    experimental_flash_agent_labels,
+    register_all_v1_agents,
+    register_experimental_flash_agents,
+)
 from ..app.bootstrap import LiveExecutionConfig, build_production_pipeline
 from ..app.main_loop import StepResult, main_loop
 from ..app.output_writer import OutputWriter, OutputWriterConfig
 from ..app.shadow_tournament import ProductionShadowTournament
-from ..attribution import CandidateRejected, CandidateScored, EventLog, ShadowActorUpdated
+from ..attribution import (
+    CandidateRejected,
+    CandidateScored,
+    EventLog,
+    ExecutionAttributed,
+    OrderFilled,
+    PositionClosed,
+    PositionOpened,
+    RegimeDetected,
+    ShadowActorUpdated,
+)
 from ..domain.types import MarketSnapshot, Regime
-from ..execution import FakeExchange
-from ..selection import AgentRegistry, StrategistConfig
+from ..execution import FakeExchange, RiskLimitsConfig
+from ..selection import AgentRegistry, FlashAllocatorConfig, StrategistConfig
+from ..selection.promotion_manifest import (
+    PromotionManifestConfig,
+    Z_95_ONE_SIDED,
+    build_promotion_manifest,
+)
 from ..shadow.feed import ReplayFeed
 from .soft_allocator import (
+    ShadowPnLEvent,
     shadow_pnl_events_from_shadow_updates,
     simulate_perfect_monthly_panteon,
     simulate_soft_allocator_policies,
@@ -37,6 +59,7 @@ from .retrodate_validator import (
     validate_retrodate_dir,
 )
 from .allocation_diagnostics import analyze_trading_log, write_allocation_diagnostics
+from .walk_forward import write_walk_forward_report_from_events
 
 
 DEFAULT_YEARS = (2022, 2023, 2024, 2025, 2026)
@@ -116,6 +139,95 @@ DEFAULT_RETRO_HARD_POLICY_DENY_LABELS: tuple[str, ...] = (
     "Solo_LiveOIBreakout",
     "Solo_RichardDennis",
 )
+FLASH_INACTIVE_REJECTION_REASONS: frozenset[str] = frozenset({
+    "inactive",
+    "quarantined",
+})
+
+
+def _experimental_flash_fixed_agent_player_sets() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return (
+        (
+            "Fixed_ProfitTriad",
+            (
+                "MomentumScalperShortOnly",
+                "FundingArb",
+                "CrashPanicShortAgent",
+            ),
+        ),
+        (
+            "Fixed_SpotQualityPair",
+            (
+                "MomentumScalperSpotQuality",
+                "VolBreakoutSpotOnly",
+            ),
+        ),
+    )
+
+
+def _experimental_flash_rotating_agent_player_sets() -> tuple[
+    tuple[str, dict[str, tuple[str, ...]], tuple[str, ...]],
+    ...
+]:
+    return (
+        (
+            "Experimental_FlashEdgeRotator",
+            {
+                "bullish": (
+                    "MomentumScalperSpotQuality",
+                    "MomentumScalperShortOnly",
+                    "FundingArb",
+                ),
+                "bearish": (
+                    "MomentumScalperShortOnly",
+                    "FundingArb",
+                    "CrashPanicShortAgent",
+                ),
+                "neutral": (
+                    "MomentumScalperSpotQuality",
+                    "VolBreakoutSpotOnly",
+                    "FundingArb",
+                ),
+                "crash": (
+                    "CrashPanicShortAgent",
+                    "MomentumScalperShortOnly",
+                    "FundingArb",
+                ),
+            },
+            (
+                "MomentumScalperShortOnly",
+                "MomentumScalperSpotQuality",
+                "FundingArb",
+                "CrashPanicShortAgent",
+            ),
+        ),
+    )
+
+
+def _clone_registry_with_experimental_flash_agents(
+    registry: AgentRegistry,
+) -> AgentRegistry:
+    cloned = AgentRegistry()
+    for agent in registry.all_agents():
+        agent_clone = _clone_agent_for_shadow_registry(agent)
+        if agent_clone is None:
+            continue
+        cloned.register(agent_clone, replace=True)
+    register_experimental_flash_agents(cloned)
+    return cloned
+
+
+def _clone_agent_for_shadow_registry(agent: Any) -> Optional[Any]:
+    clone = getattr(agent, "clone_for_shadow", None)
+    if callable(clone):
+        try:
+            return clone()
+        except Exception:
+            return None
+    try:
+        return copy.deepcopy(agent)
+    except Exception:
+        return None
 
 
 @dataclass(frozen=True)
@@ -139,6 +251,89 @@ class RetrodateMarketConfig:
     solo_agent_candidate_limit: int = 3
     fixed_agent_players_enabled: bool = False
     fixed_agent_player_sets: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    flash_enabled: bool = False
+    flash_min_score_to_trade: float = 0.0
+    flash_actionable_bonus: float = 0.25
+    flash_no_data_score: float = 0.0
+    flash_min_closed_trades_to_trade: int = 3
+    flash_min_pnl_pct_to_trade: float = 0.0
+    flash_shadow_confirmation_enabled: bool = False
+    flash_symbol_shadow_confirmation_enabled: bool = False
+    flash_shadow_actor_fallback_confirmation_enabled: bool = False
+    flash_shadow_base_fallback_confirmation_enabled: bool = False
+    flash_shadow_signal_handoff_enabled: bool = False
+    flash_shadow_actor_fallback_min_base_score: float = 0.0
+    flash_shadow_base_fallback_actor_keys: tuple[str, ...] = ()
+    flash_actor_switch_margin: float = 0.0
+    flash_anchor_actor_keys: tuple[str, ...] = ()
+    flash_portfolio_actor_keys: tuple[str, ...] = ()
+    flash_portfolio_shadow_bootstrap_min_closed_enabled: bool = False
+    flash_anchor_min_score_to_trade: Optional[float] = None
+    flash_anchor_shadow_min_score: Optional[float] = None
+    flash_anchor_min_score_advantage: float = 0.0
+    flash_prefer_solo_player_wrappers_enabled: bool = False
+    flash_prefer_proven_solo_player_wrappers_enabled: bool = False
+    flash_proven_solo_min_score_advantage: float = 0.0
+    flash_shadow_min_score: float = 0.0
+    flash_shadow_min_closed_trades: int = 50
+    flash_shadow_min_full_open_closed_trades: int = 0
+    flash_shadow_quality_confirmation_enabled: bool = False
+    flash_shadow_min_win_rate_pct: float = 0.0
+    flash_shadow_max_recent_downside_usd: float = 0.0
+    flash_shadow_min_pnl_per_trade_lcb_usd: Optional[float] = None
+    flash_shadow_pnl_per_trade_lcb_z: float = 1.0
+    flash_shadow_pnl_per_trade_lcb_penalty_floor_usd: float = 0.0
+    flash_shadow_pnl_per_trade_lcb_penalty_weight: float = 0.0
+    flash_max_signals_per_actor: int = 0
+    flash_overextension_guard_enabled: bool = False
+    flash_overextension_lookback_bars: int = 12
+    flash_short_overextension_return_floor_pct: float = -8.0
+    flash_long_overextension_return_ceiling_pct: float = 8.0
+    flash_overextension_volatility_normalized_enabled: bool = False
+    flash_short_overextension_z_floor: float = -2.5
+    flash_long_overextension_z_ceiling: float = 2.5
+    flash_overextension_min_volatility_pct: float = 0.1
+    flash_denied_signal_keys: tuple[str, ...] = ()
+    flash_terminal_denied_signal_keys: tuple[str, ...] = ()
+    flash_denied_open_symbols: tuple[str, ...] = ()
+    flash_denied_open_regimes: tuple[str, ...] = ()
+    flash_degradation_guard_enabled: bool = False
+    flash_degradation_actor_guard_enabled: bool = False
+    flash_degradation_actor_scope: str = "actor"
+    flash_degradation_signal_cooldown_bars: int = 0
+    flash_degradation_actor_cooldown_bars: int = 0
+    flash_degradation_symbol_guard_enabled: bool = False
+    flash_degradation_symbol_cooldown_bars: int = 0
+    flash_degradation_symbol_window_closed_trades: int = 0
+    flash_degradation_symbol_min_closed_trades: int = 0
+    flash_degradation_symbol_max_recent_pnl_usd: Optional[float] = None
+    flash_degradation_window_closed_trades: int = 3
+    flash_degradation_min_closed_trades: int = 3
+    flash_degradation_max_recent_pnl_usd: float = -25.0
+    flash_degradation_reserve_actor_cap: bool = False
+    flash_degradation_recovery_enabled: bool = False
+    flash_degradation_recovery_min_closed_trades: int = 3
+    flash_degradation_recovery_min_recent_pnl_usd: float = 0.0
+    flash_stale_position_exit_enabled: bool = False
+    flash_stale_position_exit_max_age_bars: int = 168
+    flash_stale_position_exit_require_nonpositive_unrealized: bool = True
+    flash_promotion_manifest_enabled: bool = False
+    flash_promotion_manifest_path: Optional[Path | str] = None
+    flash_promoted_signal_keys: tuple[str, ...] = ()
+    flash_promotion_min_full_closed_trades: int = 50
+    flash_promotion_min_latest_closed_trades: int = 10
+    flash_promotion_min_full_pnl_pct: float = 0.0
+    flash_promotion_min_latest_pnl_pct: float = 0.0
+    flash_promotion_min_full_pnl_per_trade_lcb_pct: float = 0.0
+    flash_promotion_min_latest_pnl_per_trade_lcb_pct: float = 0.0
+    flash_promotion_pnl_per_trade_lcb_z: float = Z_95_ONE_SIDED
+    flash_promotion_max_drawdown_pct: float = 25.0
+    flash_promotion_min_win_rate_pct: float = 52.0
+    flash_promotion_max_recent_downside_usd: float = 5.0
+    flash_earned_cap_overrides_enabled: bool = False
+    flash_promoted_actor_cap_overrides: tuple[str, ...] = ()
+    experimental_flash_actors_enabled: bool = False
+    experimental_flash_real_actors_enabled: bool = False
     actionable_fallback_enabled: bool = False
     actionable_fallback_min_score: Optional[float] = None
     actionable_fallback_require_has_data: bool = False
@@ -159,6 +354,7 @@ class RetrodateMarketConfig:
     v3_shadow_flat_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_max_age_bars: int = 1
+    v3_shadow_fresh_handoff_require_positive_unrealized: bool = True
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_entry_causal_min_filled: int = 3
@@ -189,6 +385,8 @@ class RetrodateMarketConfig:
     v3_probation_loss_kill_label_prefixes: tuple[str, ...] = (
         DEFAULT_PROBATION_LOSS_LABEL_PREFIXES
     )
+    max_new_opens_per_bar: int = 1
+    risk_max_open_positions: int = 8
     genetics_probation_execution_enabled: bool = False
     genetics_probation_risk_mult: float = 0.25
     genetics_probation_max_real_trades: int = 20
@@ -213,6 +411,32 @@ class RetrodateMarketConfig:
             raise ValueError("solo_agent_candidate_limit must be >= 1")
         if self.invalid_policy not in {"exclude", "fail"}:
             raise ValueError("invalid_policy must be 'exclude' or 'fail'")
+        if self.flash_overextension_lookback_bars <= 0:
+            raise ValueError("flash_overextension_lookback_bars must be > 0")
+        if self.flash_overextension_min_volatility_pct <= 0:
+            raise ValueError("flash_overextension_min_volatility_pct must be > 0")
+        if self.flash_short_overextension_z_floor >= 0:
+            raise ValueError("flash_short_overextension_z_floor must be < 0")
+        if self.flash_long_overextension_z_ceiling <= 0:
+            raise ValueError("flash_long_overextension_z_ceiling must be > 0")
+        if self.flash_promotion_min_full_closed_trades < 0:
+            raise ValueError("flash_promotion_min_full_closed_trades must be >= 0")
+        if self.flash_promotion_min_latest_closed_trades < 0:
+            raise ValueError("flash_promotion_min_latest_closed_trades must be >= 0")
+        if self.flash_promotion_max_drawdown_pct < 0:
+            raise ValueError("flash_promotion_max_drawdown_pct must be >= 0")
+        if self.flash_promotion_min_win_rate_pct < 0:
+            raise ValueError("flash_promotion_min_win_rate_pct must be >= 0")
+        if self.flash_promotion_pnl_per_trade_lcb_z < 0:
+            raise ValueError("flash_promotion_pnl_per_trade_lcb_z must be >= 0")
+        if self.flash_shadow_pnl_per_trade_lcb_z < 0:
+            raise ValueError("flash_shadow_pnl_per_trade_lcb_z must be >= 0")
+        if self.flash_shadow_pnl_per_trade_lcb_penalty_weight < 0:
+            raise ValueError(
+                "flash_shadow_pnl_per_trade_lcb_penalty_weight must be >= 0"
+            )
+        if self.flash_promotion_max_recent_downside_usd < 0:
+            raise ValueError("flash_promotion_max_recent_downside_usd must be >= 0")
         object.__setattr__(
             self,
             "optional_agent_labels",
@@ -231,6 +455,83 @@ class RetrodateMarketConfig:
             raise ValueError("real_promotion_min_closed_trades must be >= 0")
         if self.real_promotion_max_drawdown_pct < 0:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
+        if self.max_new_opens_per_bar < 0:
+            raise ValueError("max_new_opens_per_bar must be >= 0")
+        if self.risk_max_open_positions < 0:
+            raise ValueError("risk_max_open_positions must be >= 0")
+        if self.flash_degradation_window_closed_trades <= 0:
+            raise ValueError("flash_degradation_window_closed_trades must be > 0")
+        if self.flash_degradation_actor_scope not in {"actor", "actor_regime"}:
+            raise ValueError(
+                "flash_degradation_actor_scope must be 'actor' or 'actor_regime'"
+            )
+        if self.flash_degradation_signal_cooldown_bars < 0:
+            raise ValueError("flash_degradation_signal_cooldown_bars must be >= 0")
+        if self.flash_degradation_actor_cooldown_bars < 0:
+            raise ValueError("flash_degradation_actor_cooldown_bars must be >= 0")
+        if self.flash_degradation_symbol_cooldown_bars < 0:
+            raise ValueError("flash_degradation_symbol_cooldown_bars must be >= 0")
+        if self.flash_degradation_symbol_window_closed_trades < 0:
+            raise ValueError("flash_degradation_symbol_window_closed_trades must be >= 0")
+        if self.flash_degradation_symbol_min_closed_trades < 0:
+            raise ValueError("flash_degradation_symbol_min_closed_trades must be >= 0")
+        if (
+            self.flash_degradation_symbol_window_closed_trades > 0
+            and self.flash_degradation_symbol_min_closed_trades
+            > self.flash_degradation_symbol_window_closed_trades
+        ):
+            raise ValueError(
+                "flash_degradation_symbol_min_closed_trades must be "
+                "<= flash_degradation_symbol_window_closed_trades"
+            )
+        if self.flash_degradation_min_closed_trades <= 0:
+            raise ValueError("flash_degradation_min_closed_trades must be > 0")
+        if (
+            self.flash_degradation_min_closed_trades
+            > self.flash_degradation_window_closed_trades
+        ):
+            raise ValueError(
+                "flash_degradation_min_closed_trades must be "
+                "<= flash_degradation_window_closed_trades"
+            )
+        if self.flash_degradation_recovery_enabled:
+            if self.flash_degradation_recovery_min_closed_trades <= 0:
+                raise ValueError(
+                    "flash_degradation_recovery_min_closed_trades must be > 0"
+                )
+            if (
+                self.flash_degradation_recovery_min_closed_trades
+                > self.flash_degradation_window_closed_trades
+            ):
+                raise ValueError(
+                    "flash_degradation_recovery_min_closed_trades must be "
+                    "<= flash_degradation_window_closed_trades"
+                )
+        if self.flash_stale_position_exit_max_age_bars < 0:
+            raise ValueError("flash_stale_position_exit_max_age_bars must be >= 0")
+        manifest_path = (
+            None
+            if self.flash_promotion_manifest_path in (None, "")
+            else Path(self.flash_promotion_manifest_path)
+        )
+        object.__setattr__(self, "flash_promotion_manifest_path", manifest_path)
+        object.__setattr__(
+            self,
+            "flash_promoted_signal_keys",
+            _load_flash_promoted_signal_keys(
+                manifest_path,
+                explicit_keys=self.flash_promoted_signal_keys,
+            ),
+        )
+        object.__setattr__(
+            self,
+            "flash_promoted_actor_cap_overrides",
+            tuple(
+                str(item).strip()
+                for item in self.flash_promoted_actor_cap_overrides
+                if str(item or "").strip()
+            ),
+        )
         if (
             self.actionable_fallback_min_score is not None
             and not isinstance(self.actionable_fallback_min_score, (int, float))
@@ -323,6 +624,7 @@ class RetrodateSnapshotState:
 
     next_bar: int = 1
     btc_closes: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
+    symbol_closes: dict[str, Deque[float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -422,6 +724,8 @@ def load_retrodate_year_snapshots(
             symbol: volumes_by_ts.get(timestamp, {}).get(symbol, 0.0)
             for symbol in prices
         }
+        lookback_returns_pct = _snapshot_lookback_returns_pct(prices, state)
+        lookback_volatility_pct = _snapshot_lookback_volatility_pct(prices, state)
         regime, confidence = _classify_regime(prices, state)
         dt = datetime.fromtimestamp(timestamp / 1000.0, timezone.utc)
         snapshots.append(
@@ -433,10 +737,66 @@ def load_retrodate_year_snapshots(
                 prices=prices,
                 volumes=volumes,
                 month=dt.month,
+                lookback_returns_pct=lookback_returns_pct,
+                lookback_volatility_pct=lookback_volatility_pct,
             )
         )
+        _update_symbol_close_history(prices, state)
         state.next_bar += 1
     return snapshots
+
+
+def _snapshot_lookback_returns_pct(
+    prices: dict[str, float],
+    state: RetrodateSnapshotState,
+) -> dict[str, dict[int, float]]:
+    returns: dict[str, dict[int, float]] = {}
+    for symbol, price in prices.items():
+        history = state.symbol_closes.get(symbol)
+        if not history:
+            continue
+        for lookback in (12, 24):
+            if len(history) < lookback:
+                continue
+            old_price = history[-lookback]
+            if old_price <= 0:
+                continue
+            returns.setdefault(symbol, {})[lookback] = (float(price) / float(old_price) - 1.0) * 100.0
+    return returns
+
+
+def _snapshot_lookback_volatility_pct(
+    prices: dict[str, float],
+    state: RetrodateSnapshotState,
+) -> dict[str, dict[int, float]]:
+    volatilities: dict[str, dict[int, float]] = {}
+    for symbol, price in prices.items():
+        history = state.symbol_closes.get(symbol)
+        if not history:
+            continue
+        for lookback in (12, 24):
+            if len(history) < lookback:
+                continue
+            closes = [float(value) for value in list(history)[-lookback:]]
+            closes.append(float(price))
+            returns_pct: list[float] = []
+            for previous, current in zip(closes, closes[1:]):
+                if previous <= 0:
+                    continue
+                returns_pct.append((current / previous - 1.0) * 100.0)
+            if not returns_pct:
+                continue
+            rms = math.sqrt(sum(value * value for value in returns_pct) / len(returns_pct))
+            volatilities.setdefault(symbol, {})[lookback] = rms
+    return volatilities
+
+
+def _update_symbol_close_history(
+    prices: dict[str, float],
+    state: RetrodateSnapshotState,
+) -> None:
+    for symbol, price in prices.items():
+        state.symbol_closes.setdefault(symbol, deque(maxlen=24)).append(float(price))
 
 
 def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRunSummary:
@@ -446,7 +806,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     output_dir.mkdir(parents=True, exist_ok=False)
 
     registry = AgentRegistry()
-    registered_agents = tuple(
+    registered_agent_labels = list(
         register_all_v1_agents(
             registry,
             include_optional=config.include_optional_agents,
@@ -458,6 +818,20 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             skip_on_error=True,
         )
     )
+    shadow_registry = registry
+    if (
+        config.experimental_flash_actors_enabled
+        and config.experimental_flash_real_actors_enabled
+    ):
+        registered_agent_labels.extend(register_experimental_flash_agents(registry))
+    elif config.experimental_flash_actors_enabled:
+        shadow_registry = _clone_registry_with_experimental_flash_agents(registry)
+        registered_agent_labels.extend(
+            label
+            for label in experimental_flash_agent_labels()
+            if shadow_registry.has(label)
+        )
+    registered_agents = tuple(registered_agent_labels)
     exchange = FakeExchange(name="RETRODATE_MARKET")
     strategist_config = _build_strategist_config(config)
     pipeline = build_production_pipeline(
@@ -466,11 +840,16 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         initial_capital=config.initial_capital,
         strategist_config=strategist_config,
         live_execution_config=_build_live_execution_config(config),
+        risk_config=_build_risk_config(config),
+        flash_enabled=config.flash_enabled,
+        flash_allocator_config=_build_flash_allocator_config(config),
     )
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
     pipeline.run_id = output_dir.name
+    pipeline.shadow_agent_labels = tuple(shadow_registry.all_labels())
+    pipeline._flash_promoted_signal_keys = tuple(config.flash_promoted_signal_keys)
     pipeline.actionable_fallback_enabled = bool(config.actionable_fallback_enabled)
     pipeline.actionable_fallback_min_score = config.actionable_fallback_min_score
     pipeline.actionable_fallback_require_has_data = bool(
@@ -480,15 +859,34 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         config.current_actionable_candidate_layer_enabled
         or config.use_v3_executable_soft_confirmed_score
     )
+    pipeline.flash_stale_position_exit_enabled = bool(
+        config.flash_stale_position_exit_enabled
+    )
+    pipeline.flash_stale_position_exit_max_age_bars = int(
+        config.flash_stale_position_exit_max_age_bars
+    )
+    pipeline.flash_stale_position_exit_require_nonpositive_unrealized = bool(
+        config.flash_stale_position_exit_require_nonpositive_unrealized
+    )
     pipeline.solo_agent_candidate_limit = int(config.solo_agent_candidate_limit)
-    pipeline.fixed_agent_player_sets = (
+    fixed_agent_player_sets = (
         tuple(config.fixed_agent_player_sets)
         if config.fixed_agent_players_enabled
         else ()
     )
+    if (
+        config.experimental_flash_actors_enabled
+        and config.experimental_flash_real_actors_enabled
+    ):
+        fixed_agent_player_sets += _experimental_flash_fixed_agent_player_sets()
+        pipeline.rotating_agent_player_sets = (
+            tuple(pipeline.rotating_agent_player_sets)
+            + _experimental_flash_rotating_agent_player_sets()
+        )
+    pipeline.fixed_agent_player_sets = fixed_agent_player_sets
     shadow_event_log = EventLog()
     pipeline.shadow_tournament = ProductionShadowTournament(
-        registry=pipeline.registry,
+        registry=shadow_registry,
         perf=pipeline.virtual_perf,
         risk_config=pipeline.risk_config,
         event_log=shadow_event_log,
@@ -500,6 +898,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             output_dir=str(output_dir),
             write_every_bars=max(1, int(config.write_every_bars)),
             full_snapshot_every=max(1, int(config.full_snapshot_every)),
+            compact_causal_entry_decisions=True,
             latest_dir=str(Path(config.results_root).resolve()),
         ),
     )
@@ -571,8 +970,31 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         )
 
     try:
+        write_flash_attribution_summary(
+            output_dir,
+            execution_events=tuple(
+                pipeline.event_log.query(event_types=[ExecutionAttributed])
+            ),
+            position_closed_events=tuple(
+                pipeline.event_log.query(event_types=[PositionClosed])
+            ),
+        )
+    except Exception as exc:
+        step_errors.append(
+            f"flash_attribution_summary_failed: {type(exc).__name__}: {exc}"
+        )
+
+    try:
+        _write_walk_forward_report_from_event_log(output_dir, pipeline.event_log)
+    except Exception as exc:
+        step_errors.append(
+            f"walk_forward_report_failed: {type(exc).__name__}: {exc}"
+        )
+
+    try:
         shadow_updates = tuple(shadow_event_log.query(event_types=[ShadowActorUpdated]))
-        shadow_pnl_events = shadow_pnl_events_from_shadow_updates(shadow_updates)
+        shadow_player_pnl_events = shadow_pnl_events_from_shadow_updates(shadow_updates)
+        shadow_pnl_events = shadow_player_pnl_events
         shadow_agent_pnl_events = shadow_pnl_events_from_shadow_updates(
             shadow_updates,
             actor_type="agent",
@@ -593,13 +1015,16 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             shadow_agent_pnl_events,
             filename="shadow_agent_pnl_events.jsonl",
         )
-        write_oracle_mismatch_report(
+        _write_retrodate_final_artifact_reports(
             output_dir,
-            output_dir / "trading.log",
+            config=config,
             shadow_updates=shadow_updates,
+            shadow_agent_pnl_events=shadow_agent_pnl_events,
+            shadow_player_pnl_events=shadow_player_pnl_events,
             candidate_rejections=tuple(
                 pipeline.event_log.query(event_types=[CandidateRejected])
             ),
+            step_errors=step_errors,
         )
     except Exception as exc:
         step_errors.append(f"soft_allocator_report_failed: {type(exc).__name__}: {exc}")
@@ -661,6 +1086,225 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             args.enable_fixed_agent_players or bool(args.fixed_agent_player_set)
         ),
         fixed_agent_player_sets=_parse_fixed_agent_player_sets(args.fixed_agent_player_set),
+        flash_enabled=args.enable_flash,
+        flash_min_score_to_trade=args.flash_min_score_to_trade,
+        flash_actionable_bonus=args.flash_actionable_bonus,
+        flash_no_data_score=args.flash_no_data_score,
+        flash_min_closed_trades_to_trade=args.flash_min_closed_trades_to_trade,
+        flash_min_pnl_pct_to_trade=args.flash_min_pnl_pct_to_trade,
+        flash_shadow_confirmation_enabled=args.enable_flash_shadow_confirmation,
+        flash_symbol_shadow_confirmation_enabled=(
+            args.enable_flash_symbol_shadow_confirmation
+        ),
+        flash_shadow_actor_fallback_confirmation_enabled=(
+            args.enable_flash_shadow_actor_fallback_confirmation
+        ),
+        flash_shadow_base_fallback_confirmation_enabled=(
+            args.enable_flash_shadow_base_fallback_confirmation
+        ),
+        flash_shadow_signal_handoff_enabled=(
+            args.enable_flash_shadow_signal_handoff
+        ),
+        flash_shadow_actor_fallback_min_base_score=(
+            args.flash_shadow_actor_fallback_min_base_score
+        ),
+        flash_shadow_base_fallback_actor_keys=tuple(
+            str(key).strip()
+            for key in args.flash_shadow_base_fallback_actor_key
+            if str(key).strip()
+        ),
+        flash_actor_switch_margin=args.flash_actor_switch_margin,
+        flash_anchor_actor_keys=tuple(
+            str(key).strip()
+            for key in args.flash_anchor_actor_key
+            if str(key).strip()
+        ),
+        flash_portfolio_actor_keys=tuple(
+            str(key).strip()
+            for key in args.flash_portfolio_actor_key
+            if str(key).strip()
+        ),
+        flash_portfolio_shadow_bootstrap_min_closed_enabled=(
+            args.enable_flash_portfolio_shadow_bootstrap_min_closed
+        ),
+        flash_anchor_min_score_to_trade=args.flash_anchor_min_score_to_trade,
+        flash_anchor_shadow_min_score=args.flash_anchor_shadow_min_score,
+        flash_anchor_min_score_advantage=args.flash_anchor_min_score_advantage,
+        flash_prefer_solo_player_wrappers_enabled=(
+            args.enable_flash_prefer_solo_player_wrappers
+        ),
+        flash_prefer_proven_solo_player_wrappers_enabled=(
+            args.enable_flash_prefer_proven_solo_player_wrappers
+        ),
+        flash_proven_solo_min_score_advantage=(
+            args.flash_proven_solo_min_score_advantage
+        ),
+        flash_shadow_min_score=args.flash_shadow_min_score,
+        flash_shadow_min_closed_trades=args.flash_shadow_min_closed_trades,
+        flash_shadow_min_full_open_closed_trades=(
+            args.flash_shadow_min_full_open_closed_trades
+        ),
+        flash_shadow_quality_confirmation_enabled=(
+            args.enable_flash_shadow_quality_confirmation
+        ),
+        flash_shadow_min_win_rate_pct=args.flash_shadow_min_win_rate_pct,
+        flash_shadow_max_recent_downside_usd=(
+            args.flash_shadow_max_recent_downside_usd
+        ),
+        flash_shadow_min_pnl_per_trade_lcb_usd=(
+            args.flash_shadow_min_pnl_per_trade_lcb_usd
+        ),
+        flash_shadow_pnl_per_trade_lcb_z=(
+            args.flash_shadow_pnl_per_trade_lcb_z
+        ),
+        flash_shadow_pnl_per_trade_lcb_penalty_floor_usd=(
+            args.flash_shadow_pnl_per_trade_lcb_penalty_floor_usd
+        ),
+        flash_shadow_pnl_per_trade_lcb_penalty_weight=(
+            args.flash_shadow_pnl_per_trade_lcb_penalty_weight
+        ),
+        flash_max_signals_per_actor=args.flash_max_signals_per_actor,
+        flash_overextension_guard_enabled=args.enable_flash_overextension_guard,
+        flash_overextension_lookback_bars=args.flash_overextension_lookback_bars,
+        flash_short_overextension_return_floor_pct=(
+            args.flash_short_overextension_return_floor_pct
+        ),
+        flash_long_overextension_return_ceiling_pct=(
+            args.flash_long_overextension_return_ceiling_pct
+        ),
+        flash_overextension_volatility_normalized_enabled=(
+            args.enable_flash_overextension_volatility_normalized
+        ),
+        flash_short_overextension_z_floor=args.flash_short_overextension_z_floor,
+        flash_long_overextension_z_ceiling=args.flash_long_overextension_z_ceiling,
+        flash_overextension_min_volatility_pct=(
+            args.flash_overextension_min_volatility_pct
+        ),
+        flash_denied_signal_keys=tuple(
+            str(key).strip()
+            for key in args.flash_deny_signal_key
+            if str(key).strip()
+        ),
+        flash_terminal_denied_signal_keys=tuple(
+            str(key).strip()
+            for key in args.flash_terminal_deny_signal_key
+            if str(key).strip()
+        ),
+        flash_denied_open_symbols=tuple(
+            str(symbol).strip()
+            for symbol in args.flash_denied_open_symbol
+            if str(symbol).strip()
+        ),
+        flash_denied_open_regimes=tuple(
+            str(regime).strip()
+            for regime in args.flash_denied_open_regime
+            if str(regime).strip()
+        ),
+        flash_degradation_guard_enabled=args.enable_flash_degradation_guard,
+        flash_degradation_actor_guard_enabled=(
+            args.enable_flash_degradation_actor_guard
+        ),
+        flash_degradation_actor_scope=args.flash_degradation_actor_scope,
+        flash_degradation_signal_cooldown_bars=(
+            args.flash_degradation_signal_cooldown_bars
+        ),
+        flash_degradation_actor_cooldown_bars=(
+            args.flash_degradation_actor_cooldown_bars
+        ),
+        flash_degradation_symbol_guard_enabled=(
+            args.enable_flash_degradation_symbol_guard
+        ),
+        flash_degradation_symbol_cooldown_bars=(
+            args.flash_degradation_symbol_cooldown_bars
+        ),
+        flash_degradation_symbol_window_closed_trades=(
+            args.flash_degradation_symbol_window_closed_trades
+        ),
+        flash_degradation_symbol_min_closed_trades=(
+            args.flash_degradation_symbol_min_closed_trades
+        ),
+        flash_degradation_symbol_max_recent_pnl_usd=(
+            args.flash_degradation_symbol_max_recent_pnl_usd
+        ),
+        flash_degradation_window_closed_trades=(
+            args.flash_degradation_window_closed_trades
+        ),
+        flash_degradation_min_closed_trades=(
+            args.flash_degradation_min_closed_trades
+        ),
+        flash_degradation_max_recent_pnl_usd=(
+            args.flash_degradation_max_recent_pnl_usd
+        ),
+        flash_degradation_reserve_actor_cap=(
+            args.flash_degradation_reserve_actor_cap
+        ),
+        flash_degradation_recovery_enabled=(
+            args.enable_flash_degradation_recovery
+        ),
+        flash_degradation_recovery_min_closed_trades=(
+            args.flash_degradation_recovery_min_closed_trades
+        ),
+        flash_degradation_recovery_min_recent_pnl_usd=(
+            args.flash_degradation_recovery_min_recent_pnl_usd
+        ),
+        flash_stale_position_exit_enabled=(
+            args.enable_flash_stale_position_exit
+        ),
+        flash_stale_position_exit_max_age_bars=(
+            args.flash_stale_position_exit_max_age_bars
+        ),
+        flash_stale_position_exit_require_nonpositive_unrealized=(
+            not args.flash_stale_position_exit_allow_profitable
+        ),
+        flash_promotion_manifest_enabled=args.enable_flash_promotion_manifest,
+        flash_promotion_manifest_path=(
+            Path(args.flash_promotion_manifest_path)
+            if args.flash_promotion_manifest_path
+            else None
+        ),
+        flash_promoted_signal_keys=tuple(
+            str(key).strip()
+            for key in args.flash_promoted_signal_key
+            if str(key).strip()
+        ),
+        flash_promotion_min_full_closed_trades=(
+            args.flash_promotion_min_full_closed_trades
+        ),
+        flash_promotion_min_latest_closed_trades=(
+            args.flash_promotion_min_latest_closed_trades
+        ),
+        flash_promotion_min_full_pnl_pct=args.flash_promotion_min_full_pnl_pct,
+        flash_promotion_min_latest_pnl_pct=args.flash_promotion_min_latest_pnl_pct,
+        flash_promotion_min_full_pnl_per_trade_lcb_pct=(
+            args.flash_promotion_min_full_pnl_per_trade_lcb_pct
+        ),
+        flash_promotion_min_latest_pnl_per_trade_lcb_pct=(
+            args.flash_promotion_min_latest_pnl_per_trade_lcb_pct
+        ),
+        flash_promotion_pnl_per_trade_lcb_z=(
+            args.flash_promotion_pnl_per_trade_lcb_z
+        ),
+        flash_promotion_max_drawdown_pct=args.flash_promotion_max_drawdown_pct,
+        flash_promotion_min_win_rate_pct=args.flash_promotion_min_win_rate_pct,
+        flash_promotion_max_recent_downside_usd=(
+            args.flash_promotion_max_recent_downside_usd
+        ),
+        flash_earned_cap_overrides_enabled=args.enable_flash_earned_cap_overrides,
+        flash_promoted_actor_cap_overrides=tuple(
+            str(item).strip()
+            for item in args.flash_promoted_actor_cap_override
+            if str(item).strip()
+        ),
+        experimental_flash_actors_enabled=(
+            args.enable_experimental_flash_actors
+            or args.allow_experimental_flash_real_actors
+        ),
+        experimental_flash_real_actors_enabled=(
+            args.allow_experimental_flash_real_actors
+        ),
+        hard_policy_deny_labels=_merge_hard_policy_deny_labels(
+            args.hard_policy_deny_label
+        ),
         actionable_fallback_enabled=args.enable_actionable_fallback,
         actionable_fallback_min_score=args.actionable_fallback_min_score,
         actionable_fallback_require_has_data=args.actionable_fallback_require_has_data,
@@ -687,6 +1331,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         v3_shadow_flat_handoff_enabled=args.enable_v3_shadow_flat_handoff,
         v3_shadow_fresh_handoff_enabled=args.enable_v3_shadow_fresh_handoff,
         v3_shadow_fresh_handoff_max_age_bars=args.v3_shadow_fresh_handoff_max_age_bars,
+        v3_shadow_fresh_handoff_require_positive_unrealized=(
+            not args.v3_shadow_fresh_handoff_allow_nonpositive_unrealized
+        ),
         v3_shadow_rolling_window_bars=args.v3_shadow_rolling_window_bars,
         v3_shadow_rolling_min_closed_trades=args.v3_shadow_rolling_min_closed_trades,
         v3_entry_causal_min_filled=args.v3_entry_causal_min_filled,
@@ -751,6 +1398,8 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         v3_probation_loss_kill_label_prefixes=(
             _parse_probation_loss_label_prefixes(args)
         ),
+        max_new_opens_per_bar=args.max_new_opens_per_bar,
+        risk_max_open_positions=args.risk_max_open_positions,
         genetics_probation_execution_enabled=(
             args.enable_genetics_probation_execution
         ),
@@ -811,6 +1460,183 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=[],
         help="Add fixed player as Label=AgentA,AgentB. Can be repeated.",
     )
+    parser.add_argument("--enable-flash", action="store_true")
+    parser.add_argument("--flash-min-score-to-trade", type=float, default=0.0)
+    parser.add_argument("--flash-actionable-bonus", type=float, default=0.25)
+    parser.add_argument("--flash-no-data-score", type=float, default=0.0)
+    parser.add_argument("--flash-min-closed-trades-to-trade", type=int, default=3)
+    parser.add_argument("--flash-min-pnl-pct-to-trade", type=float, default=0.0)
+    parser.add_argument("--enable-flash-shadow-confirmation", action="store_true")
+    parser.add_argument("--enable-flash-symbol-shadow-confirmation", action="store_true")
+    parser.add_argument("--enable-flash-shadow-actor-fallback-confirmation", action="store_true")
+    parser.add_argument("--enable-flash-shadow-base-fallback-confirmation", action="store_true")
+    parser.add_argument("--enable-flash-shadow-signal-handoff", action="store_true")
+    parser.add_argument("--flash-shadow-actor-fallback-min-base-score", type=float, default=0.0)
+    parser.add_argument(
+        "--flash-shadow-base-fallback-actor-key",
+        action="append",
+        default=[],
+        help=(
+            "Allow one Flash actor key to use production metrics as shadow base "
+            "fallback. Can be repeated."
+        ),
+    )
+    parser.add_argument("--flash-actor-switch-margin", type=float, default=0.0)
+    parser.add_argument("--flash-anchor-actor-key", action="append", default=[])
+    parser.add_argument("--flash-portfolio-actor-key", action="append", default=[])
+    parser.add_argument(
+        "--enable-flash-portfolio-shadow-bootstrap-min-closed",
+        action="store_true",
+    )
+    parser.add_argument("--flash-anchor-min-score-to-trade", type=float, default=None)
+    parser.add_argument("--flash-anchor-shadow-min-score", type=float, default=None)
+    parser.add_argument("--flash-anchor-min-score-advantage", type=float, default=0.0)
+    parser.add_argument("--enable-flash-prefer-solo-player-wrappers", action="store_true")
+    parser.add_argument("--enable-flash-prefer-proven-solo-player-wrappers", action="store_true")
+    parser.add_argument("--flash-proven-solo-min-score-advantage", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-min-score", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-min-closed-trades", type=int, default=50)
+    parser.add_argument("--flash-shadow-min-full-open-closed-trades", type=int, default=0)
+    parser.add_argument("--enable-flash-shadow-quality-confirmation", action="store_true")
+    parser.add_argument("--flash-shadow-min-win-rate-pct", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-max-recent-downside-usd", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-min-pnl-per-trade-lcb-usd", type=float, default=None)
+    parser.add_argument("--flash-shadow-pnl-per-trade-lcb-z", type=float, default=1.0)
+    parser.add_argument(
+        "--flash-shadow-pnl-per-trade-lcb-penalty-floor-usd",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--flash-shadow-pnl-per-trade-lcb-penalty-weight",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument("--flash-max-signals-per-actor", type=int, default=0)
+    parser.add_argument("--enable-flash-overextension-guard", action="store_true")
+    parser.add_argument("--flash-overextension-lookback-bars", type=int, default=12)
+    parser.add_argument("--flash-short-overextension-return-floor-pct", type=float, default=-8.0)
+    parser.add_argument("--flash-long-overextension-return-ceiling-pct", type=float, default=8.0)
+    parser.add_argument(
+        "--enable-flash-overextension-volatility-normalized",
+        action="store_true",
+    )
+    parser.add_argument("--flash-short-overextension-z-floor", type=float, default=-2.5)
+    parser.add_argument("--flash-long-overextension-z-ceiling", type=float, default=2.5)
+    parser.add_argument("--flash-overextension-min-volatility-pct", type=float, default=0.1)
+    parser.add_argument("--enable-flash-degradation-guard", action="store_true")
+    parser.add_argument("--enable-flash-degradation-actor-guard", action="store_true")
+    parser.add_argument(
+        "--flash-degradation-actor-scope",
+        choices=("actor", "actor_regime"),
+        default="actor",
+    )
+    parser.add_argument("--flash-degradation-signal-cooldown-bars", type=int, default=0)
+    parser.add_argument("--flash-degradation-actor-cooldown-bars", type=int, default=0)
+    parser.add_argument("--enable-flash-degradation-symbol-guard", action="store_true")
+    parser.add_argument("--flash-degradation-symbol-cooldown-bars", type=int, default=0)
+    parser.add_argument("--flash-degradation-symbol-window-closed-trades", type=int, default=0)
+    parser.add_argument("--flash-degradation-symbol-min-closed-trades", type=int, default=0)
+    parser.add_argument("--flash-degradation-symbol-max-recent-pnl-usd", type=float, default=None)
+    parser.add_argument("--flash-degradation-window-closed-trades", type=int, default=3)
+    parser.add_argument("--flash-degradation-min-closed-trades", type=int, default=3)
+    parser.add_argument("--flash-degradation-max-recent-pnl-usd", type=float, default=-25.0)
+    parser.add_argument("--flash-degradation-reserve-actor-cap", action="store_true")
+    parser.add_argument("--enable-flash-degradation-recovery", action="store_true")
+    parser.add_argument("--flash-degradation-recovery-min-closed-trades", type=int, default=3)
+    parser.add_argument("--flash-degradation-recovery-min-recent-pnl-usd", type=float, default=0.0)
+    parser.add_argument("--enable-flash-stale-position-exit", action="store_true")
+    parser.add_argument("--flash-stale-position-exit-max-age-bars", type=int, default=168)
+    parser.add_argument(
+        "--flash-stale-position-exit-allow-profitable",
+        action="store_true",
+        help="Close stale positions by age even when current unrealized PnL is positive.",
+    )
+    parser.add_argument("--enable-flash-promotion-manifest", action="store_true")
+    parser.add_argument("--flash-promotion-manifest-path", default="")
+    parser.add_argument("--flash-promotion-min-full-closed-trades", type=int, default=50)
+    parser.add_argument("--flash-promotion-min-latest-closed-trades", type=int, default=10)
+    parser.add_argument("--flash-promotion-min-full-pnl-pct", type=float, default=0.0)
+    parser.add_argument("--flash-promotion-min-latest-pnl-pct", type=float, default=0.0)
+    parser.add_argument(
+        "--flash-promotion-min-full-pnl-per-trade-lcb-pct",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--flash-promotion-min-latest-pnl-per-trade-lcb-pct",
+        type=float,
+        default=0.0,
+    )
+    parser.add_argument(
+        "--flash-promotion-pnl-per-trade-lcb-z",
+        type=float,
+        default=Z_95_ONE_SIDED,
+    )
+    parser.add_argument("--flash-promotion-max-drawdown-pct", type=float, default=25.0)
+    parser.add_argument("--flash-promotion-min-win-rate-pct", type=float, default=52.0)
+    parser.add_argument("--flash-promotion-max-recent-downside-usd", type=float, default=5.0)
+    parser.add_argument(
+        "--flash-promoted-signal-key",
+        action="append",
+        default=[],
+        help=(
+            "Allow one exact promoted Flash actor/symbol/action key. Format: "
+            "actor_key|SYMBOL|ACTION. Can be repeated."
+        ),
+    )
+    parser.add_argument("--enable-flash-earned-cap-overrides", action="store_true")
+    parser.add_argument(
+        "--flash-promoted-actor-cap-override",
+        action="append",
+        default=[],
+        help="Override promoted cap as actor_key=cap. Can be repeated.",
+    )
+    parser.add_argument("--enable-experimental-flash-actors", action="store_true")
+    parser.add_argument("--allow-experimental-flash-real-actors", action="store_true")
+    parser.add_argument(
+        "--flash-deny-signal-key",
+        action="append",
+        default=[],
+        help=(
+            "Reject one exact Flash actor/symbol/action key. Format: "
+            "actor_key|SYMBOL|ACTION. Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-terminal-deny-signal-key",
+        action="append",
+        default=[],
+        help=(
+            "Reject one exact Flash actor/symbol/action key and keep NoTrade "
+            "when that rejected key would have been the top candidate. Format: "
+            "actor_key|SYMBOL|ACTION. Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-denied-open-regime",
+        action="append",
+        default=[],
+        help="Reject Flash open signals in this market regime. Can be repeated.",
+    )
+    parser.add_argument(
+        "--flash-denied-open-symbol",
+        action="append",
+        default=[],
+        help=(
+            "Reject Flash open signals for this symbol while allowing closes. "
+            "Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--hard-policy-deny-label",
+        action="append",
+        default=[],
+        help=(
+            "Add a candidate label to the retro hard-policy denylist. "
+            "Can be repeated; defaults are preserved."
+        ),
+    )
     parser.add_argument("--enable-actionable-fallback", action="store_true")
     parser.add_argument("--actionable-fallback-min-score", type=float)
     parser.add_argument("--actionable-fallback-require-has-data", action="store_true")
@@ -831,6 +1657,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-v3-shadow-flat-handoff", action="store_true")
     parser.add_argument("--enable-v3-shadow-fresh-handoff", action="store_true")
     parser.add_argument("--v3-shadow-fresh-handoff-max-age-bars", type=int, default=1)
+    parser.add_argument(
+        "--v3-shadow-fresh-handoff-allow-nonpositive-unrealized",
+        action="store_true",
+    )
     parser.add_argument("--v3-shadow-rolling-window-bars", type=int, default=24)
     parser.add_argument("--v3-shadow-rolling-min-closed-trades", type=int, default=50)
     parser.add_argument("--v3-entry-causal-min-filled", type=int, default=3)
@@ -872,6 +1702,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Apply probation loss-kill to every candidate label.",
     )
+    parser.add_argument("--max-new-opens-per-bar", type=int, default=1)
+    parser.add_argument("--risk-max-open-positions", type=int, default=8)
     parser.add_argument("--enable-genetics-probation-execution", action="store_true")
     parser.add_argument("--genetics-probation-risk-mult", type=float, default=0.25)
     parser.add_argument("--genetics-probation-max-real-trades", type=int, default=20)
@@ -891,8 +1723,182 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocatorConfig:
+    return FlashAllocatorConfig(
+        min_score_to_trade=config.flash_min_score_to_trade,
+        actionable_bonus=config.flash_actionable_bonus,
+        no_data_score=config.flash_no_data_score,
+        min_closed_trades_to_trade=config.flash_min_closed_trades_to_trade,
+        min_pnl_pct_to_trade=config.flash_min_pnl_pct_to_trade,
+        shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
+        shadow_symbol_confirmation_enabled=(
+            config.flash_symbol_shadow_confirmation_enabled
+        ),
+        shadow_actor_fallback_confirmation_enabled=(
+            config.flash_shadow_actor_fallback_confirmation_enabled
+        ),
+        shadow_base_fallback_confirmation_enabled=(
+            config.flash_shadow_base_fallback_confirmation_enabled
+        ),
+        shadow_signal_handoff_enabled=config.flash_shadow_signal_handoff_enabled,
+        shadow_actor_fallback_min_base_score=(
+            config.flash_shadow_actor_fallback_min_base_score
+        ),
+        shadow_base_fallback_actor_keys=config.flash_shadow_base_fallback_actor_keys,
+        actor_switch_margin=config.flash_actor_switch_margin,
+        anchor_actor_keys=config.flash_anchor_actor_keys,
+        portfolio_actor_keys=config.flash_portfolio_actor_keys,
+        portfolio_shadow_bootstrap_min_closed_enabled=(
+            config.flash_portfolio_shadow_bootstrap_min_closed_enabled
+        ),
+        anchor_min_score_to_trade=config.flash_anchor_min_score_to_trade,
+        anchor_shadow_min_score=config.flash_anchor_shadow_min_score,
+        anchor_min_score_advantage=config.flash_anchor_min_score_advantage,
+        prefer_solo_player_wrappers_enabled=(
+            config.flash_prefer_solo_player_wrappers_enabled
+        ),
+        prefer_proven_solo_player_wrappers_enabled=(
+            config.flash_prefer_proven_solo_player_wrappers_enabled
+        ),
+        proven_solo_min_score_advantage=(
+            config.flash_proven_solo_min_score_advantage
+        ),
+        shadow_confirmation_min_score=config.flash_shadow_min_score,
+        shadow_confirmation_min_closed_trades=config.flash_shadow_min_closed_trades,
+        shadow_confirmation_min_full_open_closed_trades=(
+            config.flash_shadow_min_full_open_closed_trades
+        ),
+        shadow_quality_confirmation_enabled=(
+            config.flash_shadow_quality_confirmation_enabled
+        ),
+        shadow_confirmation_min_win_rate_pct=config.flash_shadow_min_win_rate_pct,
+        shadow_confirmation_max_recent_downside_usd=(
+            config.flash_shadow_max_recent_downside_usd
+        ),
+        shadow_confirmation_min_pnl_per_trade_lcb_usd=(
+            config.flash_shadow_min_pnl_per_trade_lcb_usd
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_z=(
+            config.flash_shadow_pnl_per_trade_lcb_z
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_penalty_floor_usd=(
+            config.flash_shadow_pnl_per_trade_lcb_penalty_floor_usd
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_penalty_weight=(
+            config.flash_shadow_pnl_per_trade_lcb_penalty_weight
+        ),
+        max_signals_per_actor=config.flash_max_signals_per_actor,
+        open_overextension_guard_enabled=config.flash_overextension_guard_enabled,
+        overextension_lookback_bars=config.flash_overextension_lookback_bars,
+        short_overextension_return_floor_pct=(
+            config.flash_short_overextension_return_floor_pct
+        ),
+        long_overextension_return_ceiling_pct=(
+            config.flash_long_overextension_return_ceiling_pct
+        ),
+        overextension_volatility_normalized_enabled=(
+            config.flash_overextension_volatility_normalized_enabled
+        ),
+        short_overextension_z_floor=config.flash_short_overextension_z_floor,
+        long_overextension_z_ceiling=config.flash_long_overextension_z_ceiling,
+        overextension_min_volatility_pct=(
+            config.flash_overextension_min_volatility_pct
+        ),
+        denied_signal_keys=config.flash_denied_signal_keys,
+        terminal_denied_signal_keys=config.flash_terminal_denied_signal_keys,
+        denied_open_symbols=config.flash_denied_open_symbols,
+        denied_open_regimes=config.flash_denied_open_regimes,
+        degradation_guard_enabled=config.flash_degradation_guard_enabled,
+        degradation_actor_guard_enabled=config.flash_degradation_actor_guard_enabled,
+        degradation_actor_scope=config.flash_degradation_actor_scope,
+        degradation_signal_cooldown_bars=config.flash_degradation_signal_cooldown_bars,
+        degradation_actor_cooldown_bars=config.flash_degradation_actor_cooldown_bars,
+        degradation_symbol_guard_enabled=(
+            config.flash_degradation_symbol_guard_enabled
+        ),
+        degradation_symbol_cooldown_bars=(
+            config.flash_degradation_symbol_cooldown_bars
+        ),
+        degradation_symbol_window_closed_trades=(
+            config.flash_degradation_symbol_window_closed_trades
+        ),
+        degradation_symbol_min_closed_trades=(
+            config.flash_degradation_symbol_min_closed_trades
+        ),
+        degradation_symbol_max_recent_pnl_usd=(
+            config.flash_degradation_symbol_max_recent_pnl_usd
+        ),
+        degradation_window_closed_trades=(
+            config.flash_degradation_window_closed_trades
+        ),
+        degradation_min_closed_trades=config.flash_degradation_min_closed_trades,
+        degradation_max_recent_pnl_usd=(
+            config.flash_degradation_max_recent_pnl_usd
+        ),
+        degradation_reserve_actor_cap=config.flash_degradation_reserve_actor_cap,
+        degradation_recovery_enabled=config.flash_degradation_recovery_enabled,
+        degradation_recovery_min_closed_trades=(
+            config.flash_degradation_recovery_min_closed_trades
+        ),
+        degradation_recovery_min_recent_pnl_usd=(
+            config.flash_degradation_recovery_min_recent_pnl_usd
+        ),
+        promotion_manifest_enabled=config.flash_promotion_manifest_enabled,
+        promoted_actor_cap_overrides=_flash_promoted_actor_cap_overrides(config),
+    )
+
+
+def _load_flash_promoted_signal_keys(
+    manifest_path: Optional[Path],
+    *,
+    explicit_keys: Sequence[str],
+) -> tuple[str, ...]:
+    keys: set[str] = {
+        str(key).strip()
+        for key in explicit_keys
+        if str(key or "").strip()
+    }
+    if manifest_path is not None and manifest_path.exists():
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        allowed = data.get("allowed_signal_keys") if isinstance(data, dict) else None
+        if isinstance(allowed, list):
+            keys.update(str(key).strip() for key in allowed if str(key or "").strip())
+    return tuple(sorted(keys))
+
+
+def _flash_promoted_actor_cap_overrides(
+    config: RetrodateMarketConfig,
+) -> tuple[str, ...]:
+    explicit = tuple(config.flash_promoted_actor_cap_overrides)
+    if not config.flash_earned_cap_overrides_enabled:
+        return explicit
+
+    explicit_actors = {
+        item.split("=", 1)[0].strip()
+        for item in explicit
+        if item.split("=", 1)[0].strip()
+    }
+    keys_by_actor: dict[str, set[str]] = {}
+    for signal_key in config.flash_promoted_signal_keys:
+        actor_key = str(signal_key).split("|", 1)[0].strip()
+        if not actor_key:
+            continue
+        keys_by_actor.setdefault(actor_key, set()).add(str(signal_key).strip())
+
+    auto = tuple(
+        f"{actor_key}=2"
+        for actor_key in sorted(keys_by_actor)
+        if actor_key not in explicit_actors and len(keys_by_actor[actor_key]) >= 2
+    )
+    return explicit + auto
+
+
 def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecutionConfig:
     return LiveExecutionConfig(
+        max_new_opens_per_bar=config.max_new_opens_per_bar,
         genetics_probation_execution_enabled=(
             config.genetics_probation_execution_enabled
         ),
@@ -902,6 +1908,10 @@ def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecution
             config.genetics_probation_require_shadow_confirmation
         ),
     )
+
+
+def _build_risk_config(config: RetrodateMarketConfig) -> RiskLimitsConfig:
+    return RiskLimitsConfig(max_open_positions=config.risk_max_open_positions)
 
 
 def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
@@ -917,8 +1927,18 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         if executable_soft_confirmed
         else config.v3_shadow_rolling_min_closed_trades
     )
+    hard_policy_deny_labels = tuple(config.hard_policy_deny_labels)
+    if (
+        config.experimental_flash_actors_enabled
+        and not config.experimental_flash_real_actors_enabled
+    ):
+        hard_policy_deny_labels = tuple(
+            dict.fromkeys(
+                hard_policy_deny_labels + tuple(experimental_flash_agent_labels())
+            )
+        )
     return StrategistConfig(
-        hard_policy_deny_labels=config.hard_policy_deny_labels,
+        hard_policy_deny_labels=hard_policy_deny_labels,
         real_promotion_gate_enabled=config.real_promotion_gate_enabled,
         real_promotion_min_closed_trades=config.real_promotion_min_closed_trades,
         real_promotion_min_pnl_pct=config.real_promotion_min_pnl_pct,
@@ -936,6 +1956,9 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         v3_shadow_flat_handoff_enabled=config.v3_shadow_flat_handoff_enabled,
         v3_shadow_fresh_handoff_enabled=config.v3_shadow_fresh_handoff_enabled,
         v3_shadow_fresh_handoff_max_age_bars=config.v3_shadow_fresh_handoff_max_age_bars,
+        v3_shadow_fresh_handoff_require_positive_unrealized=(
+            config.v3_shadow_fresh_handoff_require_positive_unrealized
+        ),
         v3_shadow_rolling_window_bars=rolling_window,
         v3_shadow_rolling_min_closed_trades=min_closed_trades,
         v3_entry_causal_min_filled=config.v3_entry_causal_min_filled,
@@ -1102,6 +2125,15 @@ def _parse_optional_agent_labels(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in str(raw or "").split(",") if part.strip())
 
 
+def _merge_hard_policy_deny_labels(raw_labels: Sequence[str]) -> tuple[str, ...]:
+    labels: list[str] = []
+    for label in tuple(DEFAULT_RETRO_HARD_POLICY_DENY_LABELS) + tuple(raw_labels or ()):
+        clean = str(label or "").strip()
+        if clean and clean not in labels:
+            labels.append(clean)
+    return tuple(labels)
+
+
 def _parse_probation_loss_label_prefixes(args: argparse.Namespace) -> tuple[str, ...]:
     if bool(getattr(args, "v3_probation_loss_kill_all_labels", False)):
         return ()
@@ -1144,11 +2176,20 @@ def write_candidate_diagnostics(
         row["recent_pnl_usd_sum"] += _safe_float(_event_value(event, "recent_pnl_usd"))
 
     rejections: dict[str, dict[str, Any]] = {}
+    rejection_reason_counts: dict[str, int] = {}
+    flash_reason_counts: dict[str, int] = {}
+    flash_active_reason_counts: dict[str, int] = {}
     for event in rejection_events or ():
         label = str(_event_value(event, "player_label") or "").strip()
         if not label:
             continue
         reason = str(_event_value(event, "reason") or "")
+        _count_str_key(rejection_reason_counts, reason)
+        flash_reason = _flash_rejection_reason(reason)
+        if flash_reason:
+            _count_str_key(flash_reason_counts, flash_reason)
+            if flash_reason not in FLASH_INACTIVE_REJECTION_REASONS:
+                _count_str_key(flash_active_reason_counts, flash_reason)
         row = rejections.setdefault(label, {"count": 0, "last_reason": ""})
         row["count"] += 1
         row["last_reason"] = reason
@@ -1164,6 +2205,13 @@ def write_candidate_diagnostics(
         "candidate_rows": sum(row["bars_seen"] for row in buckets.values()),
         "selected_rows": selected_rows,
         "rejection_rows": sum(row["count"] for row in rejections.values()),
+        "rejection_summary": {
+            "reason_counts": dict(sorted(rejection_reason_counts.items())),
+            "flash_reason_counts": dict(sorted(flash_reason_counts.items())),
+            "flash_active_reason_counts": dict(
+                sorted(flash_active_reason_counts.items())
+            ),
+        },
         "group_summary": _candidate_group_summary(candidate_payload),
         "candidates": candidate_payload,
         "rejections": dict(sorted(rejections.items())),
@@ -1174,6 +2222,20 @@ def write_candidate_diagnostics(
         encoding="utf-8",
     )
     return path
+
+
+def _count_str_key(counts: dict[str, int], key: str) -> None:
+    clean = str(key or "").strip()
+    if not clean:
+        return
+    counts[clean] = int(counts.get(clean, 0) or 0) + 1
+
+
+def _flash_rejection_reason(reason: str) -> str:
+    clean = str(reason or "").strip()
+    if not clean.startswith("flash:"):
+        return ""
+    return clean.split(":", 1)[1].strip()
 
 
 def _new_candidate_diagnostic_bucket(label: str) -> dict[str, Any]:
@@ -1249,6 +2311,1584 @@ def _candidate_group_type(label: str) -> str:
     return "profile"
 
 
+def write_flash_attribution_summary(
+    output_dir: str | Path,
+    *,
+    execution_events: Sequence[object],
+    position_closed_events: Sequence[object] = (),
+    filename: str = "flash_attribution_summary.json",
+) -> Path:
+    output = Path(output_dir)
+    causal_path = output / "causal_entry_decisions.jsonl"
+    buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
+    signal_index: dict[int, tuple[str, str, str]] = {}
+    summary: dict[str, Any] = {
+        "flash_decisions": 0,
+        "selected_decisions": 0,
+        "no_trade_decisions": 0,
+        "selected_signals": 0,
+        "selected_without_signal": 0,
+        "executable_selected_signals": 0,
+        "selected_filtered_before_execution": 0,
+        "filled_signals": 0,
+        "blocked_signals": 0,
+        "rejected_signals": 0,
+        "pending_signals": 0,
+        "missing_execution_signals": 0,
+        "unattributed_execution_events": 0,
+        "unattributed_closed_trades": 0,
+        "closed_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "realized_pnl_usd": 0.0,
+        "filter_detail_counts": {},
+    }
+    executable_selected_signal_ids: set[int] = set()
+
+    for row in _iter_jsonl(causal_path):
+        executable_payloads = row.get("executable_signals")
+        executable_ids = _signal_ids_from_payloads(executable_payloads)
+        executable_known = isinstance(executable_payloads, list)
+        filter_detail_counts = _flash_filter_detail_counts(
+            row.get("signal_filter_details")
+        )
+        _merge_int_counts(summary["filter_detail_counts"], filter_detail_counts)
+        for decision in row.get("flash_decisions") or ():
+            if not isinstance(decision, dict):
+                continue
+            summary["flash_decisions"] += 1
+            selected_actor = str(decision.get("selected_actor") or "")
+            if selected_actor == "NoTrade":
+                summary["no_trade_decisions"] += 1
+                continue
+            summary["selected_decisions"] += 1
+            signal = decision.get("signal")
+            if not isinstance(signal, dict):
+                summary["selected_without_signal"] += 1
+                continue
+            signal_id = _safe_int(signal.get("id"), default=-1)
+            if signal_id < 0:
+                summary["selected_without_signal"] += 1
+                continue
+            actor_type = str(decision.get("actor_type") or "")
+            actor_key = _flash_decision_actor_key(decision)
+            symbol = str(decision.get("symbol") or signal.get("sym") or "").upper()
+            action = str(decision.get("action") or signal.get("action") or "")
+            key = (actor_key, symbol, action)
+            bucket = buckets.setdefault(
+                key,
+                _new_flash_attribution_bucket(
+                    actor_key=actor_key,
+                    actor_label=selected_actor,
+                    actor_type=actor_type,
+                    symbol=symbol,
+                    action=action,
+                ),
+            )
+            bucket["selected_signals"] += 1
+            bucket["score_sum"] += _safe_float(decision.get("score"))
+            selected_candidate = _flash_selected_candidate(decision)
+            if selected_candidate:
+                bucket["shadow_score_sum"] += _safe_float(
+                    selected_candidate.get("shadow_score")
+                )
+                bucket["shadow_closed_trades_sum"] += _safe_float(
+                    selected_candidate.get("shadow_closed_trades")
+                )
+            signal_index[signal_id] = key
+            summary["selected_signals"] += 1
+            if executable_known and signal_id not in executable_ids:
+                bucket["selected_filtered_before_execution"] += 1
+                summary["selected_filtered_before_execution"] += 1
+                _merge_int_counts(
+                    bucket["filter_detail_counts"],
+                    filter_detail_counts,
+                )
+            else:
+                bucket["executable_selected_signals"] += 1
+                summary["executable_selected_signals"] += 1
+                executable_selected_signal_ids.add(signal_id)
+
+    executed_signal_ids: set[int] = set()
+    for event in execution_events or ():
+        signal_id = _safe_int(_event_value(event, "signal_id"), default=-1)
+        key = signal_index.get(signal_id)
+        if key is None:
+            summary["unattributed_execution_events"] += 1
+            continue
+        executed_signal_ids.add(signal_id)
+        status = str(_event_value(event, "status") or "").lower()
+        bucket = buckets[key]
+        if status == "filled":
+            bucket["filled_signals"] += 1
+            summary["filled_signals"] += 1
+        elif status == "blocked":
+            bucket["blocked_signals"] += 1
+            summary["blocked_signals"] += 1
+            _increment_flash_failure(bucket, event)
+        elif status == "rejected":
+            bucket["rejected_signals"] += 1
+            summary["rejected_signals"] += 1
+            _increment_flash_failure(bucket, event)
+        elif status == "pending":
+            bucket["pending_signals"] += 1
+            summary["pending_signals"] += 1
+            _increment_flash_failure(bucket, event)
+
+    for signal_id in executable_selected_signal_ids:
+        if signal_id not in executed_signal_ids:
+            summary["missing_execution_signals"] += 1
+
+    for event in position_closed_events or ():
+        signal_id = _safe_int(_event_value(event, "open_signal_id"), default=-1)
+        key = signal_index.get(signal_id)
+        if key is None:
+            summary["unattributed_closed_trades"] += 1
+            continue
+        pnl = _safe_float(_event_value(event, "realized_pnl"))
+        bucket = buckets[key]
+        bucket["closed_trades"] += 1
+        bucket["realized_pnl_usd"] += pnl
+        bucket["winning_trades"] += int(pnl > 0.0)
+        bucket["losing_trades"] += int(pnl <= 0.0)
+        summary["closed_trades"] += 1
+        summary["winning_trades"] += int(pnl > 0.0)
+        summary["losing_trades"] += int(pnl <= 0.0)
+        summary["realized_pnl_usd"] += pnl
+
+    rows = [
+        _flash_attribution_payload(row)
+        for row in buckets.values()
+    ]
+    rows.sort(
+        key=lambda row: (
+            -float(row.get("realized_pnl_usd", 0.0) or 0.0),
+            -int(row.get("filled_signals", 0) or 0),
+            str(row.get("actor_key") or ""),
+            str(row.get("symbol") or ""),
+            str(row.get("action") or ""),
+        )
+    )
+    data = {
+        "summary": summary,
+        "actor_summary": _flash_actor_summary(rows),
+        "rows": rows,
+    }
+    path = output / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_component_benchmark_report(
+    output: Path,
+    *,
+    panteon_pnl_usd: float,
+    initial_capital: float,
+    shadow_agent_pnl_events: Sequence[ShadowPnLEvent],
+    shadow_player_pnl_events: Sequence[ShadowPnLEvent],
+    excluded_component_labels: Sequence[str] = (),
+    min_alpha_pct: float = 2.0,
+    filename: str = "component_benchmark_report.json",
+) -> Path:
+    output_dir = Path(output)
+    capital = _validate_component_benchmark_capital(initial_capital)
+    excluded_labels = _component_benchmark_label_set(excluded_component_labels)
+    components = _component_benchmark_rows(
+        initial_capital=capital,
+        shadow_agent_pnl_events=shadow_agent_pnl_events,
+        shadow_player_pnl_events=shadow_player_pnl_events,
+        excluded_component_labels=excluded_labels,
+    )
+    best = components[0] if components else {}
+    panteon_pnl = float(panteon_pnl_usd or 0.0)
+    panteon_pct = panteon_pnl / capital * 100.0
+    best_pct = float(best.get("pnl_pct", 0.0) or 0.0)
+    alpha_pct = panteon_pct - best_pct
+    data = {
+        "summary": {
+            "panteon_pnl_usd": panteon_pnl,
+            "panteon_pnl_pct": panteon_pct,
+            "best_component_label": str(best.get("label") or ""),
+            "best_component_type": str(best.get("actor_type") or ""),
+            "best_component_pnl_usd": float(best.get("pnl_usd", 0.0) or 0.0),
+            "best_component_pnl_pct": best_pct,
+            "panteon_alpha_pct": alpha_pct,
+            "min_alpha_pct": float(min_alpha_pct),
+            "panteon_beats_best_component": alpha_pct >= float(min_alpha_pct),
+            "excluded_component_labels": sorted(excluded_labels),
+        },
+        "components": components,
+    }
+    path = output_dir / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    md_path = output_dir / Path(filename).with_suffix(".md").name
+    md_path.write_text(
+        "\n".join(_component_benchmark_report_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_standalone_vs_flash_selected_report(
+    output_dir: str | Path,
+    *,
+    shadow_agent_pnl_events: Sequence[ShadowPnLEvent],
+    shadow_player_pnl_events: Sequence[ShadowPnLEvent],
+    flash_attribution: Optional[dict[str, Any]] = None,
+    initial_capital: float = 1000.0,
+    target_labels: Sequence[str] = ("Solo_MomentumScalper", "LiveOIBreakout"),
+    filename: str = "standalone_vs_flash_selected_report.json",
+) -> Path:
+    output = Path(output_dir)
+    capital = _validate_component_benchmark_capital(initial_capital)
+    target_set = tuple(
+        dict.fromkeys(
+            str(label).strip()
+            for label in target_labels or ()
+            if str(label or "").strip()
+        )
+    )
+    components = _component_benchmark_rows(
+        initial_capital=capital,
+        shadow_agent_pnl_events=shadow_agent_pnl_events,
+        shadow_player_pnl_events=shadow_player_pnl_events,
+    )
+    component_by_label: dict[str, dict[str, Any]] = {}
+    for row in components:
+        label = str(row.get("label") or "")
+        if label and label not in component_by_label:
+            component_by_label[label] = row
+
+    attribution = flash_attribution if isinstance(flash_attribution, dict) else {}
+    actor_summary = attribution.get("actor_summary")
+    if not isinstance(actor_summary, dict):
+        actor_summary = {}
+    attribution_rows = attribution.get("rows")
+    if not isinstance(attribution_rows, list):
+        attribution_rows = []
+
+    actor_rows: list[dict[str, Any]] = []
+    for label in target_set:
+        standalone = component_by_label.get(label, {})
+        standalone_actor_type = str(standalone.get("actor_type") or "")
+        flash_actor_key, flash_actor = _standalone_vs_flash_actor_summary(
+            label,
+            standalone_actor_type=standalone_actor_type,
+            actor_summary=actor_summary,
+        )
+        standalone_pnl_usd = _safe_float(standalone.get("pnl_usd"))
+        flash_pnl_usd = _safe_float(flash_actor.get("realized_pnl_usd"))
+        signal_rows = _standalone_vs_flash_signal_rows(
+            attribution_rows,
+            label=label,
+            actor_key=flash_actor_key,
+            initial_capital=capital,
+        )
+        row = {
+            "label": label,
+            "standalone_actor_type": standalone_actor_type,
+            "flash_actor_key": flash_actor_key,
+            "flash_actor_type": str(flash_actor.get("actor_type") or ""),
+            "standalone_pnl_usd": standalone_pnl_usd,
+            "standalone_pnl_pct": standalone_pnl_usd / capital * 100.0,
+            "standalone_closed_trades": int(standalone.get("closed_trades", 0) or 0),
+            "standalone_wins": int(standalone.get("wins", 0) or 0),
+            "standalone_win_rate_pct": _safe_float(standalone.get("win_rate_pct")),
+            "flash_selected_pnl_usd": flash_pnl_usd,
+            "flash_selected_pnl_pct": flash_pnl_usd / capital * 100.0,
+            "flash_selected_signals": int(
+                flash_actor.get("selected_signals", 0) or 0
+            ),
+            "flash_executable_selected_signals": int(
+                flash_actor.get("executable_selected_signals", 0) or 0
+            ),
+            "flash_selected_filtered_before_execution": int(
+                flash_actor.get("selected_filtered_before_execution", 0) or 0
+            ),
+            "flash_filled_signals": int(flash_actor.get("filled_signals", 0) or 0),
+            "flash_closed_trades": int(flash_actor.get("closed_trades", 0) or 0),
+            "selection_alpha_usd": flash_pnl_usd - standalone_pnl_usd,
+            "selection_alpha_pct": (
+                (flash_pnl_usd - standalone_pnl_usd) / capital * 100.0
+            ),
+            "flash_capture_ratio_pct": _share(flash_pnl_usd, standalone_pnl_usd),
+            "best_signal_keys": signal_rows["best"],
+            "worst_signal_keys": signal_rows["worst"],
+        }
+        actor_rows.append(row)
+
+    actor_rows.sort(
+        key=lambda row: (
+            float(row["selection_alpha_pct"]),
+            str(row["label"]),
+        )
+    )
+    total_standalone = sum(float(row["standalone_pnl_usd"]) for row in actor_rows)
+    total_flash = sum(float(row["flash_selected_pnl_usd"]) for row in actor_rows)
+    data = {
+        "summary": {
+            "target_count": len(actor_rows),
+            "targets_with_flash_selection": sum(
+                1 for row in actor_rows if int(row["flash_selected_signals"]) > 0
+            ),
+            "total_standalone_pnl_usd": total_standalone,
+            "total_standalone_pnl_pct": total_standalone / capital * 100.0,
+            "total_flash_selected_pnl_usd": total_flash,
+            "total_flash_selected_pnl_pct": total_flash / capital * 100.0,
+            "total_selection_alpha_usd": total_flash - total_standalone,
+            "total_selection_alpha_pct": (
+                (total_flash - total_standalone) / capital * 100.0
+            ),
+        },
+        "actors": actor_rows,
+    }
+    path = output / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    md_path = output / Path(filename).with_suffix(".md").name
+    md_path.write_text(
+        "\n".join(_standalone_vs_flash_selected_report_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_walk_forward_report_from_event_log(
+    output_dir: str | Path,
+    event_log: EventLog,
+) -> str:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    events = [
+        EventLog._event_to_dict(event)
+        for event in event_log.query(
+            event_types=[RegimeDetected, OrderFilled, PositionOpened, PositionClosed]
+        )
+    ]
+    return write_walk_forward_report_from_events(
+        results_root=str(output),
+        events=events,
+        output_path=str(output / "walk_forward_report.json"),
+    )
+
+
+def _standalone_vs_flash_actor_summary(
+    label: str,
+    *,
+    standalone_actor_type: str,
+    actor_summary: Mapping[str, object],
+) -> tuple[str, Mapping[str, object]]:
+    preferred_actor_type = "ensemble" if standalone_actor_type == "player" else "agent"
+    preferred_key = f"{preferred_actor_type}:{label}"
+    actor = actor_summary.get(preferred_key)
+    if isinstance(actor, Mapping):
+        return preferred_key, actor
+    for key, value in actor_summary.items():
+        if not isinstance(value, Mapping):
+            continue
+        if str(value.get("actor_label") or "") == label:
+            return str(key), value
+    return preferred_key, {}
+
+
+def _standalone_vs_flash_signal_rows(
+    rows: Sequence[object],
+    *,
+    label: str,
+    actor_key: str,
+    initial_capital: float,
+    limit: int = 5,
+) -> dict[str, list[dict[str, Any]]]:
+    matching: list[dict[str, Any]] = []
+    for raw in rows or ():
+        if not isinstance(raw, Mapping):
+            continue
+        if (
+            str(raw.get("actor_key") or "") != actor_key
+            and str(raw.get("actor_label") or "") != label
+        ):
+            continue
+        symbol = str(raw.get("symbol") or "")
+        action = str(raw.get("action") or "")
+        key = str(raw.get("actor_key") or actor_key)
+        signal_key = f"{key}|{symbol}|{action}" if symbol or action else key
+        pnl_usd = _safe_float(raw.get("realized_pnl_usd"))
+        matching.append({
+            "signal_key": signal_key,
+            "actor_key": key,
+            "symbol": symbol,
+            "action": action,
+            "selected_signals": int(raw.get("selected_signals", 0) or 0),
+            "filled_signals": int(raw.get("filled_signals", 0) or 0),
+            "closed_trades": int(raw.get("closed_trades", 0) or 0),
+            "realized_pnl_usd": pnl_usd,
+            "realized_pnl_pct": pnl_usd / initial_capital * 100.0,
+        })
+    return {
+        "best": sorted(
+            matching,
+            key=lambda row: (-float(row["realized_pnl_usd"]), str(row["signal_key"])),
+        )[:limit],
+        "worst": sorted(
+            matching,
+            key=lambda row: (float(row["realized_pnl_usd"]), str(row["signal_key"])),
+        )[:limit],
+    }
+
+
+def _component_benchmark_rows(
+    *,
+    initial_capital: float,
+    shadow_agent_pnl_events: Sequence[ShadowPnLEvent],
+    shadow_player_pnl_events: Sequence[ShadowPnLEvent],
+    excluded_component_labels: Sequence[str] = (),
+) -> list[dict[str, Any]]:
+    capital = _validate_component_benchmark_capital(initial_capital)
+    excluded_labels = _component_benchmark_label_set(excluded_component_labels)
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for actor_type, events in (
+        ("agent", shadow_agent_pnl_events),
+        ("player", shadow_player_pnl_events),
+    ):
+        for event in events or ():
+            label = str(_event_value(event, "label") or "").strip()
+            if not label:
+                continue
+            if label in excluded_labels:
+                continue
+            bucket = buckets.setdefault(
+                (actor_type, label),
+                {
+                    "actor_type": actor_type,
+                    "label": label,
+                    "pnl_usd": 0.0,
+                    "closed_trades": 0,
+                    "wins": 0,
+                },
+            )
+            bucket["pnl_usd"] += _safe_float(_event_value(event, "pnl_usd"))
+            bucket["closed_trades"] += _safe_int(_event_value(event, "closed_trades"))
+            bucket["wins"] += _safe_int(_event_value(event, "wins"))
+
+    rows: list[dict[str, Any]] = []
+    for bucket in buckets.values():
+        closed = int(bucket["closed_trades"])
+        wins = int(bucket["wins"])
+        pnl_usd = float(bucket["pnl_usd"])
+        rows.append({
+            "actor_type": str(bucket["actor_type"]),
+            "label": str(bucket["label"]),
+            "pnl_usd": pnl_usd,
+            "pnl_pct": pnl_usd / capital * 100.0,
+            "closed_trades": closed,
+            "wins": wins,
+            "win_rate_pct": _share(wins, closed),
+        })
+    rows.sort(
+        key=lambda row: (
+            -float(row["pnl_pct"]),
+            str(row["actor_type"]),
+            str(row["label"]),
+        )
+    )
+    return rows
+
+
+def _component_benchmark_label_set(labels: Sequence[str]) -> set[str]:
+    return {
+        str(label).strip()
+        for label in labels or ()
+        if str(label or "").strip()
+    }
+
+
+def _validate_component_benchmark_capital(initial_capital: float) -> float:
+    try:
+        capital = float(initial_capital)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("initial_capital must be > 0") from exc
+    if not (0.0 < capital < float("inf")):
+        raise ValueError("initial_capital must be > 0")
+    return capital
+
+
+def _live_session_panteon_pnl_usd(status: object) -> float | None:
+    if not isinstance(status, dict):
+        return None
+    live_session = status.get("live_session")
+    if not isinstance(live_session, dict):
+        return None
+    for key in (
+        "panteon_owned_total_pnl_usd",
+        "panteon_owned_realized_pnl_usd",
+    ):
+        if key not in live_session:
+            continue
+        try:
+            pnl = float(live_session[key])
+        except (TypeError, ValueError):
+            return None
+        if not (float("-inf") < pnl < float("inf")):
+            return None
+        return pnl
+    return None
+
+
+def _write_component_benchmark_report_from_status(
+    output_dir: str | Path,
+    status: object,
+    *,
+    initial_capital: float,
+    shadow_agent_pnl_events: Sequence[ShadowPnLEvent],
+    shadow_player_pnl_events: Sequence[ShadowPnLEvent],
+    excluded_component_labels: Sequence[str] = (),
+    step_errors: list[str],
+) -> Path | None:
+    panteon_pnl_usd = _live_session_panteon_pnl_usd(status)
+    if panteon_pnl_usd is None:
+        step_errors.append("component_benchmark_failed: missing_panteon_pnl")
+        return None
+    return write_component_benchmark_report(
+        output_dir,
+        panteon_pnl_usd=panteon_pnl_usd,
+        initial_capital=initial_capital,
+        shadow_agent_pnl_events=shadow_agent_pnl_events,
+        shadow_player_pnl_events=shadow_player_pnl_events,
+        excluded_component_labels=excluded_component_labels,
+    )
+
+
+def _write_retrodate_final_artifact_reports(
+    output_dir: str | Path,
+    *,
+    config: RetrodateMarketConfig,
+    shadow_updates: Sequence[object],
+    shadow_agent_pnl_events: Sequence[ShadowPnLEvent],
+    shadow_player_pnl_events: Sequence[ShadowPnLEvent],
+    candidate_rejections: Sequence[object],
+    step_errors: list[str],
+) -> None:
+    output = Path(output_dir)
+    try:
+        write_flash_signal_key_shadow_report(
+            output,
+            shadow_updates=shadow_updates,
+            initial_capital=config.initial_capital,
+            promotion_manifest_config=_flash_promotion_manifest_config(config),
+        )
+    except Exception as exc:
+        step_errors.append(
+            f"flash_signal_key_shadow_report_failed: {type(exc).__name__}: {exc}"
+        )
+    _write_component_benchmark_report_from_status(
+        output,
+        _load_json(output / "status.json"),
+        initial_capital=config.initial_capital,
+        shadow_agent_pnl_events=shadow_agent_pnl_events,
+        shadow_player_pnl_events=shadow_player_pnl_events,
+        excluded_component_labels=_component_benchmark_excluded_labels(config),
+        step_errors=step_errors,
+    )
+    try:
+        write_standalone_vs_flash_selected_report(
+            output,
+            shadow_agent_pnl_events=shadow_agent_pnl_events,
+            shadow_player_pnl_events=shadow_player_pnl_events,
+            flash_attribution=_load_json(output / "flash_attribution_summary.json"),
+            initial_capital=config.initial_capital,
+        )
+    except Exception as exc:
+        step_errors.append(
+            f"standalone_vs_flash_selected_report_failed: {type(exc).__name__}: {exc}"
+        )
+    if config.experimental_flash_actors_enabled:
+        try:
+            write_experimental_flash_shadow_report(
+                output,
+                shadow_agent_pnl_events=shadow_agent_pnl_events,
+                experimental_labels=experimental_flash_agent_labels(),
+                initial_capital=config.initial_capital,
+                flash_attribution=_load_json(output / "flash_attribution_summary.json"),
+                min_closed_trades=50,
+                min_pnl_pct=0.0,
+                max_drawdown_pct=25.0,
+            )
+        except Exception as exc:
+            step_errors.append(
+                "experimental_flash_shadow_report_failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+    try:
+        write_oracle_mismatch_report(
+            output,
+            output / "trading.log",
+            shadow_updates=shadow_updates,
+            candidate_rejections=candidate_rejections,
+        )
+    except Exception as exc:
+        step_errors.append(
+            f"oracle_mismatch_report_failed: {type(exc).__name__}: {exc}"
+        )
+
+
+def _component_benchmark_excluded_labels(
+    config: RetrodateMarketConfig,
+) -> tuple[str, ...]:
+    labels = list(config.hard_policy_deny_labels)
+    if (
+        config.experimental_flash_actors_enabled
+        and not config.experimental_flash_real_actors_enabled
+    ):
+        labels.extend(experimental_flash_agent_labels())
+    return tuple(dict.fromkeys(str(label) for label in labels if str(label)))
+
+
+def _component_benchmark_report_lines(data: dict[str, Any]) -> list[str]:
+    summary = data.get("summary", {}) if isinstance(data, dict) else {}
+    components = data.get("components", []) if isinstance(data, dict) else []
+    best_label = summary.get("best_component_label") or "-"
+    best_type = summary.get("best_component_type") or "-"
+    excluded_labels = summary.get("excluded_component_labels") or []
+    lines = [
+        "# Component Benchmark",
+        "",
+        f"- Panteon PnL: {_fmt_pct(summary.get('panteon_pnl_pct'))}",
+        f"- Best component: `{best_type}:{best_label}` at {_fmt_pct(summary.get('best_component_pnl_pct'))}",
+        f"- Panteon alpha: {_fmt_pct(summary.get('panteon_alpha_pct'))}",
+        f"- Required alpha: {_fmt_pct(summary.get('min_alpha_pct'))}",
+        f"- Beats best component: {bool(summary.get('panteon_beats_best_component'))}",
+        f"- Excluded non-deployable labels: {len(excluded_labels) if isinstance(excluded_labels, list) else 0}",
+        "",
+        "## Top Components",
+    ]
+    if not isinstance(components, list) or not components:
+        lines.append("- none")
+        return lines
+    for row in components[:20]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- `{row.get('actor_type')}:{row.get('label')}`: "
+            f"{_fmt_pct(row.get('pnl_pct'))}, "
+            f"closed {int(row.get('closed_trades', 0) or 0)}, "
+            f"win rate {_fmt_pct(row.get('win_rate_pct'))}"
+        )
+    return lines
+
+
+def _standalone_vs_flash_selected_report_lines(data: dict[str, Any]) -> list[str]:
+    summary = data.get("summary", {}) if isinstance(data, dict) else {}
+    actors = data.get("actors", []) if isinstance(data, dict) else []
+    lines = [
+        "# Standalone vs Flash Selected",
+        "",
+        f"- Targets: {int(summary.get('target_count', 0) or 0)}",
+        f"- Targets with Flash selection: {int(summary.get('targets_with_flash_selection', 0) or 0)}",
+        f"- Standalone total PnL: {_fmt_pct(summary.get('total_standalone_pnl_pct'))}",
+        f"- Flash-selected total PnL: {_fmt_pct(summary.get('total_flash_selected_pnl_pct'))}",
+        f"- Selection alpha: {_fmt_pct(summary.get('total_selection_alpha_pct'))}",
+        "",
+        "## Actors",
+    ]
+    if not isinstance(actors, list) or not actors:
+        lines.append("- none")
+        return lines
+    for row in actors:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- `{row.get('label')}`: standalone "
+            f"{_fmt_pct(row.get('standalone_pnl_pct'))}, Flash-selected "
+            f"{_fmt_pct(row.get('flash_selected_pnl_pct'))}, alpha "
+            f"{_fmt_pct(row.get('selection_alpha_pct'))}, selected "
+            f"{int(row.get('flash_selected_signals', 0) or 0)}"
+        )
+        worst = row.get("worst_signal_keys")
+        if isinstance(worst, list) and worst:
+            top_worst = worst[0]
+            if isinstance(top_worst, dict):
+                lines.append(
+                    f"  - worst `{top_worst.get('signal_key')}`: "
+                    f"{_fmt_pct(top_worst.get('realized_pnl_pct'))}"
+                )
+    return lines
+
+
+def write_experimental_flash_shadow_report(
+    output_dir: str | Path,
+    *,
+    shadow_agent_pnl_events: Sequence[object],
+    experimental_labels: Sequence[str],
+    initial_capital: float = 1000.0,
+    flash_attribution: Optional[dict[str, Any]] = None,
+    min_closed_trades: int = 50,
+    min_pnl_pct: float = 0.0,
+    max_drawdown_pct: float = 25.0,
+    filename: str = "experimental_flash_shadow_report.json",
+) -> Path:
+    output = Path(output_dir)
+    capital = max(1e-9, float(initial_capital or 0.0))
+    labels = tuple(
+        dict.fromkeys(str(label) for label in experimental_labels if str(label))
+    )
+    states: dict[str, dict[str, Any]] = {
+        label: {
+            "label": label,
+            "shadow_pnl_usd": 0.0,
+            "closed_trades": 0,
+            "wins": 0,
+            "bars": 0,
+            "equity": capital,
+            "peak": capital,
+            "max_drawdown_pct": 0.0,
+        }
+        for label in labels
+    }
+    period_states: dict[tuple[str, str], dict[str, Any]] = {}
+
+    ordered_events = sorted(
+        (
+            event
+            for event in shadow_agent_pnl_events or ()
+            if str(_event_value(event, "label") or "") in states
+        ),
+        key=lambda event: (
+            _safe_int(_event_value(event, "bar"), default=0),
+            str(_event_value(event, "label") or ""),
+        ),
+    )
+    for event in ordered_events:
+        label = str(_event_value(event, "label") or "")
+        state = states[label]
+        pnl = _safe_float(_event_value(event, "pnl_usd"))
+        state["shadow_pnl_usd"] += pnl
+        state["closed_trades"] += _safe_int(_event_value(event, "closed_trades"))
+        state["wins"] += _safe_int(_event_value(event, "wins"))
+        state["bars"] += 1
+        state["equity"] += pnl
+        state["peak"] = max(float(state["peak"]), float(state["equity"]))
+        if float(state["peak"]) > 0:
+            drawdown = (
+                (float(state["peak"]) - float(state["equity"]))
+                / float(state["peak"])
+                * 100.0
+            )
+            state["max_drawdown_pct"] = max(
+                float(state["max_drawdown_pct"]),
+                drawdown,
+            )
+        period = _shadow_event_half_year_period(event)
+        period_state = period_states.setdefault(
+            (label, period),
+            {
+                "label": label,
+                "period": period,
+                "pnl_usd": 0.0,
+                "closed_trades": 0,
+                "wins": 0,
+                "bars": 0,
+                "equity": capital,
+                "peak": capital,
+                "max_drawdown_pct": 0.0,
+            },
+        )
+        _update_experimental_shadow_state(period_state, event, capital)
+
+    real_summary = (
+        flash_attribution.get("actor_summary", {})
+        if isinstance(flash_attribution, dict)
+        else {}
+    )
+    rows: list[dict[str, Any]] = []
+    for label, state in states.items():
+        real = _experimental_real_actor_summary(real_summary, label)
+        closed = int(state["closed_trades"])
+        wins = int(state["wins"])
+        pnl_usd = float(state["shadow_pnl_usd"])
+        pnl_pct = pnl_usd / capital * 100.0
+        max_dd = float(state["max_drawdown_pct"])
+        shadow_gate_passed = (
+            closed >= int(min_closed_trades)
+            and pnl_pct >= float(min_pnl_pct)
+            and max_dd <= float(max_drawdown_pct)
+        )
+        real_selected = int(real["selected_signals"])
+        promote_to_real = bool(shadow_gate_passed and real_selected == 0)
+        reasons = []
+        if closed < int(min_closed_trades):
+            reasons.append("not_enough_closed_trades")
+        if pnl_pct < float(min_pnl_pct):
+            reasons.append("shadow_pnl_below_gate")
+        if max_dd > float(max_drawdown_pct):
+            reasons.append("shadow_drawdown_above_gate")
+        if real_selected:
+            reasons.append("already_traded_real")
+        rows.append({
+            "label": label,
+            "shadow_pnl_usd": pnl_usd,
+            "shadow_pnl_pct": pnl_pct,
+            "closed_trades": closed,
+            "wins": wins,
+            "win_rate_pct": _share(wins, closed),
+            "bars_observed": int(state["bars"]),
+            "max_drawdown_pct": max_dd,
+            "real_selected_signals": real_selected,
+            "real_closed_trades": int(real["closed_trades"]),
+            "realized_pnl_usd": float(real["realized_pnl_usd"]),
+            "shadow_gate_passed": shadow_gate_passed,
+            "promote_to_real": promote_to_real,
+            "gate_reasons": reasons,
+        })
+    rows.sort(
+        key=lambda row: (
+            not bool(row["promote_to_real"]),
+            -float(row["shadow_pnl_pct"]),
+            str(row["label"]),
+        )
+    )
+    period_rows = [
+        _experimental_shadow_period_payload(
+            state,
+            initial_capital=capital,
+            min_closed_trades=min_closed_trades,
+            min_pnl_pct=min_pnl_pct,
+            max_drawdown_pct=max_drawdown_pct,
+        )
+        for state in period_states.values()
+    ]
+    period_rows.sort(key=lambda row: (str(row["period"]), str(row["label"])))
+    latest_period = _latest_known_period(period_rows)
+    latest_period_gate_passed = sum(
+        1
+        for row in period_rows
+        if row["period"] == latest_period and row["gate_passed"]
+    )
+    summary = {
+        "label_count": len(rows),
+        "shadow_gate_passed": sum(1 for row in rows if row["shadow_gate_passed"]),
+        "promote_to_real": sum(1 for row in rows if row["promote_to_real"]),
+        "real_selected_signals": sum(int(row["real_selected_signals"]) for row in rows),
+        "latest_period": latest_period,
+        "latest_period_gate_passed": latest_period_gate_passed,
+        "min_closed_trades": int(min_closed_trades),
+        "min_pnl_pct": float(min_pnl_pct),
+        "max_drawdown_pct": float(max_drawdown_pct),
+        "initial_capital": capital,
+    }
+    data = {"summary": summary, "labels": rows, "periods": period_rows}
+    path = output / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    md_path = output / "experimental_flash_shadow_report.md"
+    md_path.write_text(
+        "\n".join(_experimental_flash_shadow_report_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _experimental_real_actor_summary(
+    actor_summary: object,
+    label: str,
+) -> dict[str, float]:
+    out = {
+        "selected_signals": 0.0,
+        "closed_trades": 0.0,
+        "realized_pnl_usd": 0.0,
+    }
+    if not isinstance(actor_summary, dict):
+        return out
+    for key in (f"agent:{label}", f"ensemble:{label}", label):
+        row = actor_summary.get(key)
+        if not isinstance(row, dict):
+            continue
+        out["selected_signals"] += _safe_float(row.get("selected_signals"))
+        out["closed_trades"] += _safe_float(row.get("closed_trades"))
+        out["realized_pnl_usd"] += _safe_float(row.get("realized_pnl_usd"))
+    return out
+
+
+def _update_experimental_shadow_state(
+    state: dict[str, Any],
+    event: object,
+    initial_capital: float,
+) -> None:
+    pnl = _safe_float(_event_value(event, "pnl_usd"))
+    state["pnl_usd"] += pnl
+    state["closed_trades"] += _safe_int(_event_value(event, "closed_trades"))
+    state["wins"] += _safe_int(_event_value(event, "wins"))
+    state["bars"] += 1
+    state["equity"] += pnl
+    state["peak"] = max(float(state["peak"]), float(state["equity"]))
+    if float(state["peak"]) > 0:
+        drawdown = (
+            (float(state["peak"]) - float(state["equity"]))
+            / float(state["peak"])
+            * 100.0
+        )
+        state["max_drawdown_pct"] = max(
+            float(state["max_drawdown_pct"]),
+            drawdown,
+        )
+
+
+def _experimental_shadow_period_payload(
+    state: dict[str, Any],
+    *,
+    initial_capital: float,
+    min_closed_trades: int,
+    min_pnl_pct: float,
+    max_drawdown_pct: float,
+) -> dict[str, Any]:
+    closed = int(state.get("closed_trades", 0) or 0)
+    wins = int(state.get("wins", 0) or 0)
+    pnl_usd = float(state.get("pnl_usd", 0.0) or 0.0)
+    pnl_pct = pnl_usd / max(1e-9, float(initial_capital or 0.0)) * 100.0
+    max_dd = float(state.get("max_drawdown_pct", 0.0) or 0.0)
+    gate_passed = (
+        closed >= int(min_closed_trades)
+        and pnl_pct >= float(min_pnl_pct)
+        and max_dd <= float(max_drawdown_pct)
+    )
+    return {
+        "label": str(state.get("label") or ""),
+        "period": str(state.get("period") or "unknown"),
+        "pnl_usd": pnl_usd,
+        "pnl_pct": pnl_pct,
+        "closed_trades": closed,
+        "wins": wins,
+        "win_rate_pct": _share(wins, closed),
+        "bars_observed": int(state.get("bars", 0) or 0),
+        "max_drawdown_pct": max_dd,
+        "gate_passed": gate_passed,
+    }
+
+
+def _shadow_event_half_year_period(event: object) -> str:
+    text = str(_event_value(event, "timestamp") or "").strip()
+    if len(text) >= 7:
+        try:
+            year = int(text[:4])
+            month = int(text[5:7])
+        except ValueError:
+            return "unknown"
+        half = "H1" if month <= 6 else "H2"
+        return f"{year:04d}-{half}"
+    return "unknown"
+
+
+def _latest_known_period(rows: Sequence[dict[str, Any]]) -> str:
+    periods = sorted(
+        str(row.get("period") or "")
+        for row in rows
+        if str(row.get("period") or "") and str(row.get("period") or "") != "unknown"
+    )
+    return periods[-1] if periods else ""
+
+
+def _experimental_flash_shadow_report_lines(report: dict[str, Any]) -> list[str]:
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("labels", []) if isinstance(report, dict) else []
+    lines = [
+        "# Experimental Flash Shadow Gate",
+        "",
+        f"- Labels: {int(summary.get('label_count', 0) or 0)}",
+        f"- Shadow gate passed: {int(summary.get('shadow_gate_passed', 0) or 0)}",
+        f"- Promote-to-real labels: {int(summary.get('promote_to_real', 0) or 0)}",
+        f"- Real selected signals: {int(summary.get('real_selected_signals', 0) or 0)}",
+        f"- Latest period: `{summary.get('latest_period') or '-'}`",
+        f"- Latest period gate passed: {int(summary.get('latest_period_gate_passed', 0) or 0)}",
+        (
+            "- Gate: "
+            f"closed >= {int(summary.get('min_closed_trades', 0) or 0)}, "
+            f"PnL >= {_fmt_pct(summary.get('min_pnl_pct'))}, "
+            f"DD <= {_fmt_pct(summary.get('max_drawdown_pct'))}"
+        ),
+        "",
+        "## Labels",
+    ]
+    if not isinstance(rows, list) or not rows:
+        lines.append("- none")
+        return lines
+    for row in rows[:20]:
+        if not isinstance(row, dict):
+            continue
+        gate = "promote" if row.get("promote_to_real") else "hold"
+        lines.append(
+            f"- `{row.get('label')}`: shadow PnL "
+            f"{_fmt_pct(row.get('shadow_pnl_pct'))}, "
+            f"DD {_fmt_pct(row.get('max_drawdown_pct'))}, "
+            f"closed {int(row.get('closed_trades', 0) or 0)}, "
+            f"real selected {int(row.get('real_selected_signals', 0) or 0)}, "
+            f"{gate}"
+        )
+    return lines
+
+
+def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
+    if not path.exists():
+        return
+    with path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for line in handle:
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                yield payload
+
+
+def _new_flash_attribution_bucket(
+    *,
+    actor_key: str,
+    actor_label: str,
+    actor_type: str,
+    symbol: str,
+    action: str,
+) -> dict[str, Any]:
+    return {
+        "actor_key": actor_key,
+        "actor_label": actor_label,
+        "actor_type": actor_type,
+        "symbol": symbol,
+        "action": action,
+        "selected_signals": 0,
+        "executable_selected_signals": 0,
+        "selected_filtered_before_execution": 0,
+        "filled_signals": 0,
+        "blocked_signals": 0,
+        "rejected_signals": 0,
+        "pending_signals": 0,
+        "closed_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "realized_pnl_usd": 0.0,
+        "score_sum": 0.0,
+        "shadow_score_sum": 0.0,
+        "shadow_closed_trades_sum": 0.0,
+        "failure_reasons": {},
+        "filter_detail_counts": {},
+    }
+
+
+def _flash_attribution_payload(row: dict[str, Any]) -> dict[str, Any]:
+    selected = max(1, int(row.get("selected_signals", 0) or 0))
+    failure_reasons = row.get("failure_reasons", {})
+    if not isinstance(failure_reasons, dict):
+        failure_reasons = {}
+    filter_detail_counts = row.get("filter_detail_counts", {})
+    if not isinstance(filter_detail_counts, dict):
+        filter_detail_counts = {}
+    return {
+        "actor_key": row["actor_key"],
+        "actor_label": row["actor_label"],
+        "actor_type": row["actor_type"],
+        "symbol": row["symbol"],
+        "action": row["action"],
+        "selected_signals": int(row.get("selected_signals", 0) or 0),
+        "executable_selected_signals": int(
+            row.get("executable_selected_signals", 0) or 0
+        ),
+        "selected_filtered_before_execution": int(
+            row.get("selected_filtered_before_execution", 0) or 0
+        ),
+        "filled_signals": int(row.get("filled_signals", 0) or 0),
+        "blocked_signals": int(row.get("blocked_signals", 0) or 0),
+        "rejected_signals": int(row.get("rejected_signals", 0) or 0),
+        "pending_signals": int(row.get("pending_signals", 0) or 0),
+        "closed_trades": int(row.get("closed_trades", 0) or 0),
+        "winning_trades": int(row.get("winning_trades", 0) or 0),
+        "losing_trades": int(row.get("losing_trades", 0) or 0),
+        "realized_pnl_usd": float(row.get("realized_pnl_usd", 0.0) or 0.0),
+        "avg_score": float(row.get("score_sum", 0.0) or 0.0) / selected,
+        "avg_shadow_score": float(row.get("shadow_score_sum", 0.0) or 0.0) / selected,
+        "avg_shadow_closed_trades": (
+            float(row.get("shadow_closed_trades_sum", 0.0) or 0.0) / selected
+        ),
+        "failure_reasons": dict(sorted(failure_reasons.items())),
+        "filter_detail_counts": dict(sorted(filter_detail_counts.items())),
+    }
+
+
+def _flash_actor_summary(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    summary: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        actor_key = str(row.get("actor_key") or "")
+        if not actor_key:
+            continue
+        bucket = summary.setdefault(actor_key, {
+            "actor_label": str(row.get("actor_label") or ""),
+            "actor_type": str(row.get("actor_type") or ""),
+            "selected_signals": 0,
+            "executable_selected_signals": 0,
+            "selected_filtered_before_execution": 0,
+            "filled_signals": 0,
+            "closed_trades": 0,
+            "realized_pnl_usd": 0.0,
+        })
+        bucket["selected_signals"] += int(row.get("selected_signals", 0) or 0)
+        bucket["executable_selected_signals"] += int(
+            row.get("executable_selected_signals", 0) or 0
+        )
+        bucket["selected_filtered_before_execution"] += int(
+            row.get("selected_filtered_before_execution", 0) or 0
+        )
+        bucket["filled_signals"] += int(row.get("filled_signals", 0) or 0)
+        bucket["closed_trades"] += int(row.get("closed_trades", 0) or 0)
+        bucket["realized_pnl_usd"] += float(row.get("realized_pnl_usd", 0.0) or 0.0)
+    return dict(sorted(
+        summary.items(),
+        key=lambda item: (-float(item[1]["realized_pnl_usd"]), item[0]),
+    ))
+
+
+def write_flash_signal_key_shadow_report(
+    output: Path,
+    *,
+    shadow_updates: Sequence[object],
+    initial_capital: float,
+    promotion_manifest_config: PromotionManifestConfig = PromotionManifestConfig(),
+    filename: str = "flash_signal_key_shadow_report.json",
+) -> Path:
+    output_dir = Path(output)
+    capital = _validate_component_benchmark_capital(initial_capital)
+    events = _flash_signal_key_shadow_events(shadow_updates)
+    latest_period = _latest_flash_signal_key_period(events)
+    buckets: dict[str, dict[str, Any]] = {}
+
+    for event in events:
+        signal_key = str(event["signal_key"])
+        bucket = buckets.setdefault(
+            signal_key,
+            {
+                "signal_key": signal_key,
+                "actor_key": event["actor_key"],
+                "actor_label": event["actor_label"],
+                "actor_type": event["actor_type"],
+                "source_actor_type": event.get("source_actor_type", event["actor_type"]),
+                "symbol": event["symbol"],
+                "action": event["action"],
+                "full_pnl_usd": 0.0,
+                "full_closed_trades": 0,
+                "wins": 0,
+                "latest_pnl_usd": 0.0,
+                "latest_closed_trades": 0,
+                "recent_downside_usd": 0.0,
+                "cumulative_pnl_usd": 0.0,
+                "peak_cumulative_pnl_usd": 0.0,
+                "max_drawdown_pct": 0.0,
+                "full_trade_pnl_pct_sum": 0.0,
+                "full_trade_pnl_pct_sumsq": 0.0,
+                "latest_trade_pnl_pct_sum": 0.0,
+                "latest_trade_pnl_pct_sumsq": 0.0,
+            },
+        )
+        pnl = float(event["pnl_usd"])
+        closed = int(event["closed_trades"])
+        wins = int(event["wins"])
+        bucket["full_pnl_usd"] += pnl
+        bucket["full_closed_trades"] += closed
+        bucket["wins"] += wins
+        bucket["cumulative_pnl_usd"] += pnl
+        bucket["peak_cumulative_pnl_usd"] = max(
+            float(bucket["peak_cumulative_pnl_usd"]),
+            float(bucket["cumulative_pnl_usd"]),
+        )
+        drawdown_usd = (
+            float(bucket["peak_cumulative_pnl_usd"])
+            - float(bucket["cumulative_pnl_usd"])
+        )
+        bucket["max_drawdown_pct"] = max(
+            float(bucket["max_drawdown_pct"]),
+            drawdown_usd / capital * 100.0,
+        )
+        if closed > 0:
+            pnl_per_trade_pct = (pnl / capital * 100.0) / float(closed)
+            bucket["full_trade_pnl_pct_sum"] += pnl_per_trade_pct * closed
+            bucket["full_trade_pnl_pct_sumsq"] += (
+                pnl_per_trade_pct * pnl_per_trade_pct * closed
+            )
+        if latest_period == "all" or event["period"] == latest_period:
+            bucket["latest_pnl_usd"] += pnl
+            bucket["latest_closed_trades"] += closed
+            if closed > 0:
+                bucket["latest_trade_pnl_pct_sum"] += pnl_per_trade_pct * closed
+                bucket["latest_trade_pnl_pct_sumsq"] += (
+                    pnl_per_trade_pct * pnl_per_trade_pct * closed
+                )
+            if pnl < 0.0:
+                bucket["recent_downside_usd"] += abs(pnl)
+
+    rows = [
+        _flash_signal_key_shadow_payload(
+            bucket,
+            initial_capital=capital,
+            pnl_per_trade_lcb_z=promotion_manifest_config.pnl_per_trade_lcb_z,
+        )
+        for bucket in buckets.values()
+    ]
+    rows.sort(key=lambda row: (-float(row["full_pnl_pct"]), str(row["signal_key"])))
+    data = {
+        "summary": {
+            "signal_key_count": len(rows),
+            "positive_signal_keys": sum(
+                1 for row in rows if float(row["full_pnl_usd"]) > 0.0
+            ),
+            "latest_period": latest_period,
+        },
+        "rows": rows,
+    }
+    path = output_dir / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    (output_dir / Path(filename).with_suffix(".md").name).write_text(
+        "\n".join(_flash_signal_key_shadow_report_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    _write_flash_promotion_manifest(
+        output_dir,
+        rows,
+        config=promotion_manifest_config,
+    )
+    return path
+
+
+def _flash_signal_key_shadow_events(
+    shadow_updates: Sequence[object],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for update in sorted(
+        shadow_updates or (),
+        key=lambda event: (
+            _safe_int(_event_value(event, "bar"), default=0),
+            str(_event_value(event, "timestamp") or ""),
+            str(_event_value(event, "actor_type") or ""),
+            str(_event_value(event, "actor_label") or ""),
+        ),
+    ):
+        actor_type = str(_event_value(update, "actor_type") or "").strip()
+        actor_label = str(_event_value(update, "actor_label") or "").strip()
+        if not actor_type or not actor_label:
+            continue
+        source_actor_type = actor_type
+        allocator_actor_type = "ensemble" if actor_type == "player" else actor_type
+        actor_key = f"{allocator_actor_type}:{actor_label}"
+        period = _shadow_event_half_year_period(update)
+        outcomes = _event_value(update, "symbol_action_outcomes")
+        if not isinstance(outcomes, (list, tuple)):
+            continue
+        for outcome in outcomes:
+            if not isinstance(outcome, (list, tuple)) or len(outcome) < 5:
+                continue
+            symbol = str(outcome[0] or "").strip()
+            if not symbol:
+                continue
+            action = _normalize_flash_signal_action(outcome[1])
+            pnl_usd = _finite_float_or_none(outcome[2])
+            if pnl_usd is None:
+                continue
+            signal_key = f"{actor_key}|{symbol}|{action}"
+            events.append({
+                "signal_key": signal_key,
+                "actor_key": actor_key,
+                "actor_label": actor_label,
+                "actor_type": allocator_actor_type,
+                "source_actor_type": source_actor_type,
+                "symbol": symbol,
+                "action": action,
+                "pnl_usd": pnl_usd,
+                "closed_trades": max(0, _safe_int(outcome[3])),
+                "wins": max(0, _safe_int(outcome[4])),
+                "period": period,
+            })
+    return events
+
+
+def _normalize_flash_signal_action(value: object) -> str:
+    action = str(value or "").strip().upper()
+    if action == "LONG":
+        return "FUT_LONG_FULL"
+    if action == "SHORT":
+        return "FUT_SHORT_FULL"
+    return action
+
+
+def _latest_flash_signal_key_period(events: Sequence[dict[str, Any]]) -> str:
+    periods = sorted(
+        str(event.get("period") or "")
+        for event in events
+        if str(event.get("period") or "") and str(event.get("period") or "") != "unknown"
+    )
+    return periods[-1] if periods else "all"
+
+
+def _flash_signal_key_shadow_payload(
+    bucket: dict[str, Any],
+    *,
+    initial_capital: float,
+    pnl_per_trade_lcb_z: float = Z_95_ONE_SIDED,
+) -> dict[str, Any]:
+    full_pnl_usd = float(bucket.get("full_pnl_usd", 0.0) or 0.0)
+    latest_pnl_usd = float(bucket.get("latest_pnl_usd", 0.0) or 0.0)
+    full_closed = int(bucket.get("full_closed_trades", 0) or 0)
+    latest_closed = int(bucket.get("latest_closed_trades", 0) or 0)
+    wins = int(bucket.get("wins", 0) or 0)
+    full_pnl_per_trade = _pnl_per_trade_lcb_payload(
+        count=full_closed,
+        total=float(bucket.get("full_trade_pnl_pct_sum", 0.0) or 0.0),
+        sumsq=float(bucket.get("full_trade_pnl_pct_sumsq", 0.0) or 0.0),
+        z=pnl_per_trade_lcb_z,
+    )
+    latest_pnl_per_trade = _pnl_per_trade_lcb_payload(
+        count=latest_closed,
+        total=float(bucket.get("latest_trade_pnl_pct_sum", 0.0) or 0.0),
+        sumsq=float(bucket.get("latest_trade_pnl_pct_sumsq", 0.0) or 0.0),
+        z=pnl_per_trade_lcb_z,
+    )
+    return {
+        "signal_key": str(bucket.get("signal_key") or ""),
+        "actor_key": str(bucket.get("actor_key") or ""),
+        "actor_label": str(bucket.get("actor_label") or ""),
+        "actor_type": str(bucket.get("actor_type") or ""),
+        "source_actor_type": str(bucket.get("source_actor_type") or ""),
+        "symbol": str(bucket.get("symbol") or ""),
+        "action": str(bucket.get("action") or ""),
+        "full_pnl_usd": full_pnl_usd,
+        "full_pnl_pct": full_pnl_usd / initial_capital * 100.0,
+        "full_closed_trades": full_closed,
+        "wins": wins,
+        "win_rate_pct": _share(wins, full_closed),
+        "full_pnl_per_trade_mean_pct": full_pnl_per_trade["mean_pct"],
+        "full_pnl_per_trade_lcb_pct": full_pnl_per_trade["lcb_pct"],
+        "latest_pnl_usd": latest_pnl_usd,
+        "latest_pnl_pct": latest_pnl_usd / initial_capital * 100.0,
+        "latest_closed_trades": latest_closed,
+        "latest_pnl_per_trade_mean_pct": latest_pnl_per_trade["mean_pct"],
+        "latest_pnl_per_trade_lcb_pct": latest_pnl_per_trade["lcb_pct"],
+        "max_drawdown_pct": float(bucket.get("max_drawdown_pct", 0.0) or 0.0),
+        "recent_downside_usd": float(bucket.get("recent_downside_usd", 0.0) or 0.0),
+    }
+
+
+def _pnl_per_trade_lcb_payload(
+    *,
+    count: int,
+    total: float,
+    sumsq: float,
+    z: float,
+) -> dict[str, float]:
+    if count <= 0:
+        return {"mean_pct": 0.0, "lcb_pct": 0.0}
+    n = float(count)
+    mean = float(total) / n
+    if count <= 1:
+        return {"mean_pct": mean, "lcb_pct": mean}
+    variance = max(0.0, (float(sumsq) - (float(total) * float(total) / n)) / (n - 1.0))
+    std = math.sqrt(variance)
+    z_value = max(0.0, float(z))
+    return {
+        "mean_pct": mean,
+        "lcb_pct": mean - z_value * std / math.sqrt(n),
+    }
+
+
+def _flash_signal_key_shadow_report_lines(report: dict[str, Any]) -> list[str]:
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("rows", []) if isinstance(report, dict) else []
+    lines = [
+        "# Flash Signal-Key Shadow Report",
+        "",
+        f"- Signal keys: {int(summary.get('signal_key_count', 0) or 0)}",
+        f"- Positive signal keys: {int(summary.get('positive_signal_keys', 0) or 0)}",
+        f"- Latest period: `{summary.get('latest_period') or '-'}`",
+        "",
+        "## Top Signal Keys",
+    ]
+    if not isinstance(rows, list) or not rows:
+        lines.append("- none")
+        return lines
+    for row in rows[:20]:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- `{row.get('signal_key')}`: "
+            f"{_fmt_pct(row.get('full_pnl_pct'))}, "
+            f"latest {_fmt_pct(row.get('latest_pnl_pct'))}, "
+            f"trade LCB {_fmt_pct(row.get('full_pnl_per_trade_lcb_pct'))}, "
+            f"closed {int(row.get('full_closed_trades', 0) or 0)}, "
+            f"win rate {_fmt_pct(row.get('win_rate_pct'))}"
+        )
+    return lines
+
+
+def _write_flash_promotion_manifest(
+    output_dir: Path,
+    rows: Sequence[dict[str, Any]],
+    *,
+    config: PromotionManifestConfig = PromotionManifestConfig(),
+) -> Path:
+    manifest = build_promotion_manifest(rows, config)
+    data = manifest.as_dict()
+    path = output_dir / "flash_promotion_manifest.json"
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    (output_dir / "flash_promotion_manifest.md").write_text(
+        "\n".join(_flash_promotion_manifest_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _flash_promotion_manifest_config(
+    config: RetrodateMarketConfig,
+) -> PromotionManifestConfig:
+    return PromotionManifestConfig(
+        min_full_closed_trades=config.flash_promotion_min_full_closed_trades,
+        min_latest_closed_trades=config.flash_promotion_min_latest_closed_trades,
+        min_full_pnl_pct=config.flash_promotion_min_full_pnl_pct,
+        min_latest_pnl_pct=config.flash_promotion_min_latest_pnl_pct,
+        min_full_pnl_per_trade_lcb_pct=(
+            config.flash_promotion_min_full_pnl_per_trade_lcb_pct
+        ),
+        min_latest_pnl_per_trade_lcb_pct=(
+            config.flash_promotion_min_latest_pnl_per_trade_lcb_pct
+        ),
+        pnl_per_trade_lcb_z=config.flash_promotion_pnl_per_trade_lcb_z,
+        max_drawdown_pct=config.flash_promotion_max_drawdown_pct,
+        min_win_rate_pct=config.flash_promotion_min_win_rate_pct,
+        max_recent_downside_usd=config.flash_promotion_max_recent_downside_usd,
+    )
+
+
+def _flash_promotion_manifest_lines(data: dict[str, Any]) -> list[str]:
+    allowed = data.get("allowed_signal_keys", [])
+    rejected = data.get("rejected", [])
+    lines = [
+        "# Flash Promotion Manifest",
+        "",
+        f"- Allowed signal keys: {len(allowed) if isinstance(allowed, list) else 0}",
+        f"- Rejected signal keys: {len(rejected) if isinstance(rejected, list) else 0}",
+        "",
+        "## Allowed",
+    ]
+    if isinstance(allowed, list) and allowed:
+        lines.extend(f"- `{key}`" for key in allowed[:50])
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Rejected"])
+    if isinstance(rejected, list) and rejected:
+        for row in rejected[:50]:
+            if not isinstance(row, dict):
+                continue
+            lines.append(
+                f"- `{row.get('signal_key')}`: {row.get('reason') or '-'}"
+            )
+    else:
+        lines.append("- none")
+    return lines
+
+
+def _flash_decision_actor_key(decision: Mapping[str, Any]) -> str:
+    selected_actor = str(decision.get("selected_actor") or "")
+    actor_type = str(decision.get("actor_type") or "unknown") or "unknown"
+    candidates = decision.get("candidates")
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            if (
+                str(candidate.get("label") or "") == selected_actor
+                and str(candidate.get("actor_type") or "") == actor_type
+            ):
+                actor_key = str(candidate.get("actor_key") or "")
+                if actor_key:
+                    return actor_key
+    if selected_actor == "NoTrade":
+        return "NoTrade"
+    return f"{actor_type}:{selected_actor}"
+
+
+def _flash_selected_candidate(decision: Mapping[str, Any]) -> dict[str, Any]:
+    selected_actor = str(decision.get("selected_actor") or "")
+    actor_type = str(decision.get("actor_type") or "")
+    candidates = decision.get("candidates")
+    if not isinstance(candidates, list):
+        return {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if (
+            str(candidate.get("label") or "") == selected_actor
+            and str(candidate.get("actor_type") or "") == actor_type
+        ):
+            return candidate
+    return {}
+
+
+def _signal_ids_from_payloads(payloads: object) -> set[int]:
+    if not isinstance(payloads, list):
+        return set()
+    out: set[int] = set()
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        signal_id = _safe_int(payload.get("id"), default=-1)
+        if signal_id >= 0:
+            out.add(signal_id)
+    return out
+
+
+def _flash_filter_detail_counts(details: object) -> dict[str, int]:
+    if not isinstance(details, (list, tuple)):
+        return {}
+    counts: dict[str, int] = {}
+    for item in details:
+        reason = str(item or "").split(":", 1)[0].strip()
+        if not reason:
+            continue
+        counts[reason] = counts.get(reason, 0) + 1
+    return counts
+
+
+def _merge_int_counts(target: object, updates: Mapping[str, int]) -> None:
+    if not isinstance(target, dict):
+        return
+    for key, value in updates.items():
+        clean_key = str(key or "").strip()
+        count = int(value or 0)
+        if not clean_key or count <= 0:
+            continue
+        target[clean_key] = int(target.get(clean_key, 0) or 0) + count
+
+
+def _increment_flash_failure(bucket: dict[str, Any], event: object) -> None:
+    reason = str(_event_value(event, "reason") or "").strip()
+    if not reason:
+        return
+    reasons = bucket.setdefault("failure_reasons", {})
+    if not isinstance(reasons, dict):
+        reasons = {}
+        bucket["failure_reasons"] = reasons
+    reasons[reason] = int(reasons.get(reason, 0) or 0) + 1
+
+
 def write_oracle_mismatch_report(
     output_dir: str | Path,
     trading_log: str | Path,
@@ -1314,7 +3954,7 @@ def write_oracle_mismatch_report(
     }
     path = Path(output_dir) / filename
     path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False, default=str),
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
         encoding="utf-8",
     )
     return path
@@ -1521,10 +4161,23 @@ def _event_value(event: object, key: str) -> object:
 
 
 def _safe_float(value: object) -> float:
+    parsed = _finite_float_or_none(value)
+    return parsed if parsed is not None else 0.0
+
+
+def _finite_float_or_none(value: object) -> float | None:
     try:
-        return float(value or 0.0)
+        parsed = float(value or 0.0)
     except (TypeError, ValueError):
-        return 0.0
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _safe_int(value: object, *, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return int(default)
 
 
 def _share(part: object, total: object) -> float:
@@ -1634,6 +4287,241 @@ def _write_run_summary(
                 else ()
             )
         ],
+        "flash_enabled": config.flash_enabled,
+        "flash_min_score_to_trade": config.flash_min_score_to_trade,
+        "flash_actionable_bonus": config.flash_actionable_bonus,
+        "flash_no_data_score": config.flash_no_data_score,
+        "flash_min_closed_trades_to_trade": config.flash_min_closed_trades_to_trade,
+        "flash_min_pnl_pct_to_trade": config.flash_min_pnl_pct_to_trade,
+        "flash_shadow_confirmation_enabled": config.flash_shadow_confirmation_enabled,
+        "flash_symbol_shadow_confirmation_enabled": (
+            config.flash_symbol_shadow_confirmation_enabled
+        ),
+        "flash_shadow_actor_fallback_confirmation_enabled": (
+            config.flash_shadow_actor_fallback_confirmation_enabled
+        ),
+        "flash_shadow_base_fallback_confirmation_enabled": (
+            config.flash_shadow_base_fallback_confirmation_enabled
+        ),
+        "flash_shadow_signal_handoff_enabled": (
+            config.flash_shadow_signal_handoff_enabled
+        ),
+        "flash_shadow_actor_fallback_min_base_score": (
+            config.flash_shadow_actor_fallback_min_base_score
+        ),
+        "flash_shadow_base_fallback_actor_keys": list(
+            config.flash_shadow_base_fallback_actor_keys
+        ),
+        "flash_actor_switch_margin": config.flash_actor_switch_margin,
+        "flash_anchor_actor_keys": list(config.flash_anchor_actor_keys),
+        "flash_portfolio_actor_keys": list(config.flash_portfolio_actor_keys),
+        "flash_portfolio_shadow_bootstrap_min_closed_enabled": (
+            config.flash_portfolio_shadow_bootstrap_min_closed_enabled
+        ),
+        "flash_anchor_min_score_to_trade": config.flash_anchor_min_score_to_trade,
+        "flash_anchor_shadow_min_score": config.flash_anchor_shadow_min_score,
+        "flash_anchor_min_score_advantage": config.flash_anchor_min_score_advantage,
+        "flash_prefer_solo_player_wrappers_enabled": (
+            config.flash_prefer_solo_player_wrappers_enabled
+        ),
+        "flash_prefer_proven_solo_player_wrappers_enabled": (
+            config.flash_prefer_proven_solo_player_wrappers_enabled
+        ),
+        "flash_proven_solo_min_score_advantage": (
+            config.flash_proven_solo_min_score_advantage
+        ),
+        "flash_shadow_min_score": config.flash_shadow_min_score,
+        "flash_shadow_min_closed_trades": config.flash_shadow_min_closed_trades,
+        "flash_shadow_min_full_open_closed_trades": (
+            config.flash_shadow_min_full_open_closed_trades
+        ),
+        "flash_shadow_quality_confirmation_enabled": (
+            config.flash_shadow_quality_confirmation_enabled
+        ),
+        "flash_shadow_min_win_rate_pct": config.flash_shadow_min_win_rate_pct,
+        "flash_shadow_max_recent_downside_usd": (
+            config.flash_shadow_max_recent_downside_usd
+        ),
+        "flash_shadow_min_pnl_per_trade_lcb_usd": (
+            config.flash_shadow_min_pnl_per_trade_lcb_usd
+        ),
+        "flash_shadow_pnl_per_trade_lcb_z": (
+            config.flash_shadow_pnl_per_trade_lcb_z
+        ),
+        "flash_shadow_pnl_per_trade_lcb_penalty_floor_usd": (
+            config.flash_shadow_pnl_per_trade_lcb_penalty_floor_usd
+        ),
+        "flash_shadow_pnl_per_trade_lcb_penalty_weight": (
+            config.flash_shadow_pnl_per_trade_lcb_penalty_weight
+        ),
+        "flash_max_signals_per_actor": config.flash_max_signals_per_actor,
+        "flash_overextension_guard_enabled": config.flash_overextension_guard_enabled,
+        "flash_overextension_lookback_bars": config.flash_overextension_lookback_bars,
+        "flash_short_overextension_return_floor_pct": (
+            config.flash_short_overextension_return_floor_pct
+        ),
+        "flash_long_overextension_return_ceiling_pct": (
+            config.flash_long_overextension_return_ceiling_pct
+        ),
+        "flash_overextension_volatility_normalized_enabled": (
+            config.flash_overextension_volatility_normalized_enabled
+        ),
+        "flash_short_overextension_z_floor": (
+            config.flash_short_overextension_z_floor
+        ),
+        "flash_long_overextension_z_ceiling": (
+            config.flash_long_overextension_z_ceiling
+        ),
+        "flash_overextension_min_volatility_pct": (
+            config.flash_overextension_min_volatility_pct
+        ),
+        "flash_denied_signal_keys": list(config.flash_denied_signal_keys),
+        "flash_terminal_denied_signal_keys": list(
+            config.flash_terminal_denied_signal_keys
+        ),
+        "flash_denied_open_symbols": list(config.flash_denied_open_symbols),
+        "flash_denied_open_regimes": list(config.flash_denied_open_regimes),
+        "flash_degradation_guard_enabled": config.flash_degradation_guard_enabled,
+        "flash_degradation_actor_guard_enabled": (
+            config.flash_degradation_actor_guard_enabled
+        ),
+        "flash_degradation_actor_scope": config.flash_degradation_actor_scope,
+        "flash_degradation_signal_cooldown_bars": (
+            config.flash_degradation_signal_cooldown_bars
+        ),
+        "flash_degradation_actor_cooldown_bars": (
+            config.flash_degradation_actor_cooldown_bars
+        ),
+        "flash_degradation_symbol_guard_enabled": (
+            config.flash_degradation_symbol_guard_enabled
+        ),
+        "flash_degradation_symbol_cooldown_bars": (
+            config.flash_degradation_symbol_cooldown_bars
+        ),
+        "flash_degradation_symbol_window_closed_trades": (
+            config.flash_degradation_symbol_window_closed_trades
+        ),
+        "flash_degradation_symbol_min_closed_trades": (
+            config.flash_degradation_symbol_min_closed_trades
+        ),
+        "flash_degradation_symbol_max_recent_pnl_usd": (
+            config.flash_degradation_symbol_max_recent_pnl_usd
+        ),
+        "flash_degradation_window_closed_trades": (
+            config.flash_degradation_window_closed_trades
+        ),
+        "flash_degradation_min_closed_trades": (
+            config.flash_degradation_min_closed_trades
+        ),
+        "flash_degradation_max_recent_pnl_usd": (
+            config.flash_degradation_max_recent_pnl_usd
+        ),
+        "flash_degradation_reserve_actor_cap": (
+            config.flash_degradation_reserve_actor_cap
+        ),
+        "flash_degradation_recovery_enabled": (
+            config.flash_degradation_recovery_enabled
+        ),
+        "flash_degradation_recovery_min_closed_trades": (
+            config.flash_degradation_recovery_min_closed_trades
+        ),
+        "flash_degradation_recovery_min_recent_pnl_usd": (
+            config.flash_degradation_recovery_min_recent_pnl_usd
+        ),
+        "flash_stale_position_exit_enabled": (
+            config.flash_stale_position_exit_enabled
+        ),
+        "flash_stale_position_exit_max_age_bars": (
+            config.flash_stale_position_exit_max_age_bars
+        ),
+        "flash_stale_position_exit_require_nonpositive_unrealized": (
+            config.flash_stale_position_exit_require_nonpositive_unrealized
+        ),
+        "flash_promotion_manifest_enabled": (
+            config.flash_promotion_manifest_enabled
+        ),
+        "flash_promotion_manifest_path": (
+            str(config.flash_promotion_manifest_path)
+            if config.flash_promotion_manifest_path is not None
+            else None
+        ),
+        "flash_promoted_signal_keys": list(config.flash_promoted_signal_keys),
+        "flash_promotion_min_full_closed_trades": (
+            config.flash_promotion_min_full_closed_trades
+        ),
+        "flash_promotion_min_latest_closed_trades": (
+            config.flash_promotion_min_latest_closed_trades
+        ),
+        "flash_promotion_min_full_pnl_pct": (
+            config.flash_promotion_min_full_pnl_pct
+        ),
+        "flash_promotion_min_latest_pnl_pct": (
+            config.flash_promotion_min_latest_pnl_pct
+        ),
+        "flash_promotion_min_full_pnl_per_trade_lcb_pct": (
+            config.flash_promotion_min_full_pnl_per_trade_lcb_pct
+        ),
+        "flash_promotion_min_latest_pnl_per_trade_lcb_pct": (
+            config.flash_promotion_min_latest_pnl_per_trade_lcb_pct
+        ),
+        "flash_promotion_pnl_per_trade_lcb_z": (
+            config.flash_promotion_pnl_per_trade_lcb_z
+        ),
+        "flash_promotion_max_drawdown_pct": (
+            config.flash_promotion_max_drawdown_pct
+        ),
+        "flash_promotion_min_win_rate_pct": (
+            config.flash_promotion_min_win_rate_pct
+        ),
+        "flash_promotion_max_recent_downside_usd": (
+            config.flash_promotion_max_recent_downside_usd
+        ),
+        "flash_earned_cap_overrides_enabled": (
+            config.flash_earned_cap_overrides_enabled
+        ),
+        "flash_promoted_actor_cap_overrides": list(
+            config.flash_promoted_actor_cap_overrides
+        ),
+        "experimental_flash_actors_enabled": (
+            config.experimental_flash_actors_enabled
+        ),
+        "experimental_flash_real_actors_enabled": (
+            config.experimental_flash_real_actors_enabled
+        ),
+        "experimental_flash_agent_labels": (
+            list(experimental_flash_agent_labels())
+            if config.experimental_flash_actors_enabled
+            else []
+        ),
+        "experimental_flash_fixed_agent_player_sets": [
+            {"label": label, "agent_labels": list(agent_labels)}
+            for label, agent_labels in (
+                _experimental_flash_fixed_agent_player_sets()
+                if (
+                    config.experimental_flash_actors_enabled
+                    and config.experimental_flash_real_actors_enabled
+                )
+                else ()
+            )
+        ],
+        "experimental_flash_rotating_agent_player_sets": [
+            {
+                "label": label,
+                "regime_agent_labels": {
+                    regime: list(agent_labels)
+                    for regime, agent_labels in mapping.items()
+                },
+                "fallback_agent_labels": list(fallback),
+            }
+            for label, mapping, fallback in (
+                _experimental_flash_rotating_agent_player_sets()
+                if (
+                    config.experimental_flash_actors_enabled
+                    and config.experimental_flash_real_actors_enabled
+                )
+                else ()
+            )
+        ],
         "actionable_fallback_enabled": config.actionable_fallback_enabled,
         "actionable_fallback_min_score": config.actionable_fallback_min_score,
         "actionable_fallback_require_has_data": (
@@ -1663,6 +4551,9 @@ def _write_run_summary(
         "v3_shadow_flat_handoff_enabled": config.v3_shadow_flat_handoff_enabled,
         "v3_shadow_fresh_handoff_enabled": config.v3_shadow_fresh_handoff_enabled,
         "v3_shadow_fresh_handoff_max_age_bars": config.v3_shadow_fresh_handoff_max_age_bars,
+        "v3_shadow_fresh_handoff_require_positive_unrealized": (
+            config.v3_shadow_fresh_handoff_require_positive_unrealized
+        ),
         "v3_shadow_rolling_window_bars": config.v3_shadow_rolling_window_bars,
         "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
         "effective_v3_current_actionable_gate_enabled": (
@@ -1745,6 +4636,8 @@ def _write_run_summary(
             config.v3_probation_loss_kill_label_prefixes
         ),
         "hard_policy_deny_labels": list(config.hard_policy_deny_labels),
+        "max_new_opens_per_bar": config.max_new_opens_per_bar,
+        "risk_max_open_positions": config.risk_max_open_positions,
         "genetics_probation_execution_enabled": (
             config.genetics_probation_execution_enabled
         ),
@@ -1842,6 +4735,49 @@ def _write_run_summary(
             "rejection_rows": candidate_diagnostics.get("rejection_rows", 0),
             "group_summary": candidate_diagnostics.get("group_summary", {}),
         }
+    flash_attribution = _load_json(
+        summary.output_dir / "flash_attribution_summary.json"
+    )
+    if flash_attribution:
+        data["flash_attribution_summary"] = dict(
+            flash_attribution.get("summary", {}) or {}
+        )
+    component_benchmark = _load_json(
+        summary.output_dir / "component_benchmark_report.json"
+    )
+    if component_benchmark:
+        data["component_benchmark_report"] = dict(
+            component_benchmark.get("summary", {}) or {}
+        )
+    standalone_vs_flash = _load_json(
+        summary.output_dir / "standalone_vs_flash_selected_report.json"
+    )
+    if standalone_vs_flash:
+        data["standalone_vs_flash_selected_report"] = dict(
+            standalone_vs_flash.get("summary", {}) or {}
+        )
+    experimental_shadow = _load_json(
+        summary.output_dir / "experimental_flash_shadow_report.json"
+    )
+    if experimental_shadow:
+        data["experimental_flash_shadow_report"] = dict(
+            experimental_shadow.get("summary", {}) or {}
+        )
+    signal_key_shadow = _load_json(
+        summary.output_dir / "flash_signal_key_shadow_report.json"
+    )
+    if signal_key_shadow:
+        data["flash_signal_key_shadow_report"] = dict(
+            signal_key_shadow.get("summary", {}) or {}
+        )
+    promotion_manifest = _load_json(summary.output_dir / "flash_promotion_manifest.json")
+    if promotion_manifest:
+        data["flash_promotion_manifest"] = {
+            "allowed_signal_keys": len(
+                promotion_manifest.get("allowed_signal_keys", []) or []
+            ),
+            "rejected_signal_keys": len(promotion_manifest.get("rejected", []) or []),
+        }
     oracle_mismatch = _load_json(summary.output_dir / "oracle_mismatch_report.json")
     if oracle_mismatch:
         data["oracle_mismatch_report"] = oracle_mismatch.get("summary", {})
@@ -1868,6 +4804,22 @@ def _write_analysis_report(
     candidate_diagnostics = _load_json(
         summary.output_dir / "candidate_diagnostics.json"
     )
+    flash_attribution = _load_json(
+        summary.output_dir / "flash_attribution_summary.json"
+    )
+    component_benchmark = _load_json(
+        summary.output_dir / "component_benchmark_report.json"
+    )
+    standalone_vs_flash = _load_json(
+        summary.output_dir / "standalone_vs_flash_selected_report.json"
+    )
+    experimental_shadow = _load_json(
+        summary.output_dir / "experimental_flash_shadow_report.json"
+    )
+    signal_key_shadow = _load_json(
+        summary.output_dir / "flash_signal_key_shadow_report.json"
+    )
+    promotion_manifest = _load_json(summary.output_dir / "flash_promotion_manifest.json")
     oracle_mismatch = _load_json(summary.output_dir / "oracle_mismatch_report.json")
 
     excluded_lines = []
@@ -1893,6 +4845,19 @@ def _write_analysis_report(
         "perfect_panteon_report.json",
         "allocation_diagnostics.json",
         "candidate_diagnostics.json",
+        "flash_attribution_summary.json",
+        "component_benchmark_report.md",
+        "component_benchmark_report.json",
+        "standalone_vs_flash_selected_report.md",
+        "standalone_vs_flash_selected_report.json",
+        "walk_forward_report.json",
+        "events.jsonl",
+        "experimental_flash_shadow_report.md",
+        "experimental_flash_shadow_report.json",
+        "flash_signal_key_shadow_report.md",
+        "flash_signal_key_shadow_report.json",
+        "flash_promotion_manifest.md",
+        "flash_promotion_manifest.json",
         "oracle_mismatch_report.json",
         "causal_entry_decisions.jsonl",
         "shadow_player_pnl_events.jsonl",
@@ -1952,6 +4917,31 @@ def _write_analysis_report(
             if candidate_diagnostics else []
         ),
         *(
+            _flash_attribution_report_lines(flash_attribution) + [""]
+            if flash_attribution else []
+        ),
+        *(
+            _component_benchmark_analysis_report_lines(component_benchmark) + [""]
+            if component_benchmark else []
+        ),
+        *(
+            _standalone_vs_flash_selected_analysis_report_lines(standalone_vs_flash)
+            + [""]
+            if standalone_vs_flash else []
+        ),
+        *(
+            _experimental_flash_shadow_gate_report_lines(experimental_shadow) + [""]
+            if experimental_shadow else []
+        ),
+        *(
+            _flash_signal_key_shadow_analysis_report_lines(signal_key_shadow) + [""]
+            if signal_key_shadow else []
+        ),
+        *(
+            _flash_promotion_manifest_analysis_report_lines(promotion_manifest) + [""]
+            if promotion_manifest else []
+        ),
+        *(
             _oracle_mismatch_report_lines(oracle_mismatch) + [""]
             if oracle_mismatch else []
         ),
@@ -2006,6 +4996,14 @@ def _candidate_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
     if not report:
         return []
     groups = report.get("group_summary", {})
+    rejection_summary = (
+        report.get("rejection_summary", {}) if isinstance(report, dict) else {}
+    )
+    active_reasons = (
+        rejection_summary.get("flash_active_reason_counts", {})
+        if isinstance(rejection_summary, dict)
+        else {}
+    )
     group_lines = []
     if isinstance(groups, dict):
         for group, payload in groups.items():
@@ -2015,6 +5013,7 @@ def _candidate_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
                     f"selected bars {int(payload.get('selected_bars', 0) or 0)}, "
                     f"selected share {_fmt_pct(payload.get('selected_share_pct'))}"
                 )
+    active_reason_lines = _top_count_lines(active_reasons, limit=5)
     return [
         "## Candidate Diagnostics",
         f"- Candidate score rows: {int(report.get('candidate_rows', 0) or 0)}",
@@ -2022,6 +5021,198 @@ def _candidate_diagnostics_report_lines(report: dict[str, Any]) -> list[str]:
         f"- Rejection rows: {int(report.get('rejection_rows', 0) or 0)}",
         f"- Details: `candidate_diagnostics.json`",
         *(["- Group summary:"] + group_lines if group_lines else []),
+        *(
+            ["- Top active Flash rejection reasons:"] + active_reason_lines
+            if active_reason_lines else []
+        ),
+    ]
+
+
+def _top_count_lines(counts: object, *, limit: int = 5) -> list[str]:
+    if not isinstance(counts, dict):
+        return []
+    rows = [
+        (str(key), int(value or 0))
+        for key, value in counts.items()
+        if str(key) and int(value or 0) > 0
+    ]
+    rows.sort(key=lambda row: (-row[1], row[0]))
+    return [f"- `{key}`: {count}" for key, count in rows[:limit]]
+
+
+def _flash_attribution_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("rows", []) if isinstance(report, dict) else []
+    top_lines: list[str] = []
+    if isinstance(rows, list):
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            top_lines.append(
+                f"- `{row.get('actor_key') or '-'}` / "
+                f"`{row.get('symbol') or '-'}` / `{row.get('action') or '-'}`: "
+                f"selected {int(row.get('selected_signals', 0) or 0)}, "
+                f"filled {int(row.get('filled_signals', 0) or 0)}, "
+                f"closed {int(row.get('closed_trades', 0) or 0)}, "
+                f"PnL {_fmt_money(row.get('realized_pnl_usd'))}"
+            )
+    return [
+        "## Flash Attribution",
+        f"- Selected signals: {int(summary.get('selected_signals', 0) or 0)}",
+        f"- Executable selected signals: {int(summary.get('executable_selected_signals', 0) or 0)}",
+        f"- Guard-filtered selected signals: {int(summary.get('selected_filtered_before_execution', 0) or 0)}",
+        f"- Missing execution events: {int(summary.get('missing_execution_signals', 0) or 0)}",
+        f"- Filled signals: {int(summary.get('filled_signals', 0) or 0)}",
+        f"- Blocked signals: {int(summary.get('blocked_signals', 0) or 0)}",
+        f"- Rejected signals: {int(summary.get('rejected_signals', 0) or 0)}",
+        f"- Pending signals: {int(summary.get('pending_signals', 0) or 0)}",
+        f"- Closed trades: {int(summary.get('closed_trades', 0) or 0)}",
+        f"- Realized PnL: {_fmt_money(summary.get('realized_pnl_usd'))}",
+        f"- Details: `flash_attribution_summary.json`",
+        *(["- Top actor/symbol/action rows:"] + top_lines if top_lines else []),
+    ]
+
+
+def _component_benchmark_analysis_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    components = report.get("components", []) if isinstance(report, dict) else []
+    top_lines: list[str] = []
+    if isinstance(components, list):
+        for row in components[:5]:
+            if not isinstance(row, dict):
+                continue
+            top_lines.append(
+                f"- `{row.get('actor_type') or '-'}:{row.get('label') or '-'}`: "
+                f"{_fmt_pct(row.get('pnl_pct'))}, "
+                f"closed {int(row.get('closed_trades', 0) or 0)}, "
+                f"win rate {_fmt_pct(row.get('win_rate_pct'))}"
+            )
+    return [
+        "## Component Benchmark",
+        f"- Panteon PnL: {_fmt_pct(summary.get('panteon_pnl_pct'))}",
+        (
+            f"- Best component: `{summary.get('best_component_type') or '-'}:"
+            f"{summary.get('best_component_label') or '-'}` at "
+            f"{_fmt_pct(summary.get('best_component_pnl_pct'))}"
+        ),
+        f"- Panteon alpha: {_fmt_pct(summary.get('panteon_alpha_pct'))}",
+        f"- Required alpha: {_fmt_pct(summary.get('min_alpha_pct'))}",
+        f"- Beats best component: {bool(summary.get('panteon_beats_best_component'))}",
+        f"- Details: `component_benchmark_report.json`",
+        *(["- Top components:"] + top_lines if top_lines else []),
+    ]
+
+
+def _standalone_vs_flash_selected_analysis_report_lines(
+    report: dict[str, Any],
+) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    actors = report.get("actors", []) if isinstance(report, dict) else []
+    actor_lines: list[str] = []
+    if isinstance(actors, list):
+        for row in actors[:5]:
+            if not isinstance(row, dict):
+                continue
+            actor_lines.append(
+                f"- `{row.get('label') or '-'}`: standalone "
+                f"{_fmt_pct(row.get('standalone_pnl_pct'))}, Flash-selected "
+                f"{_fmt_pct(row.get('flash_selected_pnl_pct'))}, alpha "
+                f"{_fmt_pct(row.get('selection_alpha_pct'))}, selected "
+                f"{int(row.get('flash_selected_signals', 0) or 0)}"
+            )
+    return [
+        "## Standalone vs Flash Selected",
+        f"- Targets: {int(summary.get('target_count', 0) or 0)}",
+        f"- Targets with Flash selection: {int(summary.get('targets_with_flash_selection', 0) or 0)}",
+        f"- Standalone total PnL: {_fmt_pct(summary.get('total_standalone_pnl_pct'))}",
+        f"- Flash-selected total PnL: {_fmt_pct(summary.get('total_flash_selected_pnl_pct'))}",
+        f"- Selection alpha: {_fmt_pct(summary.get('total_selection_alpha_pct'))}",
+        f"- Details: `standalone_vs_flash_selected_report.json`",
+        *(["- Target actors:"] + actor_lines if actor_lines else []),
+    ]
+
+
+def _experimental_flash_shadow_gate_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("labels", []) if isinstance(report, dict) else []
+    label_lines: list[str] = []
+    if isinstance(rows, list):
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            label_lines.append(
+                f"- `{row.get('label') or '-'}`: shadow PnL "
+                f"{_fmt_pct(row.get('shadow_pnl_pct'))}, "
+                f"DD {_fmt_pct(row.get('max_drawdown_pct'))}, "
+                f"closed {int(row.get('closed_trades', 0) or 0)}, "
+                f"real selected {int(row.get('real_selected_signals', 0) or 0)}, "
+                f"promote {bool(row.get('promote_to_real'))}"
+            )
+    return [
+        "## Experimental Flash Shadow Gate",
+        f"- Labels: {int(summary.get('label_count', 0) or 0)}",
+        f"- Shadow gate passed: {int(summary.get('shadow_gate_passed', 0) or 0)}",
+        f"- Promote-to-real labels: {int(summary.get('promote_to_real', 0) or 0)}",
+        f"- Real selected signals: {int(summary.get('real_selected_signals', 0) or 0)}",
+        f"- Latest period: `{summary.get('latest_period') or '-'}`",
+        f"- Latest period gate passed: {int(summary.get('latest_period_gate_passed', 0) or 0)}",
+        f"- Details: `experimental_flash_shadow_report.json`",
+        *(["- Label summary:"] + label_lines if label_lines else []),
+    ]
+
+
+def _flash_signal_key_shadow_analysis_report_lines(report: dict[str, Any]) -> list[str]:
+    if not report:
+        return []
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    rows = report.get("rows", []) if isinstance(report, dict) else []
+    top_lines: list[str] = []
+    if isinstance(rows, list):
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            top_lines.append(
+                f"- `{row.get('signal_key') or '-'}`: "
+                f"{_fmt_pct(row.get('full_pnl_pct'))}, "
+                f"latest {_fmt_pct(row.get('latest_pnl_pct'))}, "
+                f"closed {int(row.get('full_closed_trades', 0) or 0)}, "
+                f"win rate {_fmt_pct(row.get('win_rate_pct'))}"
+            )
+    return [
+        "## Flash Signal-Key Shadow",
+        f"- Signal keys: {int(summary.get('signal_key_count', 0) or 0)}",
+        f"- Positive signal keys: {int(summary.get('positive_signal_keys', 0) or 0)}",
+        f"- Latest period: `{summary.get('latest_period') or '-'}`",
+        f"- Details: `flash_signal_key_shadow_report.json`",
+        *(["- Top signal keys:"] + top_lines if top_lines else []),
+    ]
+
+
+def _flash_promotion_manifest_analysis_report_lines(data: dict[str, Any]) -> list[str]:
+    if not data:
+        return []
+    allowed = data.get("allowed_signal_keys", [])
+    rejected = data.get("rejected", [])
+    allowed_count = len(allowed) if isinstance(allowed, list) else 0
+    rejected_count = len(rejected) if isinstance(rejected, list) else 0
+    allowed_lines = [
+        f"- `{key}`"
+        for key in (allowed[:5] if isinstance(allowed, list) else [])
+    ]
+    return [
+        "## Flash Promotion Manifest",
+        f"- Allowed signal keys: {allowed_count}",
+        f"- Rejected signal keys: {rejected_count}",
+        f"- Details: `flash_promotion_manifest.json`",
+        *(["- Allowed keys:"] + allowed_lines if allowed_lines else []),
     ]
 
 

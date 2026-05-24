@@ -108,6 +108,7 @@ class ExecutionResult:
     realized_pnl_by_player: tuple[tuple[str, float], ...] = ()
     closed_trade_counts_by_player: tuple[tuple[str, int], ...] = ()
     win_counts_by_player: tuple[tuple[str, int], ...] = ()
+    closed_position_outcomes: tuple[tuple[str, str, float], ...] = ()
 
     @property
     def is_success(self) -> bool:
@@ -596,11 +597,22 @@ class TradeExecutor:
         realized_by_player: Dict[str, float] = {}
         closed_counts_by_player: Dict[str, int] = {}
         win_counts_by_player: Dict[str, int] = {}
+        closed_position_outcomes: list[tuple[str, str, float]] = []
         for event in events:
             label = str(getattr(event, "by_player", "") or "")
             if not label or not hasattr(event, "realized_pnl"):
                 continue
             pnl = float(getattr(event, "realized_pnl", 0.0) or 0.0)
+            symbol = str(getattr(event, "sym", "") or "").upper()
+            open_action = str(getattr(event, "open_action", "") or "").strip().upper()
+            side = str(getattr(event, "side", "") or "").lower()
+            if not open_action:
+                if side == "long":
+                    open_action = "FUT_LONG_FULL"
+                elif side == "short":
+                    open_action = "FUT_SHORT_FULL"
+            if symbol and open_action:
+                closed_position_outcomes.append((symbol, open_action, pnl))
             realized_by_player[label] = realized_by_player.get(label, 0.0) + pnl
             closed_counts_by_player[label] = closed_counts_by_player.get(label, 0) + 1
             if pnl > 0:
@@ -624,6 +636,7 @@ class TradeExecutor:
             realized_pnl_by_player=tuple(sorted(realized_by_player.items())),
             closed_trade_counts_by_player=tuple(sorted(closed_counts_by_player.items())),
             win_counts_by_player=tuple(sorted(win_counts_by_player.items())),
+            closed_position_outcomes=tuple(closed_position_outcomes),
         )
 
     def _handle_rejected(

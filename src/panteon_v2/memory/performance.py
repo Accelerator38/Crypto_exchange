@@ -45,7 +45,10 @@ class _LabelRegimeState:
     signals:       int = 0
     wins:          int = 0
     losses:        int = 0
-    pnl_pct:       float = 0.0          # cumulative
+    pnl_pct:       float = 0.0          # cumulative net
+    pnl_gross_pct: float = 0.0
+    fee_pct:       float = 0.0
+    funding_pct:   float = 0.0
     # Returns каждой закрытой сделки (для Sharpe)
     returns:       List[float] = field(default_factory=list)
     # Пиковое значение equity-curve (1.0 = baseline)
@@ -72,6 +75,9 @@ class _LabelRegimeState:
             rejected_signals=self.rejected_signals,
             pending_signals=self.pending_signals,
             execution_failures=self.execution_failures,
+            pnl_gross_pct=self.pnl_gross_pct,
+            fee_pct=self.fee_pct,
+            funding_pct=self.funding_pct,
         )
 
 
@@ -107,6 +113,7 @@ class _OpenPosition:
     entry_price:  float
     qty:          float
     fee_open:     float
+    funding_open: float = 0.0
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -421,6 +428,7 @@ class PerformanceMemory:
             entry_price=trade.fill_price,
             qty=trade.qty,
             fee_open=trade.fee,
+            funding_open=trade.funding,
         )
 
     def _record_close(
@@ -445,15 +453,24 @@ class PerformanceMemory:
         else:
             return_pct = (opened.entry_price - trade.fill_price) / opened.entry_price
         # Учитываем фракцию + fees
+        entry_notional = max(opened.entry_price * opened.qty, 1e-12)
         gross_pnl = return_pct * self._trade_fraction
         fee_total_pct = (
-            (opened.fee_open + trade.fee) / max(trade.notional, 1e-12) * self._trade_fraction
+            (opened.fee_open + trade.fee) / entry_notional * self._trade_fraction
         )
-        net_pnl = gross_pnl - fee_total_pct
+        funding_total_pct = (
+            (opened.funding_open + trade.funding)
+            / entry_notional
+            * self._trade_fraction
+        )
+        net_pnl = gross_pnl - fee_total_pct - funding_total_pct
         net_pnl_pct = net_pnl * 100.0  # переводим в %
 
         # Обновляем cumulative PnL и returns
         state.pnl_pct += net_pnl_pct
+        state.pnl_gross_pct += gross_pnl * 100.0
+        state.fee_pct += fee_total_pct * 100.0
+        state.funding_pct += funding_total_pct * 100.0
         state.returns.append(net_pnl_pct)
         if net_pnl_pct > 0:
             state.wins += 1
@@ -475,6 +492,7 @@ class PerformanceMemory:
     def _aggregate_metrics(self, label: str) -> Metrics:
         """Сумма метрик по всем регимам для одного label."""
         agg_pnl = 0.0
+        agg_gross = agg_fee = agg_funding = 0.0
         closed = entries = signals = wins = losses = 0
         blocked = rejected = pending = execution_failures = 0
         all_returns: List[float] = []
@@ -485,6 +503,9 @@ class PerformanceMemory:
                 continue
             any_data = True
             agg_pnl += state.pnl_pct
+            agg_gross += state.pnl_gross_pct
+            agg_fee += state.fee_pct
+            agg_funding += state.funding_pct
             closed += state.closed_trades
             entries += state.entries
             signals += state.signals
@@ -511,6 +532,9 @@ class PerformanceMemory:
             rejected_signals=rejected,
             pending_signals=pending,
             execution_failures=execution_failures,
+            pnl_gross_pct=agg_gross,
+            fee_pct=agg_fee,
+            funding_pct=agg_funding,
         )
 
 
@@ -527,6 +551,9 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
         "wins":          s.wins,
         "losses":        s.losses,
         "pnl_pct":       s.pnl_pct,
+        "pnl_gross_pct": s.pnl_gross_pct,
+        "fee_pct":       s.fee_pct,
+        "funding_pct":   s.funding_pct,
         "returns":       list(s.returns),
         "equity":        s.equity,
         "peak":          s.peak,
@@ -546,6 +573,9 @@ def _state_from_dict(d: dict) -> _LabelRegimeState:
     s.wins          = int(d.get("wins", 0))
     s.losses        = int(d.get("losses", 0))
     s.pnl_pct       = float(d.get("pnl_pct", 0.0))
+    s.pnl_gross_pct = float(d.get("pnl_gross_pct", s.pnl_pct))
+    s.fee_pct       = float(d.get("fee_pct", 0.0))
+    s.funding_pct   = float(d.get("funding_pct", 0.0))
     s.returns       = [float(r) for r in d.get("returns", [])]
     s.equity        = float(d.get("equity", 1.0))
     s.peak          = float(d.get("peak", 1.0))
@@ -566,6 +596,7 @@ def _open_to_dict(p: _OpenPosition) -> dict:
         "entry_price": p.entry_price,
         "qty":         p.qty,
         "fee_open":    p.fee_open,
+        "funding_open": p.funding_open,
     }
 
 
@@ -595,4 +626,5 @@ def _open_from_dict(d: dict) -> _OpenPosition:
         entry_price=float(d["entry_price"]),
         qty=float(d["qty"]),
         fee_open=float(d["fee_open"]),
+        funding_open=float(d.get("funding_open", 0.0)),
     )

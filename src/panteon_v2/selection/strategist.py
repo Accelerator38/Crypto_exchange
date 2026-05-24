@@ -30,7 +30,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from ..domain.types import Metrics, Regime
+from ..domain.types import Action, Metrics, Regime
 from ..memory import PerformanceMemory, QuarantineManager
 from ..scoring import DEFAULT_SCORING, ScoringConfig, regime_score
 from .player import NoTradePlayer, Player
@@ -120,6 +120,7 @@ class StrategistConfig:
     v3_shadow_flat_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_max_age_bars: int = 1
+    v3_shadow_fresh_handoff_require_positive_unrealized: bool = True
     v3_shadow_rolling_window_bars: int = 24
     v3_shadow_rolling_min_closed_trades: int = 50
     v3_entry_causal_min_filled: int = 3
@@ -274,6 +275,19 @@ class StrategistConfig:
 
 
 DEFAULT_STRATEGIST = StrategistConfig()
+
+
+def _shadow_action_key(action: object) -> str:
+    if isinstance(action, Action):
+        return action.side or action.name.lower()
+    text = str(action or "").strip().lower()
+    if not text:
+        return ""
+    if "long" in text or "buy" in text:
+        return "long"
+    if "short" in text:
+        return "short"
+    return text
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -457,6 +471,114 @@ class Strategist:
             if str(label).strip()
         }
 
+    def shadow_soft_score_for_label(
+        self,
+        label: str,
+        regime: Regime,
+        current_bar: int,
+    ) -> tuple[float, int]:
+        return self._soft_shadow_score.score_with_trade_count(
+            label=str(label),
+            regime=regime.label,
+            current_bar=int(current_bar),
+        )
+
+    def shadow_soft_stats_for_label(
+        self,
+        label: str,
+        regime: Regime,
+        current_bar: int,
+    ) -> dict:
+        return self._soft_shadow_score.stats(
+            label=str(label),
+            regime=regime.label,
+            current_bar=int(current_bar),
+        ).as_confirmation_payload()
+
+    def shadow_soft_score_for_label_all_regimes(
+        self,
+        label: str,
+        current_bar: int,
+    ) -> tuple[float, int]:
+        return self._soft_shadow_score.score_with_trade_count(
+            label=str(label),
+            regime="all",
+            current_bar=int(current_bar),
+        )
+
+    def shadow_soft_stats_for_label_all_regimes(
+        self,
+        label: str,
+        current_bar: int,
+    ) -> dict:
+        return self._soft_shadow_score.stats(
+            label=str(label),
+            regime="all",
+            current_bar=int(current_bar),
+        ).as_confirmation_payload()
+
+    def shadow_soft_score_for_signal(
+        self,
+        label: str,
+        regime: Regime,
+        symbol: str,
+        current_bar: int,
+        action: object = "",
+    ) -> tuple[float, int]:
+        return self._soft_shadow_score.score_with_trade_count(
+            label=str(label),
+            regime=regime.label,
+            symbol=str(symbol or "").upper(),
+            action=_shadow_action_key(action),
+            current_bar=int(current_bar),
+        )
+
+    def shadow_soft_stats_for_signal(
+        self,
+        label: str,
+        regime: Regime,
+        symbol: str,
+        current_bar: int,
+        action: object = "",
+    ) -> dict:
+        return self._soft_shadow_score.stats(
+            label=str(label),
+            regime=regime.label,
+            symbol=str(symbol or "").upper(),
+            action=_shadow_action_key(action),
+            current_bar=int(current_bar),
+        ).as_confirmation_payload()
+
+    def shadow_soft_score_for_signal_all_regimes(
+        self,
+        label: str,
+        symbol: str,
+        current_bar: int,
+        action: object = "",
+    ) -> tuple[float, int]:
+        return self._soft_shadow_score.score_with_trade_count(
+            label=str(label),
+            regime="all",
+            symbol=str(symbol or "").upper(),
+            action=_shadow_action_key(action),
+            current_bar=int(current_bar),
+        )
+
+    def shadow_soft_stats_for_signal_all_regimes(
+        self,
+        label: str,
+        symbol: str,
+        current_bar: int,
+        action: object = "",
+    ) -> dict:
+        return self._soft_shadow_score.stats(
+            label=str(label),
+            regime="all",
+            symbol=str(symbol or "").upper(),
+            action=_shadow_action_key(action),
+            current_bar=int(current_bar),
+        ).as_confirmation_payload()
+
     def capture_session_baseline(self, regime: Optional[Regime] = None) -> None:
         regimes = [regime] if regime is not None else list(Regime)
         labels = set()
@@ -535,6 +657,50 @@ class Strategist:
                     signals=signals,
                     filled=filled,
                 )
+                for symbol, symbol_pnl, symbol_closed, _symbol_wins in (
+                    self._object_value(event, "symbol_outcomes") or ()
+                ):
+                    self._soft_shadow_score.update(
+                        bar=bar,
+                        label=label,
+                        regime=regime,
+                        symbol=str(symbol or "").upper(),
+                        pnl_usd=self._safe_float(symbol_pnl),
+                        closed_trades=self._safe_int(symbol_closed),
+                        winning_trades=self._safe_int(_symbol_wins),
+                    )
+                    self._soft_shadow_score.update(
+                        bar=bar,
+                        label=label,
+                        regime="all",
+                        symbol=str(symbol or "").upper(),
+                        pnl_usd=self._safe_float(symbol_pnl),
+                        closed_trades=self._safe_int(symbol_closed),
+                        winning_trades=self._safe_int(_symbol_wins),
+                    )
+                for symbol, action, action_pnl, action_closed, _action_wins in (
+                    self._object_value(event, "symbol_action_outcomes") or ()
+                ):
+                    self._soft_shadow_score.update(
+                        bar=bar,
+                        label=label,
+                        regime=regime,
+                        symbol=str(symbol or "").upper(),
+                        action=_shadow_action_key(action),
+                        pnl_usd=self._safe_float(action_pnl),
+                        closed_trades=self._safe_int(action_closed),
+                        winning_trades=self._safe_int(_action_wins),
+                    )
+                    self._soft_shadow_score.update(
+                        bar=bar,
+                        label=label,
+                        regime="all",
+                        symbol=str(symbol or "").upper(),
+                        action=_shadow_action_key(action),
+                        pnl_usd=self._safe_float(action_pnl),
+                        closed_trades=self._safe_int(action_closed),
+                        winning_trades=self._safe_int(_action_wins),
+                    )
 
     def _update_shadow_actor_score_state(
         self,
@@ -564,6 +730,15 @@ class Strategist:
             regime=regime,
             pnl_usd=pnl_usd,
             closed_trades=closed_trades,
+            winning_trades=wins,
+        )
+        self._soft_shadow_score.update(
+            bar=bar,
+            label=label,
+            regime="all",
+            pnl_usd=pnl_usd,
+            closed_trades=closed_trades,
+            winning_trades=wins,
         )
         self._entry_causal_score.update(
             bar=bar,

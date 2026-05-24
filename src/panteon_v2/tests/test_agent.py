@@ -73,6 +73,13 @@ class TestAgentRegistry(unittest.TestCase):
         reg.register(FakeAgent("M"))
         self.assertEqual(reg.all_labels(), ["A", "M", "Z"])
 
+    def test_registry_mutation_is_reentrant_under_lock(self):
+        reg = AgentRegistry()
+        with reg._lock:
+            reg.register(FakeAgent("X"))
+            self.assertTrue(reg.has("X"))
+            self.assertEqual(reg.all_labels(), ["X"])
+
     def test_contains(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("X"))

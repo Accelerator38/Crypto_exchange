@@ -48,6 +48,7 @@ from ..selection import (
     StrategistConfig,
     SwitchDecision,
 )
+from ..selection.player import normalize_vote_result
 from .feed import MarketFeed
 
 
@@ -252,7 +253,9 @@ class ShadowRunner:
 
         # Лидер голосует
         leader = decision.new_leader
-        signals = leader.vote(market, signal_id_start=self._signal_id)
+        signals, _errors = normalize_vote_result(
+            leader.vote(market, signal_id_start=self._signal_id)
+        )
         # Сдвигаем счётчик
         if signals:
             self._signal_id = max(s.id for s in signals) + 1

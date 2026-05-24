@@ -127,20 +127,26 @@ class WeightedConsensus:
             score_long_open = 0.0
             score_short_open = 0.0
             score_close = 0.0
+            score_keep = 0.0
             agents_voting = 0
             for label, agent_votes in votes.items():
                 weight = float(weights.get(label, 0.0))
                 if weight <= 0:
                     continue
+                has_symbol_vote = sym in agent_votes
                 action = agent_votes.get(sym, Action.HOLD)
                 if action.is_long_open:
                     score_long_open += weight
+                    score_keep += weight
                     agents_voting += 1
                 elif action.is_short_open:
                     score_short_open += weight
+                    score_keep += weight
                     agents_voting += 1
                 elif action.is_close:
                     score_close += weight
+                elif has_symbol_vote:
+                    score_keep += weight
 
             # Открытие
             open_thr = (
@@ -163,7 +169,7 @@ class WeightedConsensus:
                 thresholds.close_multi if n_agents >= 2
                 else thresholds.close_single
             )
-            if score_close >= close_thr:
+            if score_close >= close_thr and score_close > score_keep:
                 out[sym] = Action.FUT_CLOSE_ALL
 
         return out

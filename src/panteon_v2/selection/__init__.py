@@ -20,6 +20,23 @@ from .voting import (
 )
 from .player import EnsemblePlayer, NoTradePlayer, Player, RotatingAgentPlayer
 from .selector import AgentSelector, ScoredAgent, SessionOverlayConfig
+from .flash_allocator import (
+    FLASH_EXPERIMENTAL_FLAGS,
+    FLASH_PRESET_AGGRESSIVE,
+    FLASH_PRESET_DEFAULT,
+    FLASH_PRESET_SAFE,
+    FLASH_PRESET_SAFE_PINNED_VALUES,
+    FlashAllocator,
+    FlashAllocatorConfig,
+    FlashCandidateAudit,
+    FlashDecision,
+)
+from .promotion_manifest import (
+    PromotionManifest,
+    PromotionManifestConfig,
+    PromotionRejection,
+    build_promotion_manifest,
+)
 from .composer import (
     PROFILE_BOMBERMAN_STRONG,
     PROFILE_DEFAULT_ENSEMBLE,
@@ -58,6 +75,21 @@ __all__ = [
     "AgentSelector",
     "ScoredAgent",
     "SessionOverlayConfig",
+    # flash allocator
+    "FLASH_EXPERIMENTAL_FLAGS",
+    "FLASH_PRESET_AGGRESSIVE",
+    "FLASH_PRESET_DEFAULT",
+    "FLASH_PRESET_SAFE",
+    "FLASH_PRESET_SAFE_PINNED_VALUES",
+    "FlashAllocator",
+    "FlashAllocatorConfig",
+    "FlashCandidateAudit",
+    "FlashDecision",
+    # promotion manifest
+    "PromotionManifest",
+    "PromotionManifestConfig",
+    "PromotionRejection",
+    "build_promotion_manifest",
     # composer
     "PROFILE_BOMBERMAN_STRONG",
     "PROFILE_DEFAULT_ENSEMBLE",
