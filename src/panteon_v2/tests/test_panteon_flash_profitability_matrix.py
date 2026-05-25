@@ -123,6 +123,10 @@ def test_default_dry_run_includes_proven_solo_position_handoff_candidate(tmp_pat
     )
     assert "proven_solo_portfolio_hard_solo_momentum_cap10_no_neutral_open" in names
     assert "proven_solo_portfolio_hard_solo_momentum_cap10_wider_execution" in names
+    assert "genetics_router_shadow" in names
+    assert "genetics_router_confirmation_overlay" in names
+    assert "genetics_router_executable_simulation" in names
+    assert "genetics_router_promotion_manifest" in names
     handoff_args = module.PROVEN_SOLO_POSITION_HANDOFF_AGE24_SHADOW5_ARGS
     assert "--enable-flash-prefer-proven-solo-player-wrappers" in handoff_args
     assert "--enable-v3-shadow-fresh-handoff" in handoff_args
@@ -151,6 +155,59 @@ def test_default_dry_run_includes_proven_solo_position_handoff_candidate(tmp_pat
     )
     assert "--enable-flash-prefer-solo-player-wrappers" in portfolio_hard_args
     assert "agent:LiveOIBreakout" in portfolio_hard_args
+    genetics_shadow_args = module.GENETICS_ROUTER_SHADOW_ARGS
+    assert "--include-optional-agents" in genetics_shadow_args
+    assert "--optional-agent-labels" in genetics_shadow_args
+    optional_index = genetics_shadow_args.index("--optional-agent-labels")
+    assert genetics_shadow_args[optional_index + 1] == (
+        "GeneticsBest,GeneticsCrash,GeneticsBullish,"
+        "GeneticsBearish,GeneticsNeutral,GeneticsRegimeRouter"
+    )
+    assert "--enable-genetics-probation-execution" not in genetics_shadow_args
+    genetics_overlay_args = module.GENETICS_ROUTER_CONFIRMATION_OVERLAY_ARGS
+    assert "--enable-flash-genetics-confirmation-overlay" in genetics_overlay_args
+    assert "--enable-flash-genetics-confirmation-quality-gate" in genetics_overlay_args
+    assert "--enable-genetics-probation-execution" not in genetics_overlay_args
+    overlay_labels = [
+        genetics_overlay_args[idx + 1]
+        for idx, arg in enumerate(genetics_overlay_args)
+        if arg == "--flash-genetics-confirmation-label"
+    ]
+    assert overlay_labels == [
+        "GeneticsBest",
+        "GeneticsCrash",
+        "GeneticsBullish",
+        "GeneticsBearish",
+        "GeneticsNeutral",
+        "GeneticsRegimeRouter",
+    ]
+    min_closed_index = genetics_overlay_args.index(
+        "--flash-genetics-confirmation-min-closed-trades"
+    )
+    assert genetics_overlay_args[min_closed_index + 1] == "3"
+    min_ppt_index = genetics_overlay_args.index(
+        "--flash-genetics-confirmation-min-pnl-per-trade-pct"
+    )
+    assert genetics_overlay_args[min_ppt_index + 1] == "0.0"
+    genetics_exec_args = module.GENETICS_ROUTER_EXECUTABLE_SIMULATION_ARGS
+    assert "--enable-genetics-probation-execution" in genetics_exec_args
+    label_values = [
+        genetics_exec_args[idx + 1]
+        for idx, arg in enumerate(genetics_exec_args)
+        if arg == "--genetics-probation-label"
+    ]
+    assert label_values == ["GeneticsNeutral", "GeneticsRegimeRouter"]
+    regime_values = [
+        genetics_exec_args[idx + 1]
+        for idx, arg in enumerate(genetics_exec_args)
+        if arg == "--genetics-probation-allowed-regime"
+    ]
+    assert regime_values == ["bearish", "neutral", "bullish"]
+    assert "--genetics-probation-risk-mult" in genetics_exec_args
+    assert "--genetics-probation-max-real-trades" in genetics_exec_args
+    genetics_manifest_args = module.GENETICS_ROUTER_PROMOTION_MANIFEST_ARGS
+    assert "--enable-flash-promotion-manifest" in genetics_manifest_args
+    assert "--include-optional-agents" in genetics_manifest_args
     cap10_args = module.PROVEN_SOLO_PORTFOLIO_HARD_SOLO_MOMENTUM_CAP10_ARGS
     cap_index = cap10_args.index("--flash-promoted-actor-cap-override")
     assert cap10_args[cap_index + 1] == "ensemble:Solo_MomentumScalper=10"
@@ -248,6 +305,100 @@ def test_default_dry_run_includes_proven_solo_position_handoff_candidate(tmp_pat
     risk_index = wider_args.index("--risk-max-open-positions")
     assert wider_args[opens_index + 1] == "3"
     assert wider_args[risk_index + 1] == "16"
+
+
+def test_risk_frequency_sweep_dry_run_checks_both_model_sets_and_metadata(tmp_path):
+    module = _load_matrix_tool()
+    reports_dir = tmp_path / "Reports"
+    results_root = tmp_path / "Results"
+
+    rc = module.main([
+        "--dry-run",
+        "--risk-frequency-sweep",
+        "--tier",
+        "2026_h1",
+        "--reports-dir",
+        str(reports_dir),
+        "--results-root",
+        str(results_root),
+    ])
+
+    assert rc == 0
+    data = json.loads(
+        (reports_dir / "panteon_flash_profitability_matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rows = data["experiments"]
+    model_sets = {row["model_set"] for row in rows}
+    profiles = {row["frequency_profile"] for row in rows}
+
+    assert model_sets == {"current_best", "legacy_specialists"}
+    assert {"baseline_60m", "scaled_60m", "slow_120m", "open2_60m"}.issubset(
+        profiles
+    )
+    assert {row["tier"] for row in rows} == {"2026_h1"}
+
+    baseline = next(
+        row
+        for row in rows
+        if row["model_set"] == "current_best"
+        and row["frequency_profile"] == "baseline_60m"
+    )
+    assert baseline["risk_capital_fraction"] == 0.10
+    assert baseline["leverage_proxy"] == 1.0
+    assert baseline["stride_minutes"] == 60
+    assert baseline["max_new_opens_per_bar"] == 1
+    assert baseline["risk_max_open_positions"] == 8
+    current_best = next(
+        item
+        for item in module.RISK_FREQUENCY_EXPERIMENTS
+        if item["name"] == baseline["name"]
+    )
+    assert "--flash-degradation-actor-scope" in current_best["args"]
+    scope_index = current_best["args"].index("--flash-degradation-actor-scope")
+    assert current_best["args"][scope_index + 1] == "actor_regime"
+    assert "--flash-degradation-signal-cooldown-bars" in current_best["args"]
+    assert current_best["args"].count("--flash-deny-signal-key") >= 20
+
+    legacy = next(row for row in rows if row["model_set"] == "legacy_specialists")
+    experiment = next(
+        item
+        for item in module.RISK_FREQUENCY_EXPERIMENTS
+        if item["name"] == legacy["name"]
+    )
+    assert "--allow-experimental-flash-real-actors" in experiment["args"]
+    assert "--risk-capital-fraction" in experiment["args"]
+
+
+def test_sparse_ada_fut_long_contra_no_backfill_experiment_is_validation_only():
+    module = _load_matrix_tool()
+
+    args = module.GENETICS_SPARSE_ADA_FUT_LONG_CONTRA_NO_BACKFILL_ARGS
+
+    assert "--enable-flash-genetics-confirmation-overlay" in args
+    assert "--enable-flash-genetics-confirmation-contra-static" in args
+    assert "--enable-flash-genetics-confirmation-contra-no-backfill" in args
+    assert "--enable-genetics-probation-execution" not in args
+    assert "--enable-flash-promotion-manifest" not in args
+    keys = [
+        args[index + 1]
+        for index, value in enumerate(args)
+        if value == "--flash-genetics-confirmation-contra-signal-key"
+    ]
+    assert keys == [
+        "ensemble:Solo_GeneticsBearish|ADA/USDT|FUT_LONG_FULL",
+        "agent:GeneticsBearish|ADA/USDT|FUT_LONG_FULL",
+        "agent:GeneticsBullish|ADA/USDT|FUT_LONG_FULL",
+        "agent:GeneticsNeutral|ADA/USDT|FUT_LONG_FULL",
+    ]
+    experiments = {
+        str(experiment["name"]): experiment for experiment in module.EXPERIMENTS
+    }
+    assert (
+        experiments["genetics_sparse_ada_fut_long_contra_no_backfill"]["args"]
+        == args
+    )
 
 
 def test_default_dry_run_includes_hard_solo_actor_guard_candidate(tmp_path):
@@ -821,6 +972,35 @@ def test_extract_metrics_includes_flash_quality_contract(tmp_path):
     assert metrics["standalone_vs_flash_selected_pnl_pct"] == 3.75
 
 
+def test_extract_metrics_derives_beats_component_from_pct_when_report_flag_conflicts(tmp_path):
+    module = _load_matrix_tool()
+    output = tmp_path / "run"
+    output.mkdir()
+    (output / "status.json").write_text(
+        json.dumps({
+            "live_session": {"panteon_owned_pnl_pct": 8.77},
+            "panteon_max_drawdown_pct": 0.05,
+        }),
+        encoding="utf-8",
+    )
+    (output / "component_benchmark_report.json").write_text(
+        json.dumps({
+            "summary": {
+                "panteon_alpha_pct": 1.80,
+                "panteon_beats_best_component": False,
+                "best_component_pnl_pct": 6.97,
+            },
+            "components": [],
+        }),
+        encoding="utf-8",
+    )
+
+    metrics = module._extract_metrics(output)
+
+    assert metrics["benchmark_beats_best_component"] is False
+    assert metrics["beats_best_component"] is True
+
+
 def test_regime_floor_does_not_fail_on_under_sampled_negative_regime():
     module = _load_matrix_tool()
 
@@ -1109,6 +1289,140 @@ def test_generated_selected_deny_args_unions_multiple_source_reports(tmp_path):
         "--flash-deny-signal-key",
         "ensemble:B|ETH/USDT|FUT_SHORT_FULL",
     ]
+
+
+def test_generated_selected_deny_args_can_require_cross_source_confirmation(tmp_path):
+    module = _load_matrix_tool()
+    source_a = tmp_path / "source_a"
+    source_b = tmp_path / "source_b"
+    source_a.mkdir()
+    source_b.mkdir()
+    (source_a / "flash_attribution_summary.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "actor_key": "ensemble:A",
+                        "symbol": "BTC/USDT",
+                        "action": "FUT_LONG_FULL",
+                        "closed_trades": 2,
+                        "realized_pnl_usd": -2.0,
+                    },
+                    {
+                        "actor_key": "ensemble:B",
+                        "symbol": "ETH/USDT",
+                        "action": "FUT_SHORT_FULL",
+                        "closed_trades": 1,
+                        "realized_pnl_usd": -5.0,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (source_b / "flash_attribution_summary.json").write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "actor_key": "ensemble:A",
+                        "symbol": "BTC/USDT",
+                        "action": "FUT_LONG_FULL",
+                        "closed_trades": 1,
+                        "realized_pnl_usd": -3.0,
+                    },
+                    {
+                        "actor_key": "ensemble:B",
+                        "symbol": "ETH/USDT",
+                        "action": "FUT_SHORT_FULL",
+                        "closed_trades": 2,
+                        "realized_pnl_usd": 4.0,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    args, warning = module._generated_selected_deny_args(
+        {
+            "selected_deny_source_experiments": ["source_a", "source_b"],
+            "selected_deny_confirm_across_sources": True,
+            "selected_deny_max_realized_pnl_usd": -0.1,
+            "selected_deny_min_closed_trades": 1,
+            "selected_deny_max_keys": 10,
+        },
+        tier_name="2025",
+        output_dirs_by_experiment_tier={
+            ("source_a", "2025"): source_a,
+            ("source_b", "2025"): source_b,
+        },
+    )
+
+    assert warning == ""
+    assert args == [
+        "--flash-deny-signal-key",
+        "ensemble:A|BTC/USDT|FUT_LONG_FULL",
+    ]
+
+
+def test_selected_deny_confirmation_report_writes_only_confirmed_keys(tmp_path):
+    module = _load_matrix_tool()
+    source_a = tmp_path / "source_a"
+    source_b = tmp_path / "source_b"
+    reports_dir = tmp_path / "Reports"
+    source_a.mkdir()
+    source_b.mkdir()
+    for source, btc_pnl, eth_pnl in (
+        (source_a, -2.0, -5.0),
+        (source_b, -3.0, 4.0),
+    ):
+        (source / "flash_attribution_summary.json").write_text(
+            json.dumps(
+                {
+                    "rows": [
+                        {
+                            "actor_key": "ensemble:A",
+                            "symbol": "BTC/USDT",
+                            "action": "FUT_LONG_FULL",
+                            "closed_trades": 1,
+                            "realized_pnl_usd": btc_pnl,
+                        },
+                        {
+                            "actor_key": "ensemble:B",
+                            "symbol": "ETH/USDT",
+                            "action": "FUT_SHORT_FULL",
+                            "closed_trades": 1,
+                            "realized_pnl_usd": eth_pnl,
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    rc = module.main([
+        "--selected-deny-confirmation-report",
+        "--source-output-dir",
+        str(source_a),
+        "--source-output-dir",
+        str(source_b),
+        "--reports-dir",
+        str(reports_dir),
+    ])
+
+    assert rc == 0
+    report = json.loads(
+        (reports_dir / "selected_deny_confirmation_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report["summary"]["source_count"] == 2
+    assert report["summary"]["confirmed_key_count"] == 1
+    assert report["confirmed_deny_signal_keys"] == [
+        "ensemble:A|BTC/USDT|FUT_LONG_FULL"
+    ]
+    assert report["rows"][0]["total_realized_pnl_usd"] == -5.0
 
 
 def test_generated_selected_deny_args_can_use_fixed_source_tier(tmp_path):

@@ -223,6 +223,25 @@ def _is_genetics_profile(profile: PlayerProfile) -> bool:
     return any("genetic" in str(label).lower() for label in labels)
 
 
+def _agent_is_composable(agent: object) -> bool:
+    if bool(getattr(agent, "shadow_only", False)):
+        return False
+    if getattr(agent, "live_trading_eligible", True) is False:
+        return False
+    return True
+
+
+def _selector_registry_size(selector: AgentSelector) -> int:
+    registry = getattr(selector, "_registry", None)
+    all_agents = getattr(registry, "all_agents", None)
+    if not callable(all_agents):
+        return 0
+    try:
+        return len(tuple(all_agents()))
+    except Exception:
+        return 0
+
+
 def _scored_agent_sort_key(sa: ScoredAgent) -> Tuple[float, int, int, str]:
     return (
         -sa.score,
@@ -282,16 +301,24 @@ class PlayerComposer:
         if _is_genetics_profile(profile) and regime not in GENETICS_PROFILE_REGIMES:
             return []
         k = profile.max_agents
+        select_k = max(k, _selector_registry_size(self._selector))
         if profile.allowed_labels:
-            k = max(k, len(profile.allowed_labels), 1000)
+            select_k = max(select_k, len(profile.allowed_labels), 1000)
         if fallback:
             scored = self._selector.select_with_fallback(
                 regime,
-                k=k,
+                k=select_k,
                 min_count=profile.min_agents,
             )
         else:
-            scored = self._selector.select(regime, k=k)
+            scored = self._selector.select(regime, k=select_k)
+        scored = [row for row in scored if _agent_is_composable(row.agent)]
+        if fallback and len(scored) < profile.min_agents:
+            scored = [
+                row
+                for row in self._selector.select(regime, k=select_k, min_score=-10.0)
+                if _agent_is_composable(row.agent)
+            ]
         if profile.allowed_labels:
             allowed = set(profile.allowed_labels)
             scored = [row for row in scored if row.label in allowed]
@@ -305,7 +332,12 @@ class PlayerComposer:
                         regime,
                         include_quarantined=True,
                     )
-                    if row is None or not row.metrics.has_data or row.score <= 0.0:
+                    if (
+                        row is None
+                        or not row.metrics.has_data
+                        or row.score <= 0.0
+                        or not _agent_is_composable(row.agent)
+                    ):
                         continue
                     scored.append(row)
                     selected.add(label)

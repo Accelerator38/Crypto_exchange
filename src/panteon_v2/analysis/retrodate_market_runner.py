@@ -165,6 +165,22 @@ def _experimental_flash_fixed_agent_player_sets() -> tuple[tuple[str, tuple[str,
     )
 
 
+def _genetics_probation_fixed_agent_player_sets(
+    config: RetrodateMarketConfig,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if not bool(config.genetics_probation_execution_enabled):
+        return ()
+    fixed_sets: list[tuple[str, tuple[str, ...]]] = []
+    seen: set[str] = set()
+    for raw_label in config.genetics_probation_labels:
+        label = str(raw_label or "").strip()
+        if not label or label in seen or not label.startswith("Genetics"):
+            continue
+        seen.add(label)
+        fixed_sets.append((label, (label,)))
+    return tuple(fixed_sets)
+
+
 def _experimental_flash_rotating_agent_player_sets() -> tuple[
     tuple[str, dict[str, tuple[str, ...]], tuple[str, ...]],
     ...
@@ -240,6 +256,7 @@ class RetrodateMarketConfig:
     timeframe: str = "1m"
     stride_minutes: int = 60
     initial_capital: float = 1000.0
+    risk_capital_fraction: float = 0.10
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -262,6 +279,20 @@ class RetrodateMarketConfig:
     flash_shadow_actor_fallback_confirmation_enabled: bool = False
     flash_shadow_base_fallback_confirmation_enabled: bool = False
     flash_shadow_signal_handoff_enabled: bool = False
+    flash_genetics_confirmation_overlay_enabled: bool = False
+    flash_genetics_confirmation_labels: tuple[str, ...] = ()
+    flash_genetics_confirmation_allowed_signal_keys: tuple[str, ...] = ()
+    flash_genetics_confirmation_contra_signal_keys: tuple[str, ...] = ()
+    flash_genetics_contra_validation_manifest_path: Optional[Path | str] = None
+    flash_genetics_confirmation_contra_side_match_enabled: bool = False
+    flash_genetics_confirmation_contra_static_enabled: bool = False
+    flash_genetics_confirmation_contra_no_backfill_enabled: bool = False
+    flash_genetics_confirmation_quality_gate_enabled: bool = False
+    flash_genetics_confirmation_min_closed_trades: int = 0
+    flash_genetics_confirmation_min_pnl_per_trade_pct: float = 0.0
+    flash_genetics_confirmation_score_bonus: float = 0.0
+    flash_genetics_confirmation_score_penalty: float = 0.0
+    flash_genetics_confirmation_contra_score_penalty: float = 0.0
     flash_shadow_actor_fallback_min_base_score: float = 0.0
     flash_shadow_base_fallback_actor_keys: tuple[str, ...] = ()
     flash_actor_switch_margin: float = 0.0
@@ -284,6 +315,33 @@ class RetrodateMarketConfig:
     flash_shadow_pnl_per_trade_lcb_z: float = 1.0
     flash_shadow_pnl_per_trade_lcb_penalty_floor_usd: float = 0.0
     flash_shadow_pnl_per_trade_lcb_penalty_weight: float = 0.0
+    flash_shadow_pnl_lcb_risk_sizing_enabled: bool = False
+    flash_shadow_pnl_lcb_risk_min_mult: float = 0.25
+    flash_shadow_pnl_lcb_risk_floor_usd: float = 0.0
+    flash_shadow_pnl_lcb_risk_scale_usd: float = 1.0
+    flash_shadow_symbol_health_enabled: bool = False
+    flash_shadow_symbol_health_min_closed_trades: int = 0
+    flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd: Optional[float] = None
+    flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd: float = 0.0
+    flash_shadow_symbol_health_pnl_lcb_penalty_weight: float = 0.0
+    flash_actor_risk_sizing_enabled: bool = False
+    flash_actor_risk_min_mult: float = 0.25
+    flash_actor_risk_max_mult: float = 1.0
+    flash_actor_risk_edge_scale_pct: float = 0.50
+    flash_funding_score_weight: float = 0.0
+    flash_funding_risk_mult_weight: float = 0.0
+    flash_funding_risk_mult_cap: float = 0.25
+    flash_no_trade_fee_saving_score_enabled: bool = False
+    flash_no_trade_default_fee_bps: float = 0.0
+    flash_volatility_risk_sizing_enabled: bool = False
+    flash_volatility_risk_target_pct: float = 2.0
+    flash_volatility_risk_min_volatility_pct: float = 0.5
+    flash_volatility_risk_max_mult: float = 2.0
+    flash_selected_subset_score_boosts: tuple[str, ...] = ()
+    flash_selected_subset_do_not_demote_signal_keys: tuple[str, ...] = ()
+    flash_selected_subset_risk_mult_overrides: tuple[str, ...] = ()
+    flash_selected_subset_risk_min_mult: float = 0.75
+    flash_selected_subset_risk_max_mult: float = 1.15
     flash_max_signals_per_actor: int = 0
     flash_overextension_guard_enabled: bool = False
     flash_overextension_lookback_bars: int = 12
@@ -304,6 +362,7 @@ class RetrodateMarketConfig:
     flash_degradation_actor_cooldown_bars: int = 0
     flash_degradation_symbol_guard_enabled: bool = False
     flash_degradation_symbol_cooldown_bars: int = 0
+    flash_degradation_symbol_lookback_bars: int = 0
     flash_degradation_symbol_window_closed_trades: int = 0
     flash_degradation_symbol_min_closed_trades: int = 0
     flash_degradation_symbol_max_recent_pnl_usd: Optional[float] = None
@@ -388,6 +447,8 @@ class RetrodateMarketConfig:
     max_new_opens_per_bar: int = 1
     risk_max_open_positions: int = 8
     genetics_probation_execution_enabled: bool = False
+    genetics_probation_labels: tuple[str, ...] = ("GeneticsResearch",)
+    genetics_probation_allowed_regimes: tuple[str, ...] = ("bearish", "crash")
     genetics_probation_risk_mult: float = 0.25
     genetics_probation_max_real_trades: int = 20
     genetics_probation_require_shadow_confirmation: bool = True
@@ -407,6 +468,8 @@ class RetrodateMarketConfig:
             raise ValueError("stride_minutes must be > 0")
         if self.initial_capital <= 0:
             raise ValueError("initial_capital must be > 0")
+        if not 0.0 < self.risk_capital_fraction <= 1.0:
+            raise ValueError("risk_capital_fraction must be in (0, 1]")
         if self.solo_agent_candidate_limit < 1:
             raise ValueError("solo_agent_candidate_limit must be >= 1")
         if self.invalid_policy not in {"exclude", "fail"}:
@@ -435,6 +498,51 @@ class RetrodateMarketConfig:
             raise ValueError(
                 "flash_shadow_pnl_per_trade_lcb_penalty_weight must be >= 0"
             )
+        if self.flash_shadow_pnl_lcb_risk_min_mult < 0:
+            raise ValueError("flash_shadow_pnl_lcb_risk_min_mult must be >= 0")
+        if self.flash_shadow_pnl_lcb_risk_min_mult > 1.0:
+            raise ValueError("flash_shadow_pnl_lcb_risk_min_mult must be <= 1")
+        if self.flash_shadow_pnl_lcb_risk_scale_usd <= 0:
+            raise ValueError("flash_shadow_pnl_lcb_risk_scale_usd must be > 0")
+        if self.flash_shadow_symbol_health_min_closed_trades < 0:
+            raise ValueError("flash_shadow_symbol_health_min_closed_trades must be >= 0")
+        if self.flash_shadow_symbol_health_pnl_lcb_penalty_weight < 0:
+            raise ValueError(
+                "flash_shadow_symbol_health_pnl_lcb_penalty_weight must be >= 0"
+            )
+        if self.flash_actor_risk_min_mult < 0:
+            raise ValueError("flash_actor_risk_min_mult must be >= 0")
+        if self.flash_actor_risk_max_mult <= 0:
+            raise ValueError("flash_actor_risk_max_mult must be > 0")
+        if self.flash_actor_risk_min_mult > self.flash_actor_risk_max_mult:
+            raise ValueError("flash_actor_risk_min_mult must be <= flash_actor_risk_max_mult")
+        if self.flash_actor_risk_edge_scale_pct <= 0:
+            raise ValueError("flash_actor_risk_edge_scale_pct must be > 0")
+        if self.flash_funding_score_weight < 0:
+            raise ValueError("flash_funding_score_weight must be >= 0")
+        if self.flash_funding_risk_mult_weight < 0:
+            raise ValueError("flash_funding_risk_mult_weight must be >= 0")
+        if self.flash_funding_risk_mult_cap < 0:
+            raise ValueError("flash_funding_risk_mult_cap must be >= 0")
+        if self.flash_no_trade_default_fee_bps < 0:
+            raise ValueError("flash_no_trade_default_fee_bps must be >= 0")
+        if self.flash_volatility_risk_target_pct <= 0:
+            raise ValueError("flash_volatility_risk_target_pct must be > 0")
+        if self.flash_volatility_risk_min_volatility_pct <= 0:
+            raise ValueError("flash_volatility_risk_min_volatility_pct must be > 0")
+        if self.flash_volatility_risk_max_mult <= 0:
+            raise ValueError("flash_volatility_risk_max_mult must be > 0")
+        if self.flash_selected_subset_risk_min_mult < 0:
+            raise ValueError("flash_selected_subset_risk_min_mult must be >= 0")
+        if self.flash_selected_subset_risk_max_mult <= 0:
+            raise ValueError("flash_selected_subset_risk_max_mult must be > 0")
+        if (
+            self.flash_selected_subset_risk_min_mult
+            > self.flash_selected_subset_risk_max_mult
+        ):
+            raise ValueError(
+                "flash_selected_subset_risk_min_mult must be <= flash_selected_subset_risk_max_mult"
+            )
         if self.flash_promotion_max_recent_downside_usd < 0:
             raise ValueError("flash_promotion_max_recent_downside_usd must be >= 0")
         object.__setattr__(
@@ -442,6 +550,51 @@ class RetrodateMarketConfig:
             "optional_agent_labels",
             tuple(str(label) for label in self.optional_agent_labels),
         )
+        raw_genetics_confirmation_labels = self.flash_genetics_confirmation_labels
+        genetics_confirmation_labels = (
+            raw_genetics_confirmation_labels.split(",")
+            if isinstance(raw_genetics_confirmation_labels, str)
+            else raw_genetics_confirmation_labels
+        )
+        object.__setattr__(
+            self,
+            "flash_genetics_confirmation_labels",
+            tuple(
+                str(label).strip()
+                for label in (genetics_confirmation_labels or ())
+                if str(label).strip()
+            ),
+        )
+        contra_validation_manifest_path = (
+            None
+            if self.flash_genetics_contra_validation_manifest_path in (None, "")
+            else Path(self.flash_genetics_contra_validation_manifest_path)
+        )
+        object.__setattr__(
+            self,
+            "flash_genetics_contra_validation_manifest_path",
+            contra_validation_manifest_path,
+        )
+        object.__setattr__(
+            self,
+            "flash_genetics_confirmation_contra_signal_keys",
+            _load_flash_validated_contra_signal_keys(
+                contra_validation_manifest_path,
+                explicit_keys=self.flash_genetics_confirmation_contra_signal_keys,
+            ),
+        )
+        if self.flash_genetics_confirmation_score_bonus < 0:
+            raise ValueError("flash_genetics_confirmation_score_bonus must be >= 0")
+        if self.flash_genetics_confirmation_score_penalty < 0:
+            raise ValueError("flash_genetics_confirmation_score_penalty must be >= 0")
+        if self.flash_genetics_confirmation_contra_score_penalty < 0:
+            raise ValueError(
+                "flash_genetics_confirmation_contra_score_penalty must be >= 0"
+            )
+        if self.flash_genetics_confirmation_min_closed_trades < 0:
+            raise ValueError(
+                "flash_genetics_confirmation_min_closed_trades must be >= 0"
+            )
         object.__setattr__(
             self,
             "hard_policy_deny_labels",
@@ -471,6 +624,8 @@ class RetrodateMarketConfig:
             raise ValueError("flash_degradation_actor_cooldown_bars must be >= 0")
         if self.flash_degradation_symbol_cooldown_bars < 0:
             raise ValueError("flash_degradation_symbol_cooldown_bars must be >= 0")
+        if self.flash_degradation_symbol_lookback_bars < 0:
+            raise ValueError("flash_degradation_symbol_lookback_bars must be >= 0")
         if self.flash_degradation_symbol_window_closed_trades < 0:
             raise ValueError("flash_degradation_symbol_window_closed_trades must be >= 0")
         if self.flash_degradation_symbol_min_closed_trades < 0:
@@ -545,6 +700,18 @@ class RetrodateMarketConfig:
             raise ValueError("genetics_probation_risk_mult must be in (0, 1]")
         if self.genetics_probation_max_real_trades < 0:
             raise ValueError("genetics_probation_max_real_trades must be >= 0")
+        for name in ("genetics_probation_labels", "genetics_probation_allowed_regimes"):
+            raw_value = getattr(self, name)
+            values = (raw_value,) if isinstance(raw_value, str) else raw_value
+            object.__setattr__(
+                self,
+                name,
+                tuple(
+                    str(item).strip()
+                    for item in (values or ())
+                    if str(item).strip()
+                ),
+            )
         if self.v3_realized_profit_lock_min_closed_trades < 0:
             raise ValueError("v3_realized_profit_lock_min_closed_trades must be >= 0")
         if self.v3_shadow_rolling_window_bars < 1:
@@ -874,6 +1041,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         if config.fixed_agent_players_enabled
         else ()
     )
+    fixed_agent_player_sets += _genetics_probation_fixed_agent_player_sets(config)
     if (
         config.experimental_flash_actors_enabled
         and config.experimental_flash_real_actors_enabled
@@ -1073,6 +1241,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         timeframe=args.timeframe,
         stride_minutes=args.stride_minutes,
         initial_capital=args.initial_capital,
+        risk_capital_fraction=args.risk_capital_fraction,
         include_optional_agents=args.include_optional_agents,
         optional_agent_labels=_parse_optional_agent_labels(args.optional_agent_labels),
         invalid_policy=args.invalid_policy,
@@ -1104,6 +1273,56 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         flash_shadow_signal_handoff_enabled=(
             args.enable_flash_shadow_signal_handoff
+        ),
+        flash_genetics_confirmation_overlay_enabled=(
+            args.enable_flash_genetics_confirmation_overlay
+        ),
+        flash_genetics_confirmation_labels=tuple(
+            str(label).strip()
+            for label in args.flash_genetics_confirmation_label
+            if str(label).strip()
+        ),
+        flash_genetics_confirmation_allowed_signal_keys=tuple(
+            str(key).strip()
+            for key in args.flash_genetics_confirmation_allowed_signal_key
+            if str(key).strip()
+        ),
+        flash_genetics_confirmation_contra_signal_keys=tuple(
+            str(key).strip()
+            for key in args.flash_genetics_confirmation_contra_signal_key
+            if str(key).strip()
+        ),
+        flash_genetics_contra_validation_manifest_path=(
+            Path(args.flash_genetics_contra_validation_manifest_path)
+            if args.flash_genetics_contra_validation_manifest_path
+            else None
+        ),
+        flash_genetics_confirmation_contra_side_match_enabled=(
+            args.enable_flash_genetics_confirmation_contra_side_match
+        ),
+        flash_genetics_confirmation_contra_static_enabled=(
+            args.enable_flash_genetics_confirmation_contra_static
+        ),
+        flash_genetics_confirmation_contra_no_backfill_enabled=(
+            args.enable_flash_genetics_confirmation_contra_no_backfill
+        ),
+        flash_genetics_confirmation_quality_gate_enabled=(
+            args.enable_flash_genetics_confirmation_quality_gate
+        ),
+        flash_genetics_confirmation_min_closed_trades=(
+            args.flash_genetics_confirmation_min_closed_trades
+        ),
+        flash_genetics_confirmation_min_pnl_per_trade_pct=(
+            args.flash_genetics_confirmation_min_pnl_per_trade_pct
+        ),
+        flash_genetics_confirmation_score_bonus=(
+            args.flash_genetics_confirmation_score_bonus
+        ),
+        flash_genetics_confirmation_score_penalty=(
+            args.flash_genetics_confirmation_score_penalty
+        ),
+        flash_genetics_confirmation_contra_score_penalty=(
+            args.flash_genetics_confirmation_contra_score_penalty
         ),
         flash_shadow_actor_fallback_min_base_score=(
             args.flash_shadow_actor_fallback_min_base_score
@@ -1163,6 +1382,73 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         flash_shadow_pnl_per_trade_lcb_penalty_weight=(
             args.flash_shadow_pnl_per_trade_lcb_penalty_weight
         ),
+        flash_shadow_pnl_lcb_risk_sizing_enabled=(
+            args.enable_flash_shadow_pnl_lcb_risk_sizing
+        ),
+        flash_shadow_pnl_lcb_risk_min_mult=(
+            args.flash_shadow_pnl_lcb_risk_min_mult
+        ),
+        flash_shadow_pnl_lcb_risk_floor_usd=(
+            args.flash_shadow_pnl_lcb_risk_floor_usd
+        ),
+        flash_shadow_pnl_lcb_risk_scale_usd=(
+            args.flash_shadow_pnl_lcb_risk_scale_usd
+        ),
+        flash_shadow_symbol_health_enabled=(
+            args.enable_flash_shadow_symbol_health
+        ),
+        flash_shadow_symbol_health_min_closed_trades=(
+            args.flash_shadow_symbol_health_min_closed_trades
+        ),
+        flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd=(
+            args.flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd
+        ),
+        flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd=(
+            args.flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd
+        ),
+        flash_shadow_symbol_health_pnl_lcb_penalty_weight=(
+            args.flash_shadow_symbol_health_pnl_lcb_penalty_weight
+        ),
+        flash_actor_risk_sizing_enabled=args.enable_flash_actor_risk_sizing,
+        flash_actor_risk_min_mult=args.flash_actor_risk_min_mult,
+        flash_actor_risk_max_mult=args.flash_actor_risk_max_mult,
+        flash_actor_risk_edge_scale_pct=args.flash_actor_risk_edge_scale_pct,
+        flash_funding_score_weight=args.flash_funding_score_weight,
+        flash_funding_risk_mult_weight=args.flash_funding_risk_mult_weight,
+        flash_funding_risk_mult_cap=args.flash_funding_risk_mult_cap,
+        flash_no_trade_fee_saving_score_enabled=(
+            args.enable_flash_no_trade_fee_saving_score
+        ),
+        flash_no_trade_default_fee_bps=args.flash_no_trade_default_fee_bps,
+        flash_volatility_risk_sizing_enabled=(
+            args.enable_flash_volatility_risk_sizing
+        ),
+        flash_volatility_risk_target_pct=args.flash_volatility_risk_target_pct,
+        flash_volatility_risk_min_volatility_pct=(
+            args.flash_volatility_risk_min_volatility_pct
+        ),
+        flash_volatility_risk_max_mult=args.flash_volatility_risk_max_mult,
+        flash_selected_subset_score_boosts=tuple(
+            str(item).strip()
+            for item in args.flash_selected_subset_score_boost
+            if str(item).strip()
+        ),
+        flash_selected_subset_do_not_demote_signal_keys=tuple(
+            str(item).strip()
+            for item in args.flash_selected_subset_do_not_demote_signal_key
+            if str(item).strip()
+        ),
+        flash_selected_subset_risk_mult_overrides=tuple(
+            str(item).strip()
+            for item in args.flash_selected_subset_risk_mult
+            if str(item).strip()
+        ),
+        flash_selected_subset_risk_min_mult=(
+            args.flash_selected_subset_risk_min_mult
+        ),
+        flash_selected_subset_risk_max_mult=(
+            args.flash_selected_subset_risk_max_mult
+        ),
         flash_max_signals_per_actor=args.flash_max_signals_per_actor,
         flash_overextension_guard_enabled=args.enable_flash_overextension_guard,
         flash_overextension_lookback_bars=args.flash_overextension_lookback_bars,
@@ -1216,6 +1502,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         flash_degradation_symbol_cooldown_bars=(
             args.flash_degradation_symbol_cooldown_bars
+        ),
+        flash_degradation_symbol_lookback_bars=(
+            args.flash_degradation_symbol_lookback_bars
         ),
         flash_degradation_symbol_window_closed_trades=(
             args.flash_degradation_symbol_window_closed_trades
@@ -1403,6 +1692,18 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         genetics_probation_execution_enabled=(
             args.enable_genetics_probation_execution
         ),
+        genetics_probation_labels=tuple(
+            str(label).strip()
+            for label in (args.genetics_probation_label or ("GeneticsResearch",))
+            if str(label).strip()
+        ),
+        genetics_probation_allowed_regimes=tuple(
+            str(regime).strip()
+            for regime in (
+                args.genetics_probation_allowed_regime or ("bearish", "crash")
+            )
+            if str(regime).strip()
+        ),
         genetics_probation_risk_mult=args.genetics_probation_risk_mult,
         genetics_probation_max_real_trades=args.genetics_probation_max_real_trades,
         genetics_probation_require_shadow_confirmation=(
@@ -1444,6 +1745,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeframe", default="1m")
     parser.add_argument("--stride-minutes", type=int, default=60)
     parser.add_argument("--initial-capital", type=float, default=1000.0)
+    parser.add_argument("--risk-capital-fraction", type=float, default=0.10)
     parser.add_argument("--include-optional-agents", action="store_true")
     parser.add_argument("--optional-agent-labels", default="")
     parser.add_argument("--invalid-policy", choices=("exclude", "fail"), default="exclude")
@@ -1471,6 +1773,37 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enable-flash-shadow-actor-fallback-confirmation", action="store_true")
     parser.add_argument("--enable-flash-shadow-base-fallback-confirmation", action="store_true")
     parser.add_argument("--enable-flash-shadow-signal-handoff", action="store_true")
+    parser.add_argument("--enable-flash-genetics-confirmation-overlay", action="store_true")
+    parser.add_argument("--flash-genetics-confirmation-label", action="append", default=[])
+    parser.add_argument(
+        "--flash-genetics-confirmation-allowed-signal-key",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--flash-genetics-confirmation-contra-signal-key",
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--flash-genetics-contra-validation-manifest-path")
+    parser.add_argument(
+        "--enable-flash-genetics-confirmation-contra-side-match",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-confirmation-contra-static",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-confirmation-contra-no-backfill",
+        action="store_true",
+    )
+    parser.add_argument("--enable-flash-genetics-confirmation-quality-gate", action="store_true")
+    parser.add_argument("--flash-genetics-confirmation-min-closed-trades", type=int, default=0)
+    parser.add_argument("--flash-genetics-confirmation-min-pnl-per-trade-pct", type=float, default=0.0)
+    parser.add_argument("--flash-genetics-confirmation-score-bonus", type=float, default=0.0)
+    parser.add_argument("--flash-genetics-confirmation-score-penalty", type=float, default=0.0)
+    parser.add_argument("--flash-genetics-confirmation-contra-score-penalty", type=float, default=0.0)
     parser.add_argument("--flash-shadow-actor-fallback-min-base-score", type=float, default=0.0)
     parser.add_argument(
         "--flash-shadow-base-fallback-actor-key",
@@ -1512,6 +1845,57 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
     )
+    parser.add_argument("--enable-flash-shadow-pnl-lcb-risk-sizing", action="store_true")
+    parser.add_argument("--flash-shadow-pnl-lcb-risk-min-mult", type=float, default=0.25)
+    parser.add_argument("--flash-shadow-pnl-lcb-risk-floor-usd", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-pnl-lcb-risk-scale-usd", type=float, default=1.0)
+    parser.add_argument("--enable-flash-shadow-symbol-health", action="store_true")
+    parser.add_argument("--flash-shadow-symbol-health-min-closed-trades", type=int, default=0)
+    parser.add_argument("--flash-shadow-symbol-health-min-pnl-per-trade-lcb-usd", type=float, default=None)
+    parser.add_argument("--flash-shadow-symbol-health-pnl-lcb-penalty-floor-usd", type=float, default=0.0)
+    parser.add_argument("--flash-shadow-symbol-health-pnl-lcb-penalty-weight", type=float, default=0.0)
+    parser.add_argument("--enable-flash-actor-risk-sizing", action="store_true")
+    parser.add_argument("--flash-actor-risk-min-mult", type=float, default=0.25)
+    parser.add_argument("--flash-actor-risk-max-mult", type=float, default=1.0)
+    parser.add_argument("--flash-actor-risk-edge-scale-pct", type=float, default=0.50)
+    parser.add_argument("--flash-funding-score-weight", type=float, default=0.0)
+    parser.add_argument("--flash-funding-risk-mult-weight", type=float, default=0.0)
+    parser.add_argument("--flash-funding-risk-mult-cap", type=float, default=0.25)
+    parser.add_argument("--enable-flash-no-trade-fee-saving-score", action="store_true")
+    parser.add_argument("--flash-no-trade-default-fee-bps", type=float, default=0.0)
+    parser.add_argument("--enable-flash-volatility-risk-sizing", action="store_true")
+    parser.add_argument("--flash-volatility-risk-target-pct", type=float, default=2.0)
+    parser.add_argument("--flash-volatility-risk-min-volatility-pct", type=float, default=0.5)
+    parser.add_argument("--flash-volatility-risk-max-mult", type=float, default=2.0)
+    parser.add_argument(
+        "--flash-selected-subset-score-boost",
+        action="append",
+        default=[],
+        help=(
+            "Add a positive Flash selected-subset score boost as "
+            "actor_key|SYMBOL|ACTION=boost. Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-selected-subset-do-not-demote-signal-key",
+        action="append",
+        default=[],
+        help=(
+            "Protect one sparse positive selected-subset cell from LCB demotion. "
+            "Format: actor_key|SYMBOL|ACTION. Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-selected-subset-risk-mult",
+        action="append",
+        default=[],
+        help=(
+            "Override bounded risk multiplier for one selected-subset cell as "
+            "actor_key|SYMBOL|ACTION=mult. Can be repeated."
+        ),
+    )
+    parser.add_argument("--flash-selected-subset-risk-min-mult", type=float, default=0.75)
+    parser.add_argument("--flash-selected-subset-risk-max-mult", type=float, default=1.15)
     parser.add_argument("--flash-max-signals-per-actor", type=int, default=0)
     parser.add_argument("--enable-flash-overextension-guard", action="store_true")
     parser.add_argument("--flash-overextension-lookback-bars", type=int, default=12)
@@ -1535,6 +1919,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flash-degradation-actor-cooldown-bars", type=int, default=0)
     parser.add_argument("--enable-flash-degradation-symbol-guard", action="store_true")
     parser.add_argument("--flash-degradation-symbol-cooldown-bars", type=int, default=0)
+    parser.add_argument("--flash-degradation-symbol-lookback-bars", type=int, default=0)
     parser.add_argument("--flash-degradation-symbol-window-closed-trades", type=int, default=0)
     parser.add_argument("--flash-degradation-symbol-min-closed-trades", type=int, default=0)
     parser.add_argument("--flash-degradation-symbol-max-recent-pnl-usd", type=float, default=None)
@@ -1705,6 +2090,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-new-opens-per-bar", type=int, default=1)
     parser.add_argument("--risk-max-open-positions", type=int, default=8)
     parser.add_argument("--enable-genetics-probation-execution", action="store_true")
+    parser.add_argument(
+        "--genetics-probation-label",
+        action="append",
+        default=[],
+        help="Allow this label through genetics probation execution. Repeatable.",
+    )
+    parser.add_argument(
+        "--genetics-probation-allowed-regime",
+        action="append",
+        default=[],
+        help="Allow genetics probation opens in this regime. Repeatable.",
+    )
     parser.add_argument("--genetics-probation-risk-mult", type=float, default=0.25)
     parser.add_argument("--genetics-probation-max-real-trades", type=int, default=20)
     parser.add_argument(
@@ -1741,6 +2138,43 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
             config.flash_shadow_base_fallback_confirmation_enabled
         ),
         shadow_signal_handoff_enabled=config.flash_shadow_signal_handoff_enabled,
+        genetics_confirmation_overlay_enabled=(
+            config.flash_genetics_confirmation_overlay_enabled
+        ),
+        genetics_confirmation_labels=config.flash_genetics_confirmation_labels,
+        genetics_confirmation_allowed_signal_keys=(
+            config.flash_genetics_confirmation_allowed_signal_keys
+        ),
+        genetics_confirmation_contra_signal_keys=(
+            config.flash_genetics_confirmation_contra_signal_keys
+        ),
+        genetics_confirmation_contra_side_match_enabled=(
+            config.flash_genetics_confirmation_contra_side_match_enabled
+        ),
+        genetics_confirmation_contra_static_enabled=(
+            config.flash_genetics_confirmation_contra_static_enabled
+        ),
+        genetics_confirmation_contra_no_backfill_enabled=(
+            config.flash_genetics_confirmation_contra_no_backfill_enabled
+        ),
+        genetics_confirmation_quality_gate_enabled=(
+            config.flash_genetics_confirmation_quality_gate_enabled
+        ),
+        genetics_confirmation_min_closed_trades=(
+            config.flash_genetics_confirmation_min_closed_trades
+        ),
+        genetics_confirmation_min_pnl_per_trade_pct=(
+            config.flash_genetics_confirmation_min_pnl_per_trade_pct
+        ),
+        genetics_confirmation_score_bonus=(
+            config.flash_genetics_confirmation_score_bonus
+        ),
+        genetics_confirmation_score_penalty=(
+            config.flash_genetics_confirmation_score_penalty
+        ),
+        genetics_confirmation_contra_score_penalty=(
+            config.flash_genetics_confirmation_contra_score_penalty
+        ),
         shadow_actor_fallback_min_base_score=(
             config.flash_shadow_actor_fallback_min_base_score
         ),
@@ -1787,6 +2221,57 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         shadow_confirmation_pnl_per_trade_lcb_penalty_weight=(
             config.flash_shadow_pnl_per_trade_lcb_penalty_weight
         ),
+        shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled=(
+            config.flash_shadow_pnl_lcb_risk_sizing_enabled
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_risk_min_mult=(
+            config.flash_shadow_pnl_lcb_risk_min_mult
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd=(
+            config.flash_shadow_pnl_lcb_risk_floor_usd
+        ),
+        shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd=(
+            config.flash_shadow_pnl_lcb_risk_scale_usd
+        ),
+        shadow_symbol_health_enabled=config.flash_shadow_symbol_health_enabled,
+        shadow_symbol_health_min_closed_trades=(
+            config.flash_shadow_symbol_health_min_closed_trades
+        ),
+        shadow_symbol_health_min_pnl_per_trade_lcb_usd=(
+            config.flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd
+        ),
+        shadow_symbol_health_pnl_per_trade_lcb_penalty_floor_usd=(
+            config.flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd
+        ),
+        shadow_symbol_health_pnl_per_trade_lcb_penalty_weight=(
+            config.flash_shadow_symbol_health_pnl_lcb_penalty_weight
+        ),
+        actor_risk_sizing_enabled=config.flash_actor_risk_sizing_enabled,
+        actor_risk_min_mult=config.flash_actor_risk_min_mult,
+        actor_risk_max_mult=config.flash_actor_risk_max_mult,
+        actor_risk_edge_scale_pct=config.flash_actor_risk_edge_scale_pct,
+        funding_score_weight=config.flash_funding_score_weight,
+        funding_risk_mult_weight=config.flash_funding_risk_mult_weight,
+        funding_risk_mult_cap=config.flash_funding_risk_mult_cap,
+        no_trade_fee_saving_score_enabled=(
+            config.flash_no_trade_fee_saving_score_enabled
+        ),
+        no_trade_default_fee_bps=config.flash_no_trade_default_fee_bps,
+        volatility_risk_sizing_enabled=config.flash_volatility_risk_sizing_enabled,
+        volatility_risk_target_pct=config.flash_volatility_risk_target_pct,
+        volatility_risk_min_volatility_pct=(
+            config.flash_volatility_risk_min_volatility_pct
+        ),
+        volatility_risk_max_mult=config.flash_volatility_risk_max_mult,
+        selected_subset_score_boosts=config.flash_selected_subset_score_boosts,
+        selected_subset_do_not_demote_signal_keys=(
+            config.flash_selected_subset_do_not_demote_signal_keys
+        ),
+        selected_subset_risk_mult_overrides=(
+            config.flash_selected_subset_risk_mult_overrides
+        ),
+        selected_subset_risk_min_mult=config.flash_selected_subset_risk_min_mult,
+        selected_subset_risk_max_mult=config.flash_selected_subset_risk_max_mult,
         max_signals_per_actor=config.flash_max_signals_per_actor,
         open_overextension_guard_enabled=config.flash_overextension_guard_enabled,
         overextension_lookback_bars=config.flash_overextension_lookback_bars,
@@ -1818,6 +2303,9 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         ),
         degradation_symbol_cooldown_bars=(
             config.flash_degradation_symbol_cooldown_bars
+        ),
+        degradation_symbol_lookback_bars=(
+            config.flash_degradation_symbol_lookback_bars
         ),
         degradation_symbol_window_closed_trades=(
             config.flash_degradation_symbol_window_closed_trades
@@ -1869,6 +2357,48 @@ def _load_flash_promoted_signal_keys(
     return tuple(sorted(keys))
 
 
+def _load_flash_validated_contra_signal_keys(
+    manifest_path: Optional[Path],
+    *,
+    explicit_keys: Sequence[str],
+) -> tuple[str, ...]:
+    explicit = tuple(
+        dict.fromkeys(
+            str(key).strip()
+            for key in explicit_keys
+            if str(key or "").strip()
+        )
+    )
+    if manifest_path is None:
+        return explicit
+    if not manifest_path.exists():
+        return ()
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+    summary = data.get("summary")
+    eligible = bool(summary.get("eligible")) if isinstance(summary, dict) else False
+    if not eligible:
+        return ()
+    raw_allowed = data.get("allowed_contra_signal_keys")
+    if not isinstance(raw_allowed, list):
+        return ()
+    allowed = tuple(
+        dict.fromkeys(
+            str(key).strip()
+            for key in raw_allowed
+            if str(key or "").strip()
+        )
+    )
+    if not explicit:
+        return allowed
+    explicit_set = set(explicit)
+    return tuple(key for key in allowed if key in explicit_set)
+
+
 def _flash_promoted_actor_cap_overrides(
     config: RetrodateMarketConfig,
 ) -> tuple[str, ...]:
@@ -1902,6 +2432,10 @@ def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecution
         genetics_probation_execution_enabled=(
             config.genetics_probation_execution_enabled
         ),
+        genetics_probation_labels=config.genetics_probation_labels,
+        genetics_probation_allowed_regimes=(
+            config.genetics_probation_allowed_regimes
+        ),
         genetics_probation_risk_mult=config.genetics_probation_risk_mult,
         genetics_probation_max_real_trades=config.genetics_probation_max_real_trades,
         genetics_probation_require_shadow_confirmation=(
@@ -1911,7 +2445,10 @@ def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecution
 
 
 def _build_risk_config(config: RetrodateMarketConfig) -> RiskLimitsConfig:
-    return RiskLimitsConfig(max_open_positions=config.risk_max_open_positions)
+    return RiskLimitsConfig(
+        max_open_positions=config.risk_max_open_positions,
+        capital_fraction=config.risk_capital_fraction,
+    )
 
 
 def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
@@ -2395,6 +2932,31 @@ def write_flash_attribution_summary(
                 bucket["shadow_closed_trades_sum"] += _safe_float(
                     selected_candidate.get("shadow_closed_trades")
                 )
+                bucket["shadow_pnl_per_trade_lcb_usd_sum"] += _safe_float(
+                    selected_candidate.get("shadow_pnl_per_trade_lcb_usd")
+                )
+                bucket["shadow_symbol_health_lcb_usd_sum"] += _safe_float(
+                    selected_candidate.get(
+                        "shadow_symbol_health_pnl_per_trade_lcb_usd"
+                    )
+                )
+                bucket["shadow_symbol_health_penalty_sum"] += _safe_float(
+                    selected_candidate.get("shadow_symbol_health_penalty")
+                )
+                bucket["selected_subset_score_boost_sum"] += _safe_float(
+                    selected_candidate.get("selected_subset_score_boost")
+                )
+                bucket["selected_subset_protected_count"] += int(
+                    bool(selected_candidate.get("selected_subset_protected"))
+                )
+                bucket["selected_subset_risk_mult_sum"] += _safe_float(
+                    selected_candidate.get("selected_subset_risk_mult", 1.0)
+                )
+                risk_mult = _finite_float_or_none(selected_candidate.get("risk_mult"))
+                bucket["risk_mult_sum"] += risk_mult if risk_mult is not None else 1.0
+            else:
+                bucket["selected_subset_risk_mult_sum"] += 1.0
+                bucket["risk_mult_sum"] += 1.0
             signal_index[signal_id] = key
             summary["selected_signals"] += 1
             if executable_known and signal_id not in executable_ids:
@@ -2888,6 +3450,12 @@ def _write_retrodate_final_artifact_reports(
         step_errors.append(
             f"flash_signal_key_shadow_report_failed: {type(exc).__name__}: {exc}"
         )
+    try:
+        write_flash_genetics_intersection_report(output)
+    except Exception as exc:
+        step_errors.append(
+            f"flash_genetics_intersection_report_failed: {type(exc).__name__}: {exc}"
+        )
     _write_component_benchmark_report_from_status(
         output,
         _load_json(output / "status.json"),
@@ -3379,6 +3947,13 @@ def _new_flash_attribution_bucket(
         "score_sum": 0.0,
         "shadow_score_sum": 0.0,
         "shadow_closed_trades_sum": 0.0,
+        "shadow_pnl_per_trade_lcb_usd_sum": 0.0,
+        "shadow_symbol_health_lcb_usd_sum": 0.0,
+        "shadow_symbol_health_penalty_sum": 0.0,
+        "selected_subset_score_boost_sum": 0.0,
+        "selected_subset_protected_count": 0,
+        "selected_subset_risk_mult_sum": 0.0,
+        "risk_mult_sum": 0.0,
         "failure_reasons": {},
         "filter_detail_counts": {},
     }
@@ -3418,6 +3993,30 @@ def _flash_attribution_payload(row: dict[str, Any]) -> dict[str, Any]:
         "avg_shadow_closed_trades": (
             float(row.get("shadow_closed_trades_sum", 0.0) or 0.0) / selected
         ),
+        "avg_shadow_pnl_per_trade_lcb_usd": (
+            float(row.get("shadow_pnl_per_trade_lcb_usd_sum", 0.0) or 0.0)
+            / selected
+        ),
+        "avg_shadow_symbol_health_lcb_usd": (
+            float(row.get("shadow_symbol_health_lcb_usd_sum", 0.0) or 0.0)
+            / selected
+        ),
+        "avg_shadow_symbol_health_penalty": (
+            float(row.get("shadow_symbol_health_penalty_sum", 0.0) or 0.0)
+            / selected
+        ),
+        "avg_selected_subset_score_boost": (
+            float(row.get("selected_subset_score_boost_sum", 0.0) or 0.0)
+            / selected
+        ),
+        "selected_subset_protected_count": int(
+            row.get("selected_subset_protected_count", 0) or 0
+        ),
+        "avg_selected_subset_risk_mult": (
+            float(row.get("selected_subset_risk_mult_sum", 0.0) or 0.0)
+            / selected
+        ),
+        "avg_risk_mult": float(row.get("risk_mult_sum", 0.0) or 0.0) / selected,
         "failure_reasons": dict(sorted(failure_reasons.items())),
         "filter_detail_counts": dict(sorted(filter_detail_counts.items())),
     }
@@ -3566,6 +4165,271 @@ def write_flash_signal_key_shadow_report(
         config=promotion_manifest_config,
     )
     return path
+
+
+def write_flash_genetics_intersection_report(
+    output: str | Path,
+    *,
+    filename: str = "flash_genetics_intersection_report.json",
+) -> Path:
+    output_dir = Path(output)
+    shadow_report = _load_json(output_dir / "flash_signal_key_shadow_report.json")
+    attribution = _load_json(output_dir / "flash_attribution_summary.json")
+    attribution_by_key = _flash_attribution_rows_by_signal_key(attribution)
+    genetics_by_symbol = _genetics_shadow_rows_by_symbol(shadow_report)
+    rows: list[dict[str, Any]] = []
+    selected_open_signals = 0
+
+    for causal_row in _iter_jsonl(output_dir / "causal_entry_decisions.jsonl"):
+        bar = _safe_int(causal_row.get("bar"), default=0)
+        regime = str(causal_row.get("regime") or "")
+        for decision in causal_row.get("flash_decisions") or ():
+            if not isinstance(decision, dict):
+                continue
+            if str(decision.get("selected_actor") or "") == "NoTrade":
+                continue
+            signal = decision.get("signal")
+            if not isinstance(signal, dict):
+                continue
+            symbol = str(decision.get("symbol") or signal.get("sym") or "").upper()
+            action = _normalize_flash_signal_action(
+                decision.get("action") or signal.get("action")
+            )
+            selected_side = _flash_open_side(action)
+            if not symbol or not selected_side:
+                continue
+            selected_open_signals += 1
+            actor_key = _flash_decision_actor_key(decision)
+            selected_signal_key = f"{actor_key}|{symbol}|{action}"
+            selected_attr = attribution_by_key.get(selected_signal_key, {})
+
+            for genetics in genetics_by_symbol.get(symbol, ()):
+                genetics_action = str(genetics.get("action") or "").upper()
+                genetics_side = _flash_open_side(genetics_action)
+                if not genetics_side:
+                    continue
+                rows.append({
+                    "bar": bar,
+                    "regime": regime,
+                    "symbol": symbol,
+                    "selected_signal_key": selected_signal_key,
+                    "selected_actor_key": actor_key,
+                    "selected_actor_label": str(decision.get("selected_actor") or ""),
+                    "selected_actor_type": str(decision.get("actor_type") or ""),
+                    "selected_action": action,
+                    "selected_side": selected_side,
+                    "selected_score": _safe_float(decision.get("score")),
+                    "selected_realized_pnl_usd": _safe_float(
+                        selected_attr.get("realized_pnl_usd")
+                    ),
+                    "selected_closed_trades": _safe_int(
+                        selected_attr.get("closed_trades")
+                    ),
+                    "relationship": _flash_action_relationship(
+                        selected_action=action,
+                        selected_side=selected_side,
+                        genetics_action=genetics_action,
+                        genetics_side=genetics_side,
+                    ),
+                    "genetics_signal_key": str(genetics.get("signal_key") or ""),
+                    "genetics_actor_key": str(genetics.get("actor_key") or ""),
+                    "genetics_actor_label": str(genetics.get("actor_label") or ""),
+                    "genetics_action": genetics_action,
+                    "genetics_side": genetics_side,
+                    "genetics_full_closed_trades": _safe_int(
+                        genetics.get("full_closed_trades")
+                    ),
+                    "genetics_full_pnl_pct": _safe_float(
+                        genetics.get("full_pnl_pct")
+                    ),
+                    "genetics_full_pnl_per_trade_lcb_pct": _safe_float(
+                        genetics.get("full_pnl_per_trade_lcb_pct")
+                    ),
+                    "genetics_latest_closed_trades": _safe_int(
+                        genetics.get("latest_closed_trades")
+                    ),
+                    "genetics_latest_pnl_pct": _safe_float(
+                        genetics.get("latest_pnl_pct")
+                    ),
+                    "genetics_latest_pnl_per_trade_lcb_pct": _safe_float(
+                        genetics.get("latest_pnl_per_trade_lcb_pct")
+                    ),
+                    "genetics_max_drawdown_pct": _safe_float(
+                        genetics.get("max_drawdown_pct")
+                    ),
+                    "genetics_recent_downside_usd": _safe_float(
+                        genetics.get("recent_downside_usd")
+                    ),
+                })
+
+    rows.sort(key=_flash_genetics_intersection_sort_key)
+    data = {
+        "summary": _flash_genetics_intersection_summary(
+            rows,
+            selected_open_signals=selected_open_signals,
+        ),
+        "rows": rows,
+    }
+    path = output_dir / filename
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
+    (output_dir / Path(filename).with_suffix(".md").name).write_text(
+        "\n".join(_flash_genetics_intersection_report_lines(data)) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _flash_attribution_rows_by_signal_key(
+    attribution: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    out: dict[str, Mapping[str, Any]] = {}
+    rows = attribution.get("rows") if isinstance(attribution, Mapping) else ()
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        actor_key = str(row.get("actor_key") or "")
+        symbol = str(row.get("symbol") or "").upper()
+        action = _normalize_flash_signal_action(row.get("action"))
+        if not actor_key or not symbol or not action:
+            continue
+        out[f"{actor_key}|{symbol}|{action}"] = row
+    return out
+
+
+def _genetics_shadow_rows_by_symbol(
+    shadow_report: Mapping[str, Any],
+) -> dict[str, list[Mapping[str, Any]]]:
+    out: dict[str, list[Mapping[str, Any]]] = {}
+    rows = shadow_report.get("rows") if isinstance(shadow_report, Mapping) else ()
+    if not isinstance(rows, list):
+        return out
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        actor_key = str(row.get("actor_key") or "")
+        actor_label = str(row.get("actor_label") or "")
+        if not _is_genetics_shadow_actor(actor_key, actor_label):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        action = _normalize_flash_signal_action(row.get("action"))
+        if not symbol or not _flash_open_side(action):
+            continue
+        enriched = dict(row)
+        enriched["symbol"] = symbol
+        enriched["action"] = action
+        out.setdefault(symbol, []).append(enriched)
+    return out
+
+
+def _is_genetics_shadow_actor(actor_key: str, actor_label: str) -> bool:
+    return (
+        actor_key.startswith("agent:Genetics")
+        or actor_key.startswith("ensemble:Genetics")
+        or actor_label.startswith("Genetics")
+        or actor_label.startswith("Solo_Genetics")
+    )
+
+
+def _flash_open_side(action: str) -> str:
+    clean = str(action or "").upper()
+    if clean.startswith("FUT_LONG") or clean.startswith("SPOT_BUY"):
+        return "long"
+    if clean.startswith("FUT_SHORT"):
+        return "short"
+    return ""
+
+
+def _flash_action_relationship(
+    *,
+    selected_action: str,
+    selected_side: str,
+    genetics_action: str,
+    genetics_side: str,
+) -> str:
+    if genetics_action == selected_action:
+        return "same_action"
+    if genetics_side == selected_side:
+        return "same_side"
+    return "opposite_side"
+
+
+def _flash_genetics_intersection_summary(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    selected_open_signals: int,
+) -> dict[str, Any]:
+    same_action = [
+        row for row in rows if str(row.get("relationship") or "") == "same_action"
+    ]
+    return {
+        "selected_open_signals": int(selected_open_signals),
+        "intersection_rows": len(rows),
+        "same_action_rows": len(same_action),
+        "same_side_rows": sum(
+            1 for row in rows if str(row.get("relationship") or "") == "same_side"
+        ),
+        "opposite_side_rows": sum(
+            1
+            for row in rows
+            if str(row.get("relationship") or "") == "opposite_side"
+        ),
+        "negative_same_action_rows": sum(
+            1
+            for row in same_action
+            if _safe_float(row.get("genetics_full_pnl_per_trade_lcb_pct")) < 0.0
+        ),
+        "positive_same_action_rows": sum(
+            1
+            for row in same_action
+            if _safe_float(row.get("genetics_full_pnl_per_trade_lcb_pct")) > 0.0
+        ),
+    }
+
+
+def _flash_genetics_intersection_sort_key(row: Mapping[str, Any]) -> tuple:
+    relationship = str(row.get("relationship") or "")
+    priority = {"same_action": 0, "same_side": 1, "opposite_side": 2}.get(
+        relationship,
+        9,
+    )
+    return (
+        priority,
+        _safe_float(row.get("genetics_full_pnl_per_trade_lcb_pct")),
+        _safe_int(row.get("bar")),
+        str(row.get("selected_signal_key") or ""),
+        str(row.get("genetics_signal_key") or ""),
+    )
+
+
+def _flash_genetics_intersection_report_lines(data: Mapping[str, Any]) -> list[str]:
+    summary = data.get("summary", {}) if isinstance(data, Mapping) else {}
+    rows = data.get("rows", []) if isinstance(data, Mapping) else []
+    lines = [
+        "# Flash Genetics Intersection Report",
+        "",
+        f"- Selected open signals: {int(summary.get('selected_open_signals', 0) or 0)}",
+        f"- Intersection rows: {int(summary.get('intersection_rows', 0) or 0)}",
+        f"- Same-action rows: {int(summary.get('same_action_rows', 0) or 0)}",
+        f"- Negative same-action rows: {int(summary.get('negative_same_action_rows', 0) or 0)}",
+        "",
+        "| selected | genetics | relation | selected pnl | genetics LCB |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for row in list(rows)[:25]:
+        lines.append(
+            "| "
+            f"`{row.get('selected_signal_key', '')}` | "
+            f"`{row.get('genetics_signal_key', '')}` | "
+            f"{row.get('relationship', '')} | "
+            f"{_fmt_money(row.get('selected_realized_pnl_usd'))} | "
+            f"{_fmt_pct(row.get('genetics_full_pnl_per_trade_lcb_pct'))} |"
+        )
+    return lines
 
 
 def _flash_signal_key_shadow_events(
@@ -4270,6 +5134,7 @@ def _write_run_summary(
         "stride_minutes": summary.stride_minutes,
         "timeframe": config.timeframe,
         "initial_capital": config.initial_capital,
+        "risk_capital_fraction": config.risk_capital_fraction,
         "include_optional_agents": config.include_optional_agents,
         "optional_agent_labels": list(config.optional_agent_labels),
         "solo_agent_candidate_limit": config.solo_agent_candidate_limit,
@@ -4305,6 +5170,50 @@ def _write_run_summary(
         ),
         "flash_shadow_signal_handoff_enabled": (
             config.flash_shadow_signal_handoff_enabled
+        ),
+        "flash_genetics_confirmation_overlay_enabled": (
+            config.flash_genetics_confirmation_overlay_enabled
+        ),
+        "flash_genetics_confirmation_labels": list(
+            config.flash_genetics_confirmation_labels
+        ),
+        "flash_genetics_confirmation_allowed_signal_keys": list(
+            config.flash_genetics_confirmation_allowed_signal_keys
+        ),
+        "flash_genetics_confirmation_contra_signal_keys": list(
+            config.flash_genetics_confirmation_contra_signal_keys
+        ),
+        "flash_genetics_contra_validation_manifest_path": (
+            str(config.flash_genetics_contra_validation_manifest_path)
+            if config.flash_genetics_contra_validation_manifest_path is not None
+            else None
+        ),
+        "flash_genetics_confirmation_contra_side_match_enabled": (
+            config.flash_genetics_confirmation_contra_side_match_enabled
+        ),
+        "flash_genetics_confirmation_contra_static_enabled": (
+            config.flash_genetics_confirmation_contra_static_enabled
+        ),
+        "flash_genetics_confirmation_contra_no_backfill_enabled": (
+            config.flash_genetics_confirmation_contra_no_backfill_enabled
+        ),
+        "flash_genetics_confirmation_quality_gate_enabled": (
+            config.flash_genetics_confirmation_quality_gate_enabled
+        ),
+        "flash_genetics_confirmation_min_closed_trades": (
+            config.flash_genetics_confirmation_min_closed_trades
+        ),
+        "flash_genetics_confirmation_min_pnl_per_trade_pct": (
+            config.flash_genetics_confirmation_min_pnl_per_trade_pct
+        ),
+        "flash_genetics_confirmation_score_bonus": (
+            config.flash_genetics_confirmation_score_bonus
+        ),
+        "flash_genetics_confirmation_score_penalty": (
+            config.flash_genetics_confirmation_score_penalty
+        ),
+        "flash_genetics_confirmation_contra_score_penalty": (
+            config.flash_genetics_confirmation_contra_score_penalty
         ),
         "flash_shadow_actor_fallback_min_base_score": (
             config.flash_shadow_actor_fallback_min_base_score
@@ -4354,6 +5263,67 @@ def _write_run_summary(
         "flash_shadow_pnl_per_trade_lcb_penalty_weight": (
             config.flash_shadow_pnl_per_trade_lcb_penalty_weight
         ),
+        "flash_shadow_pnl_lcb_risk_sizing_enabled": (
+            config.flash_shadow_pnl_lcb_risk_sizing_enabled
+        ),
+        "flash_shadow_pnl_lcb_risk_min_mult": (
+            config.flash_shadow_pnl_lcb_risk_min_mult
+        ),
+        "flash_shadow_pnl_lcb_risk_floor_usd": (
+            config.flash_shadow_pnl_lcb_risk_floor_usd
+        ),
+        "flash_shadow_pnl_lcb_risk_scale_usd": (
+            config.flash_shadow_pnl_lcb_risk_scale_usd
+        ),
+        "flash_shadow_symbol_health_enabled": (
+            config.flash_shadow_symbol_health_enabled
+        ),
+        "flash_shadow_symbol_health_min_closed_trades": (
+            config.flash_shadow_symbol_health_min_closed_trades
+        ),
+        "flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd": (
+            config.flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd
+        ),
+        "flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd": (
+            config.flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd
+        ),
+        "flash_shadow_symbol_health_pnl_lcb_penalty_weight": (
+            config.flash_shadow_symbol_health_pnl_lcb_penalty_weight
+        ),
+        "flash_actor_risk_sizing_enabled": config.flash_actor_risk_sizing_enabled,
+        "flash_actor_risk_min_mult": config.flash_actor_risk_min_mult,
+        "flash_actor_risk_max_mult": config.flash_actor_risk_max_mult,
+        "flash_actor_risk_edge_scale_pct": config.flash_actor_risk_edge_scale_pct,
+        "flash_funding_score_weight": config.flash_funding_score_weight,
+        "flash_funding_risk_mult_weight": config.flash_funding_risk_mult_weight,
+        "flash_funding_risk_mult_cap": config.flash_funding_risk_mult_cap,
+        "flash_no_trade_fee_saving_score_enabled": (
+            config.flash_no_trade_fee_saving_score_enabled
+        ),
+        "flash_no_trade_default_fee_bps": config.flash_no_trade_default_fee_bps,
+        "flash_volatility_risk_sizing_enabled": (
+            config.flash_volatility_risk_sizing_enabled
+        ),
+        "flash_volatility_risk_target_pct": config.flash_volatility_risk_target_pct,
+        "flash_volatility_risk_min_volatility_pct": (
+            config.flash_volatility_risk_min_volatility_pct
+        ),
+        "flash_volatility_risk_max_mult": config.flash_volatility_risk_max_mult,
+        "flash_selected_subset_score_boosts": list(
+            config.flash_selected_subset_score_boosts
+        ),
+        "flash_selected_subset_do_not_demote_signal_keys": list(
+            config.flash_selected_subset_do_not_demote_signal_keys
+        ),
+        "flash_selected_subset_risk_mult_overrides": list(
+            config.flash_selected_subset_risk_mult_overrides
+        ),
+        "flash_selected_subset_risk_min_mult": (
+            config.flash_selected_subset_risk_min_mult
+        ),
+        "flash_selected_subset_risk_max_mult": (
+            config.flash_selected_subset_risk_max_mult
+        ),
         "flash_max_signals_per_actor": config.flash_max_signals_per_actor,
         "flash_overextension_guard_enabled": config.flash_overextension_guard_enabled,
         "flash_overextension_lookback_bars": config.flash_overextension_lookback_bars,
@@ -4397,6 +5367,9 @@ def _write_run_summary(
         ),
         "flash_degradation_symbol_cooldown_bars": (
             config.flash_degradation_symbol_cooldown_bars
+        ),
+        "flash_degradation_symbol_lookback_bars": (
+            config.flash_degradation_symbol_lookback_bars
         ),
         "flash_degradation_symbol_window_closed_trades": (
             config.flash_degradation_symbol_window_closed_trades
@@ -4640,6 +5613,10 @@ def _write_run_summary(
         "risk_max_open_positions": config.risk_max_open_positions,
         "genetics_probation_execution_enabled": (
             config.genetics_probation_execution_enabled
+        ),
+        "genetics_probation_labels": list(config.genetics_probation_labels),
+        "genetics_probation_allowed_regimes": list(
+            config.genetics_probation_allowed_regimes
         ),
         "genetics_probation_risk_mult": config.genetics_probation_risk_mult,
         "genetics_probation_max_real_trades": (

@@ -11,6 +11,9 @@ def _bootstrap_project_paths():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(base_dir)
     search_roots = (base_dir, project_root, os.path.dirname(project_root))
+    src_dir = os.path.join(project_root, "src")
+    if os.path.isdir(src_dir) and src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
     for root in search_roots:
         for extra_dir in (
             os.path.join(root, "Retrodate_cryptotrade"),
@@ -366,6 +369,7 @@ else:
 
 # ── [8] BC / agent seeding ────────────────────────────────────────────────────
 BC_ENABLED      = _gscfg_b(_GS, 'bc_enabled',      False)   # OFF по умолчанию
+BC_AUTO_DISCOVERY = _gscfg_b(_GS, 'bc_auto_discovery', False)
 AGENT_SEED_FRAC = _gscfg_f(_GS, 'agent_seed_frac', 0.20) if BC_ENABLED else 0.0
 BC_LR           = _gscfg_f(_GS, 'bc_lr',           0.003)
 BC_EPOCHS       = _gscfg_i(_GS, 'bc_epochs',       50)
@@ -374,6 +378,18 @@ BC_MAX_BARS     = _gscfg_i(_GS, 'bc_max_bars',     4000)
 BC_REGIMES_PER_TYPE = _gscfg_i(_GS, 'bc_regimes_per_type', 2)
 _asl_raw = _GS.get('agent_seed_list', '').strip()
 AGENT_SEED_LIST = [x.strip() for x in _asl_raw.split(',') if x.strip()] if _asl_raw else []
+
+_BC_AGENT_ALIAS_MAP = {
+    "Solo_MomentumScalper": (
+        "MomentumScalper",
+    ),
+    "Antonius_conservative": (
+        "VolBreakoutHunter",
+        "FundingArb",
+        "ResearchValidatorAgent",
+        "CrashPanicShortAgent",
+    ),
+}
 
 # ── [9] Warm-start / resume ────────────────────────────────────────────────────
 CONTINUE_TRAINING    = _gscfg_b(_GS, 'continue_training',    True)
@@ -2886,20 +2902,7 @@ def _bc_worker(args):
 
     try:
         # Ищем в crypto_agents → crypto_players → crypto_exchange
-        agent_cls = None
-        try:
-            import crypto_agents as _ca
-            agent_cls = getattr(_ca, agent_name, None)
-        except ImportError:
-            pass
-        if agent_cls is None:
-            try:
-                import crypto_players as _cp
-                agent_cls = getattr(_cp, agent_name, None)
-            except ImportError:
-                pass
-        if agent_cls is None:
-            agent_cls = getattr(_cx, agent_name, None)
+        agent_cls = _resolve_bc_agent_class(agent_name)
         if agent_cls is None:
             return agent_name, None, [f"    [BC] {agent_name} не найден (ни в crypto_agents, ни в crypto_players, ни в crypto_exchange)"]
     except Exception as e:
@@ -3203,15 +3206,48 @@ def _discover_agent_classes() -> list:
 
 
 
+def _expand_bc_agent_seed_name(name: str) -> tuple:
+    return tuple(_BC_AGENT_ALIAS_MAP.get(str(name), (str(name),)))
+
+
+def _resolve_bc_agent_class(agent_name: str):
+    import importlib
+
+    for module_name in (
+        "crypto_agents",
+        "crypto_players",
+        "crypto_exchange",
+        "panteon_runtime.panteon_agents",
+    ):
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            continue
+        agent_cls = getattr(module, agent_name, None)
+        if agent_cls is not None:
+            return agent_cls
+    return None
+
+
+def _agent_seed_names() -> list:
+    all_agents = []
+    for configured_name in AGENT_SEED_LIST:
+        for name in _expand_bc_agent_seed_name(configured_name):
+            if name not in all_agents:
+                all_agents.append(name)
+    if BC_AUTO_DISCOVERY:
+        for name in _discover_agent_classes():
+            if name not in all_agents:
+                all_agents.append(name)
+    return all_agents
+
+
 def _seed_from_agents(pop: np.ndarray, precomp, rng: np.random.Generator) -> np.ndarray:
     if AGENT_SEED_FRAC <= 0:
         return pop
 
     # Объединяем явный список с автоматически найденными агентами
-    all_agents = list(AGENT_SEED_LIST)
-    for name in _discover_agent_classes():
-        if name not in all_agents:
-            all_agents.append(name)
+    all_agents = _agent_seed_names()
     if not all_agents:
         return pop
 
@@ -4184,6 +4220,8 @@ class GeneticTrainer:
         """DE мутант в пределах острова."""
         elite_k  = max(3, len(island_pop) // 5)
         elite_pool = np.argsort(island_fits)[::-1][:elite_k]
+        if len(elite_pool) < 2:
+            return np.asarray(best, dtype=np.float32).copy()
         r1, r2   = self.rng.choice(elite_pool, 2, replace=False)
         f_scale  = max(0.15, 1.0 - self.stagnation / (STAGNATION_GENS * 2))
         trial    = best + DE_F * f_scale * (island_pop[r1] - island_pop[r2])
@@ -6899,7 +6937,7 @@ def _load_precomp():
         feat, prices, syms, month, period, rw, regime, avg_ret_pct, elapsed = res
         print(f"  Loading {period}... ok {feat.shape[0]:,}bars x {feat.shape[1]}coins  "
               f"regime={regime}({avg_ret_pct:+.1f}%)  w={rw}  {elapsed:.1f}s")
-        precomp.append((feat, prices, syms, month, period, rw, regime))
+        precomp.append((feat, prices, syms, month, period, rw, regime, avg_ret_pct))
 
     # 5. Статистика режимов
     regimes_seen = {}

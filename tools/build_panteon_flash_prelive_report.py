@@ -23,9 +23,9 @@ from tools.run_panteon_flash_profitability_matrix import _extract_metrics
 BEST_RUN = (
     ROOT
     / "Results"
-    / "PanteonFlashRound3Deny8EntryRegime_Full2022_2026_20260524"
+    / "PanteonFlashTargetedLcbDenyRegimePullbackTrxFull2022_2026_20260525"
     / "RETRODATE_MARKET"
-    / "2026-05-23_21-15-29_retrodate_market_v2"
+    / "2026-05-25_07-12-52_retrodate_market_v2"
 )
 SYMBOL_GUARD_RUN = (
     ROOT
@@ -240,6 +240,41 @@ def _symbol_guard_diagnostics() -> dict[str, Any]:
     }
 
 
+def _config_count(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, dict):
+        return len(value)
+    if isinstance(value, (list, tuple, set)):
+        return len(value)
+    return 1 if str(value).strip() else 0
+
+
+def _live_profile_summary(run_summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "execution_leader": "Panteon_Flash",
+        "run_profile": "Round3 Deny8 EntryRegime",
+        "flash_enabled": bool(run_summary.get("flash_enabled")),
+        "flash_min_score_to_trade": run_summary.get("flash_min_score_to_trade"),
+        "flash_min_closed_trades_to_trade": run_summary.get("flash_min_closed_trades_to_trade"),
+        "flash_shadow_confirmation_enabled": bool(run_summary.get("flash_shadow_confirmation_enabled")),
+        "flash_symbol_shadow_confirmation_enabled": bool(run_summary.get("flash_symbol_shadow_confirmation_enabled")),
+        "flash_shadow_min_closed_trades": run_summary.get("flash_shadow_min_closed_trades"),
+        "flash_max_signals_per_actor": run_summary.get("flash_max_signals_per_actor"),
+        "max_new_opens_per_bar": run_summary.get("max_new_opens_per_bar"),
+        "risk_max_open_positions": run_summary.get("risk_max_open_positions"),
+        "flash_degradation_guard_enabled": bool(run_summary.get("flash_degradation_guard_enabled")),
+        "flash_degradation_actor_guard_enabled": bool(run_summary.get("flash_degradation_actor_guard_enabled")),
+        "flash_degradation_actor_scope": run_summary.get("flash_degradation_actor_scope"),
+        "flash_degradation_signal_cooldown_bars": run_summary.get("flash_degradation_signal_cooldown_bars"),
+        "flash_degradation_actor_cooldown_bars": run_summary.get("flash_degradation_actor_cooldown_bars"),
+        "flash_promotion_manifest_enabled": bool(run_summary.get("flash_promotion_manifest_enabled")),
+        "flash_denied_signal_keys_count": _config_count(run_summary.get("flash_denied_signal_keys")),
+        "flash_terminal_denied_signal_keys_count": _config_count(run_summary.get("flash_terminal_denied_signal_keys")),
+        "flash_portfolio_actor_keys_count": _config_count(run_summary.get("flash_portfolio_actor_keys")),
+    }
+
+
 def build_data() -> dict[str, Any]:
     best_metrics = _extract_metrics(BEST_RUN)
     symbol_metrics = _extract_metrics(SYMBOL_GUARD_RUN)
@@ -247,10 +282,12 @@ def build_data() -> dict[str, Any]:
     standalone = _load_json(BEST_RUN / "standalone_vs_flash_selected_report.json")
     attribution = _load_json(BEST_RUN / "flash_attribution_summary.json")
     iterations = _load_json(ITERATION_METRICS)
+    run_summary = _load_json(BEST_RUN / "run_summary.json")
     symbol_pnl = _symbol_pnl(BEST_RUN)
     data = {
         "best_run": str(BEST_RUN),
         "symbol_guard_run": str(SYMBOL_GUARD_RUN),
+        "live_profile": _live_profile_summary(run_summary),
         "best_metrics": best_metrics,
         "symbol_guard_metrics": symbol_metrics,
         "component_benchmark": component,
@@ -361,12 +398,58 @@ def _add_table(doc: Document, headers: list[str], rows: Iterable[Iterable[Any]])
             cell.text = str(value)
 
 
+def _md_table(headers: list[str], rows: Iterable[Iterable[Any]]) -> list[str]:
+    def cell(value: Any) -> str:
+        return str(value).replace("\n", " ").replace("|", "/")
+
+    out = [
+        "| " + " | ".join(cell(header) for header in headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        out.append("| " + " | ".join(cell(value) for value in row) + " |")
+    out.append("")
+    return out
+
+
+def _top_actor_summary_rows(data: dict[str, Any], limit: int = 8) -> list[list[Any]]:
+    actor_rows = sorted(
+        data["actor_summary"].items(),
+        key=lambda item: float(item[1].get("realized_pnl_usd") or 0.0),
+        reverse=True,
+    )
+    rows: list[list[Any]] = []
+    for key, value in actor_rows[:limit]:
+        rows.append([
+            key,
+            value.get("actor_type", ""),
+            value.get("selected_signals", 0),
+            value.get("executable_selected_signals", 0),
+            value.get("closed_trades", 0),
+            f"{float(value.get('realized_pnl_usd') or 0.0):.2f}",
+        ])
+    return rows
+
+
+def _save_docx(doc: Document, path: Path) -> Path:
+    try:
+        doc.save(path)
+        return path
+    except PermissionError:
+        fallback = path.with_name(f"{path.stem}_expanded{path.suffix}")
+        doc.save(fallback)
+        return fallback
+
+
 def build_markdown(data: dict[str, Any], charts: list[Path]) -> Path:
     best = data["best_metrics"]
     guard = data["symbol_guard_metrics"]
     component = data["component_benchmark"]["summary"]
-    standalone = data["standalone_vs_flash"]["summary"]
+    standalone_report = data["standalone_vs_flash"]
+    standalone = standalone_report["summary"]
+    attr = data["attribution_summary"]
     diag = data["symbol_guard_diagnostics"]
+    live = data["live_profile"]
     md = OUT / "Panteon_Flash_PreLive_Report.md"
     lines = [
         "# Panteon Flash pre-live отчет",
@@ -381,6 +464,118 @@ def build_markdown(data: dict[str, Any], charts: list[Path]) -> Path:
         "",
         "Запуск реальных торгов допустим только как ограниченный пилот: малый капитал, `max_new_opens_per_bar=1`, ежедневный attribution-контроль и kill-switch. Полный production без ограничений не рекомендован.",
         "",
+        "## Как читать отчет: что здесь является самим Пантеоном",
+        "",
+        "В этом отчете самим реально торгующим Пантеоном является агрегат `Round3 Deny8 EntryRegime` / `Panteon_Flash`. "
+        "Это не отдельный агент и не отдельный игрок, а контур выбора и исполнения: `FlashAllocator` выбирает лучшего актора по каждому символу, затем execution-слой пропускает выбранные сигналы через лимиты позиций и отправляет их в executor.",
+        "",
+        f"Именно этот контур дал **{_fmt(best['pnl_pct'])}%** PnL: {attr['selected_signals']} выбранных сигналов -> "
+        f"{attr['executable_selected_signals']} executable -> {attr['filled_signals']} filled -> {attr['closed_trades']} closed trades, "
+        f"realized PnL **{_fmt(attr['realized_pnl_usd'])} USD**.",
+        "",
+    ]
+    lines.extend(_md_table(
+        ["Строка в отчете", "Что это", "Это сам Пантеон?"],
+        [
+            [
+                "`Round3 Deny8 EntryRegime` / `Panteon_Flash`",
+                "боевой Flash-контур выбора и исполнения",
+                "да, это агрегат реально исполненных сделок Пантеона",
+            ],
+            [
+                f"`{component['best_component_label']}`",
+                "лучший отдельный компонент-бенчмарк",
+                "нет, это игрок-кандидат; его сделки внутри Flash учитываются как вклад выбранного актора",
+            ],
+            [
+                "`Solo_MomentumScalper`, `LiveOIBreakout`, другие actor rows",
+                "агенты или ensemble-игроки, выбранные на отдельных символах",
+                "нет как самостоятельная система; да как вклад в сделки, которые исполнил `Panteon_Flash`",
+            ],
+            [
+                "Standalone vs Flash-selected",
+                "сравнение полного самостоятельного поведения актора с subset, выбранным Пантеоном",
+                "standalone - нет; Flash-selected - часть реальных сделок Пантеона",
+            ],
+            [
+                "`NoTrade`",
+                "явное решение не торговать по символу",
+                "часть decision layer, но не сделка",
+            ],
+        ],
+    ))
+    lines.extend([
+        "## Как работают агенты, игроки и Пантеон",
+        "",
+        "Агент - это источник торговой логики с интерфейсом `act(market) -> dict[symbol, Action]`. Он предлагает действие по монете, но сам не решает, можно ли это действие реально исполнять.",
+        "",
+        "Игрок - это ансамблевый актор (`actor_type=\"ensemble\"`). `EnsemblePlayer` вызывает несколько агентов, агрегирует их голоса через voting policy, назначает основного contributor и возвращает сигналы. В Flash игрок конкурирует с одиночными агентами как обычный кандидат, а не выбирается глобальным лидером на весь рынок.",
+        "",
+        "Пантеон в режиме Flash - это decision/execution слой. На каждом баре он собирает real-executable агентов и ensemble-игроков, строит кандидатов, оценивает их по каждому символу, выбирает одного победителя или `NoTrade`, затем передает только прошедшие сигналы в execution.",
+        "",
+        "Схема решения:",
+        "",
+        "```text",
+        "MarketSnapshot -> agents + ensemble players -> FlashAllocator",
+        "    -> one FlashDecision per symbol -> risk/position filters",
+        "    -> TradeExecutor -> EventLog + attribution",
+        "```",
+        "",
+        "Фильтры перед исполнением: карантин, наличие статистики, минимум закрытых сделок, PnL-порог, shadow confirmation, degradation/deny keys, score gate, лимит новых открытий на бар и лимит открытых позиций.",
+        "",
+        "## Профиль реально торгующего контура",
+        "",
+    ])
+    lines.extend(_md_table(
+        ["Параметр", "Значение", "Смысл"],
+        [
+            ["Leader", live["execution_leader"], "имя, под которым сделки проходят как Пантеон"],
+            ["Run profile", live["run_profile"], "выбранная pre-live конфигурация"],
+            ["Flash enabled", _fmt(live["flash_enabled"]), "используется per-symbol Flash selection"],
+            ["Min score", _fmt(live["flash_min_score_to_trade"]), "минимальная оценка кандидата"],
+            ["Min closed trades", live["flash_min_closed_trades_to_trade"], "минимальная история для допуска"],
+            ["Shadow confirmation", _fmt(live["flash_shadow_confirmation_enabled"]), "проверка через shadow-статистику"],
+            ["Symbol shadow confirmation", _fmt(live["flash_symbol_shadow_confirmation_enabled"]), "подтверждение качества по символу"],
+            ["Max signals per actor", live["flash_max_signals_per_actor"], "защита от концентрации в одном акторе"],
+            ["Max new opens per bar", live["max_new_opens_per_bar"], "боевой лимит новых открытий"],
+            ["Risk max open positions", live["risk_max_open_positions"], "общий лимит открытых позиций"],
+            ["Degradation guard", _fmt(live["flash_degradation_guard_enabled"]), "временное отключение деградировавших signal keys"],
+            ["Actor degradation guard", f"{_fmt(live['flash_degradation_actor_guard_enabled'])}, scope={live['flash_degradation_actor_scope']}", "контроль деградации актора по режиму"],
+            ["Deny keys", live["flash_denied_signal_keys_count"], "ручные запреты плохих actor|symbol|action"],
+            ["Terminal deny keys", live["flash_terminal_denied_signal_keys_count"], "жесткие запреты, ведущие к NoTrade"],
+        ],
+    ))
+    lines.extend([
+        "## Работа Пантеона на полном прогоне",
+        "",
+        f"Flash обработал {attr['flash_decisions']} решений по символам. Из них {attr['no_trade_decisions']} закончились `NoTrade`, поэтому активная торговля была редкой и отфильтрованной: no-trade share **{_fmt(best['no_trade_decision_share_pct'])}%**.",
+        "",
+    ])
+    lines.extend(_md_table(
+        ["Показатель", "Значение"],
+        [
+            ["Selected signals", attr["selected_signals"]],
+            ["Executable selected", attr["executable_selected_signals"]],
+            ["Filtered before execution", attr["selected_filtered_before_execution"]],
+            ["Filled signals", attr["filled_signals"]],
+            ["Blocked signals", attr["blocked_signals"]],
+            ["Closed trades", attr["closed_trades"]],
+            ["Winning / losing trades", f"{attr['winning_trades']} / {attr['losing_trades']}"],
+            ["Win rate", f"{attr['winning_trades'] / max(1, attr['closed_trades']) * 100:.2f}%"],
+            ["Realized PnL", f"{attr['realized_pnl_usd']:.2f} USD"],
+        ],
+    ))
+    lines.extend([
+        "## Вклад агентов и игроков внутри Пантеона",
+        "",
+        "Следующая таблица не показывает отдельные самостоятельные торговые системы. Она показывает, какие акторы были выбраны самим `Panteon_Flash` и какой вклад дали в его реальные/ретро-реальные сделки.",
+        "",
+    ])
+    lines.extend(_md_table(
+        ["Actor", "Type", "Selected", "Executable", "Closed", "PnL USD"],
+        _top_actor_summary_rows(data, limit=8),
+    ))
+    lines.extend([
         "## Финальный тест symbol guard",
         "",
         f"Новый symbol guard был проверен на полном 2022-2026 прогоне: PnL **{_fmt(guard['pnl_pct'])}%** против **{_fmt(best['pnl_pct'])}%** у Round3.",
@@ -392,9 +587,27 @@ def build_markdown(data: dict[str, Any], charts: list[Path]) -> Path:
         f"Для Solo_MomentumScalper и LiveOIBreakout standalone-суммарно дал {_fmt(standalone['total_standalone_pnl_pct'])}%, а Flash-selected subset дал {_fmt(standalone['total_flash_selected_pnl_pct'])}%.",
         "Это значит, что Пантеон прибыльнее полного набора компонентов за счет других игроков/фильтров, но selection subset еще требует улучшения.",
         "",
+    ])
+    lines.extend(_md_table(
+        ["Actor", "Standalone", "Flash-selected", "Selected", "Executable", "Closed", "Selection alpha"],
+        [
+            [
+                row["label"],
+                f"{row['standalone_pnl_pct']:.2f}%",
+                f"{row['flash_selected_pnl_pct']:.2f}%",
+                row["flash_selected_signals"],
+                row["flash_executable_selected_signals"],
+                row["flash_closed_trades"],
+                f"{row['selection_alpha_pct']:.2f} п.п.",
+            ]
+            for row in standalone_report["actors"]
+        ],
+    ))
+    lines.extend([
         "## Визуализации",
         "",
     ]
+    )
     for chart in charts:
         lines.append(f"![{chart.stem}]({chart.as_posix()})")
         lines.append("")
@@ -408,6 +621,7 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
     component = data["component_benchmark"]["summary"]
     standalone = data["standalone_vs_flash"]
     attr = data["attribution_summary"]
+    live = data["live_profile"]
     doc = Document()
     for section in doc.sections:
         section.top_margin = Inches(0.7)
@@ -434,6 +648,84 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
     doc.add_paragraph(
         "Реальные торги можно начинать только как ограниченный пилот: малый капитал, max_new_opens_per_bar=1, "
         "ежедневный attribution-контроль и kill-switch. Полный production без ограничений пока не рекомендован."
+    )
+
+    doc.add_heading("Как читать отчет: что здесь является самим Пантеоном", level=1)
+    doc.add_paragraph(
+        "Самим реально торгующим Пантеоном в этом отчете является агрегат Round3 Deny8 EntryRegime / Panteon_Flash. "
+        "Это не отдельный агент и не отдельный игрок, а контур выбора и исполнения: FlashAllocator выбирает лучшего актора "
+        "по каждому символу, после чего execution-слой применяет лимиты позиций и отправляет прошедшие сигналы в executor."
+    )
+    doc.add_paragraph(
+        f"Именно этот контур дал {best['pnl_pct']:.2f}% PnL: {attr['selected_signals']} выбранных сигналов -> "
+        f"{attr['executable_selected_signals']} executable -> {attr['filled_signals']} filled -> {attr['closed_trades']} closed trades, "
+        f"realized PnL {attr['realized_pnl_usd']:.2f} USD."
+    )
+    _add_table(
+        doc,
+        ["Строка в отчете", "Что это", "Это сам Пантеон?"],
+        [
+            [
+                "Round3 Deny8 EntryRegime / Panteon_Flash",
+                "боевой Flash-контур выбора и исполнения",
+                "да, агрегат реально исполненных сделок Пантеона",
+            ],
+            [
+                component["best_component_label"],
+                "лучший отдельный компонент-бенчмарк",
+                "нет, это игрок-кандидат; внутри Flash он учитывается как выбранный актор",
+            ],
+            [
+                "Solo_MomentumScalper, LiveOIBreakout, actor rows",
+                "агенты или ensemble-игроки, выбранные на отдельных символах",
+                "нет как самостоятельная система; да как вклад в сделки Panteon_Flash",
+            ],
+            [
+                "Standalone vs Flash-selected",
+                "сравнение самостоятельного актора с subset, выбранным Пантеоном",
+                "standalone - нет; Flash-selected - часть реальных сделок Пантеона",
+            ],
+            [
+                "NoTrade",
+                "явное решение не торговать по символу",
+                "часть decision layer, но не сделка",
+            ],
+        ],
+    )
+
+    doc.add_heading("Как работают агенты, игроки и Пантеон", level=1)
+    for text in [
+        "Агент - источник торговой логики с интерфейсом act(market) -> dict[symbol, Action]. Агент предлагает действие, но не решает сам, можно ли его исполнять реальными деньгами.",
+        "Игрок - ensemble actor. EnsemblePlayer вызывает несколько агентов, агрегирует голоса через voting policy, назначает основного contributor и возвращает сигналы. В Flash игрок конкурирует с одиночными агентами как кандидат по конкретному символу.",
+        "Пантеон Flash - decision/execution слой. Он собирает real-executable агентов и ensemble-игроков, ранжирует кандидатов по каждому символу, выбирает одного победителя или NoTrade и передает только прошедшие сигналы в execution.",
+        "Фильтры перед исполнением: карантин, наличие статистики, минимум закрытых сделок, PnL-порог, shadow confirmation, degradation/deny keys, score gate, max_new_opens_per_bar и risk_max_open_positions.",
+    ]:
+        doc.add_paragraph(text, style="List Bullet")
+
+    doc.add_heading("Профиль реально торгующего контура", level=1)
+    _add_table(
+        doc,
+        ["Параметр", "Значение", "Смысл"],
+        [
+            ["Leader", live["execution_leader"], "имя, под которым сделки проходят как Пантеон"],
+            ["Run profile", live["run_profile"], "выбранная pre-live конфигурация"],
+            ["Flash enabled", _fmt(live["flash_enabled"]), "per-symbol Flash selection"],
+            ["Min score", _fmt(live["flash_min_score_to_trade"]), "минимальная оценка кандидата"],
+            ["Min closed trades", live["flash_min_closed_trades_to_trade"], "минимальная история для допуска"],
+            ["Shadow confirmation", _fmt(live["flash_shadow_confirmation_enabled"]), "проверка через shadow-статистику"],
+            ["Symbol shadow confirmation", _fmt(live["flash_symbol_shadow_confirmation_enabled"]), "подтверждение качества по символу"],
+            ["Max signals per actor", live["flash_max_signals_per_actor"], "защита от концентрации в одном акторе"],
+            ["Max new opens per bar", live["max_new_opens_per_bar"], "боевой лимит новых открытий"],
+            ["Risk max open positions", live["risk_max_open_positions"], "общий лимит открытых позиций"],
+            ["Degradation guard", _fmt(live["flash_degradation_guard_enabled"]), "временное отключение деградировавших signal keys"],
+            [
+                "Actor degradation guard",
+                f"{_fmt(live['flash_degradation_actor_guard_enabled'])}, scope={live['flash_degradation_actor_scope']}",
+                "контроль деградации актора по режиму",
+            ],
+            ["Deny keys", live["flash_denied_signal_keys_count"], "ручные запреты плохих actor|symbol|action"],
+            ["Terminal deny keys", live["flash_terminal_denied_signal_keys_count"], "жесткие запреты, ведущие к NoTrade"],
+        ],
     )
 
     doc.add_heading("Ключевые метрики", level=1)
@@ -475,15 +767,21 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
         doc.add_paragraph(text, style="List Bullet")
 
     doc.add_heading("Работа Пантеона", level=1)
+    doc.add_paragraph(
+        "Эта таблица описывает не отдельного актора, а весь Panteon_Flash execution path: от per-symbol решений до исполненных и закрытых сделок."
+    )
     _add_table(
         doc,
         ["Показатель", "Значение"],
         [
             ["Flash decisions", attr["flash_decisions"]],
+            ["NoTrade decisions", attr["no_trade_decisions"]],
             ["Selected signals", attr["selected_signals"]],
             ["Executable selected", attr["executable_selected_signals"]],
             ["Filled", attr["filled_signals"]],
+            ["Blocked", attr["blocked_signals"]],
             ["Closed trades", attr["closed_trades"]],
+            ["Winning / losing trades", f"{attr['winning_trades']} / {attr['losing_trades']}"],
             ["Win rate", f"{attr['winning_trades'] / max(1, attr['closed_trades']) * 100:.2f}%"],
             ["Realized PnL USD", f"{attr['realized_pnl_usd']:.2f}"],
             ["Filtered before execution", attr["selected_filtered_before_execution"]],
@@ -491,6 +789,9 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
     )
 
     doc.add_heading("Работа игроков и агентов", level=1)
+    doc.add_paragraph(
+        "Строки ниже - это attribution внутри сделок Пантеона. Они показывают, какой агент или ensemble-игрок был выбран для конкретных символов, но не являются отдельной строкой production PnL."
+    )
     actor_rows = sorted(
         data["actor_summary"].items(),
         key=lambda item: float(item[1].get("realized_pnl_usd") or 0.0),
@@ -513,7 +814,8 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
     )
     doc.add_paragraph(
         "Главный положительный вклад дали ensemble-игроки: Antonius_conservative, Solo_MomentumScalper и Optimal_StaticRotator. "
-        "LiveOIBreakout как agent полезен точечно: standalone 9.28%, а Flash-selected subset 11.29%, то есть Пантеон выбирал его лучше, чем полный standalone."
+        "LiveOIBreakout как agent полезен точечно: standalone 9.28%, а Flash-selected subset 11.29%, то есть Пантеон выбирал его лучше, чем полный standalone. "
+        "Сам Panteon_Flash находится не в этой actor-таблице, а в агрегатной строке Round3 Deny8 EntryRegime."
     )
 
     doc.add_heading("Standalone vs Flash-selected", level=1)
@@ -573,8 +875,7 @@ def build_docx(data: dict[str, Any], charts: list[Path]) -> Path:
         doc.add_paragraph(str(path), style="List Bullet")
 
     out = OUT / "Panteon_Flash_PreLive_Report.docx"
-    doc.save(out)
-    return out
+    return _save_docx(doc, out)
 
 
 def main() -> int:

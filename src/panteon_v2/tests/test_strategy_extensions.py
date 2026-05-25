@@ -9,9 +9,15 @@ import unittest
 from unittest.mock import patch
 
 from panteon_v2.domain.types import Action, MarketSnapshot, Regime
-from panteon_v2.app.agent_bootstrap import _ensure_paths, known_labels
+from panteon_v2.app.agent_bootstrap import (
+    _ensure_paths,
+    experimental_flash_agent_labels,
+    known_labels,
+    register_all_v1_agents,
+)
 from panteon_v2.app.bootstrap import PRODUCTION_PROFILES
 from panteon_v2.selection import AgentRegistry
+from panteon_v2.selection.strategist import StrategistConfig
 
 
 _ensure_paths()
@@ -87,7 +93,9 @@ class TestNewStrategyAgents(unittest.TestCase):
         labels = set(known_labels())
         self.assertIn("NeutralLiquiditySweep", labels)
         self.assertIn("AnchorFlowMomentum", labels)
-        self.assertNotIn("CarryFlowAgentV2", labels)
+        self.assertIn("CandlePatternAgent", labels)
+        self.assertIn("CarryFlowAgentV2", labels)
+        self.assertIn("Solo_CarryFlowAgentV2", StrategistConfig().hard_policy_deny_labels)
 
         profile_by_label = {profile.label: profile for profile in PRODUCTION_PROFILES}
         self.assertIn("NeutralEdgeResearch", profile_by_label)
@@ -97,6 +105,18 @@ class TestNewStrategyAgents(unittest.TestCase):
         self.assertIn("ResearchValidatorAgent", neutral_edge.bias)
         defensive = profile_by_label["DefensiveResearch"]
         self.assertNotIn("CarryFlowAgentV2", defensive.bias)
+
+    def test_restored_legacy_agents_register_shadow_only_by_default(self):
+        registry = AgentRegistry()
+
+        register_all_v1_agents(registry)
+
+        for label in ("CandlePatternAgent", "CarryFlowAgentV2"):
+            with self.subTest(label=label):
+                agent = registry.get(label)
+                self.assertIsNotNone(agent)
+                self.assertTrue(getattr(agent, "shadow_only", False))
+                self.assertFalse(getattr(agent, "live_trading_eligible", True))
 
 
 class TestExperimentalFlashAgents(unittest.TestCase):
@@ -159,6 +179,10 @@ class TestExperimentalFlashAgents(unittest.TestCase):
         registry = AgentRegistry()
         registry.register(StaticAgent("MomentumScalper"))
         registry.register(StaticAgent("VolBreakoutHunter"))
+        registry.register(StaticAgent("LiveCrashHunter"))
+        registry.register(StaticAgent("LiveAfterShock"))
+        registry.register(StaticAgent("LiveTrendFollow"))
+        registry.register(StaticAgent("LiveMeanRev"))
 
         registered = register_experimental_flash_agents(registry)
 
@@ -171,11 +195,25 @@ class TestExperimentalFlashAgents(unittest.TestCase):
                 "MomentumScalperShortCrashOnly",
                 "MomentumScalperShortBearOnly",
                 "MomentumScalperSpotPullbackOnly",
+                "CrashHunterStrict",
+                "VolBreakoutFundingAware",
+                "AfterShockRegimeOnly",
+                "LiveTrendFollowBullOnly",
+                "LiveMeanRevNeutralOnly",
             ),
         )
         for label in registered:
             self.assertTrue(registry.has(label), label)
             self.assertIsNot(registry.get(label), registry.get("MomentumScalper"))
+
+    def test_experimental_flash_agent_catalog_includes_legacy_specialists(self):
+        labels = set(experimental_flash_agent_labels())
+
+        self.assertIn("CrashHunterStrict", labels)
+        self.assertIn("VolBreakoutFundingAware", labels)
+        self.assertIn("AfterShockRegimeOnly", labels)
+        self.assertIn("LiveTrendFollowBullOnly", labels)
+        self.assertIn("LiveMeanRevNeutralOnly", labels)
 
 
 class TestGenomeEnsembleAgent(unittest.TestCase):

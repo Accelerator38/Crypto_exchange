@@ -19,20 +19,17 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import time
-from collections import deque
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..attribution import (
     AgentVoteFailed,
     BarStarted,
-    CandidateRejected,
-    CandidateScored,
     DecisionStarted,
     LeaderSelected,
     PlayerVoteFailed,
-    PositionClosed,
     QuarantineRecomputed,
     RegimeDetected,
     SignalEmitted,
@@ -51,6 +48,18 @@ from ..selection import (
 from ..selection.player import normalize_vote_result
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
+from .audit_emission import (
+    emit_candidate_audit_events,
+    emit_flash_audit_events,
+)
+from .degradation_tracking import (
+    flash_event_log_tail,
+    flash_update_degradation_state_from_events,
+)
+from .decision_paths.flash import (
+    FlashDecisionPathCallbacks,
+    run_flash_decision_path,
+)
 from .flash_state import (
     flash_degraded_actor_keys,
     flash_degraded_open_symbols,
@@ -875,247 +884,52 @@ def _run_flash_decision_path(
     context: Dict[str, str],
     health_reason: str,
 ):
-    allocator = getattr(pipeline, "flash_allocator", None)
-    if allocator is None:
-        raise RuntimeError("flash_enabled=True but pipeline.flash_allocator is not configured")
-
-    candidates = tuple(
-        candidate
-        for candidate in candidates
-        if not _fallback_candidate_safety_issue(pipeline, candidate, market)
-    )
-    agents = _flash_real_agents(pipeline, market)
-    candidate_labels = tuple(dict.fromkeys(
-        [str(getattr(agent, "label", "") or "") for agent in agents]
-        + [str(getattr(candidate, "label", "") or "") for candidate in candidates]
-    ))
-    pipeline.event_log.emit(DecisionStarted(
-        bar=market.bar,
-        trace_id=trace,
-        decision_id=decision_id,
-        **context,
-        candidate_labels=tuple(label for label in candidate_labels if label),
-        shadow_total_signals=int(getattr(shadow_summary, "total_signals", 0) or 0),
-        shadow_total_filled=int(getattr(shadow_summary, "total_filled", 0) or 0),
-        shadow_total_rejected=int(getattr(shadow_summary, "total_rejected", 0) or 0),
-        shadow_total_blocked=int(getattr(shadow_summary, "total_blocked", 0) or 0),
-    ))
-
-    sync_player_agents_to_real_positions(
-        _FlashExecutionActor(
-            label="Panteon_Flash",
-            agents=tuple(agents),
-            agent_labels=tuple(str(getattr(agent, "label", "") or "") for agent in agents),
-        ),
-        pipeline,
-        bar_index=market.bar,
-        market_symbols=market.prices.keys(),
-    )
-    _flash_update_degradation_state_from_events(pipeline, current_bar=market.bar)
-    previous_flash_actors = dict(
-        getattr(pipeline, "_flash_previous_actor_by_symbol", {}) or {}
-    )
-    shadow_player_signals = _flash_shadow_player_signals_with_position_replay(
+    return run_flash_decision_path(
         pipeline,
         market,
         candidates,
-        agents=agents,
+        shadow_summary,
         signal_id_counter=signal_id_counter,
-    )
-    decisions = tuple(allocator.decide(
-        market,
-        agents=agents,
-        players=tuple(candidates),
-        signal_id_start=signal_id_counter,
-        actionable_labels=getattr(pipeline, "_current_actionable_player_labels", set()) or set(),
-        shadow_confirmation=_flash_shadow_confirmation_scores(
-            pipeline,
-            market,
-            agents=agents,
-            players=candidates,
-        ),
-        shadow_player_signals=shadow_player_signals,
-        shadow_agent_signals=getattr(
-            pipeline,
-            "_current_shadow_agent_signals",
-            {},
-        ) or {},
-        degraded_signal_keys=_flash_degraded_signal_keys(pipeline),
-        degraded_actor_keys=_flash_degraded_actor_keys(pipeline, market.regime),
-        degraded_open_symbols=_flash_degraded_open_symbols(pipeline),
-        promoted_signal_keys=_flash_promoted_signal_keys(pipeline),
-        previous_actor_by_symbol=previous_flash_actors,
-        open_position_sides_by_symbol=_flash_open_position_sides_by_symbol(pipeline),
-    ))
-    pipeline._flash_previous_actor_by_symbol = {
-        symbol: actor_key
-        for decision in decisions
-        for symbol, actor_key in (
-            (
-                str(getattr(decision, "symbol", "") or "").upper(),
-                _flash_previous_actor_key_from_decision(decision),
-            ),
-        )
-        if symbol and actor_key and actor_key != "NoTrade"
-    }
-    _flash_register_degradation_signal_keys(pipeline, decisions)
-    _emit_flash_audit_events(
-        pipeline,
-        market,
-        decisions,
+        last_qm_bar=last_qm_bar,
+        last_regime=last_regime,
+        trace=trace,
         decision_id=decision_id,
-        trace_id=trace,
         context=context,
-    )
-    best_score = max((float(getattr(decision, "score", 0.0) or 0.0) for decision in decisions), default=0.0)
-    pipeline.event_log.emit(LeaderSelected(
-        bar=market.bar,
-        trace_id=trace,
-        player_label="Panteon_Flash",
-        previous_label="",
-        score=best_score,
-        margin=0.0,
-        is_urgent=False,
-        reason="flash per-symbol actor selection",
-        decision_id=decision_id,
-        **context,
-    ))
-
-    raw_signals = [decision.signal for decision in decisions if decision.signal is not None]
-    if raw_signals:
-        signal_id_counter = max(signal.id for signal in raw_signals) + 1
-    stale_close_signals = _flash_stale_position_close_signals(
-        pipeline,
-        market,
-        signal_id_start=signal_id_counter,
-        max_age_bars=_flash_stale_position_exit_max_age_bars(pipeline),
-        require_nonpositive_unrealized=_flash_stale_position_exit_requires_loss(pipeline),
-    )
-    if stale_close_signals:
-        signal_id_counter = max(signal.id for signal in stale_close_signals) + 1
-        raw_signals = stale_close_signals + raw_signals
-    raw_signal_count = len(raw_signals)
-    guard_actor = _flash_guard_actor(decisions, agents=agents, players=candidates)
-    signal_guard = filter_real_signals_against_tracker(
-        raw_signals,
-        player=guard_actor,
-        pipeline=pipeline,
-        bar_index=market.bar,
-        max_new_opens_per_bar=getattr(
-            getattr(pipeline, "live_execution", None),
-            "max_new_opens_per_bar",
-            1,
-        ),
-        max_open_positions=getattr(
-            getattr(pipeline, "risk_config", None),
-            "max_open_positions",
-            None,
-        ),
-    )
-    signals = signal_guard.signals
-    for sig in signals:
-        signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
-        if sig.action.is_open and health_reason:
-            signal_context["exchange_health_reason"] = health_reason
-        pipeline.event_log.emit(SignalEmitted(
-            bar=market.bar,
-            trace_id=trace,
-            signal=sig,
-            **signal_context,
-        ))
-        getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
-
-    n_filled = n_rejected = n_blocked = 0
-    blocked_reasons: Dict[str, int] = {}
-    for sig in signals:
-        try:
-            set_event_context = getattr(pipeline.executor, "set_event_context", None)
-            if callable(set_event_context):
-                signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
-                if sig.action.is_open and health_reason:
-                    signal_context["exchange_health_reason"] = health_reason
-                set_event_context(signal_context)
-            res: ExecutionResult = pipeline.executor.execute(
-                sig,
-                balance_usd=pipeline.current_balance,
-            )
-        except Exception:
-            log.exception("execute failed for signal %d", sig.id)
-            _record_order_failure(pipeline, "execute exception")
-            n_rejected += 1
-            continue
-        if res.status == ExecutionStatus.FILLED:
-            n_filled += 1
-            _record_order_success(pipeline, sig, res)
-            _record_realized_result_for_strategy(pipeline, res)
-        elif res.status == ExecutionStatus.REJECTED:
-            _record_order_failure(pipeline, res.reason or "rejected")
-            n_rejected += 1
-        elif res.status == ExecutionStatus.PENDING:
-            _record_order_failure(pipeline, res.reason or "pending")
-            n_rejected += 1
-        elif res.status == ExecutionStatus.BLOCKED:
-            n_blocked += 1
-            reason = res.reason or "blocked"
-            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
-        if _kill_switch_reason(pipeline):
-            break
-
-    _flash_update_degradation_state_from_events(pipeline, current_bar=market.bar)
-    selected_by_symbol = {
-        str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "selected_actor", "") or "")
-        for decision in decisions
-    }
-    kill_reason_after_execution = _kill_switch_reason(pipeline)
-    return (
-        StepResult(
-            bar=market.bar,
-            regime=market.regime,
-            leader="Panteon_Flash",
-            leader_changed=False,
-            n_signals=len(signals),
-            n_filled=n_filled,
-            n_rejected=n_rejected,
-            n_blocked=n_blocked,
-            n_shadow_signals=int(getattr(shadow_summary, "total_signals", 0) or 0),
-            n_shadow_filled=int(getattr(shadow_summary, "total_filled", 0) or 0),
-            n_shadow_rejected=int(getattr(shadow_summary, "total_rejected", 0) or 0),
-            n_shadow_blocked=int(getattr(shadow_summary, "total_blocked", 0) or 0),
-            n_shadow_actors=int(getattr(shadow_summary, "actors", 0) or 0),
-            n_filtered_real_signals=signal_guard.filtered,
-            n_stale_close_signals=signal_guard.stale_closes,
-            n_duplicate_open_signals=signal_guard.duplicate_opens,
-            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
-            n_max_position_saturated_open_signals=signal_guard.max_position_saturated_opens,
-            n_external_position_signals=signal_guard.external_position_signals,
-            n_raw_signals=raw_signal_count,
-            leader_vote_errors=0,
-            leader_agent_labels=guard_actor.agent_labels,
-            selected_actors_by_symbol=selected_by_symbol,
-            signal_filter_details=tuple(signal_guard.details),
-            selected_leader="Panteon_Flash",
-            executed_leader="Panteon_Flash",
-            blocked_reasons=blocked_reasons,
-            causal_decision=_flash_causal_decision_payload(
-                market=market,
-                decisions=decisions,
-                raw_signals=raw_signals,
-                executable_signals=signals,
-                signal_guard=signal_guard,
-                n_filled=n_filled,
-                n_rejected=n_rejected,
-                n_blocked=n_blocked,
-                blocked_reasons=blocked_reasons,
-                pipeline=pipeline,
+        health_reason=health_reason,
+        callbacks=FlashDecisionPathCallbacks(
+            fallback_candidate_safety_issue=_fallback_candidate_safety_issue,
+            flash_real_agents=_flash_real_agents,
+            flash_execution_actor_type=_FlashExecutionActor,
+            sync_player_agents_to_real_positions=sync_player_agents_to_real_positions,
+            flash_update_degradation_state_from_events=_flash_update_degradation_state_from_events,
+            flash_shadow_player_signals_with_position_replay=(
+                _flash_shadow_player_signals_with_position_replay
             ),
-            error=(
-                f"kill switch active: {kill_reason_after_execution}"
-                if kill_reason_after_execution else None
+            flash_shadow_confirmation_scores=_flash_shadow_confirmation_scores,
+            flash_degraded_signal_keys=_flash_degraded_signal_keys,
+            flash_degraded_actor_keys=_flash_degraded_actor_keys,
+            flash_degraded_open_symbols=_flash_degraded_open_symbols,
+            flash_promoted_signal_keys=_flash_promoted_signal_keys,
+            flash_open_position_sides_by_symbol=_flash_open_position_sides_by_symbol,
+            flash_previous_actor_key_from_decision=_flash_previous_actor_key_from_decision,
+            flash_register_degradation_signal_keys=_flash_register_degradation_signal_keys,
+            emit_flash_audit_events=_emit_flash_audit_events,
+            flash_stale_position_close_signals=_flash_stale_position_close_signals,
+            flash_stale_position_exit_max_age_bars=_flash_stale_position_exit_max_age_bars,
+            flash_stale_position_exit_requires_loss=_flash_stale_position_exit_requires_loss,
+            flash_guard_actor=_flash_guard_actor,
+            filter_real_signals_against_tracker=filter_real_signals_against_tracker,
+            genetics_probation_execution_overlay=(
+                _apply_genetics_probation_execution_overlay
             ),
+            signal_context=_signal_context,
+            record_order_failure=_record_order_failure,
+            record_order_success=_record_order_success,
+            record_realized_result_for_strategy=_record_realized_result_for_strategy,
+            kill_switch_reason=_kill_switch_reason,
+            flash_causal_decision_payload=_flash_causal_decision_payload,
+            step_result_type=StepResult,
         ),
-        signal_id_counter,
-        last_qm_bar,
-        last_regime,
     )
 
 
@@ -1129,12 +943,45 @@ def _flash_real_agents(
         return []
     out: List[object] = []
     for agent in all_agents():
-        if not _agent_is_real_executable(agent):
+        if (
+            not _agent_is_real_executable(agent)
+            and not _agent_is_genetics_probation_agent_executable(agent, pipeline, market)
+        ):
             continue
         if _flash_agent_safety_issue(pipeline, agent, market):
             continue
         out.append(agent)
     return out
+
+
+def _agent_is_genetics_probation_agent_executable(
+    agent: object,
+    pipeline: ProductionPipeline | None,
+    market: MarketSnapshot | None = None,
+) -> bool:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return False
+    label = str(getattr(agent, "label", "") or "")
+    if not label or not label.startswith("Genetics"):
+        return False
+    labels = {
+        str(item or "").strip()
+        for item in (getattr(cfg, "genetics_probation_labels", ()) or ())
+        if str(item or "").strip()
+    }
+    if label not in labels:
+        return False
+    allowed_regimes = {
+        str(item or "").strip().lower()
+        for item in (getattr(cfg, "genetics_probation_allowed_regimes", ()) or ())
+        if str(item or "").strip()
+    }
+    if allowed_regimes and market is not None:
+        regime_key = str(getattr(market.regime, "label", market.regime) or "").lower()
+        if regime_key not in allowed_regimes:
+            return False
+    return True
 
 
 def _flash_solo_candidate_for_agent(
@@ -1186,7 +1033,11 @@ def _flash_agent_safety_issue(
                 current_bar=market.bar,
                 market_tags=_market_policy_tags(market),
             )
-            if issue is not None:
+            if issue is not None and not _agent_is_genetics_probation_agent_executable(
+                agent,
+                pipeline,
+                market,
+            ):
                 return True
         except Exception:
             log.debug("flash agent hard-policy validation failed", exc_info=True)
@@ -1453,6 +1304,8 @@ def _flash_shadow_confirmation_scores(
                         symbol,
                         exc_info=True,
                     )
+        if bool(getattr(config, "shadow_symbol_health_enabled", False)):
+            _add_flash_shadow_symbol_health_scores(scores)
         return scores
     scorer = getattr(
         getattr(pipeline, "strategist", None),
@@ -1496,6 +1349,135 @@ def _flash_shadow_confirmation_scores(
         except Exception:
             log.debug("failed to score flash shadow player %s", label, exc_info=True)
     return scores
+
+
+def _add_flash_shadow_symbol_health_scores(scores: Dict[object, object]) -> None:
+    grouped: dict[tuple[str, str], list[dict[str, float]]] = {}
+    for key, raw in list(scores.items()):
+        if not isinstance(key, tuple) or len(key) != 3:
+            continue
+        label, symbol, action = key
+        if str(label) == "__symbol_health__":
+            continue
+        payload = _shadow_confirmation_payload(raw)
+        if not payload:
+            continue
+        grouped.setdefault(
+            (str(symbol or "").upper(), str(action or "").upper()),
+            [],
+        ).append(payload)
+
+    for (symbol, action), payloads in grouped.items():
+        aggregate = _aggregate_shadow_confirmation_payloads(payloads)
+        if aggregate["closed_trades"] <= 0:
+            continue
+        scores[("__symbol_health__", symbol, action)] = aggregate
+
+
+def _shadow_confirmation_payload(raw: object) -> dict[str, float]:
+    if isinstance(raw, Mapping):
+        score = _shadow_safe_float(raw.get("score"))
+        closed = _shadow_safe_int(raw.get("closed_trades"))
+        wins = _shadow_safe_int(raw.get("winning_trades"))
+        mean_raw = raw.get("pnl_per_trade_mean_usd")
+        mean = (
+            _shadow_safe_float(mean_raw)
+            if mean_raw is not None
+            else score / float(closed)
+            if closed > 0
+            else 0.0
+        )
+        return {
+            "score": score,
+            "closed_trades": float(closed),
+            "winning_trades": float(wins),
+            "recent_downside_usd": _shadow_safe_float(raw.get("recent_downside_usd")),
+            "pnl_per_trade_mean_usd": mean,
+            "pnl_per_trade_std_usd": max(
+                0.0,
+                _shadow_safe_float(raw.get("pnl_per_trade_std_usd")),
+            ),
+        }
+    try:
+        score, closed = raw  # type: ignore[misc]
+    except (TypeError, ValueError):
+        return {}
+    closed_int = _shadow_safe_int(closed)
+    score_float = _shadow_safe_float(score)
+    return {
+        "score": score_float,
+        "closed_trades": float(closed_int),
+        "winning_trades": 0.0,
+        "recent_downside_usd": abs(score_float) if score_float < 0.0 else 0.0,
+        "pnl_per_trade_mean_usd": (
+            score_float / float(closed_int) if closed_int > 0 else 0.0
+        ),
+        "pnl_per_trade_std_usd": 0.0,
+    }
+
+
+def _shadow_safe_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _shadow_safe_float(value: object) -> float:
+    try:
+        parsed = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if math.isfinite(parsed) else 0.0
+
+
+def _aggregate_shadow_confirmation_payloads(
+    payloads: Sequence[dict[str, float]],
+) -> dict[str, object]:
+    score = sum(float(item.get("score", 0.0) or 0.0) for item in payloads)
+    closed = sum(max(0, int(item.get("closed_trades", 0) or 0)) for item in payloads)
+    wins = sum(max(0, int(item.get("winning_trades", 0) or 0)) for item in payloads)
+    recent_downside = sum(
+        max(0.0, float(item.get("recent_downside_usd", 0.0) or 0.0))
+        for item in payloads
+    )
+    if closed <= 0:
+        mean = 0.0
+        std = 0.0
+    else:
+        mean = (
+            sum(
+                float(item.get("pnl_per_trade_mean_usd", 0.0) or 0.0)
+                * max(0, int(item.get("closed_trades", 0) or 0))
+                for item in payloads
+            )
+            / float(closed)
+        )
+        if closed < 2:
+            std = 0.0
+        else:
+            variance_numerator = 0.0
+            for item in payloads:
+                n = max(0, int(item.get("closed_trades", 0) or 0))
+                if n <= 0:
+                    continue
+                item_mean = float(item.get("pnl_per_trade_mean_usd", 0.0) or 0.0)
+                item_std = max(0.0, float(item.get("pnl_per_trade_std_usd", 0.0) or 0.0))
+                variance_numerator += max(0, n - 1) * (item_std ** 2)
+                variance_numerator += n * ((item_mean - mean) ** 2)
+            std = math.sqrt(max(0.0, variance_numerator / float(closed - 1)))
+    lcb = mean - (std / math.sqrt(float(closed))) if closed > 0 else 0.0
+    return {
+        "score": float(score),
+        "closed_trades": int(closed),
+        "winning_trades": int(min(wins, closed)),
+        "losing_trades": int(max(0, closed - wins)),
+        "win_rate_pct": (float(wins) / float(closed) * 100.0) if closed > 0 else 0.0,
+        "recent_downside_usd": float(recent_downside),
+        "pnl_per_trade_mean_usd": float(mean),
+        "pnl_per_trade_std_usd": float(std),
+        "pnl_per_trade_lcb_usd": float(lcb),
+    }
 
 
 def _flash_portfolio_shadow_actor(
@@ -1543,292 +1525,10 @@ def _flash_update_degradation_state_from_events(
     *,
     current_bar: int = 0,
 ) -> None:
-    if not _flash_degradation_guard_enabled(pipeline):
-        return
-
-    allocator = getattr(pipeline, "flash_allocator", None)
-    config = getattr(allocator, "config", None)
-    window = max(1, int(getattr(config, "degradation_window_closed_trades", 3) or 3))
-    min_closed = max(1, int(getattr(config, "degradation_min_closed_trades", 3) or 3))
-    threshold = float(getattr(config, "degradation_max_recent_pnl_usd", -25.0) or 0.0)
-    recovery_enabled = bool(getattr(config, "degradation_recovery_enabled", False))
-    recovery_min_closed = max(
-        1,
-        int(getattr(config, "degradation_recovery_min_closed_trades", min_closed) or min_closed),
+    flash_update_degradation_state_from_events(
+        pipeline,
+        current_bar=current_bar,
     )
-    recovery_threshold = float(
-        getattr(config, "degradation_recovery_min_recent_pnl_usd", 0.0) or 0.0
-    )
-
-    cursor = int(getattr(pipeline, "_flash_degradation_event_cursor", 0) or 0)
-    events, event_count = _flash_event_log_tail(pipeline.event_log, cursor)
-    signal_key_by_id = dict(getattr(pipeline, "_flash_signal_key_by_id", {}) or {})
-    actor_key_by_id = dict(getattr(pipeline, "_flash_actor_key_by_id", {}) or {})
-    outcomes = dict(getattr(pipeline, "_flash_degradation_outcomes", {}) or {})
-    degraded = set(getattr(pipeline, "_flash_degraded_signal_keys", set()) or set())
-    signal_cooldown_bars = max(
-        0,
-        int(getattr(config, "degradation_signal_cooldown_bars", 0) or 0),
-    )
-    signal_degraded_until = {
-        str(signal_key): int(until)
-        for signal_key, until in (
-            getattr(pipeline, "_flash_degraded_signal_until", {}) or {}
-        ).items()
-        if str(signal_key or "") and int(until or 0) > 0
-    }
-    actor_guard_enabled = bool(
-        getattr(config, "degradation_actor_guard_enabled", False)
-    )
-    actor_cooldown_bars = max(
-        0,
-        int(getattr(config, "degradation_actor_cooldown_bars", 0) or 0),
-    )
-    now_bar = max(0, int(current_bar or 0))
-    actor_outcomes = dict(
-        getattr(pipeline, "_flash_degradation_actor_outcomes", {}) or {}
-    )
-    degraded_actors = set(
-        getattr(pipeline, "_flash_degraded_actor_keys", set()) or set()
-    )
-    actor_degraded_until = {
-        str(actor): int(until)
-        for actor, until in (
-            getattr(pipeline, "_flash_degraded_actor_until", {}) or {}
-        ).items()
-        if str(actor or "") and int(until or 0) > 0
-    }
-    symbol_guard_enabled = bool(
-        getattr(config, "degradation_symbol_guard_enabled", False)
-    )
-    symbol_cooldown_bars = max(
-        0,
-        int(getattr(config, "degradation_symbol_cooldown_bars", 0) or 0),
-    )
-    symbol_window = max(
-        1,
-        int(getattr(config, "degradation_symbol_window_closed_trades", 0) or window),
-    )
-    symbol_min_closed = max(
-        1,
-        int(getattr(config, "degradation_symbol_min_closed_trades", 0) or min_closed),
-    )
-    symbol_threshold_raw = getattr(
-        config,
-        "degradation_symbol_max_recent_pnl_usd",
-        None,
-    )
-    symbol_threshold = (
-        threshold
-        if symbol_threshold_raw is None
-        else float(symbol_threshold_raw)
-    )
-    symbol_outcomes = dict(
-        getattr(pipeline, "_flash_degradation_symbol_outcomes", {}) or {}
-    )
-    degraded_symbols = {
-        str(symbol).strip().upper()
-        for symbol in (getattr(pipeline, "_flash_degraded_open_symbols", set()) or set())
-        if str(symbol or "").strip()
-    }
-    symbol_degraded_until = {
-        str(symbol).strip().upper(): int(until)
-        for symbol, until in (
-            getattr(pipeline, "_flash_degraded_open_symbol_until", {}) or {}
-        ).items()
-        if str(symbol or "").strip() and int(until or 0) > 0
-    }
-    if signal_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            signal_key
-            for signal_key, until_bar in signal_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded.difference_update(expired)
-            for signal_key in expired:
-                signal_degraded_until.pop(signal_key, None)
-    if actor_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            actor
-            for actor, until_bar in actor_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded_actors.difference_update(expired)
-            for actor in expired:
-                actor_degraded_until.pop(actor, None)
-    if symbol_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            symbol
-            for symbol, until_bar in symbol_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded_symbols.difference_update(expired)
-            for symbol in expired:
-                symbol_degraded_until.pop(symbol, None)
-
-    for event in events:
-        if not isinstance(event, PositionClosed):
-            continue
-        signal_id = int(getattr(event, "open_signal_id", -1) or -1)
-        realized_pnl = float(getattr(event, "realized_pnl", 0.0) or 0.0)
-        if symbol_guard_enabled:
-            symbol = str(getattr(event, "sym", "") or "").strip().upper()
-            if symbol:
-                symbol_bucket = symbol_outcomes.get(symbol)
-                if (
-                    symbol_bucket is None
-                    or getattr(symbol_bucket, "maxlen", None) != symbol_window
-                ):
-                    symbol_bucket = deque(
-                        list(symbol_bucket or ())[-symbol_window:],
-                        maxlen=symbol_window,
-                    )
-                symbol_bucket.append(realized_pnl)
-                symbol_outcomes[symbol] = symbol_bucket
-                if (
-                    len(symbol_bucket) >= symbol_min_closed
-                    and sum(float(value) for value in symbol_bucket) <= symbol_threshold
-                ):
-                    degraded_symbols.add(symbol)
-                    if symbol_cooldown_bars > 0:
-                        event_bar = max(
-                            0,
-                            int(getattr(event, "bar", 0) or now_bar or 0),
-                        )
-                        until_bar = event_bar + symbol_cooldown_bars
-                        symbol_degraded_until[symbol] = max(
-                            int(symbol_degraded_until.get(symbol, 0) or 0),
-                            until_bar,
-                        )
-                elif (
-                    recovery_enabled
-                    and symbol in degraded_symbols
-                    and _flash_degradation_recent_pnl(
-                        symbol_bucket,
-                        recovery_min_closed,
-                    )
-                    >= recovery_threshold
-                ):
-                    degraded_symbols.discard(symbol)
-                    symbol_degraded_until.pop(symbol, None)
-        key = signal_key_by_id.get(signal_id)
-        if key:
-            bucket = outcomes.get(key)
-            if bucket is None or getattr(bucket, "maxlen", None) != window:
-                bucket = deque(list(bucket or ())[-window:], maxlen=window)
-            bucket.append(realized_pnl)
-            outcomes[key] = bucket
-            if len(bucket) >= min_closed and sum(float(value) for value in bucket) <= threshold:
-                degraded.add(key)
-                if signal_cooldown_bars > 0:
-                    event_bar = max(
-                        0,
-                        int(getattr(event, "bar", 0) or now_bar or 0),
-                    )
-                    until_bar = event_bar + signal_cooldown_bars
-                    signal_degraded_until[key] = max(
-                        int(signal_degraded_until.get(key, 0) or 0),
-                        until_bar,
-                    )
-            elif (
-                recovery_enabled
-                and key in degraded
-                and _flash_degradation_recent_pnl(bucket, recovery_min_closed)
-                >= recovery_threshold
-            ):
-                degraded.discard(key)
-                signal_degraded_until.pop(key, None)
-        if actor_guard_enabled:
-            actor_key = actor_key_by_id.get(signal_id)
-            if actor_key:
-                actor_bucket = actor_outcomes.get(actor_key)
-                if actor_bucket is None or getattr(actor_bucket, "maxlen", None) != window:
-                    actor_bucket = deque(list(actor_bucket or ())[-window:], maxlen=window)
-                actor_bucket.append(realized_pnl)
-                actor_outcomes[actor_key] = actor_bucket
-                if (
-                    len(actor_bucket) >= min_closed
-                    and sum(float(value) for value in actor_bucket) <= threshold
-                ):
-                    degraded_actors.add(actor_key)
-                    if actor_cooldown_bars > 0:
-                        event_bar = max(
-                            0,
-                            int(getattr(event, "bar", 0) or now_bar or 0),
-                        )
-                        until_bar = event_bar + actor_cooldown_bars
-                        actor_degraded_until[actor_key] = max(
-                            int(actor_degraded_until.get(actor_key, 0) or 0),
-                            until_bar,
-                        )
-                elif (
-                    recovery_enabled
-                    and actor_key in degraded_actors
-                    and _flash_degradation_recent_pnl(
-                        actor_bucket,
-                        recovery_min_closed,
-                    )
-                    >= recovery_threshold
-                ):
-                    degraded_actors.discard(actor_key)
-                    actor_degraded_until.pop(actor_key, None)
-
-    if signal_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            signal_key
-            for signal_key, until_bar in signal_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded.difference_update(expired)
-            for signal_key in expired:
-                signal_degraded_until.pop(signal_key, None)
-
-    if actor_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            actor
-            for actor, until_bar in actor_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded_actors.difference_update(expired)
-            for actor in expired:
-                actor_degraded_until.pop(actor, None)
-
-    if symbol_cooldown_bars > 0 and now_bar > 0:
-        expired = {
-            symbol
-            for symbol, until_bar in symbol_degraded_until.items()
-            if until_bar <= now_bar
-        }
-        if expired:
-            degraded_symbols.difference_update(expired)
-            for symbol in expired:
-                symbol_degraded_until.pop(symbol, None)
-
-    pipeline._flash_degradation_event_cursor = event_count
-    pipeline._flash_signal_key_by_id = signal_key_by_id
-    pipeline._flash_actor_key_by_id = actor_key_by_id
-    pipeline._flash_degradation_outcomes = outcomes
-    pipeline._flash_degraded_signal_keys = degraded
-    pipeline._flash_degraded_signal_until = signal_degraded_until
-    pipeline._flash_degradation_actor_outcomes = actor_outcomes
-    pipeline._flash_degraded_actor_keys = degraded_actors
-    pipeline._flash_degraded_actor_until = actor_degraded_until
-    pipeline._flash_degradation_symbol_outcomes = symbol_outcomes
-    pipeline._flash_degraded_open_symbols = degraded_symbols
-    pipeline._flash_degraded_open_symbol_until = symbol_degraded_until
-
-
-def _flash_degradation_recent_pnl(bucket: object, closed_trades: int) -> float:
-    values = [float(value) for value in list(bucket or ())]
-    closed = max(1, int(closed_trades or 1))
-    if len(values) < closed:
-        return float("-inf")
-    return sum(values[-closed:])
 
 
 def _flash_actor_degradation_key(
@@ -1858,22 +1558,7 @@ def _flash_open_position_sides_by_symbol(pipeline: ProductionPipeline) -> dict[s
 
 
 def _flash_event_log_tail(event_log: object, cursor: int) -> tuple[list[object], int]:
-    raw_events = getattr(event_log, "_events", None)
-    if isinstance(raw_events, list):
-        lock = getattr(event_log, "_lock", None)
-        if lock is not None:
-            with lock:
-                event_count = len(raw_events)
-                start = max(0, min(int(cursor or 0), event_count))
-                return list(raw_events[start:]), event_count
-        event_count = len(raw_events)
-        start = max(0, min(int(cursor or 0), event_count))
-        return list(raw_events[start:]), event_count
-
-    all_events = list(getattr(event_log, "all")())
-    event_count = len(all_events)
-    start = max(0, min(int(cursor or 0), event_count))
-    return all_events[start:], event_count
+    return flash_event_log_tail(event_log, cursor)
 
 
 def _flash_degraded_signal_keys(pipeline: ProductionPipeline) -> set[str]:
@@ -2009,7 +1694,7 @@ def _compose_candidates(
     return [
         candidate
         for candidate in candidates
-        if _candidate_is_real_executable(candidate)
+        if _candidate_is_real_executable(candidate, pipeline)
     ]
 
 
@@ -2378,11 +2063,19 @@ def _compose_solo_agent_candidates(
             )
             or _DEFAULT_SOLO_AGENT_CANDIDATE_LIMIT
         )
-        scored = pipeline.selector.select(regime, k=limit)
+        select_k = limit
+        registry = getattr(pipeline, "registry", None)
+        all_agents = getattr(registry, "all_agents", None)
+        if callable(all_agents):
+            try:
+                select_k = max(limit, len(tuple(all_agents())))
+            except Exception:
+                select_k = limit
+        scored = pipeline.selector.select(regime, k=select_k)
         if not scored and hasattr(pipeline.selector, "select_with_fallback"):
             scored = pipeline.selector.select_with_fallback(
                 regime,
-                k=limit,
+                k=select_k,
                 fallback_threshold=-10.0,
                 min_count=1,
             )
@@ -2405,6 +2098,8 @@ def _compose_solo_agent_candidates(
             thresholds=ThresholdProfile(),
             affinity=None,
         ))
+        if len(solo) >= limit:
+            break
     return solo
 
 
@@ -2416,11 +2111,38 @@ def _agent_is_real_executable(agent: object) -> bool:
     return True
 
 
-def _candidate_is_real_executable(candidate: object) -> bool:
-    return all(
+def _candidate_is_real_executable(
+    candidate: object,
+    pipeline: ProductionPipeline | None = None,
+) -> bool:
+    if all(
         _agent_is_real_executable(agent)
         for agent in (getattr(candidate, "agents", ()) or ())
-    )
+    ):
+        return True
+    return _candidate_is_genetics_probation_executable(candidate, pipeline)
+
+
+def _candidate_is_genetics_probation_executable(
+    candidate: object,
+    pipeline: ProductionPipeline | None,
+) -> bool:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return False
+    label = str(getattr(candidate, "label", "") or "")
+    labels = {
+        str(item or "").strip()
+        for item in (getattr(cfg, "genetics_probation_labels", ()) or ())
+        if str(item or "").strip()
+    }
+    if not label or label not in labels or not label.startswith("Genetics"):
+        return False
+    agents = tuple(getattr(candidate, "agents", ()) or ())
+    if len(agents) != 1:
+        return False
+    agent_label = str(getattr(agents[0], "label", "") or "")
+    return agent_label == label
 
 
 def _candidate_uses_shadow_state_entry_gate(candidate: object) -> bool:
@@ -2555,11 +2277,10 @@ def _apply_genetics_probation_execution_overlay(
     labels = _string_tuple(
         getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
     )
-    if label not in labels:
+    label_set = set(labels)
+    if not label_set:
         return signal_guard
     max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
-    if max_real_trades > 0 and _real_closed_trades_for_label(pipeline, label) >= max_real_trades:
-        return signal_guard
 
     allowed_regimes = {
         item.lower()
@@ -2582,11 +2303,30 @@ def _apply_genetics_probation_execution_overlay(
     details = list(getattr(signal_guard, "details", []) or [])
     changed = False
     for signal in getattr(signal_guard, "signals", []) or []:
+        probation_label = _genetics_probation_signal_label(
+            leader_label=label,
+            signal=signal,
+            labels=label_set,
+        )
+        if not probation_label:
+            kept.append(signal)
+            continue
         if not signal.action.is_open:
             kept.append(signal)
             continue
         sym = str(signal.sym).upper()
         agent_label = str(signal.by_agent or "-")
+        if (
+            max_real_trades > 0
+            and _real_closed_trades_for_label(pipeline, probation_label)
+            >= max_real_trades
+        ):
+            dropped += 1
+            changed = True
+            details.append(
+                f"genetics_max_real_trades:{sym}:{probation_label}:{max_real_trades}"
+            )
+            continue
         if not regime_allowed:
             dropped += 1
             changed = True
@@ -2594,7 +2334,7 @@ def _apply_genetics_probation_execution_overlay(
             continue
         if require_shadow_confirmation and not _shadow_confirms_signal(
             pipeline,
-            label,
+            probation_label,
             signal,
         ):
             dropped += 1
@@ -2619,6 +2359,24 @@ def _apply_genetics_probation_execution_overlay(
         filtered=int(getattr(signal_guard, "filtered", 0) or 0) + dropped,
         details=details,
     )
+
+
+def _genetics_probation_signal_label(
+    *,
+    leader_label: str,
+    signal: Signal,
+    labels: set[str],
+) -> str:
+    if leader_label in labels:
+        return leader_label
+    for raw_label in (
+        getattr(signal, "by_player", ""),
+        getattr(signal, "by_agent", ""),
+    ):
+        label = str(raw_label or "")
+        if label in labels:
+            return label
+    return ""
 
 
 def _shadow_confirms_signal(
@@ -4030,48 +3788,14 @@ def _emit_candidate_audit_events(
     trace_id: str,
     context: Dict[str, str],
 ) -> None:
-    selected_label = getattr(decision.new_leader, "label", "")
-    for row in getattr(decision, "candidate_scores", ()) or ():
-        pipeline.event_log.emit(CandidateScored(
-            bar=market.bar,
-            trace_id=trace_id,
-            decision_id=decision_id,
-            **context,
-            player_label=row.label,
-            rank=row.rank,
-            score=row.score,
-            score_source=row.score_source,
-            selected_by_pantheon=(row.label == selected_label),
-            has_data=row.has_data,
-            closed_trades=row.closed_trades,
-            signals=row.signals,
-            execution_failures=row.execution_failures,
-            uncertainty_penalty=row.uncertainty_penalty,
-            memory_keys_read=row.memory_keys_read,
-            agent_labels=row.agent_labels,
-            session_score_delta=getattr(row, "session_score_delta", 0.0),
-            session_pnl_pct=getattr(row, "session_pnl_pct", 0.0),
-            session_underperformance_penalty=getattr(
-                row,
-                "session_underperformance_penalty",
-                0.0,
-            ),
-            session_stale_penalty=getattr(row, "session_stale_penalty", 0.0),
-            recent_bars=getattr(row, "recent_bars", 0),
-            recent_actionable_bars=getattr(row, "recent_actionable_bars", 0),
-            actionable_share=getattr(row, "actionable_share", 0.0),
-            recent_filled=getattr(row, "recent_filled", 0),
-            recent_pnl_usd=getattr(row, "recent_pnl_usd", 0.0),
-        ))
-    for row in getattr(decision, "candidate_rejections", ()) or ():
-        pipeline.event_log.emit(CandidateRejected(
-            bar=market.bar,
-            trace_id=trace_id,
-            decision_id=decision_id,
-            **context,
-            player_label=row.label,
-            reason=row.reason,
-        ))
+    emit_candidate_audit_events(
+        pipeline,
+        market,
+        decision,
+        decision_id=decision_id,
+        trace_id=trace_id,
+        context=context,
+    )
 
 
 def _emit_flash_audit_events(
@@ -4083,49 +3807,14 @@ def _emit_flash_audit_events(
     trace_id: str,
     context: Dict[str, str],
 ) -> None:
-    regime_label = getattr(getattr(market, "regime", None), "label", str(getattr(market, "regime", "")))
-    for decision in decisions or ():
-        symbol_context = dict(context)
-        symbol_context["symbol"] = str(getattr(decision, "symbol", "") or "")
-        selected_label = str(getattr(decision, "selected_actor", "") or "")
-        for row in getattr(decision, "candidates", ()) or ():
-            row_label = str(getattr(row, "label", "") or "")
-            agent_labels = tuple(
-                str(label)
-                for label in (getattr(row, "agent_labels", ()) or ())
-                if str(label)
-            )
-            memory_keys = tuple(dict.fromkeys(
-                [f"{row_label}|{regime_label}"]
-                + [f"{label}|{regime_label}" for label in agent_labels]
-            ))
-            pipeline.event_log.emit(CandidateScored(
-                bar=market.bar,
-                trace_id=trace_id,
-                decision_id=decision_id,
-                **symbol_context,
-                player_label=row_label,
-                rank=int(getattr(row, "rank", 0) or 0),
-                score=float(getattr(row, "score", 0.0) or 0.0),
-                score_source="flash_per_symbol",
-                selected_by_pantheon=(row_label == selected_label),
-                has_data=bool(getattr(row, "has_data", False)),
-                closed_trades=int(getattr(row, "closed_trades", 0) or 0),
-                signals=0 if getattr(row, "action", Action.HOLD).is_hold else 1,
-                execution_failures=0,
-                uncertainty_penalty=0.0,
-                memory_keys_read=memory_keys,
-                agent_labels=agent_labels,
-            ))
-            if bool(getattr(row, "rejected", False)):
-                pipeline.event_log.emit(CandidateRejected(
-                    bar=market.bar,
-                    trace_id=trace_id,
-                    decision_id=decision_id,
-                    **symbol_context,
-                    player_label=row_label,
-                    reason=f"flash:{str(getattr(row, 'reason', '') or '')}",
-                ))
+    emit_flash_audit_events(
+        pipeline,
+        market,
+        decisions,
+        decision_id=decision_id,
+        trace_id=trace_id,
+        context=context,
+    )
 
 
 def _record_agent_vote_failures(

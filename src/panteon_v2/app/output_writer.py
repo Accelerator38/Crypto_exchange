@@ -107,6 +107,7 @@ class OutputWriter:
             "used": 0,
             "skipped": 0,
         }
+        self._latest_dashboard_publish_disabled = False
         self._session_perf_baseline = self._capture_session_perf_baseline()
         # Создаём output dir
         Path(config.output_dir).mkdir(parents=True, exist_ok=True)
@@ -334,6 +335,10 @@ class OutputWriter:
 
         selected_actor = str(decision.get("selected_actor") or "")
         actor_type = str(decision.get("actor_type") or "")
+        if selected_actor == "NoTrade" and not decision.get("signal"):
+            out["candidates"] = []
+            out["top_rejected_candidates"] = []
+            return out
         original_selected_actor = str(decision.get("original_selected_actor") or "")
         original_actor_type = str(decision.get("original_actor_type") or "")
         compact_candidates: List[Dict[str, Any]] = []
@@ -358,7 +363,9 @@ class OutputWriter:
             if key in seen:
                 continue
             seen.add(key)
-            compact_candidates.append(dict(candidate))
+            compact_candidates.append(
+                OutputWriter._compact_candidate_audit(dict(candidate))
+            )
 
         out["candidates"] = compact_candidates
         return out
@@ -382,6 +389,14 @@ class OutputWriter:
             "shadow_recent_downside_usd",
             "shadow_pnl_per_trade_lcb_usd",
             "shadow_pnl_per_trade_lcb_penalty",
+            "shadow_symbol_health_score",
+            "shadow_symbol_health_closed_trades",
+            "shadow_symbol_health_pnl_per_trade_lcb_usd",
+            "shadow_symbol_health_penalty",
+            "selected_subset_score_boost",
+            "selected_subset_protected",
+            "selected_subset_risk_mult",
+            "risk_mult",
             "lookback_return_z",
         )
         return {key: candidate[key] for key in keys if key in candidate}
@@ -1177,7 +1192,7 @@ class OutputWriter:
 
     def _publish_latest_visual_dashboards(self, paths: List[str]) -> None:
         latest_dir = self._config.latest_dir
-        if not latest_dir:
+        if not latest_dir or getattr(self, "_latest_dashboard_publish_disabled", False):
             return
         exchange = self._latest_exchange_suffix()
         selected = {
@@ -1196,6 +1211,14 @@ class OutputWriter:
             try:
                 shutil.copyfile(src, tmp)
                 os.replace(tmp, dest)
+            except PermissionError:
+                self._latest_dashboard_publish_disabled = True
+                log.exception("latest dashboard publish failed: %s -> %s", src, dest)
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                return
             except Exception:
                 log.exception("latest dashboard publish failed: %s -> %s", src, dest)
                 try:

@@ -43,6 +43,47 @@ def _actor_cap_override_map(overrides: Sequence[str]) -> dict[str, int]:
     return parsed
 
 
+def _signal_key_float_map(overrides: Sequence[str], *, field_name: str) -> dict[str, float]:
+    parsed: dict[str, float] = {}
+    for raw in overrides:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text.count("=") != 1:
+            raise ValueError(f"{field_name} must use 'actor_key|symbol|action=value' format")
+        raw_key, raw_value = (part.strip() for part in text.split("=", 1))
+        if not raw_key or not raw_value:
+            raise ValueError(f"{field_name} must use 'actor_key|symbol|action=value' format")
+        key = _normalize_signal_deny_key(raw_key)
+        try:
+            value = float(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} value must be a finite number") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"{field_name} value must be a finite number")
+        parsed[key] = value
+    return parsed
+
+
+def _normalize_signal_key_tuple(raw: object, *, field_name: str) -> tuple[str, ...]:
+    if raw in (None, ""):
+        return ()
+    if isinstance(raw, str):
+        items: Iterable[object] = (item.strip() for item in raw.split(","))
+    else:
+        items = raw if isinstance(raw, Iterable) else (raw,)
+    keys: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        try:
+            keys.append(_normalize_signal_deny_key(text))
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must use 'actor_key|symbol|action' format") from exc
+    return tuple(dict.fromkeys(keys))
+
+
 def _normalize_regime_tuple(raw: object) -> tuple[Regime, ...]:
     if raw in (None, ""):
         return ()
@@ -143,6 +184,28 @@ class FlashAllocatorConfig:
     shadow_confirmation_pnl_per_trade_lcb_z: float = 1.0
     shadow_confirmation_pnl_per_trade_lcb_penalty_floor_usd: float = 0.0
     shadow_confirmation_pnl_per_trade_lcb_penalty_weight: float = 0.0
+    shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled: bool = False
+    shadow_confirmation_pnl_per_trade_lcb_risk_min_mult: float = 0.25
+    shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd: float = 0.0
+    shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd: float = 1.0
+    shadow_symbol_health_enabled: bool = False
+    shadow_symbol_health_min_closed_trades: int = 0
+    shadow_symbol_health_min_pnl_per_trade_lcb_usd: Optional[float] = None
+    shadow_symbol_health_pnl_per_trade_lcb_penalty_floor_usd: float = 0.0
+    shadow_symbol_health_pnl_per_trade_lcb_penalty_weight: float = 0.0
+    genetics_confirmation_overlay_enabled: bool = False
+    genetics_confirmation_labels: Tuple[str, ...] = ()
+    genetics_confirmation_allowed_signal_keys: Tuple[str, ...] = ()
+    genetics_confirmation_contra_signal_keys: Tuple[str, ...] = ()
+    genetics_confirmation_contra_side_match_enabled: bool = False
+    genetics_confirmation_contra_static_enabled: bool = False
+    genetics_confirmation_contra_no_backfill_enabled: bool = False
+    genetics_confirmation_quality_gate_enabled: bool = False
+    genetics_confirmation_min_closed_trades: int = 0
+    genetics_confirmation_min_pnl_per_trade_pct: float = 0.0
+    genetics_confirmation_score_bonus: float = 0.0
+    genetics_confirmation_score_penalty: float = 0.0
+    genetics_confirmation_contra_score_penalty: float = 0.0
     max_signals_per_actor: int = 0
     open_overextension_guard_enabled: bool = False
     overextension_lookback_bars: int = 12
@@ -163,6 +226,7 @@ class FlashAllocatorConfig:
     degradation_actor_cooldown_bars: int = 0
     degradation_symbol_guard_enabled: bool = False
     degradation_symbol_cooldown_bars: int = 0
+    degradation_symbol_lookback_bars: int = 0
     degradation_symbol_window_closed_trades: int = 0
     degradation_symbol_min_closed_trades: int = 0
     degradation_symbol_max_recent_pnl_usd: Optional[float] = None
@@ -175,6 +239,24 @@ class FlashAllocatorConfig:
     degradation_recovery_min_recent_pnl_usd: float = 0.0
     promotion_manifest_enabled: bool = False
     promoted_actor_cap_overrides: Tuple[str, ...] = ()
+    actor_risk_sizing_enabled: bool = False
+    actor_risk_min_mult: float = 0.25
+    actor_risk_max_mult: float = 1.0
+    actor_risk_edge_scale_pct: float = 0.50
+    funding_score_weight: float = 0.0
+    funding_risk_mult_weight: float = 0.0
+    funding_risk_mult_cap: float = 0.25
+    no_trade_fee_saving_score_enabled: bool = False
+    no_trade_default_fee_bps: float = 0.0
+    volatility_risk_sizing_enabled: bool = False
+    volatility_risk_target_pct: float = 2.0
+    volatility_risk_min_volatility_pct: float = 0.5
+    volatility_risk_max_mult: float = 2.0
+    selected_subset_score_boosts: Tuple[str, ...] = ()
+    selected_subset_do_not_demote_signal_keys: Tuple[str, ...] = ()
+    selected_subset_risk_mult_overrides: Tuple[str, ...] = ()
+    selected_subset_risk_min_mult: float = 0.75
+    selected_subset_risk_max_mult: float = 1.15
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -234,6 +316,68 @@ class FlashAllocatorConfig:
             "shadow_base_fallback_actor_keys",
             base_fallback_keys,
         )
+        raw_genetics_labels = self.genetics_confirmation_labels
+        if isinstance(raw_genetics_labels, str):
+            genetics_labels = tuple(
+                item.strip()
+                for item in raw_genetics_labels.split(",")
+                if item.strip()
+            )
+        else:
+            genetics_labels = tuple(
+                str(item).strip()
+                for item in raw_genetics_labels
+                if str(item or "").strip()
+            )
+        object.__setattr__(
+            self,
+            "genetics_confirmation_labels",
+            tuple(dict.fromkeys(genetics_labels)),
+        )
+        raw_genetics_signal_keys = self.genetics_confirmation_allowed_signal_keys
+        if isinstance(raw_genetics_signal_keys, str):
+            genetics_signal_keys = tuple(
+                item.strip()
+                for item in raw_genetics_signal_keys.split(",")
+                if item.strip()
+            )
+        else:
+            genetics_signal_keys = tuple(
+                str(item).strip()
+                for item in raw_genetics_signal_keys
+                if str(item or "").strip()
+            )
+        object.__setattr__(
+            self,
+            "genetics_confirmation_allowed_signal_keys",
+            tuple(
+                dict.fromkeys(
+                    _normalize_signal_deny_key(key) for key in genetics_signal_keys
+                )
+            ),
+        )
+        raw_contra_signal_keys = self.genetics_confirmation_contra_signal_keys
+        if isinstance(raw_contra_signal_keys, str):
+            contra_signal_keys = tuple(
+                item.strip()
+                for item in raw_contra_signal_keys.split(",")
+                if item.strip()
+            )
+        else:
+            contra_signal_keys = tuple(
+                str(item).strip()
+                for item in raw_contra_signal_keys
+                if str(item or "").strip()
+            )
+        object.__setattr__(
+            self,
+            "genetics_confirmation_contra_signal_keys",
+            tuple(
+                dict.fromkeys(
+                    _normalize_signal_deny_key(key) for key in contra_signal_keys
+                )
+            ),
+        )
         raw_anchor_keys = self.anchor_actor_keys
         if isinstance(raw_anchor_keys, str):
             anchor_keys = tuple(
@@ -262,6 +406,38 @@ class FlashAllocatorConfig:
                 if str(item or "").strip()
             )
         object.__setattr__(self, "portfolio_actor_keys", portfolio_keys)
+        selected_boosts = tuple(
+            str(item).strip()
+            for item in self.selected_subset_score_boosts
+            if str(item or "").strip()
+        )
+        selected_risk = tuple(
+            str(item).strip()
+            for item in self.selected_subset_risk_mult_overrides
+            if str(item or "").strip()
+        )
+        selected_boost_map = _signal_key_float_map(
+            selected_boosts,
+            field_name="selected_subset_score_boosts",
+        )
+        selected_risk_map = _signal_key_float_map(
+            selected_risk,
+            field_name="selected_subset_risk_mult_overrides",
+        )
+        if any(value < 0.0 for value in selected_boost_map.values()):
+            raise ValueError("selected_subset_score_boosts values must be >= 0")
+        if any(value <= 0.0 for value in selected_risk_map.values()):
+            raise ValueError("selected_subset_risk_mult_overrides values must be > 0")
+        object.__setattr__(self, "selected_subset_score_boosts", selected_boosts)
+        object.__setattr__(
+            self,
+            "selected_subset_do_not_demote_signal_keys",
+            _normalize_signal_key_tuple(
+                self.selected_subset_do_not_demote_signal_keys,
+                field_name="selected_subset_do_not_demote_signal_keys",
+            ),
+        )
+        object.__setattr__(self, "selected_subset_risk_mult_overrides", selected_risk)
         if self.actionable_bonus < 0:
             raise ValueError("actionable_bonus must be >= 0")
         if self.min_closed_trades_to_trade < 0:
@@ -288,6 +464,34 @@ class FlashAllocatorConfig:
             raise ValueError(
                 "shadow_confirmation_pnl_per_trade_lcb_penalty_weight must be >= 0"
             )
+        if self.shadow_confirmation_pnl_per_trade_lcb_risk_min_mult < 0:
+            raise ValueError(
+                "shadow_confirmation_pnl_per_trade_lcb_risk_min_mult must be >= 0"
+            )
+        if self.shadow_confirmation_pnl_per_trade_lcb_risk_min_mult > 1.0:
+            raise ValueError(
+                "shadow_confirmation_pnl_per_trade_lcb_risk_min_mult must be <= 1"
+            )
+        if self.shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd <= 0:
+            raise ValueError(
+                "shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd must be > 0"
+            )
+        if self.shadow_symbol_health_min_closed_trades < 0:
+            raise ValueError("shadow_symbol_health_min_closed_trades must be >= 0")
+        if self.shadow_symbol_health_pnl_per_trade_lcb_penalty_weight < 0:
+            raise ValueError(
+                "shadow_symbol_health_pnl_per_trade_lcb_penalty_weight must be >= 0"
+            )
+        if self.genetics_confirmation_score_bonus < 0:
+            raise ValueError("genetics_confirmation_score_bonus must be >= 0")
+        if self.genetics_confirmation_score_penalty < 0:
+            raise ValueError("genetics_confirmation_score_penalty must be >= 0")
+        if self.genetics_confirmation_contra_score_penalty < 0:
+            raise ValueError(
+                "genetics_confirmation_contra_score_penalty must be >= 0"
+            )
+        if self.genetics_confirmation_min_closed_trades < 0:
+            raise ValueError("genetics_confirmation_min_closed_trades must be >= 0")
         if self.max_signals_per_actor < 0:
             raise ValueError("max_signals_per_actor must be >= 0")
         if self.overextension_lookback_bars <= 0:
@@ -308,6 +512,8 @@ class FlashAllocatorConfig:
             raise ValueError("degradation_signal_cooldown_bars must be >= 0")
         if self.degradation_actor_cooldown_bars < 0:
             raise ValueError("degradation_actor_cooldown_bars must be >= 0")
+        if self.degradation_symbol_lookback_bars < 0:
+            raise ValueError("degradation_symbol_lookback_bars must be >= 0")
         if self.degradation_min_closed_trades > self.degradation_window_closed_trades:
             raise ValueError(
                 "degradation_min_closed_trades must be <= degradation_window_closed_trades"
@@ -319,6 +525,36 @@ class FlashAllocatorConfig:
                 raise ValueError(
                     "degradation_recovery_min_closed_trades must be <= degradation_window_closed_trades"
                 )
+        if self.actor_risk_min_mult < 0:
+            raise ValueError("actor_risk_min_mult must be >= 0")
+        if self.actor_risk_max_mult <= 0:
+            raise ValueError("actor_risk_max_mult must be > 0")
+        if self.actor_risk_min_mult > self.actor_risk_max_mult:
+            raise ValueError("actor_risk_min_mult must be <= actor_risk_max_mult")
+        if self.actor_risk_edge_scale_pct <= 0:
+            raise ValueError("actor_risk_edge_scale_pct must be > 0")
+        if self.funding_score_weight < 0:
+            raise ValueError("funding_score_weight must be >= 0")
+        if self.funding_risk_mult_weight < 0:
+            raise ValueError("funding_risk_mult_weight must be >= 0")
+        if self.funding_risk_mult_cap < 0:
+            raise ValueError("funding_risk_mult_cap must be >= 0")
+        if self.no_trade_default_fee_bps < 0:
+            raise ValueError("no_trade_default_fee_bps must be >= 0")
+        if self.volatility_risk_target_pct <= 0:
+            raise ValueError("volatility_risk_target_pct must be > 0")
+        if self.volatility_risk_min_volatility_pct <= 0:
+            raise ValueError("volatility_risk_min_volatility_pct must be > 0")
+        if self.volatility_risk_max_mult <= 0:
+            raise ValueError("volatility_risk_max_mult must be > 0")
+        if self.selected_subset_risk_min_mult < 0:
+            raise ValueError("selected_subset_risk_min_mult must be >= 0")
+        if self.selected_subset_risk_max_mult <= 0:
+            raise ValueError("selected_subset_risk_max_mult must be > 0")
+        if self.selected_subset_risk_min_mult > self.selected_subset_risk_max_mult:
+            raise ValueError(
+                "selected_subset_risk_min_mult must be <= selected_subset_risk_max_mult"
+            )
 
 
 FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
@@ -328,6 +564,10 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "shadow_base_fallback_confirmation_enabled",
     "shadow_signal_handoff_enabled",
     "shadow_quality_confirmation_enabled",
+    "genetics_confirmation_overlay_enabled",
+    "genetics_confirmation_quality_gate_enabled",
+    "genetics_confirmation_contra_no_backfill_enabled",
+    "shadow_symbol_health_enabled",
     "prefer_solo_player_wrappers_enabled",
     "prefer_proven_solo_player_wrappers_enabled",
     "portfolio_shadow_bootstrap_min_closed_enabled",
@@ -339,6 +579,10 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "degradation_reserve_actor_cap",
     "degradation_recovery_enabled",
     "promotion_manifest_enabled",
+    "actor_risk_sizing_enabled",
+    "shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled",
+    "no_trade_fee_saving_score_enabled",
+    "volatility_risk_sizing_enabled",
 )
 
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
@@ -356,6 +600,28 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "shadow_quality_confirmation_enabled": False,
     "shadow_confirmation_min_pnl_per_trade_lcb_usd": None,
     "shadow_confirmation_pnl_per_trade_lcb_penalty_weight": 0.0,
+    "shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled": False,
+    "shadow_confirmation_pnl_per_trade_lcb_risk_min_mult": 0.25,
+    "shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd": 0.0,
+    "shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd": 1.0,
+    "shadow_symbol_health_enabled": False,
+    "shadow_symbol_health_min_closed_trades": 0,
+    "shadow_symbol_health_min_pnl_per_trade_lcb_usd": None,
+    "shadow_symbol_health_pnl_per_trade_lcb_penalty_floor_usd": 0.0,
+    "shadow_symbol_health_pnl_per_trade_lcb_penalty_weight": 0.0,
+    "genetics_confirmation_overlay_enabled": False,
+    "genetics_confirmation_labels": (),
+    "genetics_confirmation_allowed_signal_keys": (),
+    "genetics_confirmation_contra_signal_keys": (),
+    "genetics_confirmation_contra_side_match_enabled": False,
+    "genetics_confirmation_contra_static_enabled": False,
+    "genetics_confirmation_contra_no_backfill_enabled": False,
+    "genetics_confirmation_quality_gate_enabled": False,
+    "genetics_confirmation_min_closed_trades": 0,
+    "genetics_confirmation_min_pnl_per_trade_pct": 0.0,
+    "genetics_confirmation_score_bonus": 0.0,
+    "genetics_confirmation_score_penalty": 0.0,
+    "genetics_confirmation_contra_score_penalty": 0.0,
     "prefer_solo_player_wrappers_enabled": False,
     "prefer_proven_solo_player_wrappers_enabled": False,
     "portfolio_shadow_bootstrap_min_closed_enabled": False,
@@ -373,6 +639,7 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "degradation_actor_cooldown_bars": 0,
     "degradation_symbol_guard_enabled": False,
     "degradation_symbol_cooldown_bars": 0,
+    "degradation_symbol_lookback_bars": 0,
     "degradation_symbol_window_closed_trades": 0,
     "degradation_symbol_min_closed_trades": 0,
     "degradation_symbol_max_recent_pnl_usd": None,
@@ -383,6 +650,24 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "degradation_recovery_enabled": False,
     "promotion_manifest_enabled": False,
     "promoted_actor_cap_overrides": (),
+    "actor_risk_sizing_enabled": False,
+    "actor_risk_min_mult": 0.25,
+    "actor_risk_max_mult": 1.0,
+    "actor_risk_edge_scale_pct": 0.50,
+    "funding_score_weight": 0.0,
+    "funding_risk_mult_weight": 0.0,
+    "funding_risk_mult_cap": 0.25,
+    "no_trade_fee_saving_score_enabled": False,
+    "no_trade_default_fee_bps": 0.0,
+    "volatility_risk_sizing_enabled": False,
+    "volatility_risk_target_pct": 2.0,
+    "volatility_risk_min_volatility_pct": 0.5,
+    "volatility_risk_max_mult": 2.0,
+    "selected_subset_score_boosts": (),
+    "selected_subset_do_not_demote_signal_keys": (),
+    "selected_subset_risk_mult_overrides": (),
+    "selected_subset_risk_min_mult": 0.75,
+    "selected_subset_risk_max_mult": 1.15,
 }
 
 FLASH_PRESET_SAFE = FlashAllocatorConfig(**FLASH_PRESET_SAFE_PINNED_VALUES)
@@ -397,6 +682,7 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     prefer_solo_player_wrappers_enabled=True,
     prefer_proven_solo_player_wrappers_enabled=True,
     portfolio_shadow_bootstrap_min_closed_enabled=True,
+    shadow_symbol_health_enabled=True,
     open_overextension_guard_enabled=True,
     overextension_volatility_normalized_enabled=True,
     degradation_guard_enabled=True,
@@ -405,6 +691,16 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     degradation_reserve_actor_cap=True,
     degradation_recovery_enabled=True,
     promotion_manifest_enabled=True,
+    actor_risk_sizing_enabled=True,
+    shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled=True,
+    genetics_confirmation_overlay_enabled=True,
+    genetics_confirmation_quality_gate_enabled=True,
+    genetics_confirmation_contra_no_backfill_enabled=True,
+    no_trade_fee_saving_score_enabled=True,
+    volatility_risk_sizing_enabled=True,
+    funding_score_weight=1.0,
+    funding_risk_mult_weight=1.0,
+    no_trade_default_fee_bps=5.0,
 )
 
 
@@ -439,6 +735,16 @@ class FlashCandidateAudit:
     shadow_pnl_per_trade_lcb_usd: Optional[float] = None
     shadow_pnl_per_trade_lcb_penalty: float = 0.0
     shadow_source: str = ""
+    shadow_symbol_health_score: float = 0.0
+    shadow_symbol_health_closed_trades: int = 0
+    shadow_symbol_health_pnl_per_trade_lcb_usd: Optional[float] = None
+    shadow_symbol_health_penalty: float = 0.0
+    genetics_confirmation_adjustment: float = 0.0
+    funding_score_adjustment: float = 0.0
+    selected_subset_score_boost: float = 0.0
+    selected_subset_protected: bool = False
+    selected_subset_risk_mult: float = 1.0
+    risk_mult: float = 1.0
     lookback_return_pct: Optional[float] = None
     lookback_volatility_pct: Optional[float] = None
     lookback_return_z: Optional[float] = None
@@ -478,6 +784,24 @@ class FlashCandidateAudit:
                 self.shadow_pnl_per_trade_lcb_penalty
             ),
             "shadow_source": self.shadow_source,
+            "shadow_symbol_health_score": float(self.shadow_symbol_health_score),
+            "shadow_symbol_health_closed_trades": int(
+                self.shadow_symbol_health_closed_trades
+            ),
+            "shadow_symbol_health_pnl_per_trade_lcb_usd": (
+                self.shadow_symbol_health_pnl_per_trade_lcb_usd
+            ),
+            "shadow_symbol_health_penalty": float(
+                self.shadow_symbol_health_penalty
+            ),
+            "genetics_confirmation_adjustment": float(
+                self.genetics_confirmation_adjustment
+            ),
+            "funding_score_adjustment": float(self.funding_score_adjustment),
+            "selected_subset_score_boost": float(self.selected_subset_score_boost),
+            "selected_subset_protected": bool(self.selected_subset_protected),
+            "selected_subset_risk_mult": float(self.selected_subset_risk_mult),
+            "risk_mult": float(self.risk_mult),
             "lookback_return_pct": (
                 None if self.lookback_return_pct is None else float(self.lookback_return_pct)
             ),
@@ -571,6 +895,17 @@ class FlashAllocator:
         self._config = config
         self._scoring = scoring_config
         self._scoring_per_regime = dict(scoring_per_regime or {})
+        self._selected_subset_score_boosts = _signal_key_float_map(
+            self._config.selected_subset_score_boosts,
+            field_name="selected_subset_score_boosts",
+        )
+        self._selected_subset_risk_mult_overrides = _signal_key_float_map(
+            self._config.selected_subset_risk_mult_overrides,
+            field_name="selected_subset_risk_mult_overrides",
+        )
+        self._selected_subset_do_not_demote_signal_keys = set(
+            self._config.selected_subset_do_not_demote_signal_keys
+        )
 
     @property
     def config(self) -> FlashAllocatorConfig:
@@ -654,6 +989,12 @@ class FlashAllocator:
                 suppressed_agent_labels=suppressed_agent_labels,
             )
         )
+        genetics_confirmation_by_symbol = self._genetics_confirmation_by_symbol(
+            market,
+            shadow_player_signal_map,
+            shadow_agent_signal_map,
+            outputs=outputs,
+        )
 
         decisions: List[FlashDecision] = []
         next_signal_id = int(signal_id_start)
@@ -673,6 +1014,7 @@ class FlashAllocator:
                 suppressed_agent_labels=suppressed_agent_labels,
                 open_position_sides_by_symbol=open_position_sides,
                 position_state_available=position_state_available,
+                genetics_confirmation_by_symbol=genetics_confirmation_by_symbol,
             )
             if decision.signal is not None:
                 next_signal_id += 1
@@ -696,14 +1038,29 @@ class FlashAllocator:
         suppressed_agent_labels: set[str],
         open_position_sides_by_symbol: Mapping[str, str],
         position_state_available: bool,
+        genetics_confirmation_by_symbol: Mapping[str, Mapping[str, int]],
     ) -> FlashDecision:
         rows: List[FlashCandidateAudit] = []
         signal_by_actor_key: dict[str, Signal] = {}
+        metrics_by_actor_key: dict[str, Metrics] = {}
         for output in outputs:
             if output.symbol != symbol:
                 continue
-            metrics, base_score = self._score_actor(output, market.regime)
+            metrics, base_score = self._score_actor(output, market)
+            metrics_by_actor_key[output.actor_key] = metrics
             effective_score = base_score
+            signal_key = _signal_deny_key(output.actor_key, symbol, output.action)
+            selected_subset_protected = (
+                signal_key in self._selected_subset_do_not_demote_signal_keys
+            )
+            selected_subset_score_boost = self._selected_subset_score_boosts.get(
+                signal_key,
+                0.0,
+            )
+            selected_subset_risk_mult = self._selected_subset_risk_mult(
+                signal_key,
+                output.action,
+            )
             portfolio_actor = self._is_portfolio_actor(output.actor_key, output.label)
             symbol_shadow_required = (
                 bool(self._config.shadow_symbol_confirmation_enabled)
@@ -809,10 +1166,43 @@ class FlashAllocator:
                     shadow_pnl_per_trade_lcb_usd,
                 )
             )
+            symbol_health = self._shadow_symbol_health_for(
+                shadow_confirmation,
+                symbol=symbol,
+                action=output.action,
+            )
+            symbol_health_pnl_per_trade_lcb_usd = symbol_health.pnl_per_trade_lcb(
+                z=self._config.shadow_confirmation_pnl_per_trade_lcb_z,
+            )
+            symbol_health_penalty = self._shadow_symbol_health_penalty(
+                output.action,
+                symbol_health,
+                symbol_health_pnl_per_trade_lcb_usd,
+                actor_pnl_per_trade_lcb_usd=shadow_pnl_per_trade_lcb_usd,
+            )
+            if selected_subset_protected and output.action.is_open:
+                shadow_pnl_per_trade_lcb_penalty = 0.0
+                symbol_health_penalty = 0.0
             regime_confidence_scale = _regime_confidence_scale(market)
             gate_score = shadow.score if self._config.shadow_confirmation_enabled else base_score
             gate_score *= regime_confidence_scale
             gate_score -= shadow_pnl_per_trade_lcb_penalty
+            gate_score -= symbol_health_penalty
+            funding_score_adjustment = self._funding_score_adjustment(
+                market,
+                symbol,
+                output.action,
+            )
+            gate_score += funding_score_adjustment
+            genetics_counts = genetics_confirmation_by_symbol.get(symbol, {})
+            genetics_confirmation_adjustment = (
+                self._genetics_confirmation_adjustment(
+                    output,
+                    genetics_counts,
+                )
+            )
+            gate_score += genetics_confirmation_adjustment
+            gate_score += selected_subset_score_boost
             effective_score = gate_score
             if output.label in actionable:
                 effective_score *= (
@@ -847,6 +1237,9 @@ class FlashAllocator:
                 reason = "quarantined"
             elif _is_no_trade_output(output):
                 reason = "eligible_no_trade"
+            elif self._is_genetics_confirmation_source(output):
+                rejected = True
+                reason = "genetics_confirmation_only"
             elif (
                 output.actor_type == "agent"
                 and output.label in suppressed_agent_labels
@@ -924,6 +1317,7 @@ class FlashAllocator:
                 and self._config.shadow_quality_confirmation_enabled
                 and output.action.is_open
                 and not shadow_confirmed_by_base
+                and not selected_subset_protected
                 and self._config.shadow_confirmation_min_pnl_per_trade_lcb_usd is not None
                 and (
                     shadow_pnl_per_trade_lcb_usd is None
@@ -933,6 +1327,22 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "shadow_pnl_per_trade_lcb_below_threshold"
+            elif (
+                self._config.shadow_confirmation_enabled
+                and self._config.shadow_symbol_health_enabled
+                and output.action.is_open
+                and symbol_health.closed_trades
+                >= self._config.shadow_symbol_health_min_closed_trades
+                and not selected_subset_protected
+                and self._config.shadow_symbol_health_min_pnl_per_trade_lcb_usd is not None
+                and (
+                    symbol_health_pnl_per_trade_lcb_usd is None
+                    or symbol_health_pnl_per_trade_lcb_usd
+                    < self._config.shadow_symbol_health_min_pnl_per_trade_lcb_usd
+                )
+            ):
+                rejected = True
+                reason = "shadow_symbol_health_lcb_below_threshold"
             elif overextension_reason:
                 rejected = True
                 reason = overextension_reason
@@ -955,6 +1365,12 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "flash_signal_not_promoted"
+            elif self._is_genetics_contra_no_backfill_candidate(
+                output,
+                genetics_counts,
+            ):
+                rejected = True
+                reason = "genetics_contra_no_backfill"
             elif gate_score <= self._min_score_to_trade_for(output):
                 rejected = True
                 reason = "score_below_threshold"
@@ -995,6 +1411,25 @@ class FlashAllocator:
                     shadow_pnl_per_trade_lcb_penalty
                 ),
                 shadow_source=shadow_source,
+                shadow_symbol_health_score=symbol_health.score,
+                shadow_symbol_health_closed_trades=symbol_health.closed_trades,
+                shadow_symbol_health_pnl_per_trade_lcb_usd=(
+                    symbol_health_pnl_per_trade_lcb_usd
+                ),
+                shadow_symbol_health_penalty=symbol_health_penalty,
+                genetics_confirmation_adjustment=genetics_confirmation_adjustment,
+                funding_score_adjustment=funding_score_adjustment,
+                selected_subset_score_boost=selected_subset_score_boost,
+                selected_subset_protected=selected_subset_protected,
+                selected_subset_risk_mult=selected_subset_risk_mult,
+                risk_mult=self._risk_mult_for_candidate(
+                    metrics,
+                    market,
+                    symbol,
+                    output.action,
+                    shadow_pnl_per_trade_lcb_usd=shadow_pnl_per_trade_lcb_usd,
+                    selected_subset_risk_mult=selected_subset_risk_mult,
+                ),
                 lookback_return_pct=lookback_return_pct,
                 lookback_volatility_pct=lookback_volatility_pct,
                 lookback_return_z=lookback_return_z,
@@ -1023,6 +1458,24 @@ class FlashAllocator:
                 original_selected_actor=terminal_denied.label,
                 original_actor_type=terminal_denied.actor_type,
                 selected_reasons=("flash_signal_terminal_deny_key",),
+            )
+        no_backfill = self._genetics_contra_no_backfill_top_candidate(
+            ranked,
+            market.bar,
+        )
+        if no_backfill is not None:
+            return FlashDecision(
+                symbol=symbol,
+                selected_actor="NoTrade",
+                actor_type="no_trade",
+                score=0.0,
+                action=Action.HOLD,
+                reason="genetics_contra_no_backfill",
+                signal=None,
+                candidates=ranked,
+                original_selected_actor=no_backfill.label,
+                original_actor_type=no_backfill.actor_type,
+                selected_reasons=("genetics_contra_no_backfill",),
             )
         selected = next((row for row in ranked if not row.rejected), None)
         if selected is None:
@@ -1126,6 +1579,15 @@ class FlashAllocator:
                 sym=symbol,
                 price=price,
                 regime=market.regime,
+                risk_mult=self._risk_mult_for_signal(
+                    signal,
+                    metrics_by_actor_key.get(selected.actor_key),
+                    market,
+                    symbol,
+                    selected.action,
+                    shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
+                    selected_subset_risk_mult=selected.selected_subset_risk_mult,
+                ),
                 timestamp=market.timestamp,
             )
         return FlashDecision(
@@ -1142,9 +1604,19 @@ class FlashAllocator:
             selected_reasons=tuple(selected_reasons),
         )
 
-    def _score_actor(self, output: _ActorSignal, regime: Regime) -> tuple[Metrics, float]:
+    def _score_actor(
+        self,
+        output: _ActorSignal,
+        market: MarketSnapshot | Regime,
+    ) -> tuple[Metrics, float]:
+        regime = getattr(market, "regime", market)
         if _is_no_trade_output(output):
-            return Metrics.empty(), 0.0
+            if not isinstance(market, MarketSnapshot):
+                return Metrics.empty(), 0.0
+            return Metrics.empty(), self._no_trade_synthetic_score(
+                market,
+                getattr(output, "symbol", ""),
+            )
         actor_key = str(
             getattr(output, "actor_key", "")
             or _actor_key(output.actor_type, output.label)
@@ -1176,6 +1648,368 @@ class FlashAllocator:
                 per_regime_configs=self._scoring_per_regime,
             )
         )
+
+    def _no_trade_synthetic_score(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+    ) -> float:
+        if not self._config.no_trade_fee_saving_score_enabled:
+            return 0.0
+        fee_bps = _fee_bps_for_symbol(
+            market,
+            symbol,
+            default_bps=self._config.no_trade_default_fee_bps,
+        )
+        # Metrics.pnl_pct is expressed in percent, while fee inputs are bps.
+        return (fee_bps / 100.0) * float(self._scoring.pnl_weight)
+
+    def _funding_score_adjustment(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+    ) -> float:
+        if self._config.funding_score_weight <= 0.0 or not action.is_open:
+            return 0.0
+        funding = _market_funding_for_symbol(market, symbol)
+        if funding == 0.0:
+            return 0.0
+        if action.is_long_open:
+            return -funding * self._config.funding_score_weight
+        if action.is_short_open:
+            return funding * self._config.funding_score_weight
+        return 0.0
+
+    def _genetics_confirmation_by_symbol(
+        self,
+        market: MarketSnapshot,
+        shadow_player_signals: Mapping[str, Sequence[Signal]],
+        shadow_agent_signals: Mapping[str, Sequence[Signal]],
+        *,
+        outputs: Sequence[_ActorSignal] = (),
+    ) -> dict[str, dict[str, int]]:
+        if not self._config.genetics_confirmation_overlay_enabled:
+            return {}
+        labels = set(self._config.genetics_confirmation_labels)
+        if not labels:
+            return {}
+        counts: dict[str, dict[str, int]] = {}
+        seen: set[tuple[str, str, str]] = set()
+
+        def add_confirmation(
+            label: str,
+            symbol: str,
+            direction: str,
+            *,
+            contra: bool = False,
+        ) -> None:
+            count_key = f"contra_{direction}" if contra else direction
+            key = (label, symbol, count_key)
+            if key in seen:
+                return
+            seen.add(key)
+            symbol_counts = counts.setdefault(
+                symbol,
+                {"long": 0, "short": 0, "contra_long": 0, "contra_short": 0},
+            )
+            symbol_counts[count_key] += 1
+
+        if self._config.genetics_confirmation_contra_static_enabled:
+            for raw_key in self._config.genetics_confirmation_contra_signal_keys:
+                static = _static_contra_signal_from_key(raw_key, labels)
+                if static is None:
+                    continue
+                label, symbol, direction = static
+                add_confirmation(label, symbol, direction, contra=True)
+
+        for output in outputs:
+            label = str(output.label or "").strip()
+            if label not in labels:
+                continue
+            direction = _open_action_direction(output.action)
+            if direction not in {"long", "short"}:
+                continue
+            if self._genetics_confirmation_contra_signal_allowed(
+                output.actor_key,
+                output.symbol,
+                output.action,
+            ):
+                add_confirmation(label, output.symbol, direction, contra=True)
+                continue
+            if not self._genetics_confirmation_source_allowed(label, market):
+                continue
+            if not self._genetics_confirmation_signal_allowed(
+                output.actor_key,
+                output.symbol,
+                output.action,
+            ):
+                continue
+            add_confirmation(label, output.symbol, direction)
+        for actor_type, signal_map in (
+            ("player", shadow_player_signals),
+            ("agent", shadow_agent_signals),
+        ):
+            for label, signals in tuple(signal_map.items()):
+                clean_label = str(label or "").strip()
+                if clean_label not in labels:
+                    continue
+                if not self._genetics_confirmation_source_allowed(clean_label, market):
+                    continue
+                actor_key = _actor_key(actor_type, clean_label)
+                for signal in signals or ():
+                    symbol = str(getattr(signal, "sym", "") or "").upper()
+                    action = _coerce_action(getattr(signal, "action", Action.HOLD))
+                    direction = _open_action_direction(action)
+                    if not symbol or direction not in {"long", "short"}:
+                        continue
+                    if self._genetics_confirmation_contra_signal_allowed(
+                        actor_key,
+                        symbol,
+                        action,
+                    ):
+                        add_confirmation(clean_label, symbol, direction, contra=True)
+                        continue
+                    if not self._genetics_confirmation_signal_allowed(
+                        actor_key,
+                        symbol,
+                        action,
+                    ):
+                        continue
+                    add_confirmation(clean_label, symbol, direction)
+        return counts
+
+    def _genetics_confirmation_signal_allowed(
+        self,
+        actor_key: str,
+        symbol: str,
+        action: Action,
+    ) -> bool:
+        allowed = set(self._config.genetics_confirmation_allowed_signal_keys)
+        if not allowed:
+            return True
+        return _signal_deny_key(actor_key, symbol, action) in allowed
+
+    def _genetics_confirmation_contra_signal_allowed(
+        self,
+        actor_key: str,
+        symbol: str,
+        action: Action,
+    ) -> bool:
+        contra = set(self._config.genetics_confirmation_contra_signal_keys)
+        if not contra:
+            return False
+        if _signal_deny_key(actor_key, symbol, action) in contra:
+            return True
+        if not self._config.genetics_confirmation_contra_side_match_enabled:
+            return False
+        side_key = _signal_side_key(actor_key, symbol, action)
+        if not side_key:
+            return False
+        return side_key in {
+            key
+            for key in (
+                _signal_side_key_from_normalized_key(raw_key)
+                for raw_key in contra
+            )
+            if key
+        }
+
+    def _genetics_confirmation_source_allowed(
+        self,
+        label: str,
+        market: MarketSnapshot,
+    ) -> bool:
+        if not self._config.genetics_confirmation_quality_gate_enabled:
+            return True
+        metrics = self._metrics_for_label(label, market.regime)
+        if metrics.closed_trades <= 0:
+            metrics = self._perf.get(label)
+        if metrics.closed_trades < self._config.genetics_confirmation_min_closed_trades:
+            return False
+        return (
+            metrics.pnl_per_trade
+            >= self._config.genetics_confirmation_min_pnl_per_trade_pct
+        )
+
+    def _genetics_confirmation_adjustment(
+        self,
+        output: _ActorSignal,
+        confirmation_counts: Mapping[str, int],
+    ) -> float:
+        if (
+            not self._config.genetics_confirmation_overlay_enabled
+            or not output.action.is_open
+            or self._is_genetics_confirmation_source(output)
+        ):
+            return 0.0
+        side = _open_action_direction(output.action)
+        if side not in {"long", "short"}:
+            return 0.0
+        opposite = "short" if side == "long" else "long"
+        matching = int(confirmation_counts.get(side, 0) or 0)
+        opposing = int(confirmation_counts.get(opposite, 0) or 0)
+        contra_matching = self._genetics_confirmation_contra_count(
+            output.action,
+            confirmation_counts,
+        )
+        return (
+            matching * float(self._config.genetics_confirmation_score_bonus)
+            - opposing * float(self._config.genetics_confirmation_score_penalty)
+            - contra_matching
+            * float(self._config.genetics_confirmation_contra_score_penalty)
+        )
+
+    @staticmethod
+    def _genetics_confirmation_contra_count(
+        action: Action,
+        confirmation_counts: Mapping[str, int],
+    ) -> int:
+        side = _open_action_direction(action)
+        if side not in {"long", "short"}:
+            return 0
+        return int(confirmation_counts.get(f"contra_{side}", 0) or 0)
+
+    def _is_genetics_confirmation_source(self, output: _ActorSignal) -> bool:
+        return (
+            self._config.genetics_confirmation_overlay_enabled
+            and str(output.label or "").strip()
+            in set(self._config.genetics_confirmation_labels)
+        )
+
+    def _risk_mult_for_signal(
+        self,
+        signal: Signal,
+        metrics: Optional[Metrics],
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+        *,
+        shadow_pnl_per_trade_lcb_usd: Optional[float] = None,
+        selected_subset_risk_mult: float = 1.0,
+    ) -> float:
+        base = _finite_positive_or_default(getattr(signal, "risk_mult", 1.0), 1.0)
+        return base * self._risk_mult_for_candidate(
+            metrics,
+            market,
+            symbol,
+            action,
+            shadow_pnl_per_trade_lcb_usd=shadow_pnl_per_trade_lcb_usd,
+            selected_subset_risk_mult=selected_subset_risk_mult,
+        )
+
+    def _risk_mult_for_candidate(
+        self,
+        metrics: Optional[Metrics],
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+        *,
+        shadow_pnl_per_trade_lcb_usd: Optional[float] = None,
+        selected_subset_risk_mult: float = 1.0,
+    ) -> float:
+        if not action.is_open:
+            return 1.0
+        risk_mult = 1.0
+        risk_mult *= self._shadow_pnl_per_trade_lcb_risk_mult(
+            action,
+            shadow_pnl_per_trade_lcb_usd,
+        )
+        if self._config.actor_risk_sizing_enabled:
+            risk_mult *= self._actor_edge_risk_mult(metrics)
+        if self._config.funding_risk_mult_weight > 0.0:
+            risk_mult *= self._funding_risk_mult(market, symbol, action)
+        if self._config.volatility_risk_sizing_enabled:
+            risk_mult *= self._volatility_risk_mult(market, symbol)
+        risk_mult *= _finite_positive_or_default(selected_subset_risk_mult, 1.0)
+        return max(0.0, float(risk_mult))
+
+    def _selected_subset_risk_mult(self, signal_key: str, action: Action) -> float:
+        if not action.is_open:
+            return 1.0
+        raw = self._selected_subset_risk_mult_overrides.get(signal_key)
+        if raw is None:
+            return 1.0
+        return _clamp(
+            float(raw),
+            float(self._config.selected_subset_risk_min_mult),
+            float(self._config.selected_subset_risk_max_mult),
+        )
+
+    def _shadow_pnl_per_trade_lcb_risk_mult(
+        self,
+        action: Action,
+        shadow_pnl_per_trade_lcb_usd: Optional[float],
+    ) -> float:
+        if not (
+            self._config.shadow_confirmation_enabled
+            and self._config.shadow_quality_confirmation_enabled
+            and self._config.shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled
+            and action.is_open
+        ):
+            return 1.0
+        if shadow_pnl_per_trade_lcb_usd is None:
+            return 1.0
+        floor = float(
+            self._config.shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd
+        )
+        gap = floor - float(shadow_pnl_per_trade_lcb_usd)
+        if gap <= 0.0:
+            return 1.0
+        scale = max(
+            1e-9,
+            float(self._config.shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd),
+        )
+        min_mult = float(
+            self._config.shadow_confirmation_pnl_per_trade_lcb_risk_min_mult
+        )
+        return _clamp(1.0 - gap / scale, min_mult, 1.0)
+
+    def _actor_edge_risk_mult(self, metrics: Optional[Metrics]) -> float:
+        if metrics is None or not metrics.has_data or metrics.closed_trades <= 0:
+            return float(self._config.actor_risk_min_mult)
+        pnl_per_trade = float(metrics.pnl_net_pct) / max(1, int(metrics.closed_trades))
+        if pnl_per_trade <= 0.0:
+            return float(self._config.actor_risk_min_mult)
+        scale = max(1e-9, float(self._config.actor_risk_edge_scale_pct))
+        edge_share = min(1.0, pnl_per_trade / scale)
+        confidence = min(
+            1.0,
+            float(metrics.closed_trades)
+            / float(self._scoring.min_closed_for_full_confidence),
+        )
+        min_mult = float(self._config.actor_risk_min_mult)
+        max_mult = float(self._config.actor_risk_max_mult)
+        return min_mult + (max_mult - min_mult) * edge_share * confidence
+
+    def _funding_risk_mult(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+    ) -> float:
+        funding = _market_funding_for_symbol(market, symbol)
+        benefit = 0.0
+        if action.is_long_open:
+            benefit = -funding
+        elif action.is_short_open:
+            benefit = funding
+        delta = benefit * float(self._config.funding_risk_mult_weight)
+        cap = float(self._config.funding_risk_mult_cap)
+        return max(0.0, 1.0 + _clamp(delta, -cap, cap))
+
+    def _volatility_risk_mult(self, market: MarketSnapshot, symbol: str) -> float:
+        volatility = _lookback_volatility_pct(
+            market,
+            symbol,
+            self._config.overextension_lookback_bars,
+        )
+        if volatility is None:
+            return 1.0
+        min_vol = float(self._config.volatility_risk_min_volatility_pct)
+        adjusted_vol = max(min_vol, float(volatility))
+        raw = float(self._config.volatility_risk_target_pct) / adjusted_vol
+        return _clamp(raw, 0.0, float(self._config.volatility_risk_max_mult))
 
     def _suppressed_agent_labels_for_solo_players(
         self,
@@ -1285,6 +2119,45 @@ class FlashAllocator:
             return None
         return top
 
+    def _is_genetics_contra_no_backfill_candidate(
+        self,
+        output: _ActorSignal,
+        confirmation_counts: Mapping[str, int],
+    ) -> bool:
+        return (
+            self._config.genetics_confirmation_contra_no_backfill_enabled
+            and self._genetics_confirmation_contra_count(
+                output.action,
+                confirmation_counts,
+            )
+            > 0
+            and not self._is_genetics_confirmation_source(output)
+        )
+
+    def _genetics_contra_no_backfill_top_candidate(
+        self,
+        rows: Sequence[FlashCandidateAudit],
+        bar: int,
+    ) -> Optional[FlashCandidateAudit]:
+        if (
+            not self._config.genetics_confirmation_contra_no_backfill_enabled
+            or not rows
+        ):
+            return None
+        top = min(
+            rows,
+            key=lambda row: (
+                -(float(row.score) - float(row.genetics_confirmation_adjustment)),
+                -row.closed_trades,
+                _stable_candidate_tiebreak(row, bar),
+            ),
+        )
+        if top.reason != "genetics_contra_no_backfill":
+            return None
+        if not top.action.is_open:
+            return None
+        return top
+
     def _is_open_regime_denied(self, output: _ActorSignal, regime: Regime) -> bool:
         if not self._config.denied_open_regimes:
             return False
@@ -1356,6 +2229,60 @@ class FlashAllocator:
             or 0.0
         )
         gap = floor - float(shadow_pnl_per_trade_lcb_usd)
+        if gap <= 0.0:
+            return 0.0
+        return float(gap * weight)
+
+    def _shadow_symbol_health_for(
+        self,
+        shadow_confirmation: Mapping[object, object],
+        *,
+        symbol: str,
+        action: Action,
+    ) -> _ShadowConfirmation:
+        if not (
+            self._config.shadow_confirmation_enabled
+            and self._config.shadow_symbol_health_enabled
+        ):
+            return _ShadowConfirmation()
+        raw = shadow_confirmation.get(_shadow_symbol_health_key(symbol, action))
+        return _shadow_confirmation_from_raw(raw)
+
+    def _shadow_symbol_health_penalty(
+        self,
+        action: Action,
+        symbol_health: _ShadowConfirmation,
+        symbol_health_pnl_per_trade_lcb_usd: Optional[float],
+        *,
+        actor_pnl_per_trade_lcb_usd: Optional[float],
+    ) -> float:
+        if not (
+            self._config.shadow_confirmation_enabled
+            and self._config.shadow_symbol_health_enabled
+            and action.is_open
+        ):
+            return 0.0
+        if (
+            symbol_health.closed_trades
+            < self._config.shadow_symbol_health_min_closed_trades
+        ):
+            return 0.0
+        weight = float(
+            self._config.shadow_symbol_health_pnl_per_trade_lcb_penalty_weight
+            or 0.0
+        )
+        if weight <= 0.0 or symbol_health_pnl_per_trade_lcb_usd is None:
+            return 0.0
+        floor = float(
+            self._config.shadow_symbol_health_pnl_per_trade_lcb_penalty_floor_usd
+            or 0.0
+        )
+        if (
+            actor_pnl_per_trade_lcb_usd is not None
+            and float(actor_pnl_per_trade_lcb_usd) >= floor
+        ):
+            return 0.0
+        gap = floor - float(symbol_health_pnl_per_trade_lcb_usd)
         if gap <= 0.0:
             return 0.0
         return float(gap * weight)
@@ -1592,42 +2519,7 @@ class FlashAllocator:
             action=action,
             require_symbol=require_symbol,
         )
-        if raw is None:
-            return _ShadowConfirmation()
-        if isinstance(raw, Mapping):
-            score = float(raw.get("score", 0.0) or 0.0)
-            closed_trades = int(raw.get("closed_trades", 0) or 0)
-            winning_trades = int(raw.get("winning_trades", 0) or 0)
-            raw_win_rate = raw.get("win_rate_pct")
-            win_rate_pct = (
-                float(raw_win_rate)
-                if raw_win_rate is not None
-                else _win_rate_pct(winning_trades, closed_trades)
-            )
-            return _ShadowConfirmation(
-                score=score,
-                closed_trades=closed_trades,
-                winning_trades=winning_trades,
-                win_rate_pct=win_rate_pct,
-                recent_downside_usd=float(raw.get("recent_downside_usd", 0.0) or 0.0),
-                pnl_per_trade_mean_usd=_finite_float_or_none(
-                    raw.get("pnl_per_trade_mean_usd")
-                ),
-                pnl_per_trade_std_usd=_finite_float_or_none(
-                    raw.get("pnl_per_trade_std_usd")
-                ),
-                pnl_per_trade_lcb_usd=_finite_float_or_none(
-                    raw.get("pnl_per_trade_lcb_usd")
-                ),
-            )
-        try:
-            score, closed_trades = raw  # type: ignore[misc]
-        except (TypeError, ValueError):
-            return _ShadowConfirmation()
-        return _ShadowConfirmation(
-            score=float(score or 0.0),
-            closed_trades=int(closed_trades or 0),
-        )
+        return _shadow_confirmation_from_raw(raw)
 
     def _metrics_for_label(self, label: str, regime: Regime) -> Metrics:
         metrics = self._perf.get(label, regime=regime)
@@ -1832,6 +2724,14 @@ def _coerce_action(value: object) -> Action:
         return Action.HOLD
 
 
+def _open_action_direction(action: Action) -> str:
+    if action.is_long_open:
+        return "long"
+    if action.is_short_open:
+        return "short"
+    return ""
+
+
 def _shadow_signal_output(
     market: MarketSnapshot,
     label: str,
@@ -1924,6 +2824,55 @@ def _signal_deny_key(actor_key: str, symbol: str, action: Action) -> str:
     )
 
 
+def _signal_side_key(actor_key: str, symbol: str, action: Action) -> str:
+    side = _open_action_direction(action)
+    if side not in {"long", "short"}:
+        return ""
+    return f"{str(actor_key or '').strip()}|{str(symbol or '').upper()}|{side}"
+
+
+def _signal_side_key_from_normalized_key(raw: object) -> str:
+    parts = [part.strip() for part in str(raw or "").split("|")]
+    if len(parts) != 3 or not all(parts):
+        return ""
+    side = _action_name_direction(parts[2])
+    if side not in {"long", "short"}:
+        return ""
+    return f"{parts[0]}|{parts[1].upper()}|{side}"
+
+
+def _action_name_direction(name: object) -> str:
+    try:
+        action = Action[str(name or "").strip().upper()]
+    except KeyError:
+        return ""
+    return _open_action_direction(action)
+
+
+def _static_contra_signal_from_key(
+    raw: object,
+    labels: set[str],
+) -> Optional[tuple[str, str, str]]:
+    parts = [part.strip() for part in str(raw or "").split("|")]
+    if len(parts) != 3 or not all(parts):
+        return None
+    actor_key, symbol, action_name = parts
+    label = _label_from_actor_key(actor_key)
+    if labels and label not in labels:
+        return None
+    direction = _action_name_direction(action_name)
+    if direction not in {"long", "short"}:
+        return None
+    return label, symbol.upper(), direction
+
+
+def _label_from_actor_key(actor_key: str) -> str:
+    clean = str(actor_key or "").strip()
+    if ":" in clean:
+        return clean.split(":", 1)[1]
+    return clean
+
+
 def _normalize_signal_deny_key(raw: object) -> str:
     parts = [part.strip() for part in str(raw or "").split("|")]
     if len(parts) != 3 or not all(parts):
@@ -1992,8 +2941,55 @@ def _market_price_for_symbol(market: MarketSnapshot, symbol: str) -> Optional[fl
         try:
             return float(raw_price)
         except (TypeError, ValueError):
-            return None
+                return None
     return None
+
+
+def _market_funding_for_symbol(market: MarketSnapshot, symbol: str) -> float:
+    clean_symbol = str(symbol or "").upper()
+    for raw_symbol, raw_funding in (getattr(market, "funding", {}) or {}).items():
+        if str(raw_symbol).upper() != clean_symbol:
+            continue
+        try:
+            parsed = float(raw_funding)
+        except (TypeError, ValueError):
+            return 0.0
+        return parsed if math.isfinite(parsed) else 0.0
+    return 0.0
+
+
+def _fee_bps_for_symbol(
+    market: MarketSnapshot,
+    symbol: str,
+    *,
+    default_bps: float,
+) -> float:
+    clean_symbol = str(symbol or "").upper()
+    for raw_symbol, raw_fee_bps in (
+        getattr(market, "fees_bps_by_symbol", {}) or {}
+    ).items():
+        if str(raw_symbol).upper() != clean_symbol:
+            continue
+        try:
+            parsed = float(raw_fee_bps)
+        except (TypeError, ValueError):
+            return max(0.0, float(default_bps))
+        return max(0.0, parsed) if math.isfinite(parsed) else 0.0
+    return max(0.0, float(default_bps))
+
+
+def _finite_positive_or_default(value: object, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(parsed) or parsed < 0.0:
+        return float(default)
+    return parsed
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(float(lower), min(float(upper), float(value)))
 
 
 def _finite_float_or_none(value: object) -> Optional[float]:
@@ -2032,6 +3028,50 @@ def _shadow_confirmation_raw(
         return shadow_confirmation.get(clean_label)
 
     return shadow_confirmation.get((clean_label, clean_symbol, action_name))
+
+
+def _shadow_symbol_health_key(symbol: str, action: Action) -> tuple[str, str, str]:
+    action_name = action.name if isinstance(action, Action) else str(action)
+    return ("__symbol_health__", str(symbol or "").upper(), action_name)
+
+
+def _shadow_confirmation_from_raw(raw: object) -> _ShadowConfirmation:
+    if raw is None:
+        return _ShadowConfirmation()
+    if isinstance(raw, Mapping):
+        score = float(raw.get("score", 0.0) or 0.0)
+        closed_trades = int(raw.get("closed_trades", 0) or 0)
+        winning_trades = int(raw.get("winning_trades", 0) or 0)
+        raw_win_rate = raw.get("win_rate_pct")
+        win_rate_pct = (
+            float(raw_win_rate)
+            if raw_win_rate is not None
+            else _win_rate_pct(winning_trades, closed_trades)
+        )
+        return _ShadowConfirmation(
+            score=score,
+            closed_trades=closed_trades,
+            winning_trades=winning_trades,
+            win_rate_pct=win_rate_pct,
+            recent_downside_usd=float(raw.get("recent_downside_usd", 0.0) or 0.0),
+            pnl_per_trade_mean_usd=_finite_float_or_none(
+                raw.get("pnl_per_trade_mean_usd")
+            ),
+            pnl_per_trade_std_usd=_finite_float_or_none(
+                raw.get("pnl_per_trade_std_usd")
+            ),
+            pnl_per_trade_lcb_usd=_finite_float_or_none(
+                raw.get("pnl_per_trade_lcb_usd")
+            ),
+        )
+    try:
+        score, closed_trades = raw  # type: ignore[misc]
+    except (TypeError, ValueError):
+        return _ShadowConfirmation()
+    return _ShadowConfirmation(
+        score=float(score or 0.0),
+        closed_trades=int(closed_trades or 0),
+    )
 
 
 def _signal_payload(signal: Optional[Signal]) -> Optional[dict]:

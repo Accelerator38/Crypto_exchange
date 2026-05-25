@@ -175,6 +175,7 @@ class MarketSnapshot:
     funding:    Dict[str, float] = field(default_factory=dict)  # sym → funding rate
     month:      Optional[int] = None                # для seasonality агентов
 
+    fees_bps_by_symbol: Dict[str, float] = field(default_factory=dict)
     lookback_returns_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
     lookback_volatility_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
 

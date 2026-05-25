@@ -108,6 +108,39 @@ def _map_v1_actions(
 # ────────────────────────────────────────────────────────────────────
 
 
+def _clone_genetics_runtime_agent(agent: Any) -> Any:
+    clone_fn = getattr(agent, "clone_for_shadow", None)
+    if callable(clone_fn):
+        cloned = clone_fn()
+        if cloned is not None:
+            return cloned
+
+    genome = getattr(agent, "genome", None)
+    if genome is not None:
+        genome_copy = copy.deepcopy(genome)
+        cloned = None
+        try:
+            cloned = type(agent)(genome=genome_copy)
+        except Exception:
+            try:
+                cloned = type(agent)(genome_copy)
+            except Exception:
+                cloned = None
+        if cloned is not None:
+            for attr in ("MAX_POS", "_position_state_features_enabled"):
+                if hasattr(agent, attr):
+                    try:
+                        setattr(cloned, attr, copy.deepcopy(getattr(agent, attr)))
+                    except Exception:
+                        pass
+            return cloned
+
+    try:
+        return type(agent)()
+    except Exception:
+        return copy.deepcopy(agent)
+
+
 def _state_float(obj: Any, attr: str, sym: str) -> float:
     state = getattr(obj, attr, None)
     if not isinstance(state, dict):
@@ -278,14 +311,7 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
         self.allowed_open_regimes = _normalize_open_regimes(allowed_open_regimes)
 
     def clone_for_shadow(self) -> "GeneticsV2AgentAdapter":
-        clone_fn = getattr(self.v1_agent, "clone_for_shadow", None)
-        if callable(clone_fn):
-            cloned_v1 = clone_fn()
-        else:
-            try:
-                cloned_v1 = type(self.v1_agent)()
-            except Exception:
-                cloned_v1 = copy.deepcopy(self.v1_agent)
+        cloned_v1 = _clone_genetics_runtime_agent(self.v1_agent)
         return GeneticsV2AgentAdapter(
             label=self.label,
             v1_agent=cloned_v1,
@@ -351,7 +377,7 @@ class GeneticsRegimeRouterV2AgentAdapter:
         self.label = str(label)
         self.baseline_agent = baseline_agent
         self.regime_agents: Dict[Regime, Any] = {
-            Regime.from_string(str(regime)): agent
+            (regime if isinstance(regime, Regime) else Regime.from_string(str(regime))): agent
             for regime, agent in dict(regime_agents or {}).items()
         }
         self.portfolio_value_fn = portfolio_value_fn
@@ -365,14 +391,7 @@ class GeneticsRegimeRouterV2AgentAdapter:
             key = id(agent)
             if key in clones:
                 return clones[key]
-            clone_fn = getattr(agent, "clone_for_shadow", None)
-            if callable(clone_fn):
-                cloned = clone_fn()
-            else:
-                try:
-                    cloned = type(agent)()
-                except Exception:
-                    cloned = copy.deepcopy(agent)
+            cloned = _clone_genetics_runtime_agent(agent)
             clones[key] = cloned
             return cloned
 
@@ -389,8 +408,6 @@ class GeneticsRegimeRouterV2AgentAdapter:
         )
 
     def _selected_agent(self, market: MarketSnapshot) -> Any:
-        if market.regime == Regime.CRASH:
-            return self.baseline_agent
         if float(market.regime_confidence) < self.min_regime_confidence:
             return self.baseline_agent
         return self.regime_agents.get(market.regime, self.baseline_agent)

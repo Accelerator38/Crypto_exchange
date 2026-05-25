@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from panteon_v2.analysis.genetics_validation import (
+    build_fixed_walk_forward_contract,
     build_rolling_year_folds,
+    evaluate_fitness_v3_promotion_gate,
+    fitness_v3_robust_score,
     robust_period_score,
     split_precomp_by_periods,
 )
@@ -75,3 +78,85 @@ def test_robust_period_score_accepts_stable_positive_distribution():
     assert score["trimmed_mean_ret"] > 0.0
     assert score["positive_period_pct"] >= 80.0
     assert score["passes_default_gates"]
+
+
+def test_fixed_walk_forward_contract_uses_train_validation_oos_and_final_sanity():
+    contract = build_fixed_walk_forward_contract(_monthly_periods(2022, 2026))
+
+    assert contract["train_periods"][0] == "2022-01"
+    assert contract["train_periods"][-1] == "2023-12"
+    assert contract["validation_periods"] == _monthly_periods(2024, 2024)
+    assert contract["oos_periods"] == _monthly_periods(2025, 2025)
+    assert contract["final_sanity_periods"][0] == "2026-01"
+    assert contract["final_sanity_periods"][-1] == "2026-06"
+    assert contract["regime_balance_required"] == ["crash", "bearish", "neutral", "bullish"]
+
+
+def test_fitness_v3_robust_penalizes_cost_turnover_saturation_and_invalid_pressure():
+    clean = fitness_v3_robust_score(
+        [1.0, 1.0, 1.0, 1.0],
+        period_max_drawdowns_pct=[0.5, 0.5, 0.5, 0.5],
+        period_turnover_rates=[0.03, 0.03, 0.03, 0.03],
+        period_saturation_rates=[0.00, 0.00, 0.00, 0.00],
+        period_invalid_open_pressures=[0.00, 0.00, 0.00, 0.00],
+        period_costs_pct=[0.02, 0.02, 0.02, 0.02],
+        period_slippage_pct=[0.01, 0.01, 0.01, 0.01],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    expensive = fitness_v3_robust_score(
+        [1.0, 1.0, 1.0, 1.0],
+        period_max_drawdowns_pct=[2.0, 2.0, 2.0, 2.0],
+        period_turnover_rates=[0.30, 0.30, 0.30, 0.30],
+        period_saturation_rates=[0.20, 0.20, 0.20, 0.20],
+        period_invalid_open_pressures=[0.40, 0.40, 0.40, 0.40],
+        period_costs_pct=[0.40, 0.40, 0.40, 0.40],
+        period_slippage_pct=[0.20, 0.20, 0.20, 0.20],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    assert clean["fitness_v3_robust"] > expensive["fitness_v3_robust"]
+    assert "turnover" in expensive["failed_gates"]
+    assert "saturation" in expensive["failed_gates"]
+    assert "invalid_open_pressure" in expensive["failed_gates"]
+
+
+def test_fitness_v3_robust_regime_balance_does_not_hide_missing_crash():
+    score = fitness_v3_robust_score(
+        [2.0, 2.0, 2.0],
+        period_regimes=["bearish", "neutral", "bullish"],
+    )
+
+    assert score["mean_ret"] == 2.0
+    assert score["regime_balanced_mean_ret"] < score["mean_ret"]
+    assert "missing_regime:crash" in score["failed_gates"]
+
+
+def test_fitness_v3_gate_rejects_validation_tie_oos_loss_and_crash_floor_loss():
+    baseline_validation = fitness_v3_robust_score(
+        [1.0, 0.8, 0.6, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_validation = fitness_v3_robust_score(
+        [1.0, 0.8, 0.6, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    baseline_oos = fitness_v3_robust_score(
+        [0.5, 0.5, 0.5, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_oos = fitness_v3_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    gate = evaluate_fitness_v3_promotion_gate(
+        baseline_validation=baseline_validation,
+        candidate_validation=candidate_validation,
+        baseline_oos=baseline_oos,
+        candidate_oos=candidate_oos,
+    )
+
+    assert gate["promotion_eligible"] is False
+    assert "validation_tie" in gate["promotion_failures"]
+    assert "oos_mean_ret" in gate["promotion_failures"]
+    assert "crash_floor" in gate["promotion_failures"]

@@ -92,6 +92,25 @@ class TestLiveSignalGuard(unittest.TestCase):
         self.assertEqual(result.filtered, 1)
         self.assertIn("max_position_saturated:SOL:Agent", result.details)
 
+    def test_reserved_new_opens_consume_open_cap_before_later_signals(self):
+        tracker = PositionTracker()
+        new_open = _signal(3, Action.FUT_LONG_FULL, price=20.0)
+        object.__setattr__(new_open, "sym", "SOL")
+
+        result = filter_real_signals_against_tracker(
+            [new_open],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+            reserved_new_opens=1,
+        )
+
+        self.assertEqual(result.signals, [])
+        self.assertEqual(result.rate_limited_opens, 1)
+        self.assertEqual(result.filtered, 1)
+        self.assertIn("rate_limited_open:SOL:Agent", result.details)
+
     def test_opposite_open_becomes_close_instead_of_duplicate_drop(self):
         tracker = PositionTracker()
         open_sig = _signal(1, Action.FUT_LONG_FULL, price=100.0)

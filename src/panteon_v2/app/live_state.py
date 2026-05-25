@@ -144,6 +144,7 @@ def filter_real_signals_against_tracker(
     bar_index: int,
     max_new_opens_per_bar: Optional[int] = None,
     max_open_positions: Optional[int] = None,
+    reserved_new_opens: int = 0,
 ) -> RealSignalGuardResult:
     """Drop real signals that are impossible according to PositionTracker."""
     tracker_positions = {
@@ -158,6 +159,7 @@ def filter_real_signals_against_tracker(
     rate_limited_opens = 0
     max_position_saturated_opens = 0
     external_position_signals = 0
+    reserved_new_opens = max(0, int(reserved_new_opens or 0))
     kept_new_opens = 0
     details: List[str] = []
     owned_open_count = sum(
@@ -227,7 +229,8 @@ def filter_real_signals_against_tracker(
         if (
             signal.action.is_open
             and max_new_opens_per_bar is not None
-            and kept_new_opens >= max(0, int(max_new_opens_per_bar))
+            and reserved_new_opens + kept_new_opens
+            >= max(0, int(max_new_opens_per_bar))
         ):
             rate_limited_opens += 1
             details.append(f"rate_limited_open:{sym}:{signal.by_agent or '-'}")

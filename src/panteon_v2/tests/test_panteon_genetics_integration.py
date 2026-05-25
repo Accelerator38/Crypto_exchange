@@ -309,6 +309,55 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
 
         self.assertEqual([player.label for player in solo], ["Solo_ExecutableAgent"])
 
+    def test_shadow_only_genetics_does_not_consume_solo_candidate_limit(self):
+        from panteon_v2.app.main_loop import _compose_solo_agent_candidates
+
+        registry = AgentRegistry()
+        executable = FakeAgent("ExecutableAgent", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only.shadow_only = True
+        shadow_only.paper_trading_eligible = True
+        shadow_only.live_trading_eligible = False
+        registry.register(executable)
+        registry.register(shadow_only)
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="TEST"),
+            initial_capital=1000.0,
+        )
+        pipeline.solo_agent_candidate_limit = 1
+        pipeline.virtual_perf.restore({
+            "trade_fraction": 0.10,
+            "state": {
+                "ExecutableAgent|neutral": {
+                    "closed_trades": 10,
+                    "entries": 10,
+                    "signals": 20,
+                    "wins": 6,
+                    "losses": 4,
+                    "pnl_pct": 1.0,
+                    "returns": [0.10, -0.05, 0.20, 0.10],
+                    "max_dd_pct": 0.2,
+                },
+                "GeneticsRegimeRouter|neutral": {
+                    "closed_trades": 20,
+                    "entries": 20,
+                    "signals": 40,
+                    "wins": 14,
+                    "losses": 6,
+                    "pnl_pct": 5.0,
+                    "returns": [0.20, 0.10, -0.05, 0.30],
+                    "max_dd_pct": 0.1,
+                },
+            },
+            "open": {},
+            "seen_signal_ids": [],
+        })
+
+        solo = _compose_solo_agent_candidates(pipeline, Regime.NEUTRAL, [])
+
+        self.assertEqual([player.label for player in solo], ["Solo_ExecutableAgent"])
+
     def test_actionable_fallback_does_not_execute_shadow_only_genetics_agent_signal(self):
         selected_agent = FakeAgent("SelectedAgent")
         shadow_only = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})

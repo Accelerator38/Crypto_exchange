@@ -54,6 +54,8 @@ KNOWN_V1_AGENTS: List[Tuple[str, str]] = [
     ("LiveOIBreakout",      "panteon_agents:LiveOIBreakout"),
     ("ResearchValidatorAgent", "panteon_agents:ResearchValidatorAgent"),
     ("VolBreakoutHunter",   "panteon_agents:VolBreakoutHunter"),
+    ("CarryFlowAgentV2",    "panteon_agents:CarryFlowAgentV2"),
+    ("CandlePatternAgent",  "panteon_agents:CandlePatternAgent"),
     ("BullRotationAgent",   "panteon_agents:BullRotationAgent"),
     ("BearReliefFadeAgent", "panteon_agents:BearReliefFadeAgent"),
     ("NeutralRangeScalper", "panteon_agents:NeutralRangeScalper"),
@@ -66,6 +68,11 @@ KNOWN_V1_AGENTS: List[Tuple[str, str]] = [
 # Опциональные агенты с тяжёлым импортом (numba/datasets/settings).
 # Подключаются ТОЛЬКО если PANTEON_V2_LOAD_GENETICS=1 в env, или явно
 # через register_optional_agents(). Иначе зависают на startup-е.
+SHADOW_ONLY_V1_AGENT_LABELS: Tuple[str, ...] = (
+    "CarryFlowAgentV2",
+    "CandlePatternAgent",
+)
+
 OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
     ("GeneticsGenomeEnsemble", "agents_v2:GenomeEnsembleAgent"),
     ("GeneticsCore",        "crypto_genetics:GeneticsAgent"),
@@ -73,6 +80,15 @@ OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
     ("GeneticsBearish",     "crypto_genetics:GeneticsBearishAgent"),
     ("GeneticsNeutral",     "crypto_genetics:GeneticsNeutralAgent"),
 ]
+
+MANIFEST_GENETICS_AGENT_LABELS: Tuple[str, ...] = (
+    "GeneticsBest",
+    "GeneticsCrash",
+    "GeneticsBullish",
+    "GeneticsBearish",
+    "GeneticsNeutral",
+)
+MANIFEST_GENETICS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
 
 OPTIONAL_SPECIAL_AGENTS: Tuple[str, ...] = ("GeneticsRegimeRouter",)
 
@@ -94,6 +110,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         Tuple[str, ...],
         Tuple[str, ...],
         Tuple[str, ...],
+        dict[str, Any],
     ],
     ...
 ] = (
@@ -104,6 +121,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         (),
+        {},
     ),
     (
         "MomentumScalperSpotQuality",
@@ -112,6 +130,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS,
         (),
         (),
+        {},
     ),
     (
         "VolBreakoutSpotOnly",
@@ -120,6 +139,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         (),
+        {},
     ),
     (
         "MomentumScalperShortCrashOnly",
@@ -128,6 +148,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("crash",),
+        {},
     ),
     (
         "MomentumScalperShortBearOnly",
@@ -136,6 +157,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("bearish",),
+        {},
     ),
     (
         "MomentumScalperSpotPullbackOnly",
@@ -144,6 +166,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("neutral", "bullish"),
+        {},
     ),
     (
         "ResearchValidatorNeutralOnly",
@@ -152,6 +175,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("neutral",),
+        {},
     ),
     (
         "FundingArbBearOnly",
@@ -160,6 +184,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("bearish",),
+        {},
     ),
     (
         "CrashPanicCrashOnly",
@@ -168,6 +193,58 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         (),
         (),
         ("crash",),
+        {},
+    ),
+    (
+        "CrashHunterStrict",
+        "LiveCrashHunter",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL, Action.FUT_CLOSE_ALL),
+        (),
+        (),
+        ("crash",),
+        {
+            "min_regime_confidence": 0.70,
+            "max_lookback_return_pct_by_bars": {12: -2.5},
+        },
+    ),
+    (
+        "VolBreakoutFundingAware",
+        "VolBreakoutHunter",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL, Action.FUT_CLOSE_ALL),
+        (),
+        (),
+        ("bearish", "crash"),
+        {"funding_cost_aligned_opens": True},
+    ),
+    (
+        "AfterShockRegimeOnly",
+        "LiveAfterShock",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
+        (),
+        (),
+        ("crash",),
+        {
+            "min_regime_confidence": 0.70,
+            "max_lookback_return_pct_by_bars": {12: -2.5, 24: -4.0},
+        },
+    ),
+    (
+        "LiveTrendFollowBullOnly",
+        "LiveTrendFollow",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
+        (),
+        (),
+        ("bullish",),
+        {"min_lookback_return_pct_by_bars": {24: 0.5}},
+    ),
+    (
+        "LiveMeanRevNeutralOnly",
+        "LiveMeanRev",
+        (),
+        (),
+        (),
+        ("neutral",),
+        {},
     ),
 )
 
@@ -182,6 +259,10 @@ class ActionFilterAgent:
     allowed_symbols: Tuple[str, ...] = ()
     denied_symbols: Tuple[str, ...] = ()
     allowed_regimes: Tuple[str, ...] = ()
+    min_regime_confidence: Optional[float] = None
+    funding_cost_aligned_opens: bool = False
+    min_lookback_return_pct_by_bars: Optional[dict[int, float]] = None
+    max_lookback_return_pct_by_bars: Optional[dict[int, float]] = None
 
     def __post_init__(self) -> None:
         self.allowed_actions = tuple(
@@ -198,6 +279,14 @@ class ActionFilterAgent:
             _normalize_regime_label(regime)
             for regime in self.allowed_regimes
         )
+        if self.min_regime_confidence is not None:
+            self.min_regime_confidence = float(self.min_regime_confidence)
+        self.min_lookback_return_pct_by_bars = _normalize_lookback_gate(
+            self.min_lookback_return_pct_by_bars
+        )
+        self.max_lookback_return_pct_by_bars = _normalize_lookback_gate(
+            self.max_lookback_return_pct_by_bars
+        )
 
     def clone_for_shadow(self) -> Optional["ActionFilterAgent"]:
         base_clone = _clone_agent_for_wrapper(self.base_agent)
@@ -210,6 +299,10 @@ class ActionFilterAgent:
             allowed_symbols=self.allowed_symbols,
             denied_symbols=self.denied_symbols,
             allowed_regimes=self.allowed_regimes,
+            min_regime_confidence=self.min_regime_confidence,
+            funding_cost_aligned_opens=self.funding_cost_aligned_opens,
+            min_lookback_return_pct_by_bars=self.min_lookback_return_pct_by_bars,
+            max_lookback_return_pct_by_bars=self.max_lookback_return_pct_by_bars,
         )
 
     def act(self, market: MarketSnapshot) -> dict[str, Action]:
@@ -242,8 +335,51 @@ class ActionFilterAgent:
             if allowed_regimes and regime_label not in allowed_regimes:
                 out[symbol] = Action.HOLD
                 continue
+            if action.is_open and not self._open_context_allows(market, symbol, action):
+                out[symbol] = Action.HOLD
+                continue
             out[symbol] = action
         return out
+
+    def _open_context_allows(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+    ) -> bool:
+        if self.min_regime_confidence is not None:
+            try:
+                confidence = float(market.regime_confidence)
+            except (TypeError, ValueError):
+                return False
+            if confidence < self.min_regime_confidence:
+                return False
+
+        if self.funding_cost_aligned_opens and action in (
+            Action.FUT_LONG_HALF,
+            Action.FUT_LONG_FULL,
+            Action.FUT_SHORT_HALF,
+            Action.FUT_SHORT_FULL,
+        ):
+            funding = _lookup_numeric_symbol_value(market.funding, symbol)
+            if funding is None:
+                return False
+            if action.is_long_open and funding > 0.0:
+                return False
+            if action.is_short_open and funding < 0.0:
+                return False
+
+        if self.min_lookback_return_pct_by_bars:
+            for bars, threshold in self.min_lookback_return_pct_by_bars.items():
+                value = _lookup_lookback_return_pct(market, symbol, bars)
+                if value is None or value < threshold:
+                    return False
+        if self.max_lookback_return_pct_by_bars:
+            for bars, threshold in self.max_lookback_return_pct_by_bars.items():
+                value = _lookup_lookback_return_pct(market, symbol, bars)
+                if value is None or value > threshold:
+                    return False
+        return True
 
     def sync_from_execution_results(self, results) -> None:
         sync = getattr(self.base_agent, "sync_from_execution_results", None)
@@ -262,6 +398,66 @@ def _normalize_regime_label(regime: Any) -> str:
     if label is None:
         label = regime
     return Regime.from_string(str(label or "")).label
+
+
+def _normalize_lookback_gate(
+    gate: Optional[dict[int, float]],
+) -> dict[int, float]:
+    if not gate:
+        return {}
+    normalized: dict[int, float] = {}
+    for raw_bars, raw_threshold in gate.items():
+        try:
+            bars = int(raw_bars)
+            threshold = float(raw_threshold)
+        except (TypeError, ValueError):
+            continue
+        if bars > 0:
+            normalized[bars] = threshold
+    return normalized
+
+
+def _symbol_candidates(symbol: str) -> tuple[str, ...]:
+    normalized = _normalize_symbol(symbol)
+    base = normalized.split("/", 1)[0]
+    compact = normalized.replace("/", "")
+    return tuple(dict.fromkeys((normalized, base, compact)))
+
+
+def _lookup_symbol_value(mapping: Any, symbol: str) -> Any:
+    if not isinstance(mapping, dict):
+        return None
+    for key in _symbol_candidates(symbol):
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _lookup_numeric_symbol_value(mapping: Any, symbol: str) -> Optional[float]:
+    value = _lookup_symbol_value(mapping, symbol)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _lookup_lookback_return_pct(
+    market: MarketSnapshot,
+    symbol: str,
+    bars: int,
+) -> Optional[float]:
+    returns_by_bar = _lookup_symbol_value(market.lookback_returns_pct, symbol)
+    if not isinstance(returns_by_bar, dict):
+        return None
+    for key in (bars, str(bars)):
+        if key in returns_by_bar:
+            try:
+                return float(returns_by_bar[key])
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def _coerce_action(value: Any) -> Optional[Action]:
@@ -305,7 +501,7 @@ def _clone_agent_for_wrapper(agent: Any) -> Optional[Any]:
 def experimental_flash_agent_labels() -> List[str]:
     return [
         label
-        for label, _base, _actions, _allowed, _denied, _regimes
+        for label, _base, _actions, _allowed, _denied, _regimes, _kwargs
         in EXPERIMENTAL_FLASH_AGENT_SPECS
     ]
 
@@ -323,6 +519,7 @@ def register_experimental_flash_agents(
         allowed_symbols,
         denied_symbols,
         allowed_regimes,
+        filter_kwargs,
     ) in EXPERIMENTAL_FLASH_AGENT_SPECS:
         base_agent = registry.get(base_label)
         if base_agent is None:
@@ -354,6 +551,7 @@ def register_experimental_flash_agents(
                 allowed_symbols=allowed_symbols,
                 denied_symbols=denied_symbols,
                 allowed_regimes=allowed_regimes,
+                **dict(filter_kwargs),
             ),
             replace=True,
         )
@@ -388,6 +586,20 @@ def _default_genetics_results_root() -> Path:
     return Path(__file__).resolve().parents[3] / "Results" / "neiro_genetics"
 
 
+def _infer_genetics_results_root(path: str | Path) -> Path:
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        return _default_genetics_results_root()
+    resolved = resolved.resolve()
+    for parent in (resolved.parent, *resolved.parents):
+        if (
+            parent.name.lower() == "neiro_genetics"
+            and parent.parent.name.lower() == "results"
+        ):
+            return parent
+    return _default_genetics_results_root()
+
+
 def _resolve_router_manifest_path(path: str | Path, *, results_root: Path) -> Path:
     resolved = Path(path)
     if not resolved.is_absolute():
@@ -400,6 +612,18 @@ def _resolve_router_manifest_path(path: str | Path, *, results_root: Path) -> Pa
             f"genetics router path must be under {results_root}: {resolved}"
         ) from exc
     return resolved
+
+
+def _manifest_genetics_configured() -> bool:
+    return bool(os.environ.get(MANIFEST_GENETICS_ENV))
+
+
+def _resolve_specialists_manifest_path() -> tuple[Path, Path] | None:
+    raw = os.environ.get(MANIFEST_GENETICS_ENV)
+    if not raw:
+        return None
+    root = _infer_genetics_results_root(raw).resolve()
+    return _resolve_router_manifest_path(raw, results_root=root), root
 
 
 def _router_promotion_eligible(selection: dict[str, Any]) -> bool:
@@ -503,6 +727,75 @@ def build_genetics_regime_router_adapter(
     return adapter
 
 
+def _filter_manifest_genetics_labels(
+    labels: Optional[Sequence[str]],
+) -> List[str]:
+    allowed_manifest = set(MANIFEST_GENETICS_AGENT_LABELS)
+    if labels is None:
+        return list(MANIFEST_GENETICS_AGENT_LABELS)
+    return [str(label) for label in labels if str(label) in allowed_manifest]
+
+
+def _register_manifest_genetics_agents(
+    registry: AgentRegistry,
+    labels: Optional[Sequence[str]],
+    *,
+    portfolio_value_fn: Optional[callable] = None,
+    skip_on_error: bool = True,
+) -> List[str]:
+    resolved_manifest = _resolve_specialists_manifest_path()
+    selected_labels = _filter_manifest_genetics_labels(labels)
+    if resolved_manifest is None or not selected_labels:
+        return []
+
+    import numpy as np
+
+    manifest, root = resolved_manifest
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    raw_map = payload.get("specialist_genome_map")
+    if not isinstance(raw_map, dict):
+        raise ValueError("genetics specialists manifest must contain specialist_genome_map")
+
+    module = __import__("crypto_genetics", fromlist=["GeneticsAgent"])
+    genetics_cls = getattr(module, "GeneticsAgent")
+    expected_genome_size = getattr(module, "GENOME_SIZE", None)
+    paper_eligible = bool(payload.get("paper_trading_eligible", False))
+    promotion_eligible = bool(payload.get("promotion_eligible", False))
+
+    registered: List[str] = []
+    for label in selected_labels:
+        try:
+            raw_path = raw_map.get(label)
+            if raw_path is None:
+                raise ValueError(f"{label} missing from specialist_genome_map")
+            genome_path = _resolve_router_manifest_path(raw_path, results_root=root)
+            genome = np.load(genome_path).astype(np.float32).ravel()
+            if expected_genome_size is not None and genome.size != int(expected_genome_size):
+                raise ValueError(
+                    f"genetics specialist genome size mismatch for {genome_path}: "
+                    f"{genome.size} != {int(expected_genome_size)}"
+                )
+            adapter = GeneticsV2AgentAdapter(
+                label=label,
+                v1_agent=genetics_cls(genome=genome),
+                portfolio_value_fn=portfolio_value_fn,
+            )
+            adapter.selection_manifest_path = str(manifest)
+            adapter.source_genome_path = str(genome_path)
+            adapter.promotion_eligible = promotion_eligible
+            adapter.paper_trading_eligible = paper_eligible
+            adapter.live_trading_eligible = False
+            adapter.shadow_only = True
+            registry.register(adapter, replace=True)
+            registered.append(label)
+        except Exception as exc:
+            if skip_on_error:
+                log.warning("Skipping %s from specialists manifest: %s", label, type(exc).__name__)
+                continue
+            raise
+    return registered
+
+
 def _register_from_list(
     registry: AgentRegistry,
     items: List[Tuple[str, str]],
@@ -530,6 +823,10 @@ def _register_from_list(
             if adapter_cls is GeneticsV2AgentAdapter and label == "GeneticsGenomeEnsemble":
                 adapter_kwargs["allowed_open_regimes"] = ("bearish", "crash")
             adapter = adapter_cls(**adapter_kwargs)
+            if label in SHADOW_ONLY_V1_AGENT_LABELS:
+                setattr(adapter, "shadow_only", True)
+                setattr(adapter, "paper_trading_eligible", True)
+                setattr(adapter, "live_trading_eligible", False)
             registry.register(adapter, replace=True)
             registered.append(label)
         except Exception as exc:
@@ -564,15 +861,16 @@ def _register_special_optional_agents(
         try:
             if label != "GeneticsRegimeRouter":
                 continue
-            if not _env_flag("PANTEON_V2_LOAD_GENETICS_ROUTER", False):
-                continue
             manifest = os.environ.get("PANTEON_V2_GENETICS_ROUTER_MANIFEST")
+            if not manifest and not _env_flag("PANTEON_V2_LOAD_GENETICS_ROUTER", False):
+                continue
             if not manifest:
                 raise ValueError("PANTEON_V2_GENETICS_ROUTER_MANIFEST is required")
             module = __import__("crypto_genetics", fromlist=["GeneticsAgent"])
             adapter = build_genetics_regime_router_adapter(
                 manifest,
                 getattr(module, "GeneticsAgent"),
+                results_root=_infer_genetics_results_root(manifest),
                 portfolio_value_fn=portfolio_value_fn,
                 expected_genome_size=getattr(module, "GENOME_SIZE", None),
             )
@@ -618,6 +916,12 @@ def register_all_v1_agents(
             portfolio_value_fn=portfolio_value_fn,
             skip_on_error=skip_on_error,
         )
+        registered += _register_manifest_genetics_agents(
+            registry,
+            optional_agent_labels,
+            portfolio_value_fn=portfolio_value_fn,
+            skip_on_error=skip_on_error,
+        )
         registered += _register_special_optional_agents(
             registry,
             optional_agent_labels,
@@ -641,6 +945,12 @@ def register_optional_agents(
         portfolio_value_fn=portfolio_value_fn,
         skip_on_error=skip_on_error,
     )
+    registered += _register_manifest_genetics_agents(
+        registry,
+        optional_agent_labels,
+        portfolio_value_fn=portfolio_value_fn,
+        skip_on_error=skip_on_error,
+    )
     registered += _register_special_optional_agents(
         registry,
         optional_agent_labels,
@@ -653,10 +963,17 @@ def register_optional_agents(
 def _filter_optional_agent_items(
     labels: Optional[Sequence[str]],
 ) -> List[Tuple[str, str]]:
+    legacy_manifest_labels = set(MANIFEST_GENETICS_AGENT_LABELS)
     if labels is None:
-        return list(OPTIONAL_V1_AGENTS)
+        items = list(OPTIONAL_V1_AGENTS)
+        if _manifest_genetics_configured():
+            return [item for item in items if item[0] not in legacy_manifest_labels]
+        return items
     allowed = {str(label) for label in labels}
-    return [item for item in OPTIONAL_V1_AGENTS if item[0] in allowed]
+    items = [item for item in OPTIONAL_V1_AGENTS if item[0] in allowed]
+    if _manifest_genetics_configured():
+        items = [item for item in items if item[0] not in legacy_manifest_labels]
+    return items
 
 
 def known_labels() -> List[str]:
@@ -664,7 +981,15 @@ def known_labels() -> List[str]:
 
 
 def optional_labels() -> List[str]:
-    return [label for label, _ in OPTIONAL_V1_AGENTS] + list(OPTIONAL_SPECIAL_AGENTS)
+    labels: List[str] = []
+    for label, _ in OPTIONAL_V1_AGENTS:
+        if label not in labels:
+            labels.append(label)
+    for label in MANIFEST_GENETICS_AGENT_LABELS:
+        if label not in labels:
+            labels.append(label)
+    labels.extend(OPTIONAL_SPECIAL_AGENTS)
+    return labels
 
 
 def genetics_labels() -> List[str]:

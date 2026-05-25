@@ -25,6 +25,7 @@ from panteon_v2.app import (
 )
 from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.app.main_loop import StepResult
+from panteon_v2.app.main_loop import _apply_genetics_probation_execution_overlay
 from panteon_v2.app.main_loop import _flash_actor_key_from_decision
 from panteon_v2.app.main_loop import _flash_previous_actor_key_from_decision
 from panteon_v2.app.main_loop import _compose_candidates
@@ -45,6 +46,7 @@ from panteon_v2.app.main_loop import _flash_stale_position_close_signals
 from panteon_v2.app.main_loop import _flash_update_degradation_state_from_events
 from panteon_v2.attribution import (
     CandidateScored,
+    CandidateRejected,
     DecisionStarted,
     EventLog,
     LeaderSelected,
@@ -57,6 +59,7 @@ from panteon_v2.attribution import (
     SignalEmitted,
 )
 from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
+from panteon_v2.app.live_state import RealSignalGuardResult
 from panteon_v2.execution import ExchangePosition, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.execution.position_tracker import TrackedPosition
@@ -88,6 +91,141 @@ from panteon_v2.tests.test_selector import _add_perf
 
 
 class TestBootstrap(unittest.TestCase):
+    def test_audit_emission_module_emits_switch_candidate_events(self):
+        from panteon_v2.app.audit_emission import emit_candidate_audit_events
+
+        event_log = EventLog()
+        pipeline = type("Pipeline", (), {"event_log": event_log})()
+        winner = EnsemblePlayer(
+            label="Winner",
+            agents=[FakeAgent("WinnerAgent")],
+            weights={"WinnerAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        decision = SwitchDecision(
+            new_leader=winner,
+            previous=None,
+            score=1.0,
+            margin=0.0,
+            is_urgent=False,
+            reason="test",
+            switched=True,
+            candidate_scores=(
+                CandidateScore(
+                    label="Winner",
+                    score=1.25,
+                    rank=1,
+                    has_data=True,
+                    closed_trades=12,
+                    signals=4,
+                    execution_failures=0,
+                    score_source="test",
+                    uncertainty_penalty=0.0,
+                    agent_labels=("WinnerAgent",),
+                    memory_keys_read=("Winner|bullish",),
+                ),
+            ),
+            candidate_rejections=(
+                CandidateRejection(label="Rejected", reason="score_below_threshold"),
+            ),
+        )
+
+        emit_candidate_audit_events(
+            pipeline,
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            decision,
+            decision_id="decision-1",
+            trace_id="trace-1",
+            context={"exchange": "TEST", "symbol": "BTC"},
+        )
+
+        scored = list(event_log.query(event_types=[CandidateScored]))
+        rejected = list(event_log.query(event_types=[CandidateRejected]))
+        self.assertEqual(len(scored), 1)
+        self.assertEqual(scored[0].player_label, "Winner")
+        self.assertTrue(scored[0].selected_by_pantheon)
+        self.assertEqual(scored[0].memory_keys_read, ("Winner|bullish",))
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0].player_label, "Rejected")
+        self.assertEqual(rejected[0].reason, "score_below_threshold")
+
+    def test_audit_emission_module_emits_flash_candidate_events(self):
+        from panteon_v2.app.audit_emission import emit_flash_audit_events
+
+        event_log = EventLog()
+        pipeline = type("Pipeline", (), {"event_log": event_log})()
+        decision = FlashDecision(
+            symbol="BTC",
+            selected_actor="FlashAgent",
+            actor_type="agent",
+            score=1.0,
+            action=Action.FUT_LONG_FULL,
+            reason="selected",
+            signal=None,
+            candidates=(
+                FlashCandidateAudit(
+                    symbol="BTC",
+                    label="FlashAgent",
+                    actor_type="agent",
+                    actor_key="agent:FlashAgent",
+                    score=1.0,
+                    action=Action.FUT_LONG_FULL,
+                    rejected=False,
+                    reason="eligible",
+                    has_data=True,
+                    closed_trades=10,
+                    agent_labels=("CoreAgent",),
+                ),
+                FlashCandidateAudit(
+                    symbol="BTC",
+                    label="WeakAgent",
+                    actor_type="agent",
+                    actor_key="agent:WeakAgent",
+                    score=-0.5,
+                    action=Action.FUT_SHORT_FULL,
+                    rejected=True,
+                    reason="score_below_threshold",
+                    has_data=True,
+                    closed_trades=7,
+                    agent_labels=("WeakCore",),
+                ),
+            ),
+        )
+
+        emit_flash_audit_events(
+            pipeline,
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            (decision,),
+            decision_id="decision-2",
+            trace_id="trace-2",
+            context={"exchange": "TEST", "symbol": "ALL"},
+        )
+
+        scored = list(event_log.query(event_types=[CandidateScored]))
+        rejected = list(event_log.query(event_types=[CandidateRejected]))
+        self.assertEqual([event.player_label for event in scored], ["FlashAgent", "WeakAgent"])
+        self.assertEqual({event.symbol for event in scored}, {"BTC"})
+        self.assertTrue(scored[0].selected_by_pantheon)
+        self.assertIn("CoreAgent|bullish", scored[0].memory_keys_read)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0].player_label, "WeakAgent")
+        self.assertEqual(rejected[0].reason, "flash:score_below_threshold")
+
+    def test_flash_decision_path_module_exposes_explicit_callback_contract(self):
+        from dataclasses import fields
+
+        from panteon_v2.app.decision_paths.flash import (
+            FlashDecisionPathCallbacks,
+            run_flash_decision_path,
+        )
+
+        callback_fields = {field.name for field in fields(FlashDecisionPathCallbacks)}
+        self.assertTrue(callable(run_flash_decision_path))
+        self.assertIn("flash_real_agents", callback_fields)
+        self.assertIn("emit_flash_audit_events", callback_fields)
+        self.assertIn("step_result_type", callback_fields)
+
     def test_flash_actor_key_can_preserve_original_actor_after_cap(self):
         decision = FlashDecision(
             symbol="BTC",
@@ -213,6 +351,72 @@ class TestBootstrap(unittest.TestCase):
             agents = _flash_real_agents(pipeline, market)
 
         self.assertEqual([agent.label for agent in agents], ["HealthyInEnsemble"])
+
+    def test_flash_real_agents_allows_explicit_genetics_probation_agent_by_regime(self):
+        allowed = FakeAgent("GeneticsNeutral", {"BTC": Action.FUT_LONG_FULL})
+        allowed.shadow_only = True
+        allowed.live_trading_eligible = False
+        blocked = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})
+        blocked.shadow_only = True
+        blocked.live_trading_eligible = False
+        registry = AgentRegistry()
+        registry.register(allowed)
+        registry.register(blocked)
+        pipeline = type("Pipeline", (), {
+            "registry": registry,
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsNeutral",),
+                genetics_probation_allowed_regimes=("neutral",),
+            ),
+        })()
+
+        neutral_agents = _flash_real_agents(
+            pipeline,
+            make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+        )
+        crash_agents = _flash_real_agents(
+            pipeline,
+            make_market(regime=Regime.CRASH, prices={"BTC": 100.0}),
+        )
+
+        self.assertEqual([agent.label for agent in neutral_agents], ["GeneticsNeutral"])
+        self.assertEqual(crash_agents, [])
+        self.assertFalse(getattr(allowed, "live_trading_eligible"))
+
+    def test_flash_real_agents_probation_genetics_bypass_hard_policy_only(self):
+        allowed = FakeAgent("GeneticsNeutral", {"BTC": Action.FUT_LONG_FULL})
+        allowed.shadow_only = True
+        allowed.live_trading_eligible = False
+        registry = AgentRegistry()
+        registry.register(allowed)
+
+        class Strategist:
+            def _validate(self, candidate):
+                return None
+
+            def _validate_hard_policy(self, candidate, regime, **kwargs):
+                return object()
+
+            def _validate_v3_real_loss(self, candidate, regime, **kwargs):
+                return None
+
+        pipeline = type("Pipeline", (), {
+            "registry": registry,
+            "strategist": Strategist(),
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsNeutral",),
+                genetics_probation_allowed_regimes=("neutral",),
+            ),
+        })()
+
+        agents = _flash_real_agents(
+            pipeline,
+            make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+        )
+
+        self.assertEqual([agent.label for agent in agents], ["GeneticsNeutral"])
 
     def test_empty_registry_rejected(self):
         with self.assertRaises(ValueError):
@@ -420,6 +624,28 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_shadow_pnl_per_trade_lcb_z": "1.0",
             "v2_flash_shadow_pnl_per_trade_lcb_penalty_floor_usd": "0.0",
             "v2_flash_shadow_pnl_per_trade_lcb_penalty_weight": "20.0",
+            "v2_flash_shadow_pnl_lcb_risk_sizing_enabled": "true",
+            "v2_flash_shadow_pnl_lcb_risk_min_mult": "0.4",
+            "v2_flash_shadow_pnl_lcb_risk_floor_usd": "0.0",
+            "v2_flash_shadow_pnl_lcb_risk_scale_usd": "2.0",
+            "v2_flash_shadow_symbol_health_enabled": "true",
+            "v2_flash_shadow_symbol_health_min_closed_trades": "9",
+            "v2_flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd": "-0.2",
+            "v2_flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd": "0.0",
+            "v2_flash_shadow_symbol_health_pnl_lcb_penalty_weight": "12.0",
+            "v2_flash_actor_risk_sizing_enabled": "true",
+            "v2_flash_actor_risk_min_mult": "0.3",
+            "v2_flash_actor_risk_max_mult": "1.2",
+            "v2_flash_actor_risk_edge_scale_pct": "0.75",
+            "v2_flash_funding_score_weight": "0.5",
+            "v2_flash_funding_risk_mult_weight": "0.4",
+            "v2_flash_funding_risk_mult_cap": "0.2",
+            "v2_flash_no_trade_fee_saving_score_enabled": "true",
+            "v2_flash_no_trade_default_fee_bps": "4.5",
+            "v2_flash_volatility_risk_sizing_enabled": "true",
+            "v2_flash_volatility_risk_target_pct": "1.8",
+            "v2_flash_volatility_risk_min_volatility_pct": "0.4",
+            "v2_flash_volatility_risk_max_mult": "1.5",
             "v2_flash_denied_open_symbols": "atom/usdt,fil/usdt",
             "v2_flash_denied_open_regimes": "neutral,crash",
             "v2_flash_degradation_guard_enabled": "true",
@@ -429,6 +655,7 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_degradation_actor_cooldown_bars": "72",
             "v2_flash_degradation_symbol_guard_enabled": "true",
             "v2_flash_degradation_symbol_cooldown_bars": "48",
+            "v2_flash_degradation_symbol_lookback_bars": "2160",
             "v2_flash_degradation_symbol_window_closed_trades": "2",
             "v2_flash_degradation_symbol_min_closed_trades": "2",
             "v2_flash_degradation_symbol_max_recent_pnl_usd": "-10.0",
@@ -493,6 +720,34 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_z, 1.0)
         self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_penalty_floor_usd, 0.0)
         self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_penalty_weight, 20.0)
+        self.assertTrue(cfg.shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled)
+        self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_risk_min_mult, 0.4)
+        self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd, 0.0)
+        self.assertEqual(cfg.shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd, 2.0)
+        self.assertTrue(cfg.shadow_symbol_health_enabled)
+        self.assertEqual(cfg.shadow_symbol_health_min_closed_trades, 9)
+        self.assertEqual(cfg.shadow_symbol_health_min_pnl_per_trade_lcb_usd, -0.2)
+        self.assertEqual(
+            cfg.shadow_symbol_health_pnl_per_trade_lcb_penalty_floor_usd,
+            0.0,
+        )
+        self.assertEqual(
+            cfg.shadow_symbol_health_pnl_per_trade_lcb_penalty_weight,
+            12.0,
+        )
+        self.assertTrue(cfg.actor_risk_sizing_enabled)
+        self.assertEqual(cfg.actor_risk_min_mult, 0.3)
+        self.assertEqual(cfg.actor_risk_max_mult, 1.2)
+        self.assertEqual(cfg.actor_risk_edge_scale_pct, 0.75)
+        self.assertEqual(cfg.funding_score_weight, 0.5)
+        self.assertEqual(cfg.funding_risk_mult_weight, 0.4)
+        self.assertEqual(cfg.funding_risk_mult_cap, 0.2)
+        self.assertTrue(cfg.no_trade_fee_saving_score_enabled)
+        self.assertEqual(cfg.no_trade_default_fee_bps, 4.5)
+        self.assertTrue(cfg.volatility_risk_sizing_enabled)
+        self.assertEqual(cfg.volatility_risk_target_pct, 1.8)
+        self.assertEqual(cfg.volatility_risk_min_volatility_pct, 0.4)
+        self.assertEqual(cfg.volatility_risk_max_mult, 1.5)
         self.assertEqual(cfg.denied_open_symbols, ("ATOM/USDT", "FIL/USDT"))
         self.assertEqual(cfg.denied_open_regimes, (Regime.NEUTRAL, Regime.CRASH))
         self.assertTrue(cfg.degradation_guard_enabled)
@@ -502,6 +757,7 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(cfg.degradation_actor_cooldown_bars, 72)
         self.assertTrue(cfg.degradation_symbol_guard_enabled)
         self.assertEqual(cfg.degradation_symbol_cooldown_bars, 48)
+        self.assertEqual(cfg.degradation_symbol_lookback_bars, 2160)
         self.assertEqual(cfg.degradation_symbol_window_closed_trades, 2)
         self.assertEqual(cfg.degradation_symbol_min_closed_trades, 2)
         self.assertEqual(cfg.degradation_symbol_max_recent_pnl_usd, -10.0)
@@ -1158,6 +1414,59 @@ class TestMainLoop(unittest.TestCase):
             ["BTC", "ETH"],
         )
 
+    def test_flash_genetics_no_backfill_veto_consumes_new_open_slot(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("BtcAgent", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("EthAgent", {"ETH": Action.FUT_LONG_FULL}))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[],
+            live_execution_config=LiveExecutionConfig(max_new_opens_per_bar=1),
+            flash_enabled=True,
+            flash_allocator_config=FlashAllocatorConfig(
+                genetics_confirmation_overlay_enabled=True,
+                genetics_confirmation_labels=("GeneticsNeutral",),
+                genetics_confirmation_contra_static_enabled=True,
+                genetics_confirmation_contra_no_backfill_enabled=True,
+                genetics_confirmation_contra_signal_keys=(
+                    "agent:GeneticsNeutral|BTC|FUT_LONG_FULL",
+                ),
+                genetics_confirmation_contra_score_penalty=10.0,
+            ),
+        )
+        _add_perf(pipeline.perf, "BtcAgent", Regime.BULLISH, 5, 1.0, start_id=100)
+        _add_perf(pipeline.perf, "EthAgent", Regime.BULLISH, 5, 0.9, start_id=200)
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].n_raw_signals, 1)
+        self.assertEqual(steps[0].n_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(steps[0].n_rate_limited_open_signals, 1)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertIn(
+            "rate_limited_open:ETH:EthAgent",
+            steps[0].signal_filter_details,
+        )
+        decisions = {
+            row["symbol"]: row
+            for row in steps[0].causal_decision["flash_decisions"]
+        }
+        self.assertEqual(decisions["BTC"]["reason"], "genetics_contra_no_backfill")
+        self.assertIn(
+            decisions["BTC"]["original_selected_actor"],
+            {"BtcAgent", "Solo_BtcAgent"},
+        )
+
     def test_flash_degradation_state_tracks_closed_pnl_by_actor_symbol_action(self):
         agent = FakeAgent("WeakAgent", {"BTC": Action.SPOT_BUY_FULL})
         reg = AgentRegistry()
@@ -1433,6 +1742,58 @@ class TestMainLoop(unittest.TestCase):
 
         _flash_update_degradation_state_from_events(pipeline, current_bar=8)
         self.assertEqual(_flash_degraded_open_symbols(pipeline), set())
+
+    def test_flash_degradation_symbol_lookback_ignores_stale_losses(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("WeakAgent", {"ETH/USDT": Action.SPOT_BUY_FULL}))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+            flash_allocator_config=FlashAllocatorConfig(
+                degradation_guard_enabled=True,
+                degradation_symbol_guard_enabled=True,
+                degradation_symbol_lookback_bars=10,
+                degradation_symbol_min_closed_trades=2,
+                degradation_symbol_max_recent_pnl_usd=-3.0,
+                degradation_window_closed_trades=1,
+                degradation_min_closed_trades=1,
+                degradation_max_recent_pnl_usd=-1.0,
+            ),
+        )
+        for bar, pnl in ((1, -2.0), (2, -2.0)):
+            pipeline.event_log.emit(PositionClosed(
+                bar=bar,
+                trace_id=f"stale-{bar}",
+                open_signal_id=bar,
+                close_signal_id=100 + bar,
+                sym="ETH/USDT",
+                side="long",
+                realized_pnl=pnl,
+                by_player="WeakAgent",
+                by_agent="WeakAgent",
+            ))
+
+        _flash_update_degradation_state_from_events(pipeline, current_bar=20)
+        self.assertEqual(_flash_degraded_open_symbols(pipeline), set())
+
+        for bar, pnl in ((19, -2.0), (20, -2.0)):
+            pipeline.event_log.emit(PositionClosed(
+                bar=bar,
+                trace_id=f"fresh-{bar}",
+                open_signal_id=bar,
+                close_signal_id=200 + bar,
+                sym="ETH/USDT",
+                side="long",
+                realized_pnl=pnl,
+                by_player="WeakAgent",
+                by_agent="WeakAgent",
+            ))
+
+        _flash_update_degradation_state_from_events(pipeline, current_bar=20)
+        self.assertEqual(_flash_degraded_open_symbols(pipeline), {"ETH/USDT"})
 
     def test_flash_degradation_actor_scope_can_isolate_regime(self):
         agent = FakeAgent("WeakAgent", {"BTC": Action.SPOT_BUY_FULL})
@@ -1796,6 +2157,65 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(payload["winning_trades"], 2)
         self.assertEqual(payload["win_rate_pct"], 50.0)
         self.assertEqual(payload["recent_downside_usd"], 0.0)
+
+    def test_flash_shadow_confirmation_scores_include_symbol_health_payload(self):
+        active = FakeAgent("ActiveAgent", {"BTC": Action.FUT_LONG_FULL})
+        backup = FakeAgent("BackupAgent", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(active)
+        reg.register(backup)
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+            flash_allocator_config=FlashAllocatorConfig(
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_quality_confirmation_enabled=True,
+                shadow_symbol_health_enabled=True,
+            ),
+        )
+        pipeline.strategist.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=10,
+                actor_type="agent",
+                actor_label="ActiveAgent",
+                regime="bullish",
+                realized_pnl_usd=2.0,
+                closed_trades=2,
+                winning_trades=2,
+                symbol_action_outcomes=(("BTC", "long", 2.0, 2, 2),),
+            ),
+            ShadowActorUpdated(
+                bar=10,
+                actor_type="agent",
+                actor_label="BackupAgent",
+                regime="bullish",
+                realized_pnl_usd=-1.0,
+                closed_trades=3,
+                winning_trades=1,
+                symbol_action_outcomes=(("BTC", "long", -1.0, 3, 1),),
+            ),
+        ])
+
+        scores = _flash_shadow_confirmation_scores(
+            pipeline,
+            make_market_snapshot(
+                bar=11,
+                prices={"BTC": 100.0},
+                regime="bullish",
+            ),
+            agents=[active, backup],
+            players=[],
+        )
+        payload = scores[("__symbol_health__", "BTC", "FUT_LONG_FULL")]
+
+        self.assertEqual(payload["score"], 1.0)
+        self.assertEqual(payload["closed_trades"], 5)
+        self.assertEqual(payload["winning_trades"], 3)
+        self.assertAlmostEqual(payload["pnl_per_trade_mean_usd"], 0.2)
 
     def test_flash_shadow_actor_fallback_scores_include_quality_payload_when_enabled(self):
         active = FakeAgent("ActiveAgent", {"BTC": Action.FUT_LONG_FULL})
@@ -2181,6 +2601,68 @@ class TestMainLoop(unittest.TestCase):
         self.assertIn(
             "genetics_shadow_unconfirmed:BTC:GeneticsGenomeEnsemble",
             steps[0].signal_filter_details,
+        )
+
+    def test_genetics_probation_overlay_caps_flash_origin_genetics_signal(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsRegimeRouter",),
+                genetics_probation_allowed_regimes=("bearish", "neutral", "bullish"),
+                genetics_probation_risk_mult=0.25,
+                genetics_probation_require_shadow_confirmation=True,
+            ),
+            "_current_shadow_player_signals": {
+                "GeneticsRegimeRouter": (
+                    Signal(
+                        id=99,
+                        bar=1,
+                        sym="BTC",
+                        action=Action.FUT_SHORT_FULL,
+                        price=100.0,
+                        regime=Regime.BEARISH,
+                        by_player="GeneticsRegimeRouter",
+                        by_agent="GeneticsRegimeRouter",
+                    ),
+                ),
+            },
+        })()
+        market = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+        )
+        leader = EnsemblePlayer(
+            label="Panteon_Flash",
+            agents=[],
+            weights={},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        signal = Signal(
+            id=1,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.BEARISH,
+            by_player="GeneticsRegimeRouter",
+            by_agent="GeneticsRegimeRouter",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            leader,
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(len(guard.signals), 1)
+        self.assertAlmostEqual(guard.signals[0].risk_mult, 0.25)
+        self.assertIn(
+            "genetics_probation_sized:BTC:GeneticsRegimeRouter:risk_mult=0.2500",
+            guard.details,
         )
 
     def test_actionable_fallback_reuses_current_shadow_registry_without_real_revote(self):
@@ -4263,6 +4745,52 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(fixed[0].agent_labels, ["AgentA", "AgentB"])
         self.assertEqual(fixed[0].weights, {"AgentA": 0.5, "AgentB": 0.5})
 
+    def test_genetics_probation_fixed_candidate_bypasses_live_flag_only_when_explicitly_allowed(self):
+        allowed_agent = FakeAgent("GeneticsNeutral", {"BTC": Action.FUT_LONG_FULL})
+        allowed_agent.shadow_only = True
+        allowed_agent.live_trading_eligible = False
+        blocked_agent = FakeAgent("GeneticsRegimeRouter", {"BTC": Action.FUT_LONG_FULL})
+        blocked_agent.shadow_only = True
+        blocked_agent.live_trading_eligible = False
+        reg = AgentRegistry()
+        reg.register(allowed_agent)
+        reg.register(blocked_agent)
+
+        class Selector:
+            def select(self, regime, *, k):
+                return []
+
+        class Composer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return None
+
+        class QM:
+            def is_quarantined(self, label):
+                return False
+
+        class Pipeline:
+            profiles = ()
+            composer = Composer()
+            registry = reg
+            qm = QM()
+            selector = Selector()
+            fixed_agent_player_sets = (
+                ("GeneticsNeutral", ("GeneticsNeutral",)),
+                ("GeneticsRegimeRouter", ("GeneticsRegimeRouter",)),
+            )
+            regime_switch_player_sets = ()
+            rotating_agent_player_sets = ()
+            solo_agent_candidate_limit = 0
+            live_execution = LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsNeutral",),
+            )
+
+        candidates = _compose_candidates(Pipeline(), Regime.NEUTRAL)
+
+        self.assertEqual([player.label for player in candidates], ["GeneticsNeutral"])
+        self.assertFalse(getattr(allowed_agent, "live_trading_eligible"))
+
     def test_rotating_agent_candidate_uses_first_actionable_agent_for_regime(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("QuietAgent", {"BTC": Action.HOLD}))
@@ -5278,6 +5806,37 @@ class TestOutputWriter(unittest.TestCase):
                 with open(path, "rb") as f:
                     self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
 
+    def test_writer_disables_latest_dashboard_publish_after_permission_error(self):
+        from pathlib import Path
+
+        from panteon_v2.app.output_writer import OutputWriterConfig
+
+        with tempfile.TemporaryDirectory() as td:
+            output_dir = Path(td) / "session"
+            latest_dir = Path(td) / "latest"
+            output_dir.mkdir()
+            latest_dir.mkdir()
+            src = output_dir / "dashboard_latest.png"
+            src.write_bytes(b"not-a-real-png")
+            writer = object.__new__(OutputWriter)
+            writer._config = OutputWriterConfig(
+                output_dir=str(output_dir),
+                latest_dir=str(latest_dir),
+            )
+            writer._pipeline = type("Pipeline", (), {"exchange_name": "MEXC"})()
+
+            with patch(
+                "panteon_v2.app.output_writer.os.replace",
+                side_effect=PermissionError("locked"),
+            ) as replace_mock, patch(
+                "panteon_v2.app.output_writer.log.exception",
+            ) as log_mock:
+                writer._publish_latest_visual_dashboards([str(src)])
+                writer._publish_latest_visual_dashboards([str(src)])
+
+        self.assertEqual(replace_mock.call_count, 1)
+        self.assertEqual(log_mock.call_count, 1)
+
     def test_writer_refreshes_dashboard_on_first_live_bar(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("AgentA"))
@@ -5615,6 +6174,7 @@ class TestOutputWriter(unittest.TestCase):
                                     "score": 2.5,
                                     "shadow_score": 1.5,
                                     "shadow_closed_trades": 70,
+                                    "heavy_debug_payload": "x" * 1000,
                                 },
                                 {
                                     "label": "Beta",
@@ -5656,6 +6216,7 @@ class TestOutputWriter(unittest.TestCase):
             [candidate["label"] for candidate in decision["candidates"]],
             ["Alpha"],
         )
+        self.assertNotIn("heavy_debug_payload", decision["candidates"][0])
         self.assertEqual(decision["candidate_count"], 3)
         self.assertEqual(decision["rejected_candidate_count"], 2)
         self.assertEqual(
@@ -5669,6 +6230,35 @@ class TestOutputWriter(unittest.TestCase):
             [candidate["label"] for candidate in decision["top_rejected_candidates"]],
             ["Beta", "Gamma"],
         )
+
+    def test_writer_compacts_notrade_flash_decisions_without_candidate_payload(self):
+        decision = OutputWriter._compact_flash_decision(
+            {
+                "symbol": "BTC/USDT",
+                "selected_actor": "NoTrade",
+                "actor_type": "no_trade",
+                "score": 0.0,
+                "action": "HOLD",
+                "signal": None,
+                "candidates": [
+                    {
+                        "label": "Alpha",
+                        "actor_type": "agent",
+                        "rank": 1,
+                        "rejected": True,
+                        "reason": "score_below_threshold",
+                        "heavy_debug_payload": "x" * 1000,
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(decision["candidate_count"], 1)
+        self.assertEqual(decision["candidate_rejection_counts"], {
+            "score_below_threshold": 1
+        })
+        self.assertEqual(decision["candidates"], [])
+        self.assertEqual(decision["top_rejected_candidates"], [])
 
     def test_writer_recovers_when_output_dir_disappears_mid_run(self):
         reg = AgentRegistry()

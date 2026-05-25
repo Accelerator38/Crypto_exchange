@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+import types
 from pathlib import Path
 
 import numpy as np
@@ -137,6 +138,193 @@ def _open_output_bias_indices() -> np.ndarray:
 
 def _output_layer_start_index() -> int:
     return int(cg.GENOME_SIZE - (cg.N_HIDDEN3 * cg.N_ACTIONS + cg.N_ACTIONS))
+
+
+def build_staged_mutation_schedule(
+    *,
+    generation_index: int,
+    total_generations: int,
+    base_sigma: float | None = None,
+    base_mutation_rate: float | None = None,
+    early_frac: float = 0.25,
+    late_frac: float = 0.20,
+    diversity_penalty_weight: float = 0.05,
+) -> dict:
+    total = max(1, int(total_generations))
+    idx = min(max(0, int(generation_index)), total - 1)
+    denom = max(1, total - 1)
+    progress = idx / denom
+
+    early = min(max(float(early_frac), 0.0), 0.80)
+    late = min(max(float(late_frac), 0.0), 0.80)
+    if early + late >= 0.95:
+        scale = 0.95 / (early + late)
+        early *= scale
+        late *= scale
+
+    sigma0 = float(cg.MUTATION_SIGMA if base_sigma is None else base_sigma)
+    rate0 = float(cg.MUTATION_RATE if base_mutation_rate is None else base_mutation_rate)
+
+    if progress < early:
+        stage = "explore"
+        sigma_mult = 1.40
+        rate_mult = 1.20
+        mutation_scope = "all"
+    elif progress >= 1.0 - late:
+        stage = "output_calibration"
+        sigma_mult = 0.20
+        rate_mult = 0.50
+        mutation_scope = "output"
+    else:
+        stage = "local_search"
+        sigma_mult = 0.45
+        rate_mult = 0.75
+        mutation_scope = "all"
+
+    mutation_rate = min(1.0, max(0.0, rate0 * rate_mult))
+    mutation_sigma = max(1e-6, sigma0 * sigma_mult)
+    return {
+        "enabled": True,
+        "generation_index": idx,
+        "total_generations": total,
+        "progress": progress,
+        "stage": stage,
+        "mutation_scope": mutation_scope,
+        "output_layer_only": mutation_scope == "output",
+        "mutation_sigma": mutation_sigma,
+        "mutation_rate": mutation_rate,
+        "base_sigma": sigma0,
+        "base_mutation_rate": rate0,
+        "early_frac": early,
+        "late_frac": late,
+        "preserve_global_elites": True,
+        "preserve_regime_elites": True,
+        "diversity_penalty_enabled": float(diversity_penalty_weight) > 0.0,
+        "diversity_penalty_weight": max(0.0, float(diversity_penalty_weight)),
+        "full_genome_mutation_primary": False,
+    }
+
+
+def _restrict_mutation_to_output_layer(base: np.ndarray, mutated: np.ndarray) -> np.ndarray:
+    base_arr = np.asarray(base, dtype=np.float32).ravel()
+    mutated_arr = np.asarray(mutated, dtype=np.float32).ravel()
+    if base_arr.shape != mutated_arr.shape:
+        raise ValueError(f"mutation shape mismatch: {base_arr.shape} != {mutated_arr.shape}")
+    output_start = _output_layer_start_index()
+    restricted = base_arr.copy()
+    restricted[output_start:] = mutated_arr[output_start:]
+    return restricted.astype(np.float32, copy=False)
+
+
+def _freeze_hidden_trunk_to_best(
+    next_population: np.ndarray,
+    reference_population: np.ndarray,
+    fits: np.ndarray,
+) -> np.ndarray:
+    nxt = np.asarray(next_population, dtype=np.float32)
+    ref = np.asarray(reference_population, dtype=np.float32)
+    if nxt.ndim != 2 or ref.ndim != 2 or nxt.shape[1] != ref.shape[1] or ref.shape[0] == 0:
+        return nxt
+
+    output_start = _output_layer_start_index()
+    fit_arr = np.asarray(fits, dtype=np.float64).ravel()
+    if fit_arr.size == ref.shape[0] and np.any(np.isfinite(fit_arr)):
+        best_idx = int(np.nanargmax(fit_arr))
+    else:
+        best_idx = 0
+    best_idx = min(max(0, best_idx), ref.shape[0] - 1)
+
+    frozen = nxt.copy()
+    frozen[:, :output_start] = ref[best_idx, :output_start]
+    return frozen
+
+
+def _install_staged_mutation_schedule(
+    trainer,
+    *,
+    total_generations: int,
+    base_sigma: float | None = None,
+    base_mutation_rate: float | None = None,
+    early_frac: float = 0.25,
+    late_frac: float = 0.20,
+    diversity_penalty_weight: float = 0.05,
+) -> None:
+    original_next = trainer._next
+    original_methods = {
+        name: getattr(trainer, name)
+        for name in (
+            "_mut",
+            "_mut_layerwise",
+            "_local_mutant",
+            "_cma_mutant",
+            "_levy_mutant",
+            "_de_mutant",
+            "_block_cx",
+        )
+        if hasattr(trainer, name)
+    }
+    trainer.staged_mutation_history = []
+
+    def _wrap_output_only(method_name: str, method):
+        if method_name == "_de_mutant":
+            def _de_output_only(self, island_fits, island_pop, island_best_g):
+                mutated = method(island_fits, island_pop, island_best_g)
+                return _restrict_mutation_to_output_layer(island_best_g, mutated)
+
+            return types.MethodType(_de_output_only, trainer)
+
+        if method_name == "_block_cx":
+            def _block_cx_output_only(self, parent1, parent2):
+                mutated = method(parent1, parent2)
+                return _restrict_mutation_to_output_layer(parent1, mutated)
+
+            return types.MethodType(_block_cx_output_only, trainer)
+
+        def _output_only(self, genome):
+            mutated = method(genome)
+            return _restrict_mutation_to_output_layer(genome, mutated)
+
+        return types.MethodType(_output_only, trainer)
+
+    def _next_with_schedule(self, fits):
+        training_generations = max(1, int(total_generations))
+        reproduction_steps = max(1, training_generations - 1)
+        gen_index = min(max(0, int(getattr(self, "gen", 1)) - 1), reproduction_steps - 1)
+        schedule = build_staged_mutation_schedule(
+            generation_index=gen_index,
+            total_generations=reproduction_steps,
+            base_sigma=base_sigma,
+            base_mutation_rate=base_mutation_rate,
+            early_frac=early_frac,
+            late_frac=late_frac,
+            diversity_penalty_weight=diversity_penalty_weight,
+        )
+        schedule["training_generations"] = training_generations
+        schedule["reproduction_steps"] = reproduction_steps
+        self.staged_mutation_history.append(dict(schedule))
+
+        old_mutation_rate = cg.MUTATION_RATE
+        reference_population = np.asarray(getattr(self, "pop", np.empty((0, 0))), dtype=np.float32).copy()
+        self.sigma = float(schedule["mutation_sigma"])
+        cg.MUTATION_RATE = float(schedule["mutation_rate"])
+        if schedule["output_layer_only"]:
+            for name, method in original_methods.items():
+                setattr(self, name, _wrap_output_only(name, method))
+        else:
+            for name, method in original_methods.items():
+                setattr(self, name, method)
+
+        try:
+            nxt = original_next(fits)
+            if schedule["output_layer_only"]:
+                return _freeze_hidden_trunk_to_best(nxt, reference_population, fits)
+            return nxt
+        finally:
+            cg.MUTATION_RATE = old_mutation_rate
+            for name, method in original_methods.items():
+                setattr(self, name, method)
+
+    trainer._next = types.MethodType(_next_with_schedule, trainer)
 
 
 def _seed_feasible_best_population(
@@ -289,6 +477,32 @@ def main() -> int:
         choices=("all", "output"),
         default="all",
         help="Scope for warm-start micro-mutants. output mutates only the final action layer.",
+    )
+    parser.add_argument(
+        "--staged-mutation-schedule",
+        action="store_true",
+        help=(
+            "Enable opt-in staged mutation schedule: early exploration, mid local search, "
+            "late output-layer calibration."
+        ),
+    )
+    parser.add_argument(
+        "--staged-mutation-early-frac",
+        type=float,
+        default=0.25,
+        help="Fraction of generations assigned to wider early exploration when staged schedule is enabled.",
+    )
+    parser.add_argument(
+        "--staged-mutation-late-frac",
+        type=float,
+        default=0.20,
+        help="Fraction of generations assigned to output-layer-only calibration when staged schedule is enabled.",
+    )
+    parser.add_argument(
+        "--staged-diversity-penalty-weight",
+        type=float,
+        default=0.05,
+        help="Recorded diversity penalty weight for staged schedule selection contracts.",
     )
     parser.add_argument(
         "--position-state-features",
@@ -452,6 +666,23 @@ def main() -> int:
             cg._warm_up_numba()
 
         trainer = cg.GeneticTrainer(precomp)
+        staged_schedule_config = None
+        if args.staged_mutation_schedule:
+            staged_schedule_config = {
+                "total_generations": int(cg.N_GENERATIONS),
+                "base_sigma": float(cg.MUTATION_SIGMA),
+                "base_mutation_rate": float(cg.MUTATION_RATE),
+                "early_frac": float(args.staged_mutation_early_frac),
+                "late_frac": float(args.staged_mutation_late_frac),
+                "diversity_penalty_weight": float(args.staged_diversity_penalty_weight),
+            }
+            _install_staged_mutation_schedule(trainer, **staged_schedule_config)
+            print(
+                "[smoke] staged mutation schedule enabled "
+                f"early={staged_schedule_config['early_frac']:.2f} "
+                f"late={staged_schedule_config['late_frac']:.2f} "
+                f"diversity_w={staged_schedule_config['diversity_penalty_weight']:.3f}"
+            )
         trainer.pop[0] = best_genome
         trainer.best_g = best_genome.copy()
         trainer.best_fit = -np.inf
@@ -522,6 +753,9 @@ def main() -> int:
             "feasible_best_seed_sigma": args.feasible_best_seed_sigma,
             "feasible_open_logit_bias": args.feasible_open_logit_bias,
             "feasible_mutation_scope": args.feasible_mutation_scope,
+            "staged_mutation_schedule_enabled": bool(args.staged_mutation_schedule),
+            "staged_mutation_schedule_config": staged_schedule_config,
+            "staged_mutation_history": getattr(trainer, "staged_mutation_history", []),
             "position_state_features_mode": args.position_state_features,
             "position_state_features_enabled": bool(cg.POSITION_STATE_FEATURES_ENABLED),
             "source_position_state_features_enabled": bool(source_position_state_features_enabled),

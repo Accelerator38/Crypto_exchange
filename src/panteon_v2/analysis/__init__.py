@@ -27,6 +27,10 @@ from .soft_allocator import (
     simulate_soft_allocator_policies,
 )
 from .walk_forward import build_walk_forward_report, write_walk_forward_report
+from .flash_selected_subset_manifest import (
+    build_flash_selected_subset_manifest,
+    write_flash_selected_subset_manifest,
+)
 
 __all__ = [
     "LeaderPnL",
@@ -44,6 +48,7 @@ __all__ = [
     "build_genetics_degradation_report",
     "build_recomposed_candidates",
     "build_walk_forward_report",
+    "build_flash_selected_subset_manifest",
     "compute_leader_regret",
     "run_retrodate_whatif",
     "run_retrodate_whatif_for_exchange",
@@ -52,5 +57,6 @@ __all__ = [
     "simulate_perfect_monthly_panteon",
     "simulate_soft_allocator_policies",
     "write_allocation_diagnostics",
+    "write_flash_selected_subset_manifest",
     "write_walk_forward_report",
 ]

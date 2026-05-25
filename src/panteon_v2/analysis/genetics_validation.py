@@ -11,9 +11,74 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 
+FITNESS_V3_REGIMES = ("crash", "bearish", "neutral", "bullish")
+
 
 def _period_year(period: str) -> int:
     return int(str(period)[:4])
+
+
+def _period_month(period: str) -> int:
+    parts = str(period).split("-", 1)
+    if len(parts) < 2:
+        return 1
+    try:
+        return int(parts[1][:2])
+    except ValueError:
+        return 1
+
+
+def build_fixed_walk_forward_contract(
+    periods: Sequence[str],
+    *,
+    train_years: tuple[int, int] = (2022, 2023),
+    validation_year: int = 2024,
+    oos_year: int = 2025,
+    final_sanity_year: int = 2026,
+    final_sanity_max_month: int = 6,
+    required_regimes: Sequence[str] = FITNESS_V3_REGIMES,
+) -> dict[str, Any]:
+    """Return the fixed genetics v3 split contract.
+
+    This is intentionally deterministic: training is 2022-2023, validation is
+    2024, OOS is 2025, and final sanity is 2026 H1 by default.
+    """
+
+    unique_periods = sorted(dict.fromkeys(str(period) for period in periods))
+    train_start, train_end = train_years
+    if train_start > train_end:
+        raise ValueError("train_years start must be <= end")
+    if final_sanity_max_month <= 0:
+        raise ValueError("final_sanity_max_month must be > 0")
+
+    train_periods = [
+        period for period in unique_periods
+        if train_start <= _period_year(period) <= train_end
+    ]
+    validation_periods = [
+        period for period in unique_periods if _period_year(period) == validation_year
+    ]
+    oos_periods = [
+        period for period in unique_periods if _period_year(period) == oos_year
+    ]
+    final_sanity_periods = [
+        period for period in unique_periods
+        if _period_year(period) == final_sanity_year
+        and _period_month(period) <= final_sanity_max_month
+    ]
+    return {
+        "schema_version": 1,
+        "train_years": [int(train_start), int(train_end)],
+        "validation_year": int(validation_year),
+        "oos_year": int(oos_year),
+        "final_sanity_year": int(final_sanity_year),
+        "final_sanity_max_month": int(final_sanity_max_month),
+        "train_periods": train_periods,
+        "validation_periods": validation_periods,
+        "oos_periods": oos_periods,
+        "final_sanity_periods": final_sanity_periods,
+        "regime_balance_required": [str(regime) for regime in required_regimes],
+    }
 
 
 def build_rolling_year_folds(
@@ -162,3 +227,283 @@ def robust_period_score(
     result["failed_gates"] = failed
     result["passes_default_gates"] = not failed
     return result
+
+
+def fitness_v3_robust_score(
+    period_rets: Sequence[float],
+    *,
+    period_max_drawdowns_pct: Sequence[float] | None = None,
+    period_turnover_rates: Sequence[float] | None = None,
+    period_effective_turnover_rates: Sequence[float] | None = None,
+    period_saturation_rates: Sequence[float] | None = None,
+    period_invalid_open_pressures: Sequence[float] | None = None,
+    period_costs_pct: Sequence[float] | None = None,
+    period_slippage_pct: Sequence[float] | None = None,
+    period_regimes: Sequence[str] | None = None,
+    required_regimes: Sequence[str] = FITNESS_V3_REGIMES,
+    max_turnover_rate: float = 0.20,
+    max_saturation_rate: float = 0.15,
+    max_invalid_open_pressure: float = 0.25,
+    min_positive_period_pct: float = 50.0,
+    drawdown_penalty_weight: float = 0.25,
+    downside_penalty_weight: float = 0.20,
+    turnover_penalty_weight: float = 2.00,
+    saturation_penalty_weight: float = 3.00,
+    invalid_open_penalty_weight: float = 1.50,
+    cost_penalty_weight: float = 1.00,
+) -> dict[str, Any]:
+    """Compute the v3 robust genetics objective.
+
+    Returns are expected in percent points. Turnover, saturation and invalid
+    pressure are rates. Costs/slippage should be percent points.
+    """
+
+    rets = _finite_array(period_rets)
+    if rets.size == 0:
+        return {
+            "n_periods": 0,
+            "fitness_v3_robust": float("-inf"),
+            "passes_default_gates": False,
+            "failed_gates": ["no_periods"],
+        }
+
+    n = int(rets.size)
+    drawdowns = _aligned_array(period_max_drawdowns_pct, n)
+    turnover = _aligned_array(period_turnover_rates, n)
+    effective_turnover = _aligned_array(period_effective_turnover_rates, n)
+    saturation = _aligned_array(period_saturation_rates, n)
+    invalid_pressure = _aligned_array(period_invalid_open_pressures, n)
+    costs = _aligned_array(period_costs_pct, n)
+    slippage = _aligned_array(period_slippage_pct, n)
+    regimes = _aligned_regimes(period_regimes, n)
+
+    regime_means: dict[str, float] = {}
+    missing_regimes: list[str] = []
+    required = [str(regime) for regime in required_regimes]
+    for regime in required:
+        mask = np.asarray([item == regime for item in regimes], dtype=bool)
+        if mask.any():
+            regime_means[regime] = float(rets[mask].mean())
+        else:
+            regime_means[regime] = 0.0
+            missing_regimes.append(regime)
+    regime_balanced_mean = (
+        float(np.mean([regime_means[regime] for regime in required]))
+        if required
+        else float(rets.mean())
+    )
+
+    downside = np.minimum(rets, 0.0)
+    downside_deviation = float(np.sqrt(np.mean(np.square(downside))))
+    mean_ret = float(rets.mean())
+    min_ret = float(rets.min())
+    positive_period_pct = float((rets > 0.0).mean() * 100.0)
+    max_drawdown_pct = float(drawdowns.max())
+    mean_turnover = float(turnover.mean())
+    mean_effective_turnover = float(effective_turnover.mean())
+    max_turnover = float(turnover.max())
+    mean_saturation = float(saturation.mean())
+    max_saturation = float(saturation.max())
+    mean_invalid = float(invalid_pressure.mean())
+    max_invalid = float(invalid_pressure.max())
+    mean_cost = float(np.abs(costs).mean())
+    mean_slippage = float(np.abs(slippage).mean())
+    crash_floor_ret = float(regime_means.get("crash", 0.0))
+
+    penalty = (
+        max_drawdown_pct * float(drawdown_penalty_weight)
+        + downside_deviation * float(downside_penalty_weight)
+        + mean_turnover * float(turnover_penalty_weight)
+        + mean_effective_turnover * float(turnover_penalty_weight) * 0.5
+        + max_saturation * float(saturation_penalty_weight)
+        + max_invalid * float(invalid_open_penalty_weight)
+        + (mean_cost + mean_slippage) * float(cost_penalty_weight)
+    )
+    fitness = float(regime_balanced_mean - penalty)
+
+    failed: list[str] = []
+    failed.extend(f"missing_regime:{regime}" for regime in missing_regimes)
+    if positive_period_pct < min_positive_period_pct:
+        failed.append("positive_period_pct")
+    if max_turnover > max_turnover_rate:
+        failed.append("turnover")
+    if max_saturation > max_saturation_rate:
+        failed.append("saturation")
+    if max_invalid > max_invalid_open_pressure:
+        failed.append("invalid_open_pressure")
+
+    return {
+        "n_periods": n,
+        "fitness_v3_robust": fitness,
+        "mean_ret": mean_ret,
+        "regime_balanced_mean_ret": regime_balanced_mean,
+        "regime_mean_rets": regime_means,
+        "min_ret": min_ret,
+        "crash_floor_ret": crash_floor_ret,
+        "positive_period_pct": positive_period_pct,
+        "downside_deviation": downside_deviation,
+        "max_drawdown_pct": max_drawdown_pct,
+        "mean_turnover_rate": mean_turnover,
+        "mean_effective_turnover_rate": mean_effective_turnover,
+        "max_turnover_rate": max_turnover,
+        "mean_saturation_rate": mean_saturation,
+        "max_saturation_rate": max_saturation,
+        "mean_invalid_open_pressure": mean_invalid,
+        "max_invalid_open_pressure": max_invalid,
+        "mean_cost_pct": mean_cost,
+        "mean_slippage_pct": mean_slippage,
+        "penalty": penalty,
+        "failed_gates": failed,
+        "passes_default_gates": not failed,
+    }
+
+
+def evaluate_fitness_v3_promotion_gate(
+    *,
+    baseline_validation: dict[str, Any],
+    candidate_validation: dict[str, Any],
+    baseline_oos: dict[str, Any] | None = None,
+    candidate_oos: dict[str, Any] | None = None,
+    baseline_final_sanity: dict[str, Any] | None = None,
+    candidate_final_sanity: dict[str, Any] | None = None,
+    min_validation_fitness_delta: float = 0.0,
+) -> dict[str, Any]:
+    """Hard promotion gate for v3 robust genetics scoring."""
+
+    failures: list[str] = []
+    validation_mean_delta = _metric(candidate_validation, "mean_ret") - _metric(
+        baseline_validation,
+        "mean_ret",
+    )
+    validation_fitness_delta = _metric(
+        candidate_validation,
+        "fitness_v3_robust",
+    ) - _metric(baseline_validation, "fitness_v3_robust")
+    validation_min_delta = _metric(candidate_validation, "min_ret") - _metric(
+        baseline_validation,
+        "min_ret",
+    )
+    validation_positive_delta = _metric(
+        candidate_validation,
+        "positive_period_pct",
+    ) - _metric(baseline_validation, "positive_period_pct")
+
+    if validation_mean_delta <= 0.0:
+        failures.append("validation_tie" if validation_mean_delta == 0.0 else "validation_mean_ret")
+    if validation_fitness_delta <= min_validation_fitness_delta:
+        failures.append("validation_fitness_v3")
+    if validation_min_delta < 0.0:
+        failures.append("validation_min_ret")
+    if validation_positive_delta < 0.0:
+        failures.append("validation_positive_period_pct")
+    _extend_score_gate_failures(failures, candidate_validation, prefix="validation")
+
+    oos_payload: dict[str, Any] | None = None
+    if baseline_oos is not None and candidate_oos is not None:
+        oos_mean_delta = _metric(candidate_oos, "mean_ret") - _metric(
+            baseline_oos,
+            "mean_ret",
+        )
+        oos_min_delta = _metric(candidate_oos, "min_ret") - _metric(
+            baseline_oos,
+            "min_ret",
+        )
+        oos_crash_delta = _metric(candidate_oos, "crash_floor_ret") - _metric(
+            baseline_oos,
+            "crash_floor_ret",
+        )
+        if oos_mean_delta < 0.0:
+            failures.append("oos_mean_ret")
+        if oos_min_delta < 0.0:
+            failures.append("oos_min_ret")
+        if oos_crash_delta < 0.0:
+            failures.append("crash_floor")
+        _extend_score_gate_failures(failures, candidate_oos, prefix="oos")
+        oos_payload = {
+            "mean_ret_delta": float(oos_mean_delta),
+            "min_ret_delta": float(oos_min_delta),
+            "crash_floor_delta": float(oos_crash_delta),
+        }
+
+    final_payload: dict[str, Any] | None = None
+    if baseline_final_sanity is not None and candidate_final_sanity is not None:
+        final_mean_delta = _metric(candidate_final_sanity, "mean_ret") - _metric(
+            baseline_final_sanity,
+            "mean_ret",
+        )
+        final_crash_delta = _metric(
+            candidate_final_sanity,
+            "crash_floor_ret",
+        ) - _metric(baseline_final_sanity, "crash_floor_ret")
+        if final_mean_delta < 0.0:
+            failures.append("final_sanity_mean_ret")
+        if final_crash_delta < 0.0:
+            failures.append("final_sanity_crash_floor")
+        _extend_score_gate_failures(
+            failures,
+            candidate_final_sanity,
+            prefix="final_sanity",
+        )
+        final_payload = {
+            "mean_ret_delta": float(final_mean_delta),
+            "crash_floor_delta": float(final_crash_delta),
+        }
+
+    failures = list(dict.fromkeys(failures))
+    return {
+        "promotion_eligible": not failures,
+        "promotion_failures": failures,
+        "validation": {
+            "mean_ret_delta": float(validation_mean_delta),
+            "fitness_v3_delta": float(validation_fitness_delta),
+            "min_ret_delta": float(validation_min_delta),
+            "positive_period_pct_delta": float(validation_positive_delta),
+        },
+        "oos": oos_payload,
+        "final_sanity": final_payload,
+    }
+
+
+def _finite_array(values: Sequence[float]) -> np.ndarray:
+    arr = np.asarray(values, dtype=np.float64)
+    return arr[np.isfinite(arr)]
+
+
+def _aligned_array(values: Sequence[float] | None, n: int) -> np.ndarray:
+    if values is None:
+        return np.zeros(n, dtype=np.float64)
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.size < n:
+        out = np.zeros(n, dtype=np.float64)
+        out[: arr.size] = arr
+        arr = out
+    else:
+        arr = arr[:n]
+    return np.where(np.isfinite(arr), arr, 0.0).astype(np.float64)
+
+
+def _aligned_regimes(values: Sequence[str] | None, n: int) -> list[str]:
+    if values is None:
+        return ["unknown"] * n
+    out = [str(value or "unknown") for value in values[:n]]
+    if len(out) < n:
+        out.extend(["unknown"] * (n - len(out)))
+    return out
+
+
+def _metric(payload: dict[str, Any], key: str) -> float:
+    try:
+        value = float(payload.get(key, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return value if math.isfinite(value) else 0.0
+
+
+def _extend_score_gate_failures(
+    failures: list[str],
+    score: dict[str, Any],
+    *,
+    prefix: str,
+) -> None:
+    for gate in score.get("failed_gates", []) or []:
+        failures.append(f"{prefix}_{gate}")

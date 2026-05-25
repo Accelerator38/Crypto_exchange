@@ -420,6 +420,23 @@ def _infer_position_state_features_enabled(genome_path: Path) -> bool:
     return False
 
 
+def _contract_regime_label(entry: tuple) -> str:
+    raw = str(entry[6]) if len(entry) > 6 else "neutral"
+    if raw in {"strong_crash", "crash"}:
+        return "crash"
+
+    avg_ret_pct = None
+    if len(entry) > 7:
+        try:
+            avg_ret_pct = float(entry[7])
+        except (TypeError, ValueError):
+            avg_ret_pct = None
+    if avg_ret_pct is not None and avg_ret_pct <= -20.0:
+        return "crash"
+
+    return cg.map_regime_3(raw)
+
+
 def _position_exposure_metrics(
     actions_arr: np.ndarray,
     *,
@@ -566,7 +583,7 @@ def _contract_metrics_for_genome(
 
     for entry in precomp:
         feat, prices, syms, _month, period = entry[:5]
-        regime = cg.map_regime_3(entry[6]) if len(entry) > 6 else "neutral"
+        regime = _contract_regime_label(entry)
         suppression_metrics = None
         if (
             cg.POSITION_STATE_FEATURES_ENABLED

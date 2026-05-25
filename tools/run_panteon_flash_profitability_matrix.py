@@ -17,6 +17,7 @@ SRC = ROOT / "src"
 DEFAULT_REPORTS_DIR = ROOT / "Reports"
 DEFAULT_RESULTS_ROOT = ROOT / "Results" / "PanteonFlashProfitabilityMatrix"
 MATRIX_FILENAME = "panteon_flash_profitability_matrix.json"
+SELECTED_DENY_CONFIRMATION_FILENAME = "selected_deny_confirmation_report.json"
 REGIME_FLOOR_MIN_CLOSED_TRADES = 30
 CHURN_BUDGET_MAX_ACTOR_SWITCHES_PER_DAY = 24.0
 
@@ -162,6 +163,100 @@ PROVEN_SOLO_PORTFOLIO_HARD_SOLO_MOMENTUM_CAP10_MANIFEST_PNL_LCB_ARGS = (
         "0.0",
         "--flash-promotion-pnl-per-trade-lcb-z",
         "1.0",
+    ]
+)
+
+GENETICS_ROUTER_OPTIONAL_LABELS = (
+    "GeneticsBest,"
+    "GeneticsCrash,"
+    "GeneticsBullish,"
+    "GeneticsBearish,"
+    "GeneticsNeutral,"
+    "GeneticsRegimeRouter"
+)
+
+GENETICS_ROUTER_SHADOW_ARGS = BASELINE_FLASH_ARGS + [
+    "--include-optional-agents",
+    "--optional-agent-labels",
+    GENETICS_ROUTER_OPTIONAL_LABELS,
+]
+
+GENETICS_ROUTER_CONFIRMATION_OVERLAY_ARGS = GENETICS_ROUTER_SHADOW_ARGS + [
+    "--enable-flash-genetics-confirmation-overlay",
+    "--enable-flash-genetics-confirmation-quality-gate",
+    "--flash-genetics-confirmation-label",
+    "GeneticsBest",
+    "--flash-genetics-confirmation-label",
+    "GeneticsCrash",
+    "--flash-genetics-confirmation-label",
+    "GeneticsBullish",
+    "--flash-genetics-confirmation-label",
+    "GeneticsBearish",
+    "--flash-genetics-confirmation-label",
+    "GeneticsNeutral",
+    "--flash-genetics-confirmation-label",
+    "GeneticsRegimeRouter",
+    "--flash-genetics-confirmation-min-closed-trades",
+    "3",
+    "--flash-genetics-confirmation-min-pnl-per-trade-pct",
+    "0.0",
+    "--flash-genetics-confirmation-score-bonus",
+    "1.0",
+    "--flash-genetics-confirmation-score-penalty",
+    "0.75",
+]
+
+GENETICS_ROUTER_EXECUTABLE_SIMULATION_ARGS = GENETICS_ROUTER_SHADOW_ARGS + [
+    "--enable-genetics-probation-execution",
+    "--genetics-probation-label",
+    "GeneticsNeutral",
+    "--genetics-probation-label",
+    "GeneticsRegimeRouter",
+    "--genetics-probation-allowed-regime",
+    "bearish",
+    "--genetics-probation-allowed-regime",
+    "neutral",
+    "--genetics-probation-allowed-regime",
+    "bullish",
+    "--genetics-probation-risk-mult",
+    "0.25",
+    "--genetics-probation-max-real-trades",
+    "20",
+]
+
+GENETICS_ROUTER_PROMOTION_MANIFEST_ARGS = GENETICS_ROUTER_SHADOW_ARGS + [
+    "--enable-flash-promotion-manifest",
+    "--flash-promotion-min-full-pnl-per-trade-lcb-pct",
+    "0.0",
+    "--flash-promotion-min-latest-pnl-per-trade-lcb-pct",
+    "0.0",
+    "--flash-promotion-pnl-per-trade-lcb-z",
+    "1.0",
+]
+
+GENETICS_SPARSE_ADA_FUT_LONG_CONTRA_KEYS = (
+    "ensemble:Solo_GeneticsBearish|ADA/USDT|FUT_LONG_FULL",
+    "agent:GeneticsBearish|ADA/USDT|FUT_LONG_FULL",
+    "agent:GeneticsBullish|ADA/USDT|FUT_LONG_FULL",
+    "agent:GeneticsNeutral|ADA/USDT|FUT_LONG_FULL",
+)
+
+GENETICS_SPARSE_ADA_FUT_LONG_CONTRA_NO_BACKFILL_ARGS = (
+    GENETICS_ROUTER_SHADOW_ARGS
+    + [
+        "--enable-flash-genetics-confirmation-overlay",
+        "--enable-flash-genetics-confirmation-contra-static",
+        "--enable-flash-genetics-confirmation-contra-no-backfill",
+        "--flash-genetics-confirmation-contra-score-penalty",
+        "10.0",
+    ]
+    + [
+        item
+        for signal_key in GENETICS_SPARSE_ADA_FUT_LONG_CONTRA_KEYS
+        for item in (
+            "--flash-genetics-confirmation-contra-signal-key",
+            signal_key,
+        )
     ]
 )
 
@@ -329,6 +424,31 @@ EXPERIMENTS = [
     {
         "name": "baseline_reserve_cap",
         "args": BASELINE_FLASH_ARGS,
+    },
+    {
+        "name": "genetics_router_shadow",
+        "args": GENETICS_ROUTER_SHADOW_ARGS,
+    },
+    {
+        "name": "genetics_router_confirmation_overlay",
+        "args": GENETICS_ROUTER_CONFIRMATION_OVERLAY_ARGS,
+    },
+    {
+        "name": "genetics_router_executable_simulation",
+        "args": GENETICS_ROUTER_EXECUTABLE_SIMULATION_ARGS,
+    },
+    {
+        "name": "genetics_router_promotion_manifest",
+        "args": GENETICS_ROUTER_PROMOTION_MANIFEST_ARGS,
+    },
+    {
+        "name": "genetics_sparse_ada_fut_long_contra_no_backfill",
+        "args": GENETICS_SPARSE_ADA_FUT_LONG_CONTRA_NO_BACKFILL_ARGS,
+        "metadata": {
+            "validation_only": True,
+            "promotion_allowed": False,
+            "source_grid": "Results/neiro_genetics/FlashContraGrid_20260525",
+        },
     },
     {
         "name": "proven_solo_position_handoff_age24_shadow5",
@@ -612,11 +732,192 @@ OVEREXTENSION_CALIBRATION_EXPERIMENTS = [
 ]
 
 
+ROUND3_DENY8_ENTRY_REGIME_RUN_SUMMARY = (
+    ROOT
+    / "Results"
+    / "PanteonFlashTargetedLcbDenyRegimePullbackTrxFull2022_2026_20260525"
+    / "RETRODATE_MARKET"
+    / "2026-05-25_07-12-52_retrodate_market_v2"
+    / "run_summary.json"
+)
+
+
+def _repeat_flag_values(flag: str, values: Sequence[str]) -> list[str]:
+    out: list[str] = []
+    for value in dict.fromkeys(str(item).strip() for item in values if str(item).strip()):
+        out.extend([flag, value])
+    return out
+
+
+def _flag_values(args: Sequence[str], flag: str) -> list[str]:
+    values: list[str] = []
+    for index, item in enumerate(args):
+        if item == flag and index + 1 < len(args):
+            value = str(args[index + 1]).strip()
+            if value:
+                values.append(value)
+    return values
+
+
+def _run_summary_values(path: Path, field: str) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    values = data.get(field, [])
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value or "").strip()]
+
+
+def _round3_deny8_entry_regime_args() -> list[str]:
+    deny_keys = _run_summary_values(
+        ROUND3_DENY8_ENTRY_REGIME_RUN_SUMMARY,
+        "flash_denied_signal_keys",
+    )
+    if not deny_keys:
+        deny_keys = _flag_values(
+            PROVEN_SOLO_PORTFOLIO_HARD_SOLO_MOMENTUM_CAP10_SELECTED_DENY_PROBE_V2_ARGS,
+            "--flash-deny-signal-key",
+        )
+    terminal_deny_keys = _run_summary_values(
+        ROUND3_DENY8_ENTRY_REGIME_RUN_SUMMARY,
+        "flash_terminal_denied_signal_keys",
+    )
+    if not terminal_deny_keys:
+        terminal_deny_keys = [
+            "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
+        ]
+    return (
+        PROVEN_SOLO_PORTFOLIO_HARD_SOLO_MOMENTUM_CAP10_ARGS
+        + [
+            "--enable-flash-degradation-actor-guard",
+            "--flash-degradation-actor-scope",
+            "actor_regime",
+            "--flash-degradation-signal-cooldown-bars",
+            "720",
+            "--flash-degradation-actor-cooldown-bars",
+            "72",
+        ]
+        + _repeat_flag_values("--flash-deny-signal-key", deny_keys)
+        + _repeat_flag_values(
+            "--flash-terminal-deny-signal-key",
+            terminal_deny_keys,
+        )
+    )
+
+
+ROUND3_DENY8_ENTRY_REGIME_ARGS = _round3_deny8_entry_regime_args()
+
+
+RISK_FREQUENCY_MODEL_SETS = [
+    {
+        "name": "current_best",
+        "args": ROUND3_DENY8_ENTRY_REGIME_ARGS,
+        "experimental_flash_real_actors": False,
+    },
+    {
+        "name": "legacy_specialists",
+        "args": ROUND3_DENY8_ENTRY_REGIME_ARGS
+        + [
+            "--enable-experimental-flash-actors",
+            "--allow-experimental-flash-real-actors",
+        ],
+        "experimental_flash_real_actors": True,
+    },
+]
+
+RISK_FREQUENCY_PROFILES = [
+    {
+        "name": "defensive_120m",
+        "risk_capital_fraction": 0.05,
+        "stride_minutes": 120,
+        "max_new_opens_per_bar": 1,
+        "risk_max_open_positions": 6,
+    },
+    {
+        "name": "baseline_60m",
+        "risk_capital_fraction": 0.10,
+        "stride_minutes": 60,
+        "max_new_opens_per_bar": 1,
+        "risk_max_open_positions": 8,
+    },
+    {
+        "name": "scaled_60m",
+        "risk_capital_fraction": 0.15,
+        "stride_minutes": 60,
+        "max_new_opens_per_bar": 1,
+        "risk_max_open_positions": 8,
+    },
+    {
+        "name": "slow_120m",
+        "risk_capital_fraction": 0.10,
+        "stride_minutes": 120,
+        "max_new_opens_per_bar": 1,
+        "risk_max_open_positions": 8,
+    },
+    {
+        "name": "open2_60m",
+        "risk_capital_fraction": 0.10,
+        "stride_minutes": 60,
+        "max_new_opens_per_bar": 2,
+        "risk_max_open_positions": 10,
+    },
+]
+
+
+def _risk_frequency_profile_args(profile: Mapping[str, Any]) -> list[str]:
+    return [
+        "--risk-capital-fraction",
+        f"{float(profile['risk_capital_fraction']):.4g}",
+        "--stride-minutes",
+        str(int(profile["stride_minutes"])),
+        "--max-new-opens-per-bar",
+        str(int(profile["max_new_opens_per_bar"])),
+        "--risk-max-open-positions",
+        str(int(profile["risk_max_open_positions"])),
+    ]
+
+
+def _build_risk_frequency_experiments() -> list[dict[str, Any]]:
+    experiments: list[dict[str, Any]] = []
+    for model_set in RISK_FREQUENCY_MODEL_SETS:
+        for profile in RISK_FREQUENCY_PROFILES:
+            capital_fraction = float(profile["risk_capital_fraction"])
+            metadata = {
+                "model_set": str(model_set["name"]),
+                "frequency_profile": str(profile["name"]),
+                "risk_capital_fraction": capital_fraction,
+                "leverage_proxy": capital_fraction / 0.10,
+                "stride_minutes": int(profile["stride_minutes"]),
+                "max_new_opens_per_bar": int(profile["max_new_opens_per_bar"]),
+                "risk_max_open_positions": int(profile["risk_max_open_positions"]),
+                "experimental_flash_real_actors": bool(
+                    model_set.get("experimental_flash_real_actors", False)
+                ),
+            }
+            experiments.append({
+                "name": f"{model_set['name']}_{profile['name']}",
+                "args": list(model_set["args"]) + _risk_frequency_profile_args(profile),
+                "metadata": metadata,
+            })
+    return experiments
+
+
+RISK_FREQUENCY_EXPERIMENTS = _build_risk_frequency_experiments()
+
+
 TIERS = [
     ("2026_h1", ["--years", "2026", "--max-bars", "3600"]),
     ("2025", ["--years", "2025"]),
     ("full_2022_2026", ["--years", "2022", "2023", "2024", "2025", "2026"]),
 ]
+
+RISK_FREQUENCY_TIERS = TIERS[:2]
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -765,9 +1066,14 @@ def _extract_metrics(output_dir: Path | None) -> dict[str, Any]:
         )
     )
     alpha_pct = _float_or_zero(benchmark_summary.get("panteon_alpha_pct"))
-    beats = bool(benchmark_summary.get("panteon_beats_best_component", False))
     best_component_pct = _float_or_zero(
         benchmark_summary.get("best_component_pnl_pct")
+    )
+    benchmark_beats = benchmark_summary.get("panteon_beats_best_component")
+    beats = _beats_best_component(
+        pnl_pct,
+        best_component_pct,
+        benchmark_beats if isinstance(benchmark_beats, bool) else None,
     )
     flash_decisions = int(flash_summary.get("flash_decisions", 0) or 0)
     no_trade_decisions = int(flash_summary.get("no_trade_decisions", 0) or 0)
@@ -792,6 +1098,9 @@ def _extract_metrics(output_dir: Path | None) -> dict[str, Any]:
         "max_drawdown_pct": max_drawdown_pct,
         "panteon_alpha_pct": alpha_pct,
         "beats_best_component": beats,
+        "benchmark_beats_best_component": (
+            benchmark_beats if isinstance(benchmark_beats, bool) else None
+        ),
         "best_component_pnl_pct": best_component_pct,
         "panteon_advantage": _panteon_advantage(alpha_pct, max_drawdown_pct),
         "dominance_equity_ratio": _dominance_equity_ratio(
@@ -881,6 +1190,17 @@ def _panteon_lcb_dominance(panteon_pct: float, best_pct: float) -> bool:
     if best_equity <= 0.0:
         return panteon_equity >= best_equity
     return panteon_equity >= 0.95 * best_equity
+
+
+def _beats_best_component(
+    panteon_pct: float,
+    best_component_pct: float,
+    reported: bool | None,
+) -> bool:
+    derived = float(panteon_pct or 0.0) >= float(best_component_pct or 0.0)
+    if reported is None:
+        return derived
+    return bool(reported) or derived
 
 
 def _share_pct(part: int, total: int) -> float:
@@ -1044,6 +1364,82 @@ def _flash_selected_deny_key_args_from_report(
     for _pnl, signal_key in sorted(candidates)[:max_keys]:
         out.extend(["--flash-deny-signal-key", signal_key])
     return out
+
+
+def _confirmed_selected_deny_key_args_from_reports(
+    reports: Sequence[Mapping[str, Any]],
+    *,
+    max_realized_pnl_usd: float = -0.1,
+    min_closed_trades: int = 1,
+    max_keys: int = 50,
+) -> list[str]:
+    if not reports or max_keys <= 0:
+        return []
+
+    rows = _confirmed_selected_deny_rows_from_reports(
+        reports,
+        max_realized_pnl_usd=max_realized_pnl_usd,
+        min_closed_trades=min_closed_trades,
+        max_keys=max_keys,
+    )
+    out: list[str] = []
+    for row in rows:
+        out.extend(["--flash-deny-signal-key", str(row["signal_key"])])
+    return out
+
+
+def _confirmed_selected_deny_rows_from_reports(
+    reports: Sequence[Mapping[str, Any]],
+    *,
+    max_realized_pnl_usd: float = -0.1,
+    min_closed_trades: int = 1,
+    max_keys: int = 50,
+) -> list[dict[str, Any]]:
+    if not reports or max_keys <= 0:
+        return []
+
+    qualified_by_report: list[dict[str, float]] = []
+    closed_by_key: dict[str, int] = {}
+    for report in reports:
+        qualified: dict[str, float] = {}
+        for signal_key, item in _signal_key_stats_from_reports([report]).items():
+            closed_trades = _int_or_zero(item.get("closed_trades"))
+            if closed_trades < min_closed_trades:
+                continue
+            realized_pnl_usd = _float_or_zero(item.get("realized_pnl_usd"))
+            if (
+                not math.isfinite(realized_pnl_usd)
+                or realized_pnl_usd > max_realized_pnl_usd
+            ):
+                continue
+            qualified[signal_key] = realized_pnl_usd
+            closed_by_key[signal_key] = closed_by_key.get(signal_key, 0) + closed_trades
+        qualified_by_report.append(qualified)
+
+    if not qualified_by_report:
+        return []
+    common = set(qualified_by_report[0])
+    for qualified in qualified_by_report[1:]:
+        common &= set(qualified)
+    rows = []
+    for signal_key in common:
+        per_source_pnl = [qualified[signal_key] for qualified in qualified_by_report]
+        rows.append(
+            {
+                "signal_key": signal_key,
+                "total_realized_pnl_usd": sum(per_source_pnl),
+                "total_closed_trades": closed_by_key.get(signal_key, 0),
+                "source_realized_pnl_usd": per_source_pnl,
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            _float_or_zero(row["total_realized_pnl_usd"]),
+            -_int_or_zero(row["total_closed_trades"]),
+            str(row["signal_key"]),
+        ),
+    )[:max_keys]
 
 
 def _signal_key_from_shadow_row(row: Mapping[str, Any]) -> str:
@@ -1220,6 +1616,10 @@ def _generated_selected_deny_args(
     seen: set[str] = set()
     deny_args: list[str] = []
     loaded_sources = 0
+    confirm_across_sources = bool(
+        experiment.get("selected_deny_confirm_across_sources")
+    )
+    source_attribution_reports: list[Mapping[str, Any]] = []
     for source in source_experiments:
         source_output_dir = output_dirs_by_experiment_tier.get((source, source_tier))
         if source_output_dir is None:
@@ -1230,6 +1630,9 @@ def _generated_selected_deny_args(
         source_attribution_report = _load_json(
             source_output_dir / "flash_attribution_summary.json"
         )
+        if confirm_across_sources:
+            source_attribution_reports.append(source_attribution_report)
+            continue
         source_deny_args = _flash_selected_deny_key_args_from_report(
             source_attribution_report,
             max_realized_pnl_usd=_float_or_zero(
@@ -1309,6 +1712,18 @@ def _generated_selected_deny_args(
                         continue
                     seen.add(signal_key)
                     deny_args.extend(["--flash-deny-signal-key", signal_key])
+    if confirm_across_sources and not warnings:
+        deny_args = _confirmed_selected_deny_key_args_from_reports(
+            source_attribution_reports,
+            max_realized_pnl_usd=_float_or_zero(
+                experiment.get("selected_deny_max_realized_pnl_usd", -0.1)
+            ),
+            min_closed_trades=max(
+                0,
+                _int_or_zero(experiment.get("selected_deny_min_closed_trades", 1)),
+            ),
+            max_keys=max(0, _int_or_zero(experiment.get("selected_deny_max_keys", 50))),
+        )
     if loaded_sources > 0 and not deny_args:
         warnings.append(
             f"selected_deny_keys_empty:{','.join(source_experiments)}:{source_tier}"
@@ -1353,6 +1768,53 @@ def _write_matrix(reports_dir: Path, rows: list[dict[str, Any]]) -> Path:
     return path
 
 
+def _write_selected_deny_confirmation_report(
+    reports_dir: Path,
+    source_output_dirs: Sequence[Path],
+    *,
+    max_realized_pnl_usd: float = -0.1,
+    min_closed_trades: int = 1,
+    max_keys: int = 50,
+) -> Path:
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    reports: list[Mapping[str, Any]] = []
+    source_paths: list[str] = []
+    warnings: list[str] = []
+    for source_dir in source_output_dirs:
+        path = Path(source_dir)
+        source_paths.append(_display_path(path))
+        report_path = path / "flash_attribution_summary.json"
+        if not report_path.exists():
+            warnings.append(f"flash_attribution_summary_missing:{_display_path(path)}")
+            continue
+        reports.append(_load_json(report_path))
+
+    rows = _confirmed_selected_deny_rows_from_reports(
+        reports,
+        max_realized_pnl_usd=max_realized_pnl_usd,
+        min_closed_trades=min_closed_trades,
+        max_keys=max_keys,
+    )
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "source_count": len(reports),
+            "requested_source_count": len(source_output_dirs),
+            "confirmed_key_count": len(rows),
+            "max_realized_pnl_usd": max_realized_pnl_usd,
+            "min_closed_trades": min_closed_trades,
+            "max_keys": max_keys,
+        },
+        "source_output_dirs": source_paths,
+        "confirmed_deny_signal_keys": [str(row["signal_key"]) for row in rows],
+        "rows": rows,
+        "warnings": warnings,
+    }
+    path = reports_dir / SELECTED_DENY_CONFIRMATION_FILENAME
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 def _smoke_rows(results_root: Path) -> list[dict[str, Any]]:
     experiment = EXPERIMENTS[0]
     tier_name, _tier_args = TIERS[0]
@@ -1368,6 +1830,11 @@ def _smoke_rows(results_root: Path) -> list[dict[str, Any]]:
             "smoke": True,
         }
     ]
+
+
+def _experiment_metadata(experiment: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = experiment.get("metadata", {})
+    return dict(metadata) if isinstance(metadata, Mapping) else {}
 
 
 def _dry_run_rows(
@@ -1389,6 +1856,7 @@ def _dry_run_rows(
                     "beats_best_component": False,
                     "output_dir": _display_path(results_root / str(experiment["name"])),
                     "dry_run": True,
+                    **_experiment_metadata(experiment),
                 }
             )
     return rows
@@ -1468,6 +1936,7 @@ def _run_matrix(
                 "name": experiment_name,
                 "tier": tier_name,
                 **_extract_metrics(output_dir),
+                **_experiment_metadata(experiment),
                 "returncode": proc.returncode,
             }
             if generated_deny_args:
@@ -1516,6 +1985,39 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Run the short z-threshold sweep for Flash overextension guard.",
     )
+    parser.add_argument(
+        "--risk-frequency-sweep",
+        action="store_true",
+        help=(
+            "Run the curated leverage/frequency sweep for current and legacy "
+            "Flash model sets."
+        ),
+    )
+    parser.add_argument(
+        "--selected-deny-confirmation-report",
+        action="store_true",
+        help=(
+            "Write a report of deny keys that are negative in every provided "
+            "--source-output-dir flash attribution report."
+        ),
+    )
+    parser.add_argument(
+        "--source-output-dir",
+        action="append",
+        default=[],
+        help="Existing retro run output directory for confirmation reporting.",
+    )
+    parser.add_argument(
+        "--selected-deny-max-realized-pnl-usd",
+        type=float,
+        default=-0.1,
+    )
+    parser.add_argument(
+        "--selected-deny-min-closed-trades",
+        type=int,
+        default=1,
+    )
+    parser.add_argument("--selected-deny-max-keys", type=int, default=50)
     parser.add_argument("--calibration-year", default="2026")
     parser.add_argument("--calibration-max-bars", type=int, default=3600)
     parser.add_argument(
@@ -1536,6 +2038,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def _selected_experiments(args: argparse.Namespace) -> Sequence[dict[str, Any]]:
     if args.overextension_calibration:
         experiments = OVEREXTENSION_CALIBRATION_EXPERIMENTS
+    elif args.risk_frequency_sweep:
+        experiments = RISK_FREQUENCY_EXPERIMENTS
     else:
         experiments = EXPERIMENTS
     selected = {str(name) for name in getattr(args, "experiment", ()) or ()}
@@ -1561,6 +2065,8 @@ def _selected_tiers(args: argparse.Namespace) -> Sequence[tuple[str, list[str]]]
                 ],
             )
         ]
+    elif args.risk_frequency_sweep:
+        tiers = RISK_FREQUENCY_TIERS
     else:
         tiers = TIERS
     selected = {str(name) for name in getattr(args, "tier", ()) or ()}
@@ -1576,7 +2082,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     experiments = _selected_experiments(args)
     tiers = _selected_tiers(args)
 
-    if args.smoke:
+    if args.selected_deny_confirmation_report:
+        path = _write_selected_deny_confirmation_report(
+            reports_dir,
+            [Path(path) for path in args.source_output_dir],
+            max_realized_pnl_usd=float(args.selected_deny_max_realized_pnl_usd),
+            min_closed_trades=max(0, int(args.selected_deny_min_closed_trades)),
+            max_keys=max(0, int(args.selected_deny_max_keys)),
+        )
+    elif args.smoke:
         path = _write_matrix(reports_dir, _smoke_rows(results_root))
     elif args.dry_run:
         path = _write_matrix(

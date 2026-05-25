@@ -3,12 +3,183 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import sys
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from panteon_v2.analysis.genetics_validation import fitness_v3_robust_score
+
+ROUTER_REGIMES = ("crash", "bearish", "neutral", "bullish")
+SPECIALIST_LABEL_BY_REGIME = {
+    "crash": "GeneticsCrash",
+    "bearish": "GeneticsBearish",
+    "neutral": "GeneticsNeutral",
+    "bullish": "GeneticsBullish",
+}
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _resolve_existing_under_neiro_genetics(
+    value: str | Path,
+    *,
+    results_root: Path,
+    purpose: str,
+) -> str:
+    root = results_root.resolve()
+    path = Path(value)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            f"{purpose} must stay under Results/neiro_genetics: {resolved}"
+        ) from exc
+    if not resolved.exists():
+        raise ValueError(f"{purpose} does not exist: {resolved}")
+    return str(resolved)
+
+
+def _single_baseline_path(baseline_map: Dict[str, str]) -> str:
+    for regime in ("neutral", "bearish", "bullish", "crash"):
+        path = baseline_map.get(regime)
+        if path:
+            return str(path)
+    for path in baseline_map.values():
+        if path:
+            return str(path)
+    raise ValueError("baseline_regime_map must contain at least one genome path")
+
+
+def build_specialists_manifest(
+    selection: Dict[str, Any],
+    *,
+    results_root: Path,
+    risk_off_crash_genome: str | Path,
+    selection_source: str | Path | None = None,
+    created_at: str | None = None,
+    baseline_control: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    selected_raw = {
+        str(regime): str(path)
+        for regime, path in dict(selection.get("selected_regime_map") or {}).items()
+        if path
+    }
+    baseline_raw = {
+        str(regime): str(path)
+        for regime, path in dict(selection.get("baseline_regime_map") or {}).items()
+        if path
+    }
+    if not selected_raw:
+        raise ValueError("selection must contain selected_regime_map")
+    if not baseline_raw:
+        raise ValueError("selection must contain baseline_regime_map")
+
+    baseline_path = _single_baseline_path(baseline_raw)
+    safe_baseline_path = _resolve_existing_under_neiro_genetics(
+        baseline_path,
+        results_root=results_root,
+        purpose="baseline genome path",
+    )
+    safe_risk_off_path = _resolve_existing_under_neiro_genetics(
+        risk_off_crash_genome,
+        results_root=results_root,
+        purpose="risk-off crash genome path",
+    )
+
+    failures = list(dict.fromkeys(str(item) for item in selection.get("promotion_failures", [])))
+    selected_regime_map: Dict[str, str] = {}
+    baseline_regime_map: Dict[str, str] = {}
+    for regime in ROUTER_REGIMES:
+        raw_baseline = baseline_raw.get(regime, baseline_path)
+        baseline_regime_map[regime] = _resolve_existing_under_neiro_genetics(
+            raw_baseline,
+            results_root=results_root,
+            purpose=f"{regime} baseline genome path",
+        )
+
+    crash_candidate = selected_raw.get("crash")
+    crash_oos_eligible = bool(selection.get("crash_specialist_eligible", False))
+    if crash_candidate and crash_oos_eligible:
+        selected_regime_map["crash"] = _resolve_existing_under_neiro_genetics(
+            crash_candidate,
+            results_root=results_root,
+            purpose="crash selected genome path",
+        )
+    else:
+        selected_regime_map["crash"] = safe_risk_off_path
+        if crash_candidate:
+            failures.append("crash_specialist_not_oos_eligible")
+        else:
+            failures.append("crash_risk_off_fallback")
+
+    for regime in ("bearish", "neutral", "bullish"):
+        raw_selected = selected_raw.get(regime, baseline_path)
+        selected_regime_map[regime] = _resolve_existing_under_neiro_genetics(
+            raw_selected,
+            results_root=results_root,
+            purpose=f"{regime} selected genome path",
+        )
+
+    failures.extend(
+        [
+            "requires_panteon_flash_shadow_matrix",
+            "requires_panteon_flash_executable_simulation",
+            "requires_cost_aware_oos_strict_win",
+        ]
+    )
+    failures = list(dict.fromkeys(failures))
+
+    specialist_genome_map = {
+        "GeneticsBest": safe_baseline_path,
+        "GeneticsCrash": selected_regime_map["crash"],
+        "GeneticsBullish": selected_regime_map["bullish"],
+        "GeneticsBearish": selected_regime_map["bearish"],
+        "GeneticsNeutral": selected_regime_map["neutral"],
+    }
+    manifest: Dict[str, Any] = {
+        "schema_version": 1,
+        "created_at": created_at or date.today().isoformat(),
+        "baseline_control": baseline_control or {},
+        "selection_source": None,
+        "selected_is_baseline": bool(selection.get("selected_is_baseline", False)),
+        "selection_promotion_eligible": bool(selection.get("promotion_eligible", False)),
+        "selection_paper_trading_eligible": bool(selection.get("paper_trading_eligible", False)),
+        "promotion_eligible": False,
+        "paper_trading_eligible": False,
+        "live_trading_eligible": False,
+        "promotion_failures": failures,
+        "specialist_genome_map": specialist_genome_map,
+        "selected_regime_map": selected_regime_map,
+        "baseline_regime_map": baseline_regime_map,
+        "notes": {
+            "crash": (
+                "risk-off hold genome until a crash-OOS specialist strictly beats baseline"
+                if selected_regime_map["crash"] == safe_risk_off_path
+                else "explicit crash specialist gated by crash_specialist_eligible"
+            ),
+            "bearish": "fallback to overall baseline unless selection provided a gated bearish specialist",
+            "neutral": "selected by validation/OOS router selection; not live-promoted by manifest alone",
+            "bullish": "fallback to overall baseline unless selection provided a gated bullish specialist",
+        },
+    }
+    if selection_source is not None:
+        manifest["selection_source"] = _resolve_existing_under_neiro_genetics(
+            selection_source,
+            results_root=results_root,
+            purpose="selection source path",
+        )
+    return manifest
 
 
 def _mode_payload(genome_payload: Dict[str, Any], mode: str) -> Dict[str, Any]:
@@ -25,6 +196,7 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
         stats = mode_payload.get("period_stats", {})
         robust = mode_payload.get("robust_score", {})
         contract = mode_payload.get("contract_metrics", {})
+        fitness_v3 = _fitness_v3_from_mode(mode_payload)
         result.append({
             "path": str(genome_payload.get("path", "")),
             "position_state_features_enabled": bool(
@@ -39,14 +211,71 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
                 robust.get("max_positive_contribution_pct", 0.0)
             ),
             "passes_default_gates": bool(robust.get("passes_default_gates", False)),
+            "fitness_v3_robust": float(fitness_v3.get("fitness_v3_robust", 0.0)),
+            "fitness_v3_passes_default_gates": bool(
+                fitness_v3.get("passes_default_gates", False)
+            ),
+            "fitness_v3_failed_gates": list(fitness_v3.get("failed_gates", [])),
+            "fitness_v3": fitness_v3,
             "mean_turnover_rate": float(contract.get("mean_turnover_rate", 0.0)),
+            "max_turnover_rate": float(
+                contract.get("max_turnover_rate", contract.get("mean_turnover_rate", 0.0))
+            ),
             "mean_saturation_rate": float(contract.get("mean_saturation_rate", 0.0)),
+            "max_saturation_rate": float(
+                contract.get(
+                    "max_saturation_rate",
+                    contract.get("mean_saturation_rate", 0.0),
+                )
+            ),
             "mean_invalid_open_logit_pressure": float(
                 contract.get("mean_invalid_open_logit_pressure", 0.0)
+            ),
+            "max_invalid_open_logit_pressure": float(
+                contract.get(
+                    "max_invalid_open_logit_pressure",
+                    contract.get("mean_invalid_open_logit_pressure", 0.0),
+                )
             ),
             "period_rets": list(mode_payload.get("period_rets", [])),
         })
     return result
+
+
+def _fitness_v3_from_mode(mode_payload: Dict[str, Any]) -> Dict[str, Any]:
+    period_rets = list(mode_payload.get("period_rets", []))
+    contract = mode_payload.get("contract_metrics", {})
+    periods = contract.get("periods", []) if isinstance(contract, dict) else []
+    if not isinstance(periods, list):
+        periods = []
+
+    def values(name: str) -> list[float]:
+        out: list[float] = []
+        for row in periods:
+            if not isinstance(row, dict):
+                out.append(0.0)
+                continue
+            try:
+                out.append(float(row.get(name, 0.0) or 0.0))
+            except (TypeError, ValueError):
+                out.append(0.0)
+        return out
+
+    regimes = [
+        str(row.get("regime", "unknown") if isinstance(row, dict) else "unknown")
+        for row in periods
+    ]
+    return fitness_v3_robust_score(
+        period_rets,
+        period_max_drawdowns_pct=values("max_drawdown_pct"),
+        period_turnover_rates=values("turnover_rate"),
+        period_effective_turnover_rates=values("effective_turnover_rate"),
+        period_saturation_rates=values("saturation_rate"),
+        period_invalid_open_pressures=values("invalid_open_logit_pressure"),
+        period_costs_pct=values("cost_pct"),
+        period_slippage_pct=values("slippage_pct"),
+        period_regimes=regimes,
+    )
 
 
 def _period_summary_for_map(
@@ -370,16 +599,25 @@ def evaluate_regime_router_multisplit_gate(
         min_delta = candidate["min_ret"] - baseline["min_ret"]
         positive_delta = candidate["positive_period_pct"] - baseline["positive_period_pct"]
         split_failures: List[str] = []
-        if mean_delta < min_oos_mean_delta:
-            split_failures.append(f"oos_{idx}_mean_ret")
+        if mean_delta <= min_oos_mean_delta:
+            failure = (
+                f"oos_{idx}_mean_ret_tie"
+                if abs(mean_delta - min_oos_mean_delta) <= 1e-12
+                else f"oos_{idx}_mean_ret"
+            )
+            split_failures.append(failure)
         if min_delta < min_oos_min_ret_delta:
             split_failures.append(f"oos_{idx}_min_ret")
         if positive_delta < 0.0:
             split_failures.append(f"oos_{idx}_positive_period_pct")
         if candidate["mean_turnover_rate"] > max_turnover_rate:
             split_failures.append(f"oos_{idx}_turnover")
+        if candidate["max_turnover_rate"] > max_turnover_rate:
+            split_failures.append(f"oos_{idx}_max_turnover")
         if candidate["mean_saturation_rate"] > max_saturation_rate:
             split_failures.append(f"oos_{idx}_saturation")
+        if candidate["max_saturation_rate"] > max_saturation_rate:
+            split_failures.append(f"oos_{idx}_max_saturation")
         if candidate["mean_invalid_open_logit_pressure"] > max_invalid_open_pressure:
             split_failures.append(f"oos_{idx}_invalid_open_pressure")
         failures.extend(split_failures)
@@ -482,6 +720,7 @@ def select_candidate(
     max_turnover_rate: float = 0.10,
     max_saturation_rate: float = 0.10,
     max_invalid_open_pressure: float = 0.05,
+    use_fitness_v3_robust: bool = False,
 ) -> Dict[str, Any]:
     train_items = {item["path"]: item for item in _summaries(train_report, mode=mode)}
     validation_items = _summaries(validation_report, mode=mode)
@@ -507,6 +746,11 @@ def select_candidate(
             failures.append("saturation")
         if candidate["mean_invalid_open_logit_pressure"] > max_invalid_open_pressure:
             failures.append("invalid_open_pressure")
+        if use_fitness_v3_robust:
+            if not candidate["fitness_v3_passes_default_gates"]:
+                failures.append("fitness_v3_gates")
+            if candidate["fitness_v3_robust"] <= baseline["fitness_v3_robust"]:
+                failures.append("validation_fitness_v3")
 
         train_item = train_items.get(candidate["path"])
         train_mean_delta = (
@@ -524,6 +768,10 @@ def select_candidate(
             + train_mean_delta
             + (candidate["positive_period_pct"] - baseline["positive_period_pct"]) * 0.02
         )
+        if use_fitness_v3_robust:
+            score += (
+                candidate["fitness_v3_robust"] - baseline["fitness_v3_robust"]
+            ) * 5.0
         item = {
             "path": candidate["path"],
             "accepted": not failures,
@@ -538,10 +786,15 @@ def select_candidate(
             best_score = score
 
     selected_is_baseline = best["path"] == baseline["path"]
+    promotion_failures: List[str] = []
+    if selected_is_baseline:
+        promotion_failures.append("baseline_selected")
     return {
         "mode": mode,
         "selected_path": best["path"],
         "selected_is_baseline": selected_is_baseline,
+        "promotion_eligible": not promotion_failures,
+        "promotion_failures": promotion_failures,
         "baseline_path": baseline["path"],
         "baseline_validation": baseline,
         "selection_score": None if selected_is_baseline else best_score,
@@ -557,7 +810,90 @@ def select_candidate(
     }
 
 
-def main() -> int:
+def evaluate_single_candidate_multisplit_gate(
+    selection: Dict[str, Any],
+    holdout_reports: List[Dict[str, Any]],
+    *,
+    mode: str = "fee_fixed_nextbar",
+    max_turnover_rate: float = 0.10,
+    max_saturation_rate: float = 0.10,
+    max_invalid_open_pressure: float = 0.05,
+    use_fitness_v3_robust: bool = False,
+) -> Dict[str, Any]:
+    selected_path = str(selection.get("selected_path") or "")
+    baseline_path = str(selection.get("baseline_path") or "")
+    if not selected_path or not baseline_path:
+        raise ValueError("selection must contain selected_path and baseline_path")
+
+    failures: List[str] = []
+    if not bool(selection.get("promotion_eligible", False)):
+        failures.append("selection_promotion_gate")
+
+    holdouts: List[Dict[str, Any]] = []
+    for idx, report in enumerate(holdout_reports):
+        items = {item["path"]: item for item in _summaries(report, mode=mode)}
+        if baseline_path not in items:
+            raise ValueError(f"baseline genome not found in holdout report: {baseline_path}")
+        if selected_path not in items:
+            raise ValueError(f"selected genome not found in holdout report: {selected_path}")
+        baseline = items[baseline_path]
+        candidate = items[selected_path]
+        mean_delta = candidate["mean_ret"] - baseline["mean_ret"]
+        min_delta = candidate["min_ret"] - baseline["min_ret"]
+        positive_delta = candidate["positive_period_pct"] - baseline["positive_period_pct"]
+        crash_delta = (
+            float(candidate["fitness_v3"].get("crash_floor_ret", 0.0))
+            - float(baseline["fitness_v3"].get("crash_floor_ret", 0.0))
+        )
+        fitness_v3_delta = candidate["fitness_v3_robust"] - baseline["fitness_v3_robust"]
+        split_failures: List[str] = []
+        if mean_delta < 0.0:
+            split_failures.append(f"oos_{idx}_mean_ret")
+        if min_delta < 0.0:
+            split_failures.append(f"oos_{idx}_min_ret")
+        if positive_delta < 0.0:
+            split_failures.append(f"oos_{idx}_positive_period_pct")
+        if crash_delta < 0.0:
+            split_failures.append(f"oos_{idx}_crash_floor")
+        if candidate["max_turnover_rate"] > max_turnover_rate:
+            split_failures.append(f"oos_{idx}_max_turnover")
+        if candidate["max_saturation_rate"] > max_saturation_rate:
+            split_failures.append(f"oos_{idx}_max_saturation")
+        if candidate["max_invalid_open_logit_pressure"] > max_invalid_open_pressure:
+            split_failures.append(f"oos_{idx}_max_invalid_open_pressure")
+        if use_fitness_v3_robust:
+            if not candidate["fitness_v3_passes_default_gates"]:
+                split_failures.append(f"oos_{idx}_fitness_v3_gates")
+            if fitness_v3_delta < 0.0:
+                split_failures.append(f"oos_{idx}_fitness_v3")
+        failures.extend(split_failures)
+        holdouts.append({
+            "index": idx,
+            "accepted": not split_failures,
+            "failures": split_failures,
+            "baseline": baseline,
+            "candidate": candidate,
+            "mean_ret_delta": float(mean_delta),
+            "min_ret_delta": float(min_delta),
+            "positive_period_pct_delta": float(positive_delta),
+            "crash_floor_delta": float(crash_delta),
+            "fitness_v3_delta": float(fitness_v3_delta),
+        })
+
+    return {
+        "promotion_eligible": not failures,
+        "promotion_failures": list(dict.fromkeys(failures)),
+        "holdouts": holdouts,
+        "thresholds": {
+            "max_turnover_rate": max_turnover_rate,
+            "max_saturation_rate": max_saturation_rate,
+            "max_invalid_open_pressure": max_invalid_open_pressure,
+            "use_fitness_v3_robust": use_fitness_v3_robust,
+        },
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Select a genetics candidate using train and validation contract reports."
     )
@@ -610,7 +946,8 @@ def main() -> int:
     parser.add_argument("--max-turnover-rate", type=float, default=0.10)
     parser.add_argument("--max-saturation-rate", type=float, default=0.10)
     parser.add_argument("--max-invalid-open-pressure", type=float, default=0.05)
-    args = parser.parse_args()
+    parser.add_argument("--use-fitness-v3-robust", action="store_true")
+    args = parser.parse_args(argv)
 
     train_report_path = Path(args.train_report)
     validation_report_path = Path(args.validation_report)
@@ -687,7 +1024,27 @@ def main() -> int:
             max_turnover_rate=args.max_turnover_rate,
             max_saturation_rate=args.max_saturation_rate,
             max_invalid_open_pressure=args.max_invalid_open_pressure,
+            use_fitness_v3_robust=args.use_fitness_v3_robust,
         )
+        if args.final_report:
+            final_reports = [_load_json(Path(path)) for path in args.final_report]
+            final_gate = evaluate_single_candidate_multisplit_gate(
+                selection,
+                final_reports,
+                mode=args.mode,
+                max_turnover_rate=args.max_turnover_rate,
+                max_saturation_rate=args.max_saturation_rate,
+                max_invalid_open_pressure=args.max_invalid_open_pressure,
+                use_fitness_v3_robust=args.use_fitness_v3_robust,
+            )
+            selection["final_holdout_gate"] = final_gate
+            selection["promotion_eligible"] = (
+                bool(selection.get("promotion_eligible", False))
+                and bool(final_gate.get("promotion_eligible", False))
+            )
+            merged_failures = list(selection.get("promotion_failures", []))
+            merged_failures.extend(final_gate.get("promotion_failures", []))
+            selection["promotion_failures"] = list(dict.fromkeys(merged_failures))
     out_path.write_text(json.dumps(selection, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(selection, ensure_ascii=False, indent=2))
     return 0

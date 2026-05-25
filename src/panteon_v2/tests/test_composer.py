@@ -82,6 +82,34 @@ class TestPlayerComposer(unittest.TestCase):
         self.assertIsNotNone(player)
         self.assertLessEqual(len(player.agent_labels), 3)
 
+    def test_shadow_only_agent_does_not_consume_profile_slot(self):
+        registry = AgentRegistry()
+        executable = FakeAgent("ExecutableAgent", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only = FakeAgent("ShadowOnlyAgent", {"BTC": Action.FUT_LONG_FULL})
+        shadow_only.shadow_only = True
+        shadow_only.paper_trading_eligible = True
+        shadow_only.live_trading_eligible = False
+        registry.register(executable)
+        registry.register(shadow_only)
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "ExecutableAgent", Regime.BULLISH, 10, 1.0, start_id=1)
+        _add_perf(perf, "ShadowOnlyAgent", Regime.BULLISH, 10, 5.0, start_id=1000)
+        composer = PlayerComposer(
+            AgentSelector(registry, perf, QuarantineManager(seed=set()))
+        )
+        profile = PlayerProfile(
+            label="OneSlot",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=1,
+            min_agents=1,
+        )
+
+        player = composer.compose_from_profile_with_fallback(profile, Regime.BULLISH)
+
+        self.assertIsNotNone(player)
+        self.assertEqual(player.agent_labels, ["ExecutableAgent"])
+
     def test_compose_weights_normalized(self):
         player = self.composer.compose_from_profile(
             PROFILE_DEFAULT_ENSEMBLE, Regime.BULLISH,
