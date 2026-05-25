@@ -94,6 +94,7 @@ def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
             if balance and balance > 0:
                 pipeline.account_snapshot = snapshot
                 pipeline.current_balance = balance
+                _record_live_equity_peak(pipeline, balance)
                 return balance
 
         getter = getattr(exchange, "get_account_equity", None)
@@ -111,6 +112,7 @@ def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
             "unrealized_pnl": 0.0,
         }
         pipeline.current_balance = equity
+        _record_live_equity_peak(pipeline, equity)
         return equity
     except Exception:
         log.debug("live balance sync failed", exc_info=True)
@@ -3879,6 +3881,21 @@ def _set_kill_switch(pipeline: ProductionPipeline, reason: str) -> None:
     log.error("real trading disabled by kill switch: %s", reason)
 
 
+def _record_live_equity_peak(pipeline: ProductionPipeline, equity: float) -> None:
+    state = _kill_state(pipeline)
+    if state is None:
+        return
+    try:
+        current = float(equity)
+    except (TypeError, ValueError):
+        return
+    if current <= 0:
+        return
+    peak = float(getattr(state, "peak_equity_usd", 0.0) or 0.0)
+    if current > peak:
+        state.peak_equity_usd = current
+
+
 def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
     state = _kill_state(pipeline)
     if state is not None and getattr(state, "disabled_reason", ""):
@@ -3898,6 +3915,25 @@ def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
                 )
                 _set_kill_switch(pipeline, reason)
                 return reason
+    max_peak_drawdown_pct = float(
+        getattr(cfg, "max_equity_peak_drawdown_pct", 0.0) or 0.0
+    )
+    if max_peak_drawdown_pct > 0 and state is not None:
+        current = float(getattr(pipeline, "current_balance", 0.0) or 0.0)
+        if current > 0:
+            _record_live_equity_peak(pipeline, current)
+            peak = float(getattr(state, "peak_equity_usd", 0.0) or 0.0)
+            if peak > 0:
+                floor = peak * (1.0 - max_peak_drawdown_pct / 100.0)
+                if current <= floor:
+                    drawdown_pct = (peak - current) / peak * 100.0
+                    reason = (
+                        "equity peak drawdown exceeded: "
+                        f"current={current:.2f}, peak={peak:.2f}, "
+                        f"drawdown={drawdown_pct:.2f}%, floor={floor:.2f}"
+                    )
+                    _set_kill_switch(pipeline, reason)
+                    return reason
     return ""
 
 

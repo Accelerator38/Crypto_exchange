@@ -397,6 +397,7 @@ class TestStartupFailClosed(unittest.TestCase):
 
         cfg = _live_execution_config_from_settings({
             "v2_max_daily_loss_pct": 4.5,
+            "v2_max_equity_peak_drawdown_pct": 3.0,
             "v2_max_slippage_pct": 0.35,
             "v2_max_api_error_streak": 2,
             "v2_max_stale_feed_polls": 7,
@@ -408,6 +409,7 @@ class TestStartupFailClosed(unittest.TestCase):
         })
 
         self.assertEqual(cfg.max_daily_loss_pct, 4.5)
+        self.assertEqual(cfg.max_equity_peak_drawdown_pct, 3.0)
         self.assertEqual(cfg.max_slippage_pct, 0.35)
         self.assertEqual(cfg.max_api_error_streak, 2)
         self.assertEqual(cfg.max_stale_feed_polls, 7)
@@ -417,11 +419,48 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(cfg.genetics_probation_max_real_trades, 7)
         self.assertFalse(cfg.genetics_probation_require_shadow_confirmation)
 
+    def test_exchange_settings_merge_raw_v2_keys_with_parsed_settings(self):
+        from panteon_v2.app.startup import _load_exchange_settings
+
+        profile = types.SimpleNamespace(
+            raw_settings={
+                "v2_flash_enabled": "on",
+                "v2_max_equity_peak_drawdown_pct": "5",
+            },
+            parsed_settings={
+                "trade_fraction": 0.06,
+            },
+        )
+
+        with patch(
+            "panteon_v2.app.exchange_profile.load_exchange_profile",
+            return_value=profile,
+        ):
+            settings = _load_exchange_settings("MEXC")
+
+        self.assertEqual(settings["trade_fraction"], 0.06)
+        self.assertEqual(settings["v2_flash_enabled"], "on")
+        self.assertEqual(settings["v2_max_equity_peak_drawdown_pct"], "5")
+
+    def test_risk_max_open_positions_is_resolved_from_settings(self):
+        from panteon_v2.app.startup import _risk_config_from_settings
+
+        cfg = _risk_config_from_settings({
+            "v2_risk_max_open_positions": "8",
+        }, trade_fraction=0.06)
+
+        self.assertEqual(cfg.capital_fraction, 0.06)
+        self.assertEqual(cfg.max_open_positions, 8)
+        self.assertTrue(cfg.floor_to_exchange_min_notional)
+
     def test_executable_soft_top1_strategy_is_resolved_from_settings(self):
         from panteon_v2.app.startup import _strategist_config_from_settings
 
         cfg = _strategist_config_from_settings({
             "v2_executable_soft_top1_enabled": "on",
+            "v2_shadow_fresh_handoff_enabled": "on",
+            "v2_shadow_fresh_handoff_max_age_bars": 24,
+            "v2_shadow_fresh_handoff_require_positive_unrealized": "off",
             "v2_probation_loss_kill_min_closed_trades": 2,
             "v2_probation_loss_kill_pnl_pct": -0.15,
             "v2_probation_loss_kill_win_rate_pct": 50,
@@ -433,6 +472,9 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertTrue(cfg.v3_current_actionable_gate_enabled)
         self.assertEqual(cfg.v3_shadow_rolling_window_bars, 24)
         self.assertEqual(cfg.v3_shadow_rolling_min_closed_trades, 20)
+        self.assertTrue(cfg.v3_shadow_fresh_handoff_enabled)
+        self.assertEqual(cfg.v3_shadow_fresh_handoff_max_age_bars, 24)
+        self.assertFalse(cfg.v3_shadow_fresh_handoff_require_positive_unrealized)
         self.assertEqual(cfg.v3_probation_loss_kill_min_closed_trades, 2)
         self.assertEqual(cfg.v3_probation_loss_kill_pnl_pct, -0.15)
         self.assertEqual(cfg.v3_probation_loss_kill_win_rate_pct, 50)

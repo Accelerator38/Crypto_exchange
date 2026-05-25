@@ -53,6 +53,13 @@ def _is_external_player(label: object) -> bool:
     return str(label or "") in {"", "RecoveredExchangePosition"}
 
 
+def _format_float(value: object) -> str:
+    try:
+        return f"{float(value or 0.0):.2f}"
+    except (TypeError, ValueError):
+        return "0.00"
+
+
 @dataclass
 class OutputWriterConfig:
     """Конфигурация писателя."""
@@ -1357,12 +1364,67 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
             )
             self._write_leaderboards()
             self._write_dashboard()
+            self._write_final_session_reports()
             with open(self._log_path, "a", encoding="utf-8") as f:
                 f.write(f"\n{'='*70}\n")
                 f.write(f"Panteon v2 stopped: {datetime.now(timezone.utc).isoformat()}\n")
                 f.write(f"{'='*70}\n")
         except Exception:
             log.exception("close failed")
+
+    def _write_final_session_reports(self) -> None:
+        status = dict(getattr(self, "_last_status_data", {}) or {})
+        status.setdefault("exchange", getattr(self._pipeline, "exchange_name", ""))
+        status.setdefault("run_state", "stopped")
+        status.setdefault("session_id", getattr(self._pipeline, "session_id", ""))
+        status.setdefault("run_id", getattr(self._pipeline, "run_id", ""))
+        status["final_report_generated_at"] = datetime.now(timezone.utc).isoformat()
+        kill_switch = getattr(self._pipeline, "kill_switch", None)
+        status["kill_switch"] = {
+            "disabled_reason": str(getattr(kill_switch, "disabled_reason", "") or ""),
+            "peak_equity_usd": float(getattr(kill_switch, "peak_equity_usd", 0.0) or 0.0),
+        }
+
+        json_path = os.path.join(self._config.output_dir, "final_session_report.json")
+        md_path = os.path.join(self._config.output_dir, "final_session_report.md")
+        self._write_json_atomic(json_path, status)
+        Path(md_path).write_text(self._final_session_markdown(status), encoding="utf-8")
+
+    def _final_session_markdown(self, status: Dict[str, Any]) -> str:
+        live = status.get("live_session") if isinstance(status.get("live_session"), dict) else {}
+        real_trades = status.get("real_trades") if isinstance(status.get("real_trades"), dict) else {}
+        kill = status.get("kill_switch") if isinstance(status.get("kill_switch"), dict) else {}
+        lines = [
+            "# Panteon v2 final session report",
+            "",
+            f"- Exchange: `{status.get('exchange', '')}`",
+            f"- Session: `{status.get('session_id', '')}`",
+            f"- Run state: `{status.get('run_state', '')}`",
+            f"- Generated: `{status.get('final_report_generated_at', '')}`",
+            f"- Mode: `{status.get('mode', '')}`",
+            f"- Timeframe: `{status.get('timeframe', '')}`",
+            "",
+            "## PnL",
+            "",
+            f"- Account PnL: `${_format_float(live.get('account_equity_pnl_usd'))}` / `{_format_float(live.get('account_pnl_pct'))}%`",
+            f"- Panteon realized PnL: `${_format_float(live.get('panteon_realized_pnl_usd'))}`",
+            f"- Panteon total PnL: `${_format_float(live.get('panteon_owned_total_pnl_usd'))}` / `{_format_float(live.get('panteon_owned_pnl_pct'))}%`",
+            f"- Panteon max drawdown: `{_format_float(live.get('panteon_max_drawdown_pct'))}%`",
+            "",
+            "## Trading",
+            "",
+            f"- Real trades total: `{real_trades.get('total', live.get('real_total_trades', 0))}`",
+            f"- Closed: `{real_trades.get('closed', live.get('real_closed_trades', 0))}`",
+            f"- Successful / unsuccessful: `{real_trades.get('successful', 0)}` / `{real_trades.get('unsuccessful', 0)}`",
+            f"- Open Panteon positions: `{live.get('panteon_owned_positions_count', 0)}`",
+            "",
+            "## Safety",
+            "",
+            f"- Kill-switch reason: `{kill.get('disabled_reason', '')}`",
+            f"- Peak equity tracked: `${_format_float(kill.get('peak_equity_usd'))}`",
+            f"- Last message: `{status.get('message', '')}`",
+        ]
+        return "\n".join(lines) + "\n"
 
     def _ensure_output_dir(self) -> None:
         Path(self._config.output_dir).mkdir(parents=True, exist_ok=True)

@@ -530,6 +530,37 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(pipeline.current_balance, 120.5)
         self.assertEqual(pipeline.account_snapshot["total_assets"], 128.0)
 
+    def test_equity_peak_drawdown_kill_switch_tracks_live_equity_peak(self):
+        from panteon_v2.app.main_loop import _kill_switch_reason, sync_pipeline_balance
+
+        class LiveExchange(FakeExchange):
+            def __init__(self):
+                super().__init__(name="BITGET")
+                self._equities = iter((100.0, 120.0, 113.9))
+
+            def get_account_equity(self):
+                return next(self._equities)
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(),
+            initial_capital=100.0,
+            live_execution_config=LiveExecutionConfig(max_equity_peak_drawdown_pct=5.0),
+        )
+
+        self.assertEqual(sync_pipeline_balance(pipeline), 100.0)
+        self.assertEqual(pipeline.kill_switch.peak_equity_usd, 100.0)
+        self.assertEqual(sync_pipeline_balance(pipeline), 120.0)
+        self.assertEqual(pipeline.kill_switch.peak_equity_usd, 120.0)
+        self.assertEqual(sync_pipeline_balance(pipeline), 113.9)
+
+        reason = _kill_switch_reason(pipeline)
+        self.assertIn("equity peak drawdown exceeded", reason)
+        self.assertIn("peak=120.00", reason)
+        self.assertEqual(pipeline.kill_switch.disabled_reason, reason)
+
     def test_exchange_health_blocks_new_opens_but_keeps_audit_reason(self):
         class HealthExchange(FakeExchange):
             def get_account_snapshot(self):
@@ -646,6 +677,13 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_volatility_risk_target_pct": "1.8",
             "v2_flash_volatility_risk_min_volatility_pct": "0.4",
             "v2_flash_volatility_risk_max_mult": "1.5",
+            "v2_flash_denied_signal_keys": (
+                "ensemble:Solo_A|btc/usdt|fut_long_full,"
+                "agent:LiveB|ETH/USDT|SPOT_BUY_FULL"
+            ),
+            "v2_flash_terminal_denied_signal_keys": (
+                "ensemble:Solo_C|atom/usdt|fut_short_full"
+            ),
             "v2_flash_denied_open_symbols": "atom/usdt,fil/usdt",
             "v2_flash_denied_open_regimes": "neutral,crash",
             "v2_flash_degradation_guard_enabled": "true",
@@ -666,6 +704,8 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_degradation_recovery_enabled": "true",
             "v2_flash_degradation_recovery_min_closed_trades": "3",
             "v2_flash_degradation_recovery_min_recent_pnl_usd": "0.0",
+            "v2_flash_promotion_manifest_enabled": "true",
+            "v2_flash_promoted_actor_cap_overrides": "ensemble:Solo_MomentumScalper=10",
             "v2_flash_stale_position_exit_enabled": "true",
             "v2_flash_stale_position_exit_max_age_bars": "168",
             "v2_flash_stale_position_exit_require_nonpositive_unrealized": "true",
@@ -748,6 +788,17 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(cfg.volatility_risk_target_pct, 1.8)
         self.assertEqual(cfg.volatility_risk_min_volatility_pct, 0.4)
         self.assertEqual(cfg.volatility_risk_max_mult, 1.5)
+        self.assertEqual(
+            cfg.denied_signal_keys,
+            (
+                "ensemble:Solo_A|BTC/USDT|FUT_LONG_FULL",
+                "agent:LiveB|ETH/USDT|SPOT_BUY_FULL",
+            ),
+        )
+        self.assertEqual(
+            cfg.terminal_denied_signal_keys,
+            ("ensemble:Solo_C|ATOM/USDT|FUT_SHORT_FULL",),
+        )
         self.assertEqual(cfg.denied_open_symbols, ("ATOM/USDT", "FIL/USDT"))
         self.assertEqual(cfg.denied_open_regimes, (Regime.NEUTRAL, Regime.CRASH))
         self.assertTrue(cfg.degradation_guard_enabled)
@@ -768,6 +819,11 @@ class TestBootstrap(unittest.TestCase):
         self.assertTrue(cfg.degradation_recovery_enabled)
         self.assertEqual(cfg.degradation_recovery_min_closed_trades, 3)
         self.assertEqual(cfg.degradation_recovery_min_recent_pnl_usd, 0.0)
+        self.assertTrue(cfg.promotion_manifest_enabled)
+        self.assertEqual(
+            cfg.promoted_actor_cap_overrides,
+            ("ensemble:Solo_MomentumScalper=10",),
+        )
         stale_exit = _flash_stale_position_exit_config_from_settings(settings)
         self.assertTrue(stale_exit["enabled"])
         self.assertEqual(stale_exit["max_age_bars"], 168)
@@ -5805,6 +5861,33 @@ class TestOutputWriter(unittest.TestCase):
                 self.assertTrue(os.path.exists(path), name)
                 with open(path, "rb") as f:
                     self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
+
+    def test_writer_close_creates_final_session_reports(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="BITGET"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.close()
+            report_json = os.path.join(writer.output_dir, "final_session_report.json")
+            report_md = os.path.join(writer.output_dir, "final_session_report.md")
+
+            self.assertTrue(os.path.exists(report_json))
+            self.assertTrue(os.path.exists(report_md))
+            with open(report_json, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            self.assertEqual(payload["exchange"], "BITGET")
+            self.assertEqual(payload["run_state"], "stopped")
+            self.assertIn("live_session", payload)
+            with open(report_md, "r", encoding="utf-8") as f:
+                markdown = f.read()
+            self.assertIn("# Panteon v2 final session report", markdown)
+            self.assertIn("BITGET", markdown)
 
     def test_writer_disables_latest_dashboard_publish_after_permission_error(self):
         from pathlib import Path

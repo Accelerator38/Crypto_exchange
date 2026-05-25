@@ -66,6 +66,7 @@ class LiveExecutionConfig:
 
     max_new_opens_per_bar: int = 1
     max_daily_loss_pct: float = 0.0
+    max_equity_peak_drawdown_pct: float = 0.0
     max_consecutive_failed_orders: int = 5
     max_exchange_desync_events: int = 0
     max_stale_feed_polls: int = 0
@@ -84,6 +85,7 @@ class LiveExecutionConfig:
             raise ValueError("max_new_opens_per_bar must be >= 0")
         for name in (
             "max_daily_loss_pct",
+            "max_equity_peak_drawdown_pct",
             "max_slippage_pct",
             "pending_order_timeout_sec",
         ):
@@ -117,6 +119,7 @@ class LiveExecutionConfig:
 @dataclass
 class KillSwitchState:
     disabled_reason: str = ""
+    peak_equity_usd: float = 0.0
     consecutive_failed_orders: int = 0
     api_error_streak: int = 0
     exchange_desync_events: int = 0

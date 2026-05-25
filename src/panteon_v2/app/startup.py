@@ -98,14 +98,53 @@ def _read_exchange_equity(exchange_adapter: Exchange) -> Optional[float]:
     return equity if equity > 0 else None
 
 
-def _risk_config_from_trade_fraction(trade_fraction: float) -> RiskLimitsConfig:
+def _risk_config_from_trade_fraction(
+    trade_fraction: float,
+    *,
+    max_open_positions: int = 4,
+) -> RiskLimitsConfig:
     fraction = float(trade_fraction)
     if not 0 < fraction <= 1.0:
         raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
     return RiskLimitsConfig(
-        max_open_positions=4,
+        max_open_positions=max(0, int(max_open_positions)),
         capital_fraction=fraction,
         floor_to_exchange_min_notional=True,
+    )
+
+
+def _risk_config_from_settings(
+    settings: dict,
+    *,
+    trade_fraction: float,
+) -> RiskLimitsConfig:
+    def int_any(names: Sequence[str], default: int) -> int:
+        for name in names:
+            if name in settings:
+                try:
+                    return int(float(settings.get(name)))
+                except (TypeError, ValueError):
+                    return int(default)
+        return int(default)
+
+    return _risk_config_from_trade_fraction(
+        trade_fraction,
+        max_open_positions=int_any(
+            (
+                "v2_risk_max_open_positions",
+                "v2_max_open_positions",
+                "risk_max_open_positions",
+                "max_open_positions",
+            ),
+            4,
+        ),
+    )
+
+
+def _resolve_risk_config(exchange_name: str, trade_fraction: float) -> RiskLimitsConfig:
+    return _risk_config_from_settings(
+        _load_exchange_settings(exchange_name),
+        trade_fraction=trade_fraction,
     )
 
 
@@ -128,14 +167,7 @@ def _resolve_timeframe(exchange_name: str) -> str:
 
 
 def _resolve_strategist_config(exchange_name: str) -> StrategistConfig:
-    try:
-        from .exchange_profile import load_exchange_profile
-
-        settings = load_exchange_profile(exchange_name).parsed_settings
-    except Exception:
-        settings = {}
-
-    return _strategist_config_from_settings(settings)
+    return _strategist_config_from_settings(_load_exchange_settings(exchange_name))
 
 
 def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
@@ -248,6 +280,20 @@ def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
             if probation_loss_kill_all
             else ("Solo_", "Fixed_", "Antonius_", "Optimal_")
         ),
+        v3_shadow_fresh_handoff_enabled=bool_any(
+            (
+                "v2_shadow_fresh_handoff_enabled",
+                "v3_shadow_fresh_handoff_enabled",
+            ),
+            False,
+        ),
+        v3_shadow_fresh_handoff_max_age_bars=int(num_any(
+            (
+                "v2_shadow_fresh_handoff_max_age_bars",
+                "v3_shadow_fresh_handoff_max_age_bars",
+            ),
+            1,
+        )),
         v3_shadow_fresh_handoff_require_positive_unrealized=bool_any(
             (
                 "v2_shadow_fresh_handoff_require_positive_unrealized",
@@ -292,6 +338,15 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
     return LiveExecutionConfig(
         max_new_opens_per_bar=int_any(("v2_max_new_opens_per_bar", "max_new_opens_per_bar"), 1),
         max_daily_loss_pct=num_any(("v2_max_daily_loss_pct", "max_daily_loss_pct"), 5.0),
+        max_equity_peak_drawdown_pct=num_any(
+            (
+                "v2_max_equity_peak_drawdown_pct",
+                "max_equity_peak_drawdown_pct",
+                "v2_max_trailing_equity_stop_pct",
+                "max_trailing_equity_stop_pct",
+            ),
+            5.0,
+        ),
         max_consecutive_failed_orders=int_any(
             ("v2_max_consecutive_failed_orders", "max_consecutive_failed_orders"),
             3,
@@ -336,13 +391,7 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
 
 
 def _resolve_live_execution_config(exchange_name: str) -> LiveExecutionConfig:
-    try:
-        from .exchange_profile import load_exchange_profile
-
-        settings = load_exchange_profile(exchange_name).parsed_settings
-    except Exception:
-        settings = {}
-    return _live_execution_config_from_settings(settings)
+    return _live_execution_config_from_settings(_load_exchange_settings(exchange_name))
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -431,7 +480,15 @@ def _load_exchange_settings(exchange_name: str) -> dict:
     try:
         from .exchange_profile import load_exchange_profile
 
-        return dict(load_exchange_profile(exchange_name).parsed_settings or {})
+        profile = load_exchange_profile(exchange_name)
+        settings: dict = {}
+        for source in (
+            getattr(profile, "raw_settings", {}) or {},
+            getattr(profile, "parsed_settings", {}) or {},
+        ):
+            for key, value in dict(source).items():
+                settings[str(key).strip().lower()] = value
+        return settings
     except Exception:
         return {}
 
@@ -1056,6 +1113,22 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             0.1,
         ),
+        denied_signal_keys=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_denied_signal_keys",
+                "v2_flash_denied_signal_keys",
+                "flash_denied_signal_keys",
+            ),
+        ),
+        terminal_denied_signal_keys=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_terminal_denied_signal_keys",
+                "v2_flash_terminal_denied_signal_keys",
+                "flash_terminal_denied_signal_keys",
+            ),
+        ),
         denied_open_symbols=_settings_csv_tuple(
             settings,
             (
@@ -1233,6 +1306,23 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
                 "flash_degradation_recovery_min_recent_pnl_usd",
             ),
             0.0,
+        ),
+        promotion_manifest_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_promotion_manifest_enabled",
+                "v2_flash_promotion_manifest_enabled",
+                "flash_promotion_manifest_enabled",
+            ),
+            False,
+        ),
+        promoted_actor_cap_overrides=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_promoted_actor_cap_overrides",
+                "v2_flash_promoted_actor_cap_overrides",
+                "flash_promoted_actor_cap_overrides",
+            ),
         ),
     )
 
@@ -1713,19 +1803,24 @@ def start_production(
         exchange_name=exchange,
     )
     trade_fraction = _resolve_trade_fraction(exchange)
-    risk_config = _risk_config_from_trade_fraction(trade_fraction)
+    risk_config = _resolve_risk_config(exchange, trade_fraction)
     strategist_config = _resolve_strategist_config(exchange)
     live_execution_config = _resolve_live_execution_config(exchange)
     flash_enabled = _resolve_flash_enabled(exchange)
     flash_allocator_config = _resolve_flash_allocator_config(exchange)
     flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
-    log.info("[%s] v2 risk capital_fraction=%.2f%%",
-             exchange, risk_config.capital_fraction * 100.0)
     log.info(
-        "[%s] v2 live guardrails: daily_loss=%.2f%% slippage=%.2f%% "
+        "[%s] v2 risk capital_fraction=%.2f%% max_open_positions=%d",
+        exchange,
+        risk_config.capital_fraction * 100.0,
+        risk_config.max_open_positions,
+    )
+    log.info(
+        "[%s] v2 live guardrails: daily_loss=%.2f%% equity_peak_dd=%.2f%% slippage=%.2f%% "
         "api_errors=%d stale_polls=%d pending_timeout=%.0fs",
         exchange,
         live_execution_config.max_daily_loss_pct,
+        live_execution_config.max_equity_peak_drawdown_pct,
         live_execution_config.max_slippage_pct,
         live_execution_config.max_api_error_streak,
         live_execution_config.max_stale_feed_polls,
