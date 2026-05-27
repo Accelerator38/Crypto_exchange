@@ -404,6 +404,7 @@ class TestStartupFailClosed(unittest.TestCase):
             "v2_pending_order_timeout_sec": 90,
             "v2_genetics_probation_execution_enabled": "on",
             "v2_genetics_probation_risk_mult": 0.2,
+            "v2_genetics_probation_min_regime_confidence": 0.75,
             "v2_genetics_probation_max_real_trades": 7,
             "v2_genetics_probation_require_shadow_confirmation": "off",
         })
@@ -416,6 +417,7 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(cfg.pending_order_timeout_sec, 90)
         self.assertTrue(cfg.genetics_probation_execution_enabled)
         self.assertEqual(cfg.genetics_probation_risk_mult, 0.2)
+        self.assertEqual(cfg.genetics_probation_min_regime_confidence, 0.75)
         self.assertEqual(cfg.genetics_probation_max_real_trades, 7)
         self.assertFalse(cfg.genetics_probation_require_shadow_confirmation)
 
@@ -592,6 +594,136 @@ class TestMemorySeparationAndQuarantineState(unittest.TestCase):
         restored_record = restored_ledger.get("signal:1")
         self.assertEqual(restored_record.stage, OrderStage.SUBMITTED)
         self.assertEqual(restored_record.signal.sym, "BTC")
+
+    def test_snapshot_persists_position_tracker_provenance(self):
+        from panteon_v2.app.migration import load_v2_snapshot, save_v2_snapshot
+
+        virtual = PerformanceMemory()
+        tracker = PositionTracker()
+        opened_at = datetime(2026, 5, 27, 7, 0, tzinfo=timezone.utc)
+        tracker.force_set(TrackedPosition(
+            open_signal_id=42,
+            sym="BTC",
+            side="long",
+            entry_price=100.5,
+            qty=0.25,
+            fee_open=0.01,
+            by_player="Panteon_Flash",
+            by_agent="BullRotationAgent",
+            opened_at=opened_at,
+            opened_bar=5761,
+            open_action="FUT_LONG_FULL",
+            open_regime="bullish",
+            funding_open=0.002,
+        ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "snapshot.json")
+            save_v2_snapshot(virtual, path, position_tracker=tracker)
+
+            restored_tracker = PositionTracker()
+            self.assertTrue(load_v2_snapshot(
+                PerformanceMemory(),
+                path,
+                position_tracker=restored_tracker,
+            ))
+
+        restored = restored_tracker.get("BTC")
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.open_signal_id, 42)
+        self.assertEqual(restored.by_player, "Panteon_Flash")
+        self.assertEqual(restored.by_agent, "BullRotationAgent")
+        self.assertEqual(restored.opened_bar, 5761)
+        self.assertEqual(restored.opened_at, opened_at)
+        self.assertEqual(restored.open_action, "FUT_LONG_FULL")
+        self.assertEqual(restored.open_regime, "bullish")
+        self.assertAlmostEqual(restored.qty, 0.25)
+        self.assertAlmostEqual(restored.entry_price, 100.5)
+
+    def test_startup_recovery_preserves_existing_tracker_provenance(self):
+        from panteon_v2.app.bootstrap import build_production_pipeline
+        from panteon_v2.app.startup import _recover_exchange_positions
+        from panteon_v2.selection import AgentRegistry
+
+        class LiveExchange(FakeExchange):
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(
+                        sym="BTC",
+                        side="long",
+                        qty=0.35,
+                        entry=101.25,
+                        leverage=2,
+                    ),
+                }
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=LiveExchange(name="REAL"),
+            initial_capital=1000.0,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=42,
+            sym="BTC",
+            side="long",
+            entry_price=100.5,
+            qty=0.25,
+            fee_open=0.01,
+            by_player="Panteon_Flash",
+            by_agent="BullRotationAgent",
+            opened_at=datetime(2026, 5, 27, 7, 0, tzinfo=timezone.utc),
+            opened_bar=5761,
+            open_action="FUT_LONG_FULL",
+            open_regime="bullish",
+        ))
+
+        recovered = _recover_exchange_positions(pipeline)
+
+        restored = pipeline.executor._tracker.get("BTC")
+        self.assertEqual(recovered, 1)
+        self.assertEqual(restored.by_player, "Panteon_Flash")
+        self.assertEqual(restored.by_agent, "BullRotationAgent")
+        self.assertEqual(restored.open_signal_id, 42)
+        self.assertEqual(restored.opened_bar, 5761)
+        self.assertEqual(restored.open_action, "FUT_LONG_FULL")
+        self.assertEqual(restored.open_regime, "bullish")
+        self.assertAlmostEqual(restored.qty, 0.35)
+        self.assertAlmostEqual(restored.entry_price, 101.25)
+
+    def test_snapshot_persists_shadow_position_handoff(self):
+        from panteon_v2.app.migration import load_v2_snapshot, save_v2_snapshot
+
+        shadow_positions = {
+            "Solo_BullRotationAgent": ({
+                "sym": "BTC",
+                "side": "long",
+                "opened_bar": 5761,
+                "age_bars": 3,
+                "entry_price": 100.5,
+                "current_price": 101.0,
+                "qty": 0.25,
+                "unrealized_pnl_usd": 0.125,
+                "fresh": True,
+            },),
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "snapshot.json")
+            save_v2_snapshot(
+                PerformanceMemory(),
+                path,
+                shadow_positions=shadow_positions,
+            )
+            restored_positions = {}
+            self.assertTrue(load_v2_snapshot(
+                PerformanceMemory(),
+                path,
+                shadow_positions_target=restored_positions,
+            ))
+
+        self.assertEqual(restored_positions, shadow_positions)
 
     def test_quarantine_records_reason_and_probation_on_release(self):
         qm = QuarantineManager(seed=set())

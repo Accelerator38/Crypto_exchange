@@ -6,7 +6,7 @@ import unittest
 import json
 import os
 import tempfile
-from dataclasses import fields
+from dataclasses import fields, replace
 
 from panteon_v2.attribution import (
     EventLog,
@@ -245,6 +245,29 @@ class TestExecuteSuccess(unittest.TestCase):
         closed = list(self.deps["event_log"].query(event_types=[PositionClosed]))
         self.assertEqual(len(closed), 1)
         self.assertGreater(closed[0].realized_pnl, 0)
+
+    def test_close_fraction_closes_only_that_position_share(self):
+        op_sig = _make_signal(sid=1)
+        open_result = self.exec.execute(op_sig, balance_usd=1000.0)
+        open_qty = open_result.trade.qty
+        cl_sig = replace(
+            _make_signal(sid=2, action=Action.FUT_CLOSE_ALL, price=110.0),
+            close_fraction=0.25,
+        )
+
+        result = self.exec.execute(cl_sig, balance_usd=1000.0)
+
+        self.assertEqual(result.status, ExecutionStatus.FILLED)
+        self.assertAlmostEqual(result.trade.qty, open_qty * 0.25)
+        remaining = self.deps["position_tracker"].get("BTC")
+        self.assertIsNotNone(remaining)
+        self.assertAlmostEqual(remaining.qty, open_qty * 0.75)
+        exchange_pos = self.deps["exchange"].get_position("BTC")
+        self.assertIsNotNone(exchange_pos)
+        self.assertAlmostEqual(exchange_pos.qty, open_qty * 0.75)
+        closed = list(self.deps["event_log"].query(event_types=[PositionClosed]))
+        self.assertEqual(len(closed), 1)
+        self.assertAlmostEqual(closed[0].qty, open_qty * 0.25)
 
     def test_signal_id_in_trade(self):
         """Гарантия: Trade.signal_id == Signal.id."""

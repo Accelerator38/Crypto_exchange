@@ -18,7 +18,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Mapping, Optional, Sequence
 
 from ..domain.types import Regime
 from ..memory import PerformanceMemory
@@ -224,6 +224,8 @@ def save_v2_snapshot(
     *,
     real_perf:   Optional[PerformanceMemory] = None,
     order_ledger = None,
+    position_tracker = None,
+    shadow_positions: Optional[Mapping[str, Sequence[Mapping[str, object]]]] = None,
 ) -> None:
     """Сохранить PerformanceMemory snapshot в JSON."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -232,6 +234,12 @@ def save_v2_snapshot(
         snapshot["_real_memory"] = real_perf.snapshot()
     if order_ledger is not None and hasattr(order_ledger, "snapshot"):
         snapshot["_order_ledger"] = order_ledger.snapshot()
+    if position_tracker is not None and hasattr(position_tracker, "snapshot"):
+        snapshot["_position_tracker"] = position_tracker.snapshot()
+    if shadow_positions is not None:
+        snapshot["_shadow_player_positions"] = _json_safe_shadow_positions(
+            shadow_positions
+        )
     with open(path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
 
@@ -242,6 +250,8 @@ def load_v2_snapshot(
     *,
     real_perf:   Optional[PerformanceMemory] = None,
     order_ledger = None,
+    position_tracker = None,
+    shadow_positions_target: Optional[dict] = None,
 ) -> bool:
     """Загрузить PerformanceMemory snapshot из JSON. True если успешно."""
     if not os.path.exists(path):
@@ -254,7 +264,41 @@ def load_v2_snapshot(
             real_perf.restore(snap["_real_memory"])
         if order_ledger is not None and hasattr(order_ledger, "restore"):
             order_ledger.restore(snap.get("_order_ledger") or {})
+        if position_tracker is not None and hasattr(position_tracker, "restore"):
+            position_tracker.restore(snap.get("_position_tracker") or {})
+        if shadow_positions_target is not None:
+            shadow_positions_target.clear()
+            shadow_positions_target.update(
+                _restore_shadow_positions(snap.get("_shadow_player_positions") or {})
+            )
         return True
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("load_v2_snapshot failed (%s): %s", path, exc)
         return False
+
+
+def _json_safe_shadow_positions(
+    positions: Mapping[str, Sequence[Mapping[str, object]]],
+) -> Dict[str, List[dict]]:
+    out: Dict[str, List[dict]] = {}
+    for label, payloads in dict(positions or {}).items():
+        rows: List[dict] = []
+        for payload in tuple(payloads or ()):
+            if isinstance(payload, Mapping):
+                rows.append(dict(payload))
+        out[str(label)] = rows
+    return out
+
+
+def _restore_shadow_positions(raw: object) -> Dict[str, tuple]:
+    out: Dict[str, tuple] = {}
+    if not isinstance(raw, dict):
+        return out
+    for label, payloads in raw.items():
+        rows: List[dict] = []
+        if isinstance(payloads, (list, tuple)):
+            for payload in payloads:
+                if isinstance(payload, dict):
+                    rows.append(dict(payload))
+        out[str(label)] = tuple(rows)
+    return out

@@ -13,7 +13,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from panteon_v2.analysis.genetics_validation import fitness_v3_robust_score
+from panteon_v2.analysis.genetics_validation import (
+    fitness_v3_robust_score,
+    fitness_v4_robust_score,
+)
 
 ROUTER_REGIMES = ("crash", "bearish", "neutral", "bullish")
 SPECIALIST_LABEL_BY_REGIME = {
@@ -197,6 +200,7 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
         robust = mode_payload.get("robust_score", {})
         contract = mode_payload.get("contract_metrics", {})
         fitness_v3 = _fitness_v3_from_mode(mode_payload)
+        fitness_v4 = _fitness_v4_from_mode(mode_payload)
         result.append({
             "path": str(genome_payload.get("path", "")),
             "position_state_features_enabled": bool(
@@ -217,6 +221,12 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
             ),
             "fitness_v3_failed_gates": list(fitness_v3.get("failed_gates", [])),
             "fitness_v3": fitness_v3,
+            "fitness_v4_robust": float(fitness_v4.get("fitness_v4_robust", 0.0)),
+            "fitness_v4_passes_default_gates": bool(
+                fitness_v4.get("passes_default_gates", False)
+            ),
+            "fitness_v4_failed_gates": list(fitness_v4.get("failed_gates", [])),
+            "fitness_v4": fitness_v4,
             "mean_turnover_rate": float(contract.get("mean_turnover_rate", 0.0)),
             "max_turnover_rate": float(
                 contract.get("max_turnover_rate", contract.get("mean_turnover_rate", 0.0))
@@ -268,6 +278,41 @@ def _fitness_v3_from_mode(mode_payload: Dict[str, Any]) -> Dict[str, Any]:
     return fitness_v3_robust_score(
         period_rets,
         period_max_drawdowns_pct=values("max_drawdown_pct"),
+        period_turnover_rates=values("turnover_rate"),
+        period_effective_turnover_rates=values("effective_turnover_rate"),
+        period_saturation_rates=values("saturation_rate"),
+        period_invalid_open_pressures=values("invalid_open_logit_pressure"),
+        period_costs_pct=values("cost_pct"),
+        period_slippage_pct=values("slippage_pct"),
+        period_regimes=regimes,
+    )
+
+
+def _fitness_v4_from_mode(mode_payload: Dict[str, Any]) -> Dict[str, Any]:
+    period_rets = list(mode_payload.get("period_rets", []))
+    contract = mode_payload.get("contract_metrics", {})
+    periods = contract.get("periods", []) if isinstance(contract, dict) else []
+    if not isinstance(periods, list):
+        periods = []
+
+    def values(name: str) -> list[float]:
+        out: list[float] = []
+        for row in periods:
+            if not isinstance(row, dict):
+                out.append(0.0)
+                continue
+            try:
+                out.append(float(row.get(name, 0.0) or 0.0))
+            except (TypeError, ValueError):
+                out.append(0.0)
+        return out
+
+    regimes = [
+        str(row.get("regime", "unknown") if isinstance(row, dict) else "unknown")
+        for row in periods
+    ]
+    return fitness_v4_robust_score(
+        period_rets,
         period_turnover_rates=values("turnover_rate"),
         period_effective_turnover_rates=values("effective_turnover_rate"),
         period_saturation_rates=values("saturation_rate"),
@@ -382,6 +427,9 @@ def select_regime_router(
     min_positive_period_pct: float = 0.0,
     min_validation_periods: int = 2,
     min_validation_regime_periods: int = 1,
+    max_turnover_rate: float = 0.10,
+    max_saturation_rate: float = 0.10,
+    max_invalid_open_pressure: float = 0.05,
 ) -> Dict[str, Any]:
     validation_items = _summaries(validation_report, mode=mode)
     if not validation_items:
@@ -389,7 +437,7 @@ def select_regime_router(
 
     baseline_path = validation_items[0]["path"]
     candidate_paths = [item["path"] for item in validation_items]
-    regimes = ("bearish", "neutral", "bullish")
+    regimes = ROUTER_REGIMES
     allowed_regimes = set(allowed_candidate_regimes or regimes)
     baseline_map = {regime: baseline_path for regime in regimes}
     baseline_train = _period_summary_for_map(
@@ -465,6 +513,12 @@ def select_regime_router(
             failures.append("validation_min_ret")
         if validation["positive_period_pct"] < min_positive_period_pct:
             failures.append("validation_positive_period_pct")
+        if validation["max_turnover_rate"] > max_turnover_rate:
+            failures.append("validation_turnover")
+        if validation["max_saturation_rate"] > max_saturation_rate:
+            failures.append("validation_saturation")
+        if validation["max_invalid_open_logit_pressure"] > max_invalid_open_pressure:
+            failures.append("validation_invalid_open_pressure")
         for guard_idx, (guard, baseline_guard) in enumerate(zip(guards, baseline_guards)):
             guard_mean_delta = guard["mean_ret"] - baseline_guard["mean_ret"]
             guard_min_delta = guard["min_ret"] - baseline_guard["min_ret"]
@@ -477,6 +531,12 @@ def select_regime_router(
                 failures.append(f"guard_{guard_idx}_min_ret")
             if guard_positive_delta < 0.0:
                 failures.append(f"guard_{guard_idx}_positive_period_pct")
+            if guard["max_turnover_rate"] > max_turnover_rate:
+                failures.append(f"guard_{guard_idx}_turnover")
+            if guard["max_saturation_rate"] > max_saturation_rate:
+                failures.append(f"guard_{guard_idx}_saturation")
+            if guard["max_invalid_open_logit_pressure"] > max_invalid_open_pressure:
+                failures.append(f"guard_{guard_idx}_invalid_open_pressure")
 
         score = (
             train_mean_delta
@@ -549,6 +609,9 @@ def select_regime_router(
             "min_validation_periods": min_validation_periods,
             "min_validation_regime_periods": min_validation_regime_periods,
             "allowed_candidate_regimes": sorted(allowed_regimes),
+            "max_turnover_rate": max_turnover_rate,
+            "max_saturation_rate": max_saturation_rate,
+            "max_invalid_open_pressure": max_invalid_open_pressure,
         },
         "candidates": candidates,
     }
@@ -721,6 +784,7 @@ def select_candidate(
     max_saturation_rate: float = 0.10,
     max_invalid_open_pressure: float = 0.05,
     use_fitness_v3_robust: bool = False,
+    use_fitness_v4_robust: bool = False,
 ) -> Dict[str, Any]:
     train_items = {item["path"]: item for item in _summaries(train_report, mode=mode)}
     validation_items = _summaries(validation_report, mode=mode)
@@ -751,6 +815,11 @@ def select_candidate(
                 failures.append("fitness_v3_gates")
             if candidate["fitness_v3_robust"] <= baseline["fitness_v3_robust"]:
                 failures.append("validation_fitness_v3")
+        if use_fitness_v4_robust:
+            if not candidate["fitness_v4_passes_default_gates"]:
+                failures.append("fitness_v4_gates")
+            if candidate["fitness_v4_robust"] <= baseline["fitness_v4_robust"]:
+                failures.append("validation_fitness_v4")
 
         train_item = train_items.get(candidate["path"])
         train_mean_delta = (
@@ -771,6 +840,10 @@ def select_candidate(
         if use_fitness_v3_robust:
             score += (
                 candidate["fitness_v3_robust"] - baseline["fitness_v3_robust"]
+            ) * 5.0
+        if use_fitness_v4_robust:
+            score += (
+                candidate["fitness_v4_robust"] - baseline["fitness_v4_robust"]
             ) * 5.0
         item = {
             "path": candidate["path"],
@@ -805,6 +878,8 @@ def select_candidate(
             "max_turnover_rate": max_turnover_rate,
             "max_saturation_rate": max_saturation_rate,
             "max_invalid_open_pressure": max_invalid_open_pressure,
+            "use_fitness_v3_robust": use_fitness_v3_robust,
+            "use_fitness_v4_robust": use_fitness_v4_robust,
         },
         "candidates": candidates,
     }
@@ -819,6 +894,7 @@ def evaluate_single_candidate_multisplit_gate(
     max_saturation_rate: float = 0.10,
     max_invalid_open_pressure: float = 0.05,
     use_fitness_v3_robust: bool = False,
+    use_fitness_v4_robust: bool = False,
 ) -> Dict[str, Any]:
     selected_path = str(selection.get("selected_path") or "")
     baseline_path = str(selection.get("baseline_path") or "")
@@ -846,6 +922,7 @@ def evaluate_single_candidate_multisplit_gate(
             - float(baseline["fitness_v3"].get("crash_floor_ret", 0.0))
         )
         fitness_v3_delta = candidate["fitness_v3_robust"] - baseline["fitness_v3_robust"]
+        fitness_v4_delta = candidate["fitness_v4_robust"] - baseline["fitness_v4_robust"]
         split_failures: List[str] = []
         if mean_delta < 0.0:
             split_failures.append(f"oos_{idx}_mean_ret")
@@ -866,6 +943,11 @@ def evaluate_single_candidate_multisplit_gate(
                 split_failures.append(f"oos_{idx}_fitness_v3_gates")
             if fitness_v3_delta < 0.0:
                 split_failures.append(f"oos_{idx}_fitness_v3")
+        if use_fitness_v4_robust:
+            if not candidate["fitness_v4_passes_default_gates"]:
+                split_failures.append(f"oos_{idx}_fitness_v4_gates")
+            if fitness_v4_delta < 0.0:
+                split_failures.append(f"oos_{idx}_fitness_v4")
         failures.extend(split_failures)
         holdouts.append({
             "index": idx,
@@ -878,6 +960,7 @@ def evaluate_single_candidate_multisplit_gate(
             "positive_period_pct_delta": float(positive_delta),
             "crash_floor_delta": float(crash_delta),
             "fitness_v3_delta": float(fitness_v3_delta),
+            "fitness_v4_delta": float(fitness_v4_delta),
         })
 
     return {
@@ -889,6 +972,7 @@ def evaluate_single_candidate_multisplit_gate(
             "max_saturation_rate": max_saturation_rate,
             "max_invalid_open_pressure": max_invalid_open_pressure,
             "use_fitness_v3_robust": use_fitness_v3_robust,
+            "use_fitness_v4_robust": use_fitness_v4_robust,
         },
     }
 
@@ -920,7 +1004,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--allowed-candidate-regime",
         action="append",
-        choices=("bearish", "neutral", "bullish"),
+        choices=ROUTER_REGIMES,
         default=None,
         help="Restrict non-baseline regime-router assignments to these regimes. Repeatable.",
     )
@@ -947,6 +1031,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-saturation-rate", type=float, default=0.10)
     parser.add_argument("--max-invalid-open-pressure", type=float, default=0.05)
     parser.add_argument("--use-fitness-v3-robust", action="store_true")
+    parser.add_argument("--use-fitness-v4-robust", action="store_true")
     args = parser.parse_args(argv)
 
     train_report_path = Path(args.train_report)
@@ -974,6 +1059,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_positive_period_pct=args.min_positive_period_pct,
             min_validation_periods=args.min_validation_periods,
             min_validation_regime_periods=args.min_validation_regime_periods,
+            max_turnover_rate=args.max_turnover_rate,
+            max_saturation_rate=args.max_saturation_rate,
+            max_invalid_open_pressure=args.max_invalid_open_pressure,
         )
         if args.final_report:
             final_reports = [_load_json(Path(path)) for path in args.final_report]
@@ -1025,6 +1113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_saturation_rate=args.max_saturation_rate,
             max_invalid_open_pressure=args.max_invalid_open_pressure,
             use_fitness_v3_robust=args.use_fitness_v3_robust,
+            use_fitness_v4_robust=args.use_fitness_v4_robust,
         )
         if args.final_report:
             final_reports = [_load_json(Path(path)) for path in args.final_report]
@@ -1036,6 +1125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 max_saturation_rate=args.max_saturation_rate,
                 max_invalid_open_pressure=args.max_invalid_open_pressure,
                 use_fitness_v3_robust=args.use_fitness_v3_robust,
+                use_fitness_v4_robust=args.use_fitness_v4_robust,
             )
             selection["final_holdout_gate"] = final_gate
             selection["promotion_eligible"] = (

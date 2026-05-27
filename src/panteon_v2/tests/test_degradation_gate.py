@@ -7,7 +7,11 @@ import unittest
 
 from panteon_v2.app import OutputWriter, OutputWriterConfig
 from panteon_v2.app.bootstrap import build_production_pipeline
-from panteon_v2.app.main_loop import StepResult, _apply_degradation_gate
+from panteon_v2.app.main_loop import (
+    StepResult,
+    _apply_degradation_gate,
+    _apply_quarantine_recovery_override,
+)
 from panteon_v2.attribution import QuarantineRecomputed
 from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.execution import FakeExchange
@@ -17,6 +21,7 @@ from panteon_v2.memory import (
     PerformanceMemory,
     QuarantineManager,
 )
+from panteon_v2.scoring import ScoringConfig
 from panteon_v2.selection import AgentRegistry
 from panteon_v2.tests._helpers import FakeAgent
 
@@ -324,6 +329,48 @@ class TestDegradationGate(unittest.TestCase):
         events = list(pipeline.event_log.query(event_types=[QuarantineRecomputed]))
         self.assertEqual(len(events), 1)
         self.assertIn("GeneticsNeutral", events[0].added)
+
+    def test_main_loop_helper_releases_hopeless_agent_after_session_recovery(self) -> None:
+        registry = AgentRegistry()
+        registry.register(FakeAgent("LiveVolCompress"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="DRY-RUN"),
+            initial_capital=100.0,
+            scoring_config=ScoringConfig(quarantine_hard_min_closed=1),
+            perf_trade_fraction=1.0,
+        )
+        pipeline.quarantine_recovery_enabled = True
+        pipeline.quarantine_recovery_min_pnl_pct = 0.10
+        pipeline.quarantine_recovery_min_closed_trades = 3
+
+        _add_trade(pipeline.perf, "LiveVolCompress", -1.0, start_id=500)
+        first = pipeline.qm.recompute(pipeline.perf)
+        self.assertIn("LiveVolCompress", first.added)
+        self.assertTrue(pipeline.qm.is_quarantined("LiveVolCompress"))
+        pipeline.degradation_gate.capture_baseline(
+            pipeline.perf,
+            labels=pipeline.registry.all_labels(),
+        )
+
+        _add_trade(pipeline.perf, "LiveVolCompress", 0.12, start_id=510)
+        _add_trade(pipeline.perf, "LiveVolCompress", 0.12, start_id=520)
+        _add_trade(pipeline.perf, "LiveVolCompress", 0.12, start_id=530)
+        result = _apply_quarantine_recovery_override(
+            pipeline,
+            bar=21,
+            trace_id="test-21",
+        )
+
+        self.assertIn("LiveVolCompress", result.removed)
+        self.assertFalse(pipeline.qm.is_quarantined("LiveVolCompress"))
+        events = list(pipeline.event_log.query(event_types=[QuarantineRecomputed]))
+        self.assertEqual(len(events), 1)
+        self.assertIn("LiveVolCompress", events[0].removed)
+
+        second = pipeline.qm.recompute(pipeline.perf)
+        self.assertTrue(second.is_no_op)
+        self.assertFalse(pipeline.qm.is_quarantined("LiveVolCompress"))
 
     def test_output_status_exposes_degradation_quarantine_reason(self) -> None:
         registry = AgentRegistry()

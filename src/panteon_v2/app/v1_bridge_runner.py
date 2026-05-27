@@ -18,13 +18,16 @@ v1 уже имеет готовый bridge для BITGET/MEXC. Мы НЕ пер�
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from ..domain.types import MarketSnapshot, Regime
+from ..analysis.technical_indicators import TechnicalIndicatorState
+from ..domain.types import MarketSnapshot, Regime, TechnicalIndicators
 from ..shadow.adapters import make_market_snapshot
 from ..shadow.feed import MarketFeed
 from .bootstrap import ProductionPipeline
@@ -37,6 +40,7 @@ from .regime_detector import PriceRegimeDetector
 
 
 log = logging.getLogger(__name__)
+_BRIDGE_CACHE_SCHEMA_VERSION = 1
 
 
 def _account_log_fields(pipeline: ProductionPipeline) -> str:
@@ -155,12 +159,17 @@ class V1BridgeFeed:
         exchange_name: str,
         *,
         regime_detector: Optional[PriceRegimeDetector] = None,
+        technical_indicator_state: Optional[TechnicalIndicatorState] = None,
     ):
         self._bridge = bridge
         self._exchange = exchange_name
         self._warmed_up = False
         self._regime_detector = regime_detector or PriceRegimeDetector()
         self._regime_seeded = False
+        self._technical_indicator_state = (
+            technical_indicator_state or TechnicalIndicatorState()
+        )
+        self._technicals_seeded = False
 
     def warmup(self, warmup_bars: Optional[int] = None) -> None:
         if self._warmed_up:
@@ -170,10 +179,20 @@ class V1BridgeFeed:
             self._bridge.warmup(n_bars=int(bars))
             self._warmed_up = True
             self._seed_regime_detector_from_bridge_history()
+            self._seed_technicals_from_bridge_history()
             log.info("[%s] v1-bridge warmup completed (%d bars)",
                      self._exchange, bars)
         except Exception:
             log.exception("[%s] bridge warmup failed", self._exchange)
+
+    def mark_warmup_restored_from_cache(self) -> None:
+        self._warmed_up = True
+        self._regime_detector = PriceRegimeDetector()
+        self._regime_seeded = False
+        self._technical_indicator_state = TechnicalIndicatorState()
+        self._technicals_seeded = False
+        self._seed_regime_detector_from_bridge_history()
+        self._seed_technicals_from_bridge_history()
 
     def next_bar(self) -> Optional[MarketSnapshot]:
         if not self._warmed_up:
@@ -233,6 +252,7 @@ class V1BridgeFeed:
 
         # Regime is owned by the v2 price detector, not by agent internals.
         regime = self._regime_detector.update(prices)
+        technicals_by_symbol = self._update_technicals_from_prices(prices)
 
         return make_market_snapshot(
             bar=bar,
@@ -240,6 +260,7 @@ class V1BridgeFeed:
             volumes=volumes,
             regime=regime.label,
             regime_confidence=self._regime_detector.confidence,
+            technicals_by_symbol=technicals_by_symbol,
         )
 
     def _filter_contract_symbols(
@@ -295,6 +316,41 @@ class V1BridgeFeed:
             log.debug("[%s] failed to seed regime detector", self._exchange, exc_info=True)
         self._regime_seeded = True
 
+    def _seed_technicals_from_bridge_history(self) -> None:
+        if self._technicals_seeded:
+            return
+        try:
+            for row in _history_rows(getattr(self._bridge, "_price_hist", None)):
+                self._update_technicals_from_prices(row)
+        except Exception:
+            log.debug("[%s] failed to seed technical indicators", self._exchange, exc_info=True)
+        self._technicals_seeded = True
+
+    def _update_technicals_from_prices(
+        self,
+        prices: Dict[str, float],
+    ) -> Dict[str, TechnicalIndicators]:
+        technicals: Dict[str, TechnicalIndicators] = {}
+        for symbol, price in dict(prices or {}).items():
+            try:
+                close = float(price)
+                technicals[str(symbol).upper()] = (
+                    self._technical_indicator_state.update_symbol(
+                        str(symbol).upper(),
+                        high=close,
+                        low=close,
+                        close=close,
+                    )
+                )
+            except (TypeError, ValueError):
+                log.debug(
+                    "[%s] skipped technical indicator update for %s",
+                    self._exchange,
+                    symbol,
+                    exc_info=True,
+                )
+        return technicals
+
 
 def _history_rows(history: Any) -> List[Dict[str, float]]:
     """Normalize v1 bridge history into ordered market rows."""
@@ -338,6 +394,179 @@ def _history_rows(history: Any) -> List[Dict[str, float]]:
                 rows.append(row)
 
     return rows
+
+
+def _bridge_symbol_set(bridge: Any) -> set[str]:
+    raw_symbols = getattr(bridge, "symbols", None)
+    if not raw_symbols:
+        kwargs = getattr(bridge, "kwargs", None)
+        if isinstance(kwargs, dict):
+            cfg = kwargs.get("cfg")
+            if isinstance(cfg, dict):
+                raw_symbols = cfg.get("symbols")
+    if not raw_symbols:
+        return set()
+    out = set()
+    for symbol in tuple(raw_symbols or ()):
+        value = str(symbol or "").upper()
+        if value:
+            out.add(value)
+    return out
+
+
+def _history_symbol_set(rows: List[Dict[str, float]]) -> set[str]:
+    out = set()
+    for row in rows:
+        out.update(str(sym).upper() for sym in row)
+    return out
+
+
+def _parse_cache_timestamp(value: object) -> Optional[datetime]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _bridge_timeframe_seconds(bridge: Any) -> int:
+    raw = str(
+        getattr(bridge, "_tf_kline", None)
+        or getattr(bridge, "timeframe", None)
+        or "1m"
+    ).strip().lower()
+    if not raw:
+        return 60
+    unit = raw[-1]
+    try:
+        value = int(raw[:-1] or "1")
+    except ValueError:
+        return 60
+    if unit == "s":
+        return max(1, value)
+    if unit == "m":
+        return max(1, value * 60)
+    if unit == "h":
+        return max(1, value * 3600)
+    if unit == "d":
+        return max(1, value * 86400)
+    return 60
+
+
+def restore_bridge_state_cache(
+    bridge: Any,
+    cache_path: Optional[str],
+    *,
+    exchange_name: str,
+    max_age_sec: float = 6 * 3600,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    if not cache_path:
+        return {"restored": False, "reason": "disabled"}
+    path = Path(cache_path)
+    if not path.exists():
+        return {"restored": False, "reason": "missing"}
+
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (json.JSONDecodeError, OSError) as exc:
+        return {"restored": False, "reason": "cache_bad", "error": str(exc)}
+    if not isinstance(payload, dict):
+        return {"restored": False, "reason": "cache_bad"}
+    if int(payload.get("schema_version") or 0) != _BRIDGE_CACHE_SCHEMA_VERSION:
+        return {"restored": False, "reason": "schema_changed"}
+    if str(payload.get("exchange") or "").upper() != str(exchange_name or "").upper():
+        return {"restored": False, "reason": "exchange_changed"}
+
+    generated_at = _parse_cache_timestamp(payload.get("generated_at"))
+    if generated_at is None:
+        return {"restored": False, "reason": "cache_bad"}
+    now_dt = now or datetime.now(timezone.utc)
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=timezone.utc)
+    age_sec = max(0.0, (now_dt - generated_at).total_seconds())
+    if max_age_sec is not None and age_sec > float(max_age_sec):
+        return {"restored": False, "reason": "stale"}
+
+    price_rows = _history_rows(payload.get("price_hist"))
+    volume_rows = _history_rows(payload.get("volume_hist"))
+    if not price_rows:
+        return {"restored": False, "reason": "cache_bad"}
+
+    expected_symbols = _bridge_symbol_set(bridge)
+    cached_symbols = {
+        str(symbol or "").upper()
+        for symbol in tuple(payload.get("symbols") or ())
+        if str(symbol or "").strip()
+    }
+    if not cached_symbols:
+        cached_symbols = _history_symbol_set(price_rows)
+    if expected_symbols and cached_symbols and expected_symbols != cached_symbols:
+        return {"restored": False, "reason": "symbols_changed"}
+
+    try:
+        bar = int(payload.get("bar") or len(price_rows))
+    except (TypeError, ValueError):
+        bar = len(price_rows)
+    setattr(bridge, "_price_hist", price_rows)
+    setattr(bridge, "_volume_hist", volume_rows)
+    setattr(bridge, "_bar", bar)
+    return {
+        "restored": True,
+        "reason": "ok",
+        "rows": len(price_rows),
+        "bar": bar,
+        "symbols": sorted(cached_symbols),
+        "age_sec": age_sec,
+    }
+
+
+def save_bridge_state_cache(
+    bridge: Any,
+    cache_path: Optional[str],
+    *,
+    exchange_name: str,
+    max_rows: int = 6000,
+) -> Dict[str, Any]:
+    if not cache_path:
+        return {"saved": False, "reason": "disabled"}
+    price_rows = _history_rows(getattr(bridge, "_price_hist", None))
+    volume_rows = _history_rows(getattr(bridge, "_volume_hist", None))
+    if max_rows and max_rows > 0:
+        price_rows = price_rows[-int(max_rows):]
+        volume_rows = volume_rows[-int(max_rows):]
+    if not price_rows:
+        return {"saved": False, "reason": "empty"}
+    symbols = _bridge_symbol_set(bridge) or _history_symbol_set(price_rows)
+    try:
+        bar = int(getattr(bridge, "_bar", 0) or len(price_rows))
+    except (TypeError, ValueError):
+        bar = len(price_rows)
+    payload = {
+        "schema_version": _BRIDGE_CACHE_SCHEMA_VERSION,
+        "exchange": str(exchange_name or "").upper(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "bar": bar,
+        "symbols": sorted(symbols),
+        "price_hist": price_rows,
+        "volume_hist": volume_rows,
+    }
+    path = Path(cache_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+    except OSError as exc:
+        return {"saved": False, "reason": "write_failed", "error": str(exc)}
+    return {"saved": True, "rows": len(price_rows), "bar": bar}
 
 
 def _warmup_v2_agents_from_bridge(
@@ -528,6 +757,9 @@ def run_with_v1_bridge(
     max_idle_polls:            Optional[int] = None,
     sleep_between_polls_sec:   float = 5.0,
     warmup_bars:               Optional[int] = None,
+    bridge_cache_path:         Optional[str] = None,
+    bridge_cache_max_age_sec:  float = 6 * 3600,
+    snapshot_callback:         Optional[Callable[[], None]] = None,
 ) -> int:
     """Запускает pipeline через v1-bridge."""
     if bridge is None:
@@ -545,13 +777,66 @@ def run_with_v1_bridge(
              exchange_name)
     feed = V1BridgeFeed(bridge, exchange_name=exchange_name)
     bars_to_warmup = _bridge_warmup_bars(bridge, warmup_bars)
-    _write_bridge_heartbeat(
-        output_writer,
-        run_state="warming_up",
-        feed_status="warmup_loading",
-        message=f"loading {bars_to_warmup} historical bars through v1 bridge",
+    cache_status = restore_bridge_state_cache(
+        bridge,
+        bridge_cache_path,
+        exchange_name=exchange_name,
+        max_age_sec=bridge_cache_max_age_sec,
     )
-    feed.warmup(warmup_bars=warmup_bars)
+    if cache_status.get("restored"):
+        feed.mark_warmup_restored_from_cache()
+        gap_bars = int(
+            float(cache_status.get("age_sec") or 0.0)
+            // float(_bridge_timeframe_seconds(bridge))
+        )
+        if gap_bars > 0:
+            try:
+                bridge.warmup(n_bars=gap_bars)
+                feed.mark_warmup_restored_from_cache()
+                save_bridge_state_cache(
+                    bridge,
+                    bridge_cache_path,
+                    exchange_name=exchange_name,
+                )
+                log.info(
+                    "[%s] bridge warmup cache topped up: gap_bars=%d",
+                    exchange_name,
+                    gap_bars,
+                )
+            except Exception:
+                log.debug("[%s] bridge cache top-up failed", exchange_name, exc_info=True)
+        _write_bridge_heartbeat(
+            output_writer,
+            run_state="warming_up",
+            feed_status="warmup_cached",
+            message=(
+                "using cached warmup "
+                f"rows={cache_status.get('rows', 0)} bar={cache_status.get('bar', 0)} "
+                f"gap={gap_bars}"
+            ),
+        )
+        log.info(
+            "[%s] bridge warmup restored from cache: rows=%s bar=%s",
+            exchange_name,
+            cache_status.get("rows", 0),
+            cache_status.get("bar", 0),
+        )
+    else:
+        reason = str(cache_status.get("reason") or "missing")
+        log.info("[%s] bridge warmup cache unavailable: %s", exchange_name, reason)
+        _write_bridge_heartbeat(
+            output_writer,
+            run_state="warming_up",
+            feed_status="warmup_loading",
+            message=f"loading {bars_to_warmup} historical bars through v1 bridge",
+        )
+        feed.warmup(warmup_bars=warmup_bars)
+        if bridge_cache_path:
+            save_bridge_state_cache(
+                bridge,
+                bridge_cache_path,
+                exchange_name=exchange_name,
+            )
     _write_bridge_heartbeat(
         output_writer,
         run_state="warming_up",
@@ -589,6 +874,23 @@ def run_with_v1_bridge(
                 output_writer.write(step)
             except Exception:
                 log.exception("output_writer.write failed")
+        if bridge_cache_path:
+            cache_save_status = save_bridge_state_cache(
+                bridge,
+                bridge_cache_path,
+                exchange_name=exchange_name,
+            )
+            if not cache_save_status.get("saved"):
+                log.debug(
+                    "[%s] bridge cache save skipped: %s",
+                    exchange_name,
+                    cache_save_status.get("reason"),
+                )
+        if snapshot_callback is not None:
+            try:
+                snapshot_callback()
+            except Exception:
+                log.debug("[%s] runtime snapshot callback failed", exchange_name, exc_info=True)
         if n_step % 10 == 0:
             filtered = getattr(step, "n_filtered_real_signals", 0)
             filtered_msg = f" filtered={filtered}" if filtered else ""
@@ -631,6 +933,8 @@ def run_with_v1_bridge(
 
     if output_writer:
         output_writer.close()
+    if bridge_cache_path:
+        save_bridge_state_cache(bridge, bridge_cache_path, exchange_name=exchange_name)
 
     processed = len(steps) if steps is not None else n_step
     log.info("Run finished, processed %d bars", processed)

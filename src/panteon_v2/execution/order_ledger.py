@@ -222,6 +222,7 @@ def _signal_to_dict(signal: Optional[Signal]) -> Optional[dict]:
         "by_agent": signal.by_agent,
         "position_scope": signal.position_scope,
         "risk_mult": signal.risk_mult,
+        "close_fraction": signal.close_fraction,
         "timestamp": signal.timestamp.isoformat(),
     }
 
@@ -246,6 +247,7 @@ def _signal_from_dict(payload) -> Optional[Signal]:
             by_agent=str(payload.get("by_agent", "") or ""),
             position_scope=str(payload.get("position_scope", "") or ""),
             risk_mult=float(payload.get("risk_mult", 1.0) or 1.0),
+            close_fraction=float(payload.get("close_fraction", 1.0) or 1.0),
             timestamp=_parse_ts(payload.get("timestamp")),
         )
     except Exception:

@@ -37,6 +37,7 @@ from ..attribution import (
 )
 from ..domain.types import Action, MarketSnapshot, Regime, Signal
 from ..execution import ExecutionResult, ExecutionStatus
+from ..memory.quarantine import RecomputeResult
 from ..selection import (
     EnsemblePlayer,
     FlashDecision,
@@ -270,6 +271,128 @@ def _apply_degradation_gate(
     return result
 
 
+def _apply_quarantine_recovery_override(
+    pipeline: ProductionPipeline,
+    *,
+    bar: int,
+    trace_id: str,
+) -> RecomputeResult:
+    qm = getattr(pipeline, "qm", None)
+    perf = getattr(pipeline, "perf", None)
+    if qm is None:
+        return RecomputeResult(
+            added=frozenset(),
+            removed=frozenset(),
+            current=frozenset(),
+        )
+
+    before = qm.all_quarantined()
+    manual_labels = _quarantine_override_labels(pipeline)
+    for label in manual_labels:
+        _release_old_memory_quarantine(
+            qm,
+            label,
+            reason="manual_release_override",
+            bar=bar,
+        )
+
+    if bool(getattr(pipeline, "quarantine_recovery_enabled", True)) and perf is not None:
+        gate = getattr(pipeline, "degradation_gate", None)
+        session_metrics = getattr(gate, "session_metrics", None)
+        if callable(session_metrics):
+            min_pnl = _quarantine_recovery_min_pnl_pct(pipeline)
+            min_closed = _quarantine_recovery_min_closed_trades(pipeline)
+            for label in tuple(before):
+                record = qm.record_for(label)
+                if (
+                    record is None
+                    or record.state != "quarantined"
+                    or record.reason != "hopeless_in_all_regimes"
+                ):
+                    continue
+                try:
+                    metrics = session_metrics(perf, label)
+                except Exception:
+                    log.debug("quarantine recovery session metrics failed", exc_info=True)
+                    continue
+                if (
+                    int(getattr(metrics, "closed_trades", 0) or 0) < min_closed
+                    or float(getattr(metrics, "pnl_pct", 0.0) or 0.0) < min_pnl
+                ):
+                    continue
+                _release_old_memory_quarantine(
+                    qm,
+                    label,
+                    reason=(
+                        "session_recovery:"
+                        f"pnl_pct={float(getattr(metrics, 'pnl_pct', 0.0) or 0.0):.4f};"
+                        f"closed={int(getattr(metrics, 'closed_trades', 0) or 0)}"
+                    ),
+                    bar=bar,
+                )
+
+    after = qm.all_quarantined()
+    result = RecomputeResult(
+        added=frozenset(),
+        removed=frozenset(before - after),
+        current=after,
+    )
+    if not result.is_no_op:
+        pipeline.event_log.emit(QuarantineRecomputed(
+            bar=bar,
+            trace_id=trace_id,
+            added=result.added,
+            removed=result.removed,
+            current=result.current,
+        ))
+    return result
+
+
+def _quarantine_override_labels(pipeline: ProductionPipeline) -> Tuple[str, ...]:
+    labels = []
+    seen = set()
+    for raw in (getattr(pipeline, "quarantine_override_labels", ()) or ()):
+        label = str(raw or "").strip()
+        if label and label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return tuple(labels)
+
+
+def _quarantine_recovery_min_pnl_pct(pipeline: ProductionPipeline) -> float:
+    raw = getattr(pipeline, "quarantine_recovery_min_pnl_pct", None)
+    if raw is None:
+        cfg = getattr(getattr(pipeline, "qm", None), "_config", None)
+        raw = getattr(cfg, "quarantine_recovery_pnl_pct", 0.10)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.10
+
+
+def _quarantine_recovery_min_closed_trades(pipeline: ProductionPipeline) -> int:
+    raw = getattr(pipeline, "quarantine_recovery_min_closed_trades", None)
+    if raw is None:
+        cfg = getattr(getattr(pipeline, "qm", None), "_config", None)
+        raw = getattr(cfg, "quarantine_recovery_closed", 3)
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _release_old_memory_quarantine(
+    qm: object,
+    label: str,
+    *,
+    reason: str,
+    bar: int,
+) -> None:
+    release = getattr(qm, "force_release_override", None)
+    if callable(release):
+        release(label, reason=reason, bar=bar)
+
+
 def _drop_quarantined_candidates(
     pipeline: ProductionPipeline,
     candidates: List[EnsemblePlayer],
@@ -362,6 +485,7 @@ def main_loop(
     on_error:                    Optional[Callable[[Exception], None]] = None,
     on_idle:                     Optional[Callable[[int], None]] = None,
     max_idle_polls:              Optional[int] = None,
+    collect_results:             bool = True,
 ) -> List[StepResult]:
     """Основной цикл production-режима.
 
@@ -377,6 +501,7 @@ def main_loop(
       on_error                  — callback при необработанной ошибке (loop не падает)
       on_idle                   — callback при пустом feed.next_bar()
       max_idle_polls            — ограничение idle-опросов для healthcheck/tests
+      collect_results           — сохранять StepResult в возвращаемом списке
     """
     results: List[StepResult] = []
     signal_id_counter = _max_existing_signal_id(pipeline) + 1
@@ -434,7 +559,8 @@ def main_loop(
                 error=str(exc),
             )
 
-        results.append(step)
+        if collect_results:
+            results.append(step)
         bars_processed += 1
         if on_step:
             try:
@@ -482,6 +608,11 @@ def _run_one_bar(
     # 2. Compose once before shadow updates. Real selection reuses this snapshot,
     # so current-bar shadow results cannot leak into selector scores.
     _ensure_degradation_baseline(pipeline)
+    _apply_quarantine_recovery_override(
+        pipeline,
+        bar=market.bar,
+        trace_id=trace,
+    )
     candidates = _compose_candidates(pipeline, market.regime)
     shadow_summary = _run_shadow_tournament(pipeline, market, candidates)
     _capture_pending_shadow_updates(pipeline)
@@ -499,7 +630,17 @@ def _run_one_bar(
             ))
 
     # 4. Composer → candidates for real leader selection
+    _apply_quarantine_recovery_override(
+        pipeline,
+        bar=market.bar,
+        trace_id=trace,
+    )
     degradation_result = _apply_degradation_gate(
+        pipeline,
+        bar=market.bar,
+        trace_id=trace,
+    )
+    _apply_quarantine_recovery_override(
         pipeline,
         bar=market.bar,
         trace_id=trace,
@@ -909,6 +1050,9 @@ def _run_flash_decision_path(
             ),
             flash_shadow_confirmation_scores=_flash_shadow_confirmation_scores,
             flash_degraded_signal_keys=_flash_degraded_signal_keys,
+            genetics_probation_preselection_degraded_signal_keys=(
+                _genetics_probation_preselection_degraded_signal_keys
+            ),
             flash_degraded_actor_keys=_flash_degraded_actor_keys,
             flash_degraded_open_symbols=_flash_degraded_open_symbols,
             flash_promoted_signal_keys=_flash_promoted_signal_keys,
@@ -919,6 +1063,12 @@ def _run_flash_decision_path(
             flash_stale_position_close_signals=_flash_stale_position_close_signals,
             flash_stale_position_exit_max_age_bars=_flash_stale_position_exit_max_age_bars,
             flash_stale_position_exit_requires_loss=_flash_stale_position_exit_requires_loss,
+            genetics_probation_regime_exit_close_signals=(
+                _genetics_probation_regime_exit_close_signals
+            ),
+            flash_partial_profit_lock_close_signals=(
+                _flash_partial_profit_lock_close_signals
+            ),
             flash_guard_actor=_flash_guard_actor,
             filter_real_signals_against_tracker=filter_real_signals_against_tracker,
             genetics_probation_execution_overlay=(
@@ -1696,7 +1846,7 @@ def _compose_candidates(
     return [
         candidate
         for candidate in candidates
-        if _candidate_is_real_executable(candidate, pipeline)
+        if _candidate_is_real_executable(candidate, pipeline, regime=regime)
     ]
 
 
@@ -2116,18 +2266,26 @@ def _agent_is_real_executable(agent: object) -> bool:
 def _candidate_is_real_executable(
     candidate: object,
     pipeline: ProductionPipeline | None = None,
+    *,
+    regime: Regime | str | None = None,
 ) -> bool:
     if all(
         _agent_is_real_executable(agent)
         for agent in (getattr(candidate, "agents", ()) or ())
     ):
         return True
-    return _candidate_is_genetics_probation_executable(candidate, pipeline)
+    return _candidate_is_genetics_probation_executable(
+        candidate,
+        pipeline,
+        regime=regime,
+    )
 
 
 def _candidate_is_genetics_probation_executable(
     candidate: object,
     pipeline: ProductionPipeline | None,
+    *,
+    regime: Regime | str | None = None,
 ) -> bool:
     cfg = getattr(pipeline, "live_execution", None)
     if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
@@ -2144,7 +2302,21 @@ def _candidate_is_genetics_probation_executable(
     if len(agents) != 1:
         return False
     agent_label = str(getattr(agents[0], "label", "") or "")
-    return agent_label == label
+    if agent_label != label:
+        return False
+    allowed_regimes = {
+        item.lower()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_allowed_regimes", ()),
+        )
+    }
+    if allowed_regimes and regime is not None:
+        return _regime_key(regime) in allowed_regimes
+    return True
+
+
+def _regime_key(regime: Regime | str | object) -> str:
+    return str(getattr(regime, "label", regime) or "").strip().lower()
 
 
 def _candidate_uses_shadow_state_entry_gate(candidate: object) -> bool:
@@ -2292,9 +2464,26 @@ def _apply_genetics_probation_execution_overlay(
     }
     regime_key = str(getattr(market.regime, "label", market.regime) or "").lower()
     regime_allowed = not allowed_regimes or regime_key in allowed_regimes
+    try:
+        regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
+    except (TypeError, ValueError):
+        regime_confidence = 0.0
+    min_regime_confidence = max(
+        0.0,
+        min(
+            1.0,
+            float(getattr(cfg, "genetics_probation_min_regime_confidence", 0.0) or 0.0),
+        ),
+    )
+    regime_confident = regime_confidence >= min_regime_confidence
     require_shadow_confirmation = bool(
         getattr(cfg, "genetics_probation_require_shadow_confirmation", True)
     )
+    allowed_signal_keys = {
+        str(item or "").strip()
+        for item in getattr(cfg, "genetics_probation_allowed_signal_keys", ()) or ()
+        if str(item or "").strip()
+    }
     max_risk_mult = max(
         0.0,
         min(1.0, float(getattr(cfg, "genetics_probation_risk_mult", 0.25) or 0.25)),
@@ -2334,6 +2523,23 @@ def _apply_genetics_probation_execution_overlay(
             changed = True
             details.append(f"genetics_regime_blocked:{sym}:{agent_label}:{regime_key}")
             continue
+        if not regime_confident:
+            dropped += 1
+            changed = True
+            details.append(
+                "genetics_regime_confidence_blocked:"
+                f"{sym}:{agent_label}:"
+                f"{regime_confidence:.4f}<{min_regime_confidence:.4f}"
+            )
+            continue
+        if allowed_signal_keys and not (
+            _genetics_probation_signal_keys(probation_label, signal)
+            & allowed_signal_keys
+        ):
+            dropped += 1
+            changed = True
+            details.append(f"genetics_signal_key_blocked:{sym}:{agent_label}")
+            continue
         if require_shadow_confirmation and not _shadow_confirms_signal(
             pipeline,
             probation_label,
@@ -2363,6 +2569,62 @@ def _apply_genetics_probation_execution_overlay(
     )
 
 
+def _genetics_probation_preselection_degraded_signal_keys(
+    pipeline: ProductionPipeline,
+    shadow_player_signals: Mapping[str, Sequence[Signal]] | None,
+    shadow_agent_signals: Mapping[str, Sequence[Signal]] | None = None,
+    *,
+    regime: Regime | str | None = None,
+) -> Tuple[str, ...]:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return ()
+    allowed_regimes = {
+        item.lower()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_allowed_regimes", ()),
+        )
+    }
+    if (
+        allowed_regimes
+        and regime is not None
+        and _regime_key(regime) not in allowed_regimes
+    ):
+        return ()
+    allowed_signal_keys = {
+        str(item or "").strip()
+        for item in getattr(cfg, "genetics_probation_allowed_signal_keys", ()) or ()
+        if str(item or "").strip()
+    }
+    if not allowed_signal_keys:
+        return ()
+    labels = set(_string_tuple(
+        getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
+    ))
+    if not labels:
+        return ()
+
+    degraded: List[str] = []
+
+    def add_unlisted_open_keys(raw_label: object, signals: Sequence[Signal] | None) -> None:
+        label = str(raw_label or "").strip()
+        if label not in labels:
+            return
+        for signal in signals or ():
+            action = getattr(signal, "action", None)
+            if not bool(getattr(action, "is_open", False)):
+                continue
+            keys = _genetics_probation_signal_keys(label, signal)
+            if keys and not keys & allowed_signal_keys:
+                degraded.extend(sorted(keys))
+
+    for label, signals in dict(shadow_player_signals or {}).items():
+        add_unlisted_open_keys(label, signals)
+    for label, signals in dict(shadow_agent_signals or {}).items():
+        add_unlisted_open_keys(label, signals)
+    return tuple(dict.fromkeys(degraded))
+
+
 def _genetics_probation_signal_label(
     *,
     leader_label: str,
@@ -2379,6 +2641,29 @@ def _genetics_probation_signal_label(
         if label in labels:
             return label
     return ""
+
+
+def _genetics_probation_signal_keys(
+    probation_label: str,
+    signal: Signal,
+) -> set[str]:
+    action = getattr(signal, "action", None)
+    action_name = str(getattr(action, "name", action) or "")
+    sym = str(getattr(signal, "sym", "") or "").upper()
+    labels = tuple(dict.fromkeys(
+        str(item or "").strip()
+        for item in (
+            probation_label,
+            getattr(signal, "by_agent", ""),
+            getattr(signal, "by_player", ""),
+        )
+        if str(item or "").strip()
+    ))
+    return {
+        f"{actor_type}:{label}|{sym}|{action_name}"
+        for label in labels
+        for actor_type in ("agent", "ensemble")
+    }
 
 
 def _shadow_confirms_signal(
@@ -2455,6 +2740,91 @@ def _cash_flat_close_signals(
     return signals
 
 
+def _genetics_probation_regime_exit_close_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_start: int,
+    excluded_symbols: Optional[set[str]] = None,
+) -> List[Signal]:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return []
+    labels = {
+        str(item or "").strip()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
+        )
+        if str(item or "").strip()
+    }
+    if not labels:
+        return []
+    allowed_regimes = {
+        item.lower()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_allowed_regimes", ("bearish", "crash")),
+        )
+    }
+    regime_key = _regime_key(market.regime)
+    regime_allowed = not allowed_regimes or regime_key in allowed_regimes
+    try:
+        regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
+    except (TypeError, ValueError):
+        regime_confidence = 0.0
+    try:
+        min_confidence = float(
+            getattr(cfg, "genetics_probation_min_regime_confidence", 0.0) or 0.0
+        )
+    except (TypeError, ValueError):
+        min_confidence = 0.0
+    min_confidence = max(0.0, min(1.0, min_confidence))
+    confidence_allowed = regime_confidence >= min_confidence
+    if regime_allowed and confidence_allowed:
+        return []
+
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return []
+    excluded = {str(symbol or "").upper() for symbol in (excluded_symbols or set())}
+
+    try:
+        open_positions = tracker.all_open() or {}
+    except Exception:
+        log.debug("genetics probation regime-exit guard failed to read tracker", exc_info=True)
+        return []
+
+    signals: List[Signal] = []
+    sid = int(signal_id_start)
+    for sym, pos in sorted(open_positions.items()):
+        if is_external_position(pos):
+            continue
+        actor_labels = {
+            str(getattr(pos, "by_player", "") or "").strip(),
+            str(getattr(pos, "by_agent", "") or "").strip(),
+        }
+        if not actor_labels & labels:
+            continue
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        if symbol in excluded:
+            continue
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if price <= 0:
+            continue
+        signals.append(Signal(
+            id=sid,
+            bar=market.bar,
+            sym=symbol,
+            action=Action.FUT_CLOSE_ALL,
+            price=price,
+            regime=market.regime,
+            by_player="Panteon_Flash",
+            by_agent="GeneticsProbationRegimeExit",
+            timestamp=market.timestamp,
+        ))
+        sid += 1
+    return signals
+
+
 def _flash_stale_position_exit_enabled(pipeline: ProductionPipeline) -> bool:
     return bool(getattr(pipeline, "flash_stale_position_exit_enabled", False))
 
@@ -2476,6 +2846,194 @@ def _flash_stale_position_exit_requires_loss(pipeline: ProductionPipeline) -> bo
             True,
         )
     )
+
+
+def _flash_partial_profit_lock_enabled(pipeline: ProductionPipeline) -> bool:
+    return bool(getattr(pipeline, "flash_partial_profit_lock_enabled", False))
+
+
+def _flash_partial_profit_lock_trigger_pnl_pct(
+    pipeline: ProductionPipeline,
+) -> float:
+    try:
+        return max(
+            0.0,
+            float(getattr(pipeline, "flash_partial_profit_lock_trigger_pnl_pct", 1.5)),
+        )
+    except (TypeError, ValueError):
+        return 1.5
+
+
+def _flash_partial_profit_lock_close_fraction(
+    pipeline: ProductionPipeline,
+) -> float:
+    try:
+        value = float(getattr(pipeline, "flash_partial_profit_lock_close_fraction", 0.5))
+    except (TypeError, ValueError):
+        return 0.5
+    if value <= 0.0:
+        return 0.5
+    return min(1.0, value)
+
+
+def _flash_partial_profit_lock_min_age_bars(pipeline: ProductionPipeline) -> int:
+    try:
+        return max(
+            0,
+            int(getattr(pipeline, "flash_partial_profit_lock_min_age_bars", 1) or 0),
+        )
+    except (TypeError, ValueError):
+        return 1
+
+
+def _flash_partial_profit_lock_skip_protected_signal_keys(
+    pipeline: ProductionPipeline,
+) -> bool:
+    return bool(
+        getattr(
+            pipeline,
+            "flash_partial_profit_lock_skip_protected_signal_keys",
+            True,
+        )
+    )
+
+
+def _flash_partial_profit_lock_skip_signal_keys(
+    pipeline: ProductionPipeline,
+) -> set[str]:
+    raw_keys: list[object] = list(
+        getattr(pipeline, "flash_partial_profit_lock_skip_signal_keys", ()) or ()
+    )
+    if _flash_partial_profit_lock_skip_protected_signal_keys(pipeline):
+        raw_keys.extend(
+            getattr(pipeline, "flash_selected_subset_do_not_demote_signal_keys", ())
+            or ()
+        )
+        allocator_config = getattr(
+            getattr(pipeline, "flash_allocator", None),
+            "_config",
+            None,
+        )
+        raw_keys.extend(
+            getattr(
+                allocator_config,
+                "selected_subset_do_not_demote_signal_keys",
+                (),
+            )
+            or ()
+        )
+    return {
+        normalized
+        for raw in raw_keys
+        for normalized in [_normalize_partial_profit_lock_signal_key(raw)]
+        if normalized
+    }
+
+
+def _normalize_partial_profit_lock_signal_key(raw: object) -> str:
+    parts = [str(part or "").strip() for part in str(raw or "").split("|")]
+    if len(parts) < 3:
+        return ""
+    actor_key, symbol, action = parts[:3]
+    if not actor_key or not symbol or not action:
+        return ""
+    return "|".join((actor_key, symbol.upper(), action.upper()))
+
+
+def _partial_profit_lock_open_signal_keys(pos: object) -> set[str]:
+    symbol = str(getattr(pos, "sym", "") or "").upper()
+    action = str(getattr(pos, "open_action", "") or "").upper()
+    if not symbol or not action:
+        return set()
+    by_player = str(getattr(pos, "by_player", "") or "").strip()
+    by_agent = str(getattr(pos, "by_agent", "") or "").strip()
+    actor_keys: list[str] = []
+    if by_player and by_player not in {"Panteon_Flash", by_agent}:
+        actor_keys.append(f"ensemble:{by_player}")
+    if by_agent:
+        actor_keys.append(f"agent:{by_agent}")
+    if by_player and by_player == by_agent:
+        actor_keys.append(f"agent:{by_player}")
+    return {
+        _normalize_partial_profit_lock_signal_key(f"{actor}|{symbol}|{action}")
+        for actor in actor_keys
+        if actor
+    }
+
+
+def _flash_partial_profit_lock_close_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_start: int,
+    excluded_symbols: Optional[set[str]] = None,
+) -> List[Signal]:
+    if not _flash_partial_profit_lock_enabled(pipeline):
+        return []
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return []
+    trigger_pct = _flash_partial_profit_lock_trigger_pnl_pct(pipeline)
+    if trigger_pct <= 0.0:
+        return []
+    close_fraction = _flash_partial_profit_lock_close_fraction(pipeline)
+    min_age_bars = _flash_partial_profit_lock_min_age_bars(pipeline)
+    skip_signal_keys = _flash_partial_profit_lock_skip_signal_keys(pipeline)
+    excluded = {str(symbol or "").upper() for symbol in (excluded_symbols or set())}
+
+    try:
+        open_positions = tracker.all_open() or {}
+    except Exception:
+        log.debug("flash partial-profit lock failed to read tracker", exc_info=True)
+        return []
+
+    signals: List[Signal] = []
+    sid = int(signal_id_start)
+    for sym, pos in sorted(open_positions.items()):
+        if is_external_position(pos):
+            continue
+        if bool(getattr(pos, "partial_profit_locked", False)):
+            continue
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        if symbol in excluded:
+            continue
+        if skip_signal_keys and (
+            _partial_profit_lock_open_signal_keys(pos) & skip_signal_keys
+        ):
+            continue
+        price = float(market.prices.get(symbol, 0.0) or 0.0)
+        entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
+        qty = float(getattr(pos, "qty", 0.0) or 0.0)
+        if price <= 0.0 or entry_price <= 0.0 or qty <= 0.0:
+            continue
+        opened_bar = _safe_nonnegative_int(getattr(pos, "opened_bar", 0))
+        if opened_bar is not None and min_age_bars > 0:
+            age_bars = max(0, int(market.bar) - opened_bar)
+            if age_bars < min_age_bars:
+                continue
+        side = str(getattr(pos, "side", "") or "").lower()
+        if side == "long":
+            pnl_pct = (price - entry_price) / entry_price * 100.0
+        elif side == "short":
+            pnl_pct = (entry_price - price) / entry_price * 100.0
+        else:
+            continue
+        if pnl_pct < trigger_pct:
+            continue
+        signals.append(Signal(
+            id=sid,
+            bar=market.bar,
+            sym=symbol,
+            action=Action.FUT_CLOSE_ALL,
+            price=price,
+            regime=market.regime,
+            by_player="Panteon_Flash",
+            by_agent="PartialProfitLock",
+            close_fraction=close_fraction,
+            timestamp=market.timestamp,
+        ))
+        sid += 1
+    return signals
 
 
 def _flash_stale_position_close_signals(
@@ -2786,17 +3344,28 @@ def _fallback_candidate_safety_issue(
     candidate: EnsemblePlayer,
     market: MarketSnapshot,
 ) -> bool:
-    if not _candidate_is_real_executable(candidate):
-        return True
+    reason = _fallback_candidate_safety_reason(pipeline, candidate, market)
+    _record_flash_candidate_safety_reason(pipeline, candidate, reason)
+    return bool(reason)
+
+
+def _fallback_candidate_safety_reason(
+    pipeline: ProductionPipeline,
+    candidate: EnsemblePlayer,
+    market: MarketSnapshot,
+) -> str:
+    if not _candidate_is_real_executable(candidate, pipeline, regime=market.regime):
+        return "not real-executable candidate"
     strategist = getattr(pipeline, "strategist", None)
     validate = getattr(strategist, "_validate", None)
     if callable(validate):
         try:
-            if validate(candidate) is not None:
-                return True
+            issue = validate(candidate)
+            if issue is not None:
+                return str(getattr(issue, "reason", "") or "strategist validation")
         except Exception:
             log.debug("fallback safety quarantine validation failed", exc_info=True)
-            return True
+            return "strategist validation error"
     validate_hard_policy = getattr(strategist, "_validate_hard_policy", None)
     if callable(validate_hard_policy):
         try:
@@ -2807,23 +3376,46 @@ def _fallback_candidate_safety_issue(
                 market_tags=_market_policy_tags(market),
             )
             if issue is not None:
-                return True
+                return str(getattr(issue, "reason", "") or "hard policy validation")
         except Exception:
             log.debug("fallback hard-policy validation failed", exc_info=True)
-            return True
+            return "hard-policy validation error"
     validate_real_loss = getattr(strategist, "_validate_v3_real_loss", None)
-    if callable(validate_real_loss):
+    strategist_config = getattr(strategist, "_config", None)
+    if (
+        callable(validate_real_loss)
+        and bool(getattr(strategist_config, "use_v3_rolling_score", False))
+    ):
         try:
-            if validate_real_loss(
+            issue = validate_real_loss(
                 candidate,
                 market.regime,
                 current_bar=market.bar,
-            ) is not None:
-                return True
+            )
+            if issue is not None:
+                return str(getattr(issue, "reason", "") or "v3 real-loss validation")
         except Exception:
             log.debug("fallback real-loss validation failed", exc_info=True)
-            return True
-    return False
+            return "v3 real-loss validation error"
+    return ""
+
+
+def _record_flash_candidate_safety_reason(
+    pipeline: ProductionPipeline,
+    candidate: EnsemblePlayer,
+    reason: str,
+) -> None:
+    label = str(getattr(candidate, "label", "") or "").strip()
+    if not label:
+        return
+    reasons = getattr(pipeline, "_flash_candidate_safety_reasons", None)
+    if not isinstance(reasons, dict):
+        reasons = {}
+    reasons[label] = str(reason or "")
+    try:
+        pipeline._flash_candidate_safety_reasons = reasons
+    except Exception:
+        pass
 
 
 def _fallback_registry_score(
@@ -3579,7 +4171,7 @@ def _flash_causal_decision_payload(
         str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "selected_actor", "") or "")
         for decision in decisions or ()
     }
-    return {
+    payload: Dict[str, object] = {
         "flash_enabled": True,
         "bar": int(getattr(market, "bar", 0) or 0),
         "timestamp": _timestamp_payload(getattr(market, "timestamp", None)),
@@ -3631,6 +4223,14 @@ def _flash_causal_decision_payload(
             for decision in decisions or ()
         ],
     }
+    shadow_position_diagnostics = _flash_shadow_position_diagnostics(
+        pipeline,
+        market,
+        decisions=decisions,
+    )
+    if shadow_position_diagnostics is not None:
+        payload["shadow_position_diagnostics"] = shadow_position_diagnostics
+    return payload
 
 
 def _signal_payload(signal: Signal) -> Dict[str, object]:
@@ -3648,6 +4248,9 @@ def _signal_payload(signal: Signal) -> Dict[str, object]:
         "by_agent": str(getattr(signal, "by_agent", "") or ""),
         "position_scope": str(getattr(signal, "position_scope", "") or ""),
         "risk_mult": _safe_float_or_zero(getattr(signal, "risk_mult", 1.0)),
+        "close_fraction": _safe_float_or_zero(
+            getattr(signal, "close_fraction", 1.0)
+        ),
         "timestamp": _timestamp_payload(getattr(signal, "timestamp", None)),
     }
 
@@ -3684,6 +4287,240 @@ def _shadow_signal_count_for_label(pipeline: ProductionPipeline, label: str) -> 
     if not isinstance(signals_by_player, dict):
         return 0
     return len(tuple(signals_by_player.get(label, ()) or ()))
+
+
+def _flash_shadow_position_diagnostics(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    decisions: Sequence[FlashDecision] = (),
+) -> Optional[Dict[str, object]]:
+    bars = {
+        int(item)
+        for item in (getattr(pipeline, "shadow_position_diagnostic_bars", ()) or ())
+        if str(item).strip()
+    }
+    current_bar = int(getattr(market, "bar", 0) or 0)
+    if not bars or current_bar not in bars:
+        return None
+
+    positions_by_player = getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    if not isinstance(positions_by_player, dict):
+        positions_by_player = {}
+    configured_labels = [
+        str(label).strip()
+        for label in (getattr(pipeline, "shadow_position_diagnostic_labels", ()) or ())
+        if str(label).strip()
+    ]
+    labels = tuple(dict.fromkeys(configured_labels or sorted(positions_by_player.keys())))
+    if not labels:
+        return {
+            "bar": current_bar,
+            "max_age_bars": _shadow_position_replay_max_age(pipeline),
+            "require_positive_unrealized": (
+                _shadow_position_replay_requires_positive_unrealized(pipeline)
+            ),
+            "players": [],
+        }
+
+    max_age_bars = _shadow_position_replay_max_age(pipeline)
+    require_positive_unrealized = (
+        _shadow_position_replay_requires_positive_unrealized(pipeline)
+    )
+    players: List[Dict[str, object]] = []
+    for label in labels:
+        positions = [
+            _shadow_position_diagnostic_payload(
+                payload,
+                market,
+                max_age_bars=max_age_bars,
+                require_positive_unrealized=require_positive_unrealized,
+                decision_context=_shadow_position_decision_context(
+                    decisions,
+                    label=label,
+                    symbol=str(payload.get("sym") or "").upper(),
+                    action_name=(
+                        "FUT_LONG_FULL"
+                        if str(payload.get("side") or "").lower() == "long"
+                        else "FUT_SHORT_FULL"
+                        if str(payload.get("side") or "").lower() == "short"
+                        else ""
+                    ),
+                    candidate_safety_reasons=getattr(
+                        pipeline,
+                        "_flash_candidate_safety_reasons",
+                        {},
+                    ),
+                ),
+            )
+            for payload in tuple(positions_by_player.get(label, ()) or ())
+            if isinstance(payload, dict)
+        ]
+        players.append({
+            "label": label,
+            "shadow_signal_count": _shadow_signal_count_for_label(pipeline, label),
+            "positions": positions,
+        })
+    return {
+        "bar": current_bar,
+        "max_age_bars": max_age_bars,
+        "require_positive_unrealized": require_positive_unrealized,
+        "players": players,
+    }
+
+
+def _shadow_position_diagnostic_payload(
+    payload: Dict[str, object],
+    market: MarketSnapshot,
+    *,
+    max_age_bars: int,
+    require_positive_unrealized: bool,
+    decision_context: Optional[Dict[str, object]] = None,
+) -> Dict[str, object]:
+    symbol = str(payload.get("sym") or "").upper()
+    side = str(payload.get("side") or "").lower()
+    if side == "long":
+        replay_action = "FUT_LONG_FULL"
+    elif side == "short":
+        replay_action = "FUT_SHORT_FULL"
+    else:
+        replay_action = ""
+
+    age_bars = _safe_nonnegative_int(payload.get("age_bars"))
+    if age_bars is None:
+        opened_bar = _safe_nonnegative_int(payload.get("opened_bar"))
+        age_bars = (
+            max(0, int(getattr(market, "bar", 0) or 0) - opened_bar)
+            if opened_bar is not None and opened_bar > 0
+            else 0
+        )
+    current_price = _safe_float_or_none(
+        (getattr(market, "prices", {}) or {}).get(symbol)
+    )
+    if current_price is None:
+        current_price = _safe_float_or_none(payload.get("current_price"))
+
+    block_reason = ""
+    if not symbol or symbol not in (getattr(market, "prices", {}) or {}):
+        block_reason = "missing_market_price"
+    elif not replay_action:
+        block_reason = "unsupported_side"
+    elif age_bars > max_age_bars:
+        block_reason = "stale_position"
+    elif require_positive_unrealized and _shadow_position_has_nonpositive_unrealized(payload):
+        block_reason = "nonpositive_unrealized"
+    elif current_price is None or current_price <= 0.0:
+        block_reason = "invalid_market_price"
+
+    out: Dict[str, object] = {
+        "sym": symbol,
+        "side": side,
+        "opened_bar": _safe_nonnegative_int(payload.get("opened_bar")),
+        "age_bars": age_bars,
+        "entry_price": _safe_float_or_none(payload.get("entry_price")),
+        "current_price": current_price,
+        "qty": _safe_float_or_none(payload.get("qty")),
+        "unrealized_pnl_usd": _safe_float_or_none(payload.get("unrealized_pnl_usd")),
+        "fresh": bool(payload.get("fresh", False)),
+        "replay_action": replay_action,
+        "replay_eligible": not bool(block_reason),
+        "replay_block_reason": block_reason,
+    }
+    if decision_context:
+        out["decision_context"] = decision_context
+    return out
+
+
+def _shadow_position_decision_context(
+    decisions: Sequence[FlashDecision],
+    *,
+    label: str,
+    symbol: str,
+    action_name: str,
+    candidate_safety_reasons: Mapping[str, object] | None = None,
+) -> Dict[str, object]:
+    clean_label = str(label or "").strip()
+    clean_symbol = str(symbol or "").upper()
+    clean_action = str(action_name or "").strip().upper()
+    decision = next(
+        (
+            item
+            for item in decisions or ()
+            if str(getattr(item, "symbol", "") or "").upper() == clean_symbol
+        ),
+        None,
+    )
+    safety_reason = str(
+        dict(candidate_safety_reasons or {}).get(clean_label, "") or ""
+    )
+    if decision is None:
+        out = {"candidate_found": False}
+        if safety_reason:
+            out["pre_allocator_safety_reason"] = safety_reason
+        return out
+
+    out: Dict[str, object] = {
+        "decision_selected_actor": str(getattr(decision, "selected_actor", "") or ""),
+        "decision_actor_type": str(getattr(decision, "actor_type", "") or ""),
+        "decision_action": getattr(
+            getattr(decision, "action", None),
+            "name",
+            str(getattr(decision, "action", "") or ""),
+        ),
+        "decision_reason": str(getattr(decision, "reason", "") or ""),
+        "candidate_found": False,
+    }
+    if safety_reason:
+        out["pre_allocator_safety_reason"] = safety_reason
+    candidate = next(
+        (
+            row
+            for row in tuple(getattr(decision, "candidates", ()) or ())
+            if str(getattr(row, "label", "") or "").strip() == clean_label
+            and str(getattr(row, "actor_type", "") or "").strip() == "ensemble"
+            and getattr(getattr(row, "action", None), "name", "") == clean_action
+        ),
+        None,
+    )
+    if candidate is None:
+        return out
+
+    out.update({
+        "candidate_found": True,
+        "candidate_actor_key": str(getattr(candidate, "actor_key", "") or ""),
+        "candidate_rank": int(getattr(candidate, "rank", 0) or 0),
+        "candidate_rejected": bool(getattr(candidate, "rejected", False)),
+        "candidate_reason": str(getattr(candidate, "reason", "") or ""),
+        "candidate_score": _safe_float_or_zero(getattr(candidate, "score", 0.0)),
+        "candidate_base_score": _safe_float_or_zero(
+            getattr(candidate, "base_score", 0.0)
+        ),
+        "candidate_gate_score": _safe_float_or_zero(
+            getattr(candidate, "gate_score", 0.0)
+        ),
+        "candidate_closed_trades": int(
+            getattr(candidate, "closed_trades", 0) or 0
+        ),
+        "candidate_shadow_score": _safe_float_or_zero(
+            getattr(candidate, "shadow_score", 0.0)
+        ),
+        "candidate_shadow_closed_trades": int(
+            getattr(candidate, "shadow_closed_trades", 0) or 0
+        ),
+        "candidate_shadow_source": str(
+            getattr(candidate, "shadow_source", "") or ""
+        ),
+        "candidate_selected_subset_protected": bool(
+            getattr(candidate, "selected_subset_protected", False)
+        ),
+        "candidate_selected_subset_score_boost": _safe_float_or_zero(
+            getattr(candidate, "selected_subset_score_boost", 0.0)
+        ),
+        "candidate_selected_subset_risk_mult": _safe_float_or_zero(
+            getattr(candidate, "selected_subset_risk_mult", 1.0)
+        ),
+    })
+    return out
 
 
 def _candidate_score_payloads(
@@ -3809,6 +4646,8 @@ def _emit_flash_audit_events(
     trace_id: str,
     context: Dict[str, str],
 ) -> None:
+    if not bool(getattr(pipeline, "flash_audit_events_enabled", True)):
+        return
     emit_flash_audit_events(
         pipeline,
         market,

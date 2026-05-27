@@ -18,10 +18,15 @@ def _open_signal(sid: int = 1, sym: str = "BTC",
     )
 
 
-def _close_signal(sid: int = 2, sym: str = "BTC") -> Signal:
+def _close_signal(
+    sid: int = 2,
+    sym: str = "BTC",
+    close_fraction: float = 1.0,
+) -> Signal:
     return Signal(
         id=sid, bar=2, sym=sym, action=Action.FUT_CLOSE_ALL, price=110.0,
         regime=Regime.BULLISH, by_player="Player", by_agent="Agent",
+        close_fraction=close_fraction,
     )
 
 
@@ -138,6 +143,130 @@ class TestPositionTracker(unittest.TestCase):
         )
         # Negative funding means rebate to the position.
         self.assertAlmostEqual(events[0].realized_pnl, 10.50, places=5)
+
+    def test_partial_close_keeps_remaining_position_and_prorates_open_costs(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, qty=2.0, fee=0.20, funding=0.10),
+        )
+        cl_sig = _close_signal(sid=2, close_fraction=0.25)
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, qty=0.5, fee=0.05, funding=0.02),
+        )
+
+        self.assertEqual(len(events), 1)
+        ev = events[0]
+        self.assertEqual(ev.qty, 0.5)
+        self.assertAlmostEqual(ev.realized_pnl, 4.855, places=5)
+        remaining = tracker.get("BTC")
+        self.assertIsNotNone(remaining)
+        self.assertAlmostEqual(remaining.qty, 1.5)
+        self.assertAlmostEqual(remaining.fee_open, 0.15)
+        self.assertAlmostEqual(remaining.funding_open, 0.075)
+
+    def test_default_close_all_keeps_legacy_full_close_semantics(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, qty=2.0),
+        )
+        cl_sig = _close_signal(sid=2)
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, qty=0.5),
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].qty, 2.0)
+        self.assertAlmostEqual(events[0].realized_pnl, 20.0)
+        self.assertFalse(tracker.has("BTC"))
+
+    def test_spot_sell_all_does_not_close_futures_position_when_family_strict(self):
+        tracker = PositionTracker(strict_close_action_family=True)
+        op_sig = _open_signal(sid=1, action=Action.FUT_LONG_FULL)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, qty=2.0),
+        )
+        cl_sig = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="Player",
+            by_agent="Agent",
+        )
+
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, qty=2.0),
+        )
+
+        self.assertEqual(events, [])
+        self.assertTrue(tracker.has("BTC"))
+        self.assertEqual(tracker.get("BTC").open_action, Action.FUT_LONG_FULL.name)
+
+    def test_default_close_family_keeps_legacy_shadow_semantics(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1, action=Action.FUT_LONG_FULL)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, qty=2.0),
+        )
+        cl_sig = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="Player",
+            by_agent="Agent",
+        )
+
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, qty=2.0),
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertFalse(tracker.has("BTC"))
+
+    def test_spot_sell_all_uses_trade_qty_when_smaller_than_open_lot(self):
+        tracker = PositionTracker()
+        op_sig = _open_signal(sid=1, action=Action.FUT_LONG_FULL)
+        tracker.on_open(
+            signal=op_sig,
+            trade=_trade(op_sig, fill_price=100.0, qty=2.0),
+        )
+        cl_sig = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="Player",
+            by_agent="Agent",
+        )
+
+        events = tracker.on_close(
+            signal=cl_sig,
+            trade=_trade(cl_sig, fill_price=110.0, qty=0.5),
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].qty, 0.5)
+        self.assertAlmostEqual(events[0].realized_pnl, 5.0)
+        remaining = tracker.get("BTC")
+        self.assertIsNotNone(remaining)
+        self.assertAlmostEqual(remaining.qty, 1.5)
 
     def test_close_without_open_no_event(self):
         tracker = PositionTracker()

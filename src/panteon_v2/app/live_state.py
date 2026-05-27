@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from ..attribution.events import PositionClosed
-from ..domain.types import Action, Signal
+from ..domain.types import Action, Regime, Signal
 from ..execution.position_tracker import TrackedPosition
 
 
@@ -34,6 +34,8 @@ class RealSignalGuardResult:
 
 
 EXTERNAL_POSITION_PLAYER_LABELS = {"", "RecoveredExchangePosition"}
+ADOPTED_POSITION_PLAYER_LABEL = "PanteonFlashAdopted"
+ADOPTED_POSITION_AGENT_LABEL = "AdoptedExchangePosition"
 
 
 def is_external_position(pos: Dict[str, Any] | Any) -> bool:
@@ -42,6 +44,93 @@ def is_external_position(pos: Dict[str, Any] | Any) -> bool:
     else:
         owner = getattr(pos, "by_player", "")
     return str(owner or "") in EXTERNAL_POSITION_PLAYER_LABELS
+
+
+def is_adopted_position(pos: Dict[str, Any] | Any, pipeline: Any = None) -> bool:
+    if isinstance(pos, dict):
+        owner = pos.get("by_player", "")
+    else:
+        owner = getattr(pos, "by_player", "")
+    adopted_player, _ = adopted_position_labels(pipeline)
+    return str(owner or "") == adopted_player
+
+
+def adopted_position_labels(pipeline: Any = None) -> tuple[str, str]:
+    cfg = getattr(pipeline, "live_execution", None)
+    player = str(
+        getattr(cfg, "adopt_existing_position_player", ADOPTED_POSITION_PLAYER_LABEL)
+        or ADOPTED_POSITION_PLAYER_LABEL
+    ).strip() or ADOPTED_POSITION_PLAYER_LABEL
+    agent = str(
+        getattr(cfg, "adopt_existing_position_agent", ADOPTED_POSITION_AGENT_LABEL)
+        or ADOPTED_POSITION_AGENT_LABEL
+    ).strip() or ADOPTED_POSITION_AGENT_LABEL
+    return player, agent
+
+
+def should_adopt_existing_position(pipeline: Any, symbol: str) -> bool:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "adopt_existing_positions_enabled", False)):
+        return False
+    raw_symbols = tuple(getattr(cfg, "adopt_existing_position_symbols", ()) or ())
+    allowed = {_normalize_symbol_key(item) for item in raw_symbols if str(item or "").strip()}
+    if not allowed:
+        return True
+    if "*" in allowed or "ALL" in allowed:
+        return True
+    variants = _symbol_variants(symbol)
+    return bool(allowed & variants)
+
+
+def seed_perf_open_position_for_adoption(pipeline: Any, pos: TrackedPosition) -> None:
+    perf = getattr(pipeline, "perf", None)
+    seed = getattr(perf, "seed_open_position", None)
+    if not callable(seed):
+        return
+    try:
+        regime = Regime.from_string(str(getattr(pos, "open_regime", "") or "neutral"))
+    except Exception:
+        regime = Regime.NEUTRAL
+    labels = [
+        str(getattr(pos, "by_agent", "") or ""),
+        str(getattr(pos, "by_player", "") or ""),
+    ]
+    seed(
+        labels=labels,
+        regime=regime,
+        sym=str(getattr(pos, "sym", "") or ""),
+        side=str(getattr(pos, "side", "") or ""),
+        entry_price=float(getattr(pos, "entry_price", 0.0) or 0.0),
+        qty=float(getattr(pos, "qty", 0.0) or 0.0),
+        fee_open=float(getattr(pos, "fee_open", 0.0) or 0.0),
+        funding_open=float(getattr(pos, "funding_open", 0.0) or 0.0),
+        signal_id=int(getattr(pos, "open_signal_id", 0) or 0),
+        position_scope="",
+        count_entry=False,
+    )
+
+
+def _normalize_symbol_key(symbol: Any) -> str:
+    return str(symbol or "").strip().upper().replace("-", "/")
+
+
+def _symbol_variants(symbol: Any) -> set[str]:
+    raw = _normalize_symbol_key(symbol)
+    if not raw:
+        return set()
+    variants = {raw}
+    if raw.endswith("/USDT"):
+        variants.add(raw[:-5])
+    elif "/" not in raw:
+        variants.add(f"{raw}/USDT")
+    return variants
+
+
+def _open_action_for_side(side: Any) -> str:
+    side_key = str(side or "").lower()
+    if side_key == "short":
+        return "FUT_SHORT_FULL"
+    return "FUT_LONG_FULL"
 
 
 def _agent_sync_positions(positions: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -297,6 +386,9 @@ def reconcile_tracker_with_exchange(
     external_added = 0
     external_updated = 0
     external_removed = 0
+    adopted_added = 0
+    adopted_updated = 0
+    adopted_removed = 0
     seen = 0
     exchange_seen_symbols: Set[str] = set()
     for key, raw_pos in exchange_positions.items():
@@ -306,6 +398,30 @@ def reconcile_tracker_with_exchange(
         seen += 1
         exchange_seen_symbols.add(normalized["sym"])
         existing = tracker.get(normalized["sym"])
+        adopt_existing = (
+            (existing is None or is_external_position(existing))
+            and should_adopt_existing_position(pipeline, normalized["sym"])
+        )
+        adopted_player, adopted_agent = adopted_position_labels(pipeline)
+        by_player = (
+            adopted_player
+            if adopt_existing else (
+                str(getattr(existing, "by_player", "") or "")
+                if existing is not None else "RecoveredExchangePosition"
+            )
+        ) or "RecoveredExchangePosition"
+        by_agent = (
+            adopted_agent
+            if adopt_existing else str(getattr(existing, "by_agent", "") or "")
+        )
+        open_action = (
+            _open_action_for_side(normalized["side"])
+            if adopt_existing else str(getattr(existing, "open_action", "") or "")
+        )
+        open_regime = (
+            "neutral"
+            if adopt_existing else str(getattr(existing, "open_regime", "") or "")
+        )
         replacement = TrackedPosition(
             open_signal_id=(
                 int(getattr(existing, "open_signal_id", 0) or 0)
@@ -316,11 +432,8 @@ def reconcile_tracker_with_exchange(
             entry_price=normalized["entry_price"],
             qty=normalized["qty"],
             fee_open=float(getattr(existing, "fee_open", 0.0) or 0.0),
-            by_player=(
-                str(getattr(existing, "by_player", "") or "")
-                if existing is not None else "RecoveredExchangePosition"
-            ) or "RecoveredExchangePosition",
-            by_agent=str(getattr(existing, "by_agent", "") or ""),
+            by_player=by_player,
+            by_agent=by_agent,
             opened_at=(
                 getattr(existing, "opened_at", None)
                 if existing is not None else datetime.now(timezone.utc)
@@ -329,12 +442,19 @@ def reconcile_tracker_with_exchange(
                 int(getattr(existing, "opened_bar", 0) or 0)
                 if existing is not None else int(bar_index or 0)
             ),
+            open_action=open_action,
+            open_regime=open_regime,
+            funding_open=float(getattr(existing, "funding_open", 0.0) or 0.0),
         )
         if existing is None:
             added += 1
             tracker.force_set(replacement)
             if is_external_position(replacement):
                 external_added += 1
+            elif is_adopted_position(replacement, pipeline):
+                owned_added += 1
+                adopted_added += 1
+                seed_perf_open_position_for_adoption(pipeline, replacement)
             else:
                 owned_added += 1
             continue
@@ -342,12 +462,20 @@ def reconcile_tracker_with_exchange(
             existing.side != replacement.side
             or abs(existing.qty - replacement.qty) > 1e-12
             or abs(existing.entry_price - replacement.entry_price) > 1e-12
+            or str(existing.by_player or "") != str(replacement.by_player or "")
+            or str(existing.by_agent or "") != str(replacement.by_agent or "")
+            or str(existing.open_action or "") != str(replacement.open_action or "")
+            or str(existing.open_regime or "") != str(replacement.open_regime or "")
         )
         if changed:
             updated += 1
             tracker.force_set(replacement)
-            if is_external_position(existing):
+            if is_external_position(replacement):
                 external_updated += 1
+            elif is_adopted_position(replacement, pipeline):
+                owned_updated += 1
+                adopted_updated += 1
+                seed_perf_open_position_for_adoption(pipeline, replacement)
             else:
                 owned_updated += 1
 
@@ -363,6 +491,9 @@ def reconcile_tracker_with_exchange(
         removed += 1
         if is_external_position(removed_pos):
             external_removed += 1
+        elif is_adopted_position(removed_pos, pipeline):
+            owned_removed += 1
+            adopted_removed += 1
         else:
             owned_removed += 1
         _emit_external_close_event(pipeline, removed_pos, bar_index=bar_index)
@@ -377,6 +508,9 @@ def reconcile_tracker_with_exchange(
         "external_added": external_added,
         "external_updated": external_updated,
         "external_removed": external_removed,
+        "adopted_added": adopted_added,
+        "adopted_updated": adopted_updated,
+        "adopted_removed": adopted_removed,
         "seen": seen,
         "bar_index": int(bar_index or 0),
     }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import importlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -1094,6 +1095,28 @@ def test_behavior_cloning_resolves_panteon_runtime_agent_classes(monkeypatch):
     assert cg._resolve_bc_agent_class("LiveOIBreakout") is LiveOIBreakout
 
 
+def test_behavior_cloning_bootstrap_exposes_real_panteon_agents():
+    cg = _load_crypto_genetics()
+    root = Path(__file__).resolve().parents[3]
+    runtime_dir = root / "src" / "panteon_runtime"
+
+    assert str(runtime_dir) in sys.path
+    resolved = cg._resolve_bc_agent_class("MomentumScalper")
+    assert resolved is not None
+    assert resolved.__name__ == "MomentumScalper"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows evaluator branch")
+def test_cpu_evaluator_uses_thread_pool_for_large_windows_precomp():
+    cg = _load_crypto_genetics()
+    ev = cg.CPUEvaluator([], 2)
+    try:
+        assert ev._ex is not None
+        assert ev._pkl is None
+    finally:
+        ev.shutdown()
+
+
 def test_genetic_settings_can_load_from_env_path(tmp_path, monkeypatch):
     cg = _load_crypto_genetics()
     settings_path = tmp_path / "settings_genetic_wide.txt"
@@ -1112,6 +1135,69 @@ def test_genetic_settings_can_load_from_env_path(tmp_path, monkeypatch):
     assert loaded["n_hidden2"] == "96"
     assert loaded["n_hidden3"] == "48"
     assert "pop_size" in loaded
+
+
+def test_training_window_prefers_genetics_env_over_exchange_config(monkeypatch):
+    cg = _load_crypto_genetics()
+
+    monkeypatch.setitem(cg._GS, "train_start_date", "2021-01-01")
+    monkeypatch.setitem(cg._GS, "train_end_date", "2021-12-31")
+    cfg = {"start_date": "2018-01-01", "end_date": "2025-12-31"}
+
+    assert cg._training_window_from_config(cfg) == ("2021-01-01", "2021-12-31")
+
+    monkeypatch.setenv("GENETICS_TRAIN_START_DATE", "2022-01-01")
+    monkeypatch.setenv("GENETICS_TRAIN_END_DATE", "2023-12-31")
+
+    assert cg._training_window_from_config(cfg) == ("2022-01-01", "2023-12-31")
+
+
+def test_cpu_batch_eval_applies_regime_weight_override(monkeypatch):
+    cg = _load_crypto_genetics()
+    trainer = object.__new__(cg.GeneticTrainer)
+    trainer.mode = "cpu"
+
+    monkeypatch.setattr(cg, "POSITION_STATE_FEATURES_ENABLED", False)
+    monkeypatch.setattr(cg, "CURRENCY_SELECTION_ENABLED", False)
+    monkeypatch.setattr(cg, "TRAIN_MAX_POS", 2)
+
+    def fake_forward(population, feat, prices=None):
+        return np.zeros((len(population), feat.shape[0], feat.shape[1]), dtype=np.int8)
+
+    captured = {}
+
+    def fake_simulate(actions, prices, initial_capital, snap_every):
+        g = actions.shape[0]
+        return (
+            np.ones(g, dtype=np.float64),
+            np.zeros(g, dtype=np.float64),
+            np.zeros(g, dtype=np.float64),
+            None,
+        )
+
+    def fake_compute(ret_mat, dd_mat, tr_mat, dpv, rw_arr, sat_mat, pressure_mat):
+        captured["rw"] = rw_arr.copy()
+        return np.zeros(ret_mat.shape[0], dtype=np.float64)
+
+    monkeypatch.setattr(cg.GeneticTrainer, "_batch_forward_numpy", staticmethod(fake_forward))
+    monkeypatch.setattr(cg, "simulate_batch", fake_simulate)
+    monkeypatch.setattr(cg, "_compute_fitness", fake_compute)
+
+    population = np.zeros((2, cg.GENOME_SIZE), dtype=np.float32)
+    feat = np.zeros((2, 1, cg.N_INPUT), dtype=np.float32)
+    prices = np.ones((2, 1), dtype=np.float64)
+    precomp = [
+        (feat, prices, ["BTC"], 1, "2022-01", 1.0, "bearish"),
+        (feat, prices, ["BTC"], 2, "2022-02", 1.0, "bullish"),
+    ]
+
+    trainer._eval_island_batch(
+        population,
+        precomp,
+        rw_override={"bearish": 3.0, "bullish": 0.5},
+    )
+
+    np.testing.assert_allclose(captured["rw"], np.array([3.0, 0.5]))
 
 
 def _test_mlp_forward(genome: np.ndarray, arch: tuple[int, int, int, int, int],
@@ -1254,6 +1340,19 @@ def test_output_calibration_writes_manifest_only_under_neiro_genetics(tmp_path):
     assert manifest["requires_validation"] is True
     assert len(manifest["variants"]) == 2
     assert all("Results\\neiro_genetics" in item["path"] for item in manifest["variants"])
+
+
+def test_behavior_cloning_flash_seed_alias_expands_to_best_components():
+    cg = _load_crypto_genetics()
+
+    expanded = cg._expand_bc_agent_seed_name("Panteon_Flash")
+
+    assert "MomentumScalper" in expanded
+    assert "LiveOIBreakout" in expanded
+    assert "VolBreakoutHunter" in expanded
+    assert "FundingArb" in expanded
+    assert "ResearchValidatorAgent" in expanded
+    assert "CrashPanicShortAgent" in expanded
 
 
 def _genetics_selection_report(*, baseline_mean: float, candidate_mean: float,
@@ -1554,6 +1653,69 @@ def test_genetics_candidate_selector_cli_can_enable_fitness_v3_gate(tmp_path):
     assert "validation_fitness_v3" in payload["candidates"][0]["failures"]
 
 
+def test_genetics_candidate_selector_fitness_v4_rejects_outlier_validation_winner():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    regimes = ["crash", "bearish", "neutral", "bullish"]
+
+    def genome(path: str, rets: list[float]) -> dict:
+        return {
+            "path": path,
+            "modes": [{
+                "mode": "fee_fixed_nextbar",
+                "fitness": float(np.mean(rets)),
+                "period_stats": {
+                    "mean_ret": float(np.mean(rets)),
+                    "min_ret": float(np.min(rets)),
+                    "max_ret": float(np.max(rets)),
+                    "positive_period_pct": 100.0,
+                },
+                "robust_score": {"passes_default_gates": True},
+                "contract_metrics": {
+                    "mean_turnover_rate": 0.03,
+                    "max_turnover_rate": 0.03,
+                    "mean_saturation_rate": 0.00,
+                    "max_saturation_rate": 0.00,
+                    "mean_invalid_open_logit_pressure": 0.00,
+                    "max_invalid_open_logit_pressure": 0.00,
+                    "periods": [
+                        {
+                            "period": f"2024-{idx + 1:02d}",
+                            "regime": regime,
+                            "turnover_rate": 0.03,
+                            "effective_turnover_rate": 0.03,
+                            "saturation_rate": 0.00,
+                            "invalid_open_logit_pressure": 0.00,
+                        }
+                        for idx, regime in enumerate(regimes)
+                    ],
+                },
+                "period_rets": rets,
+            }],
+        }
+
+    report = {
+        "genomes": [
+            genome("baseline.npy", [0.8, 0.8, 0.8, 0.8]),
+            genome("candidate.npy", [0.8, 0.8, 0.8, 4.0]),
+        ]
+    }
+
+    selected = selector.select_candidate(
+        report,
+        report,
+        use_fitness_v4_robust=True,
+    )
+
+    assert selected["selected_is_baseline"] is True
+    assert "fitness_v4_gates" in selected["candidates"][0]["failures"]
+    assert "validation_fitness_v4" in selected["candidates"][0]["failures"]
+    assert selected["candidates"][0]["validation"]["fitness_v4_robust"] < selected[
+        "baseline_validation"
+    ]["fitness_v4_robust"]
+
+
 def test_single_candidate_oos_gate_rejects_oos_loss_and_crash_floor_loss():
     import importlib
 
@@ -1766,6 +1928,170 @@ def test_regime_router_selector_can_restrict_candidate_regimes_for_specialists()
     assert selected["selected_is_baseline"] is False
     assert selected["selected_regime_map"]["neutral"] == "candidate.npy"
     assert selected["selected_regime_map"]["bullish"] == "baseline.npy"
+
+
+def test_regime_router_selector_can_route_crash_specialist():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.35],
+        regimes=["crash"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.32],
+        regimes=["crash"],
+    )
+
+    selected = selector.select_regime_router(
+        train,
+        validation,
+        allowed_candidate_regimes=["crash"],
+        min_validation_periods=1,
+    )
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["selected_regime_map"]["crash"] == "candidate.npy"
+    assert selected["baseline_regime_map"]["crash"] == "baseline.npy"
+
+
+def test_regime_router_cli_accepts_crash_candidate_regime(tmp_path):
+    import importlib
+    import json
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.35],
+        regimes=["crash"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.32],
+        regimes=["crash"],
+    )
+    train_path = tmp_path / "train.json"
+    validation_path = tmp_path / "validation.json"
+    out_path = tmp_path / "selection.json"
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+
+    rc = selector.main([
+        "--train-report",
+        str(train_path),
+        "--validation-report",
+        str(validation_path),
+        "--regime-router",
+        "--allowed-candidate-regime",
+        "crash",
+        "--min-validation-periods",
+        "1",
+        "--out",
+        str(out_path),
+    ])
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert rc == 0
+    assert payload["selected_regime_map"]["crash"] == "candidate.npy"
+
+
+def test_regime_router_selector_rejects_guard_contract_breaches_before_selection():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.40],
+        regimes=["neutral"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.35],
+        regimes=["neutral"],
+    )
+    guard = _genetics_regime_selection_report(
+        baseline_rets=[0.20],
+        candidate_rets=[0.30],
+        regimes=["neutral"],
+        baseline_turnovers=[0.02],
+        candidate_turnovers=[0.20],
+        baseline_saturations=[0.02],
+        candidate_saturations=[0.18],
+    )
+
+    selected = selector.select_regime_router(
+        train,
+        validation,
+        guard_reports=[guard],
+        allowed_candidate_regimes=["neutral"],
+        min_validation_periods=1,
+        max_turnover_rate=0.10,
+        max_saturation_rate=0.10,
+    )
+
+    assert selected["selected_is_baseline"] is True
+    assert "guard_0_turnover" in selected["candidates"][0]["failures"]
+    assert "guard_0_saturation" in selected["candidates"][0]["failures"]
+
+
+def test_regime_router_cli_passes_contract_limits_into_selection(tmp_path):
+    import importlib
+    import json
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.40],
+        regimes=["neutral"],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.35],
+        regimes=["neutral"],
+    )
+    guard = _genetics_regime_selection_report(
+        baseline_rets=[0.20],
+        candidate_rets=[0.30],
+        regimes=["neutral"],
+        baseline_turnovers=[0.02],
+        candidate_turnovers=[0.20],
+        baseline_saturations=[0.02],
+        candidate_saturations=[0.18],
+    )
+    train_path = tmp_path / "train.json"
+    validation_path = tmp_path / "validation.json"
+    guard_path = tmp_path / "guard.json"
+    out_path = tmp_path / "selection.json"
+    train_path.write_text(json.dumps(train), encoding="utf-8")
+    validation_path.write_text(json.dumps(validation), encoding="utf-8")
+    guard_path.write_text(json.dumps(guard), encoding="utf-8")
+
+    rc = selector.main([
+        "--train-report",
+        str(train_path),
+        "--validation-report",
+        str(validation_path),
+        "--guard-report",
+        str(guard_path),
+        "--regime-router",
+        "--allowed-candidate-regime",
+        "neutral",
+        "--min-validation-periods",
+        "1",
+        "--max-turnover-rate",
+        "0.10",
+        "--max-saturation-rate",
+        "0.10",
+        "--out",
+        str(out_path),
+    ])
+
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    assert rc == 0
+    assert payload["selected_is_baseline"] is True
+    assert "guard_0_turnover" in payload["candidates"][0]["failures"]
 
 
 def test_regime_router_multisplit_gate_rejects_oos_degradation():

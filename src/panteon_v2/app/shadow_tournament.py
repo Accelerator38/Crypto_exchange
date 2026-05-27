@@ -36,6 +36,17 @@ log = logging.getLogger(__name__)
 _SHADOW_SIGNAL_ID_START = 1_000_000_000
 
 
+class _NoopEventLog:
+    def emit(self, event: object) -> None:
+        return None
+
+    def emit_many(self, events: Iterable[object]) -> None:
+        return None
+
+    def query(self, **kwargs: object) -> Tuple[object, ...]:
+        return ()
+
+
 @dataclass(frozen=True)
 class ShadowStepSummary:
     agent_signals: int = 0
@@ -82,6 +93,7 @@ class _VirtualActorRuntime:
         actor_label: str,
         perf: PerformanceMemory,
         risk_config: RiskLimitsConfig,
+        event_log_enabled: bool = True,
     ) -> None:
         self.actor_label = actor_label
         self._executor = TradeExecutor(
@@ -90,7 +102,7 @@ class _VirtualActorRuntime:
             risk_limits=RiskLimits(config=risk_config),
             position_tracker=PositionTracker(),
             perf=perf,
-            event_log=EventLog(),
+            event_log=EventLog() if event_log_enabled else _NoopEventLog(),
         )
 
     def execute_many(
@@ -122,6 +134,7 @@ class ProductionShadowTournament:
         risk_config: RiskLimitsConfig,
         virtual_balance_floor: float = 1000.0,
         event_log: Optional[EventLog] = None,
+        runtime_event_logs_enabled: bool = True,
     ) -> None:
         self._source_registry = registry
         self._registry = AgentRegistry()
@@ -129,6 +142,7 @@ class ProductionShadowTournament:
         self._risk_config = risk_config
         self._balance_floor = float(virtual_balance_floor)
         self._event_log = event_log
+        self._runtime_event_logs_enabled = bool(runtime_event_logs_enabled)
         self._runtimes: Dict[str, _VirtualActorRuntime] = {}
         self._source_agents: Dict[str, Agent] = {}
         self._player_agent_clones: Dict[Tuple[str, str], Agent] = {}
@@ -157,15 +171,26 @@ class ProductionShadowTournament:
 
     def last_player_open_positions(self) -> Dict[str, Tuple[Dict[str, object], ...]]:
         out: Dict[str, Tuple[Dict[str, object], ...]] = {}
-        prefix = "player:"
         for actor_key, runtime in self._runtimes.items():
-            if not actor_key.startswith(prefix):
+            is_player = actor_key.startswith("player:")
+            is_agent = actor_key.startswith("agent:")
+            if not is_player and not is_agent:
                 continue
-            label = actor_key[len(prefix):]
-            out[label] = _position_payloads(
+            if is_player:
+                label = actor_key[len("player:"):]
+            else:
+                agent_label = actor_key[len("agent:"):]
+                label = (
+                    agent_label
+                    if agent_label.startswith("Solo_")
+                    else f"Solo_{agent_label}"
+                )
+            payloads = _position_payloads(
                 runtime.open_positions(),
                 market=self._last_market,
             )
+            if is_player or payloads:
+                out[label] = payloads
         return out
 
     def run_bar(
@@ -430,6 +455,7 @@ class ProductionShadowTournament:
                 actor_label=actor_key,
                 perf=self._perf,
                 risk_config=self._risk_config,
+                event_log_enabled=self._runtime_event_logs_enabled,
             )
             self._runtimes[actor_key] = runtime
         return runtime

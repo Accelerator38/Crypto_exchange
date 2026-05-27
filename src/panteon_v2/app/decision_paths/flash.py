@@ -30,6 +30,7 @@ class FlashDecisionPathCallbacks:
     flash_shadow_player_signals_with_position_replay: Callable[..., Any]
     flash_shadow_confirmation_scores: Callable[..., Any]
     flash_degraded_signal_keys: Callable[..., Any]
+    genetics_probation_preselection_degraded_signal_keys: Callable[..., Any]
     flash_degraded_actor_keys: Callable[..., Any]
     flash_degraded_open_symbols: Callable[..., Any]
     flash_promoted_signal_keys: Callable[..., Any]
@@ -40,6 +41,8 @@ class FlashDecisionPathCallbacks:
     flash_stale_position_close_signals: Callable[..., Any]
     flash_stale_position_exit_max_age_bars: Callable[..., Any]
     flash_stale_position_exit_requires_loss: Callable[..., Any]
+    genetics_probation_regime_exit_close_signals: Callable[..., Any]
+    flash_partial_profit_lock_close_signals: Callable[..., Any]
     flash_guard_actor: Callable[..., Any]
     filter_real_signals_against_tracker: Callable[..., Any]
     genetics_probation_execution_overlay: Callable[..., Any]
@@ -71,6 +74,10 @@ def run_flash_decision_path(
     if allocator is None:
         raise RuntimeError("flash_enabled=True but pipeline.flash_allocator is not configured")
 
+    try:
+        pipeline._flash_candidate_safety_reasons = {}
+    except Exception:
+        pass
     candidates = tuple(
         candidate
         for candidate in candidates
@@ -114,6 +121,20 @@ def run_flash_decision_path(
         agents=agents,
         signal_id_counter=signal_id_counter,
     )
+    shadow_agent_signals = getattr(
+        pipeline,
+        "_current_shadow_agent_signals",
+        {},
+    ) or {}
+    degraded_signal_keys = tuple(callbacks.flash_degraded_signal_keys(pipeline))
+    degraded_signal_keys += tuple(
+        callbacks.genetics_probation_preselection_degraded_signal_keys(
+            pipeline,
+            shadow_player_signals,
+            shadow_agent_signals,
+            regime=market.regime,
+        ) or ()
+    )
     decisions = tuple(allocator.decide(
         market,
         agents=agents,
@@ -127,12 +148,8 @@ def run_flash_decision_path(
             players=candidates,
         ),
         shadow_player_signals=shadow_player_signals,
-        shadow_agent_signals=getattr(
-            pipeline,
-            "_current_shadow_agent_signals",
-            {},
-        ) or {},
-        degraded_signal_keys=callbacks.flash_degraded_signal_keys(pipeline),
+        shadow_agent_signals=shadow_agent_signals,
+        degraded_signal_keys=degraded_signal_keys,
         degraded_actor_keys=callbacks.flash_degraded_actor_keys(pipeline, market.regime),
         degraded_open_symbols=callbacks.flash_degraded_open_symbols(pipeline),
         promoted_signal_keys=callbacks.flash_promoted_signal_keys(pipeline),
@@ -189,6 +206,30 @@ def run_flash_decision_path(
     if stale_close_signals:
         signal_id_counter = max(signal.id for signal in stale_close_signals) + 1
         raw_signals = stale_close_signals + raw_signals
+    regime_exit_close_signals = callbacks.genetics_probation_regime_exit_close_signals(
+        pipeline,
+        market,
+        signal_id_start=signal_id_counter,
+        excluded_symbols={
+            str(getattr(signal, "sym", "") or "").upper()
+            for signal in stale_close_signals
+        },
+    )
+    if regime_exit_close_signals:
+        signal_id_counter = max(signal.id for signal in regime_exit_close_signals) + 1
+        raw_signals = regime_exit_close_signals + raw_signals
+    partial_profit_lock_signals = callbacks.flash_partial_profit_lock_close_signals(
+        pipeline,
+        market,
+        signal_id_start=signal_id_counter,
+        excluded_symbols={
+            str(getattr(signal, "sym", "") or "").upper()
+            for signal in tuple(stale_close_signals) + tuple(regime_exit_close_signals)
+        },
+    )
+    if partial_profit_lock_signals:
+        signal_id_counter = max(signal.id for signal in partial_profit_lock_signals) + 1
+        raw_signals = partial_profit_lock_signals + raw_signals
     raw_signal_count = len(raw_signals)
     guard_actor = callbacks.flash_guard_actor(decisions, agents=agents, players=candidates)
     reserved_new_opens = _reserved_new_opens_from_flash_decisions(decisions)

@@ -91,6 +91,7 @@ class QuarantineManager:
             if str(label).strip()
         )
         self._dynamic: Set[str] = set(self._seed)
+        self._release_overrides: Set[str] = set()
         self._records = {
             label: QuarantineRecord(
                 label=label,
@@ -115,6 +116,11 @@ class QuarantineManager:
         """Immutable снимок текущего набора."""
         with self._lock:
             return frozenset(self._dynamic)
+
+    def release_override_labels(self) -> FrozenSet[str]:
+        """Labels allowed to stay out of old-memory hopeless quarantine."""
+        with self._lock:
+            return frozenset(self._release_overrides)
 
     def record_for(self, label: str) -> Optional[QuarantineRecord]:
         with self._lock:
@@ -192,6 +198,8 @@ class QuarantineManager:
                     new_set.add(label)
                 else:
                     if label in self._protected:
+                        continue
+                    if label in self._release_overrides:
                         continue
                     # Не в seed — добавляется только если hopeless
                     # (даже без явного proven, но без явных доказательств
@@ -284,6 +292,50 @@ class QuarantineManager:
                 result = RecomputeResult(
                     added=frozenset({label}),
                     removed=frozenset(),
+                    current=frozenset(self._dynamic),
+                )
+            else:
+                return
+        self._notify(result)
+
+    def force_release_override(
+        self,
+        label: str,
+        *,
+        reason: str = "manual_release_override",
+        bar: int = 0,
+    ) -> None:
+        """Release old-memory hopeless quarantine and keep recompute from re-adding it.
+
+        The override is deliberately scoped: seed quarantine and fresh forced
+        quarantine reasons such as degradation-gate disables still win.
+        """
+        clean = str(label or "").strip()
+        if not clean:
+            return
+        with self._lock:
+            if clean in self._seed:
+                return
+            old = self._records.get(clean)
+            if (
+                old is not None
+                and old.state == "quarantined"
+                and old.reason not in {"hopeless_in_all_regimes"}
+            ):
+                return
+            self._release_overrides.add(clean)
+            self._records[clean] = QuarantineRecord(
+                label=clean,
+                state="probation",
+                reason=reason,
+                entered_bar=(old.entered_bar if old else 0),
+                updated_bar=int(bar or 0),
+            )
+            if clean in self._dynamic:
+                self._dynamic.discard(clean)
+                result = RecomputeResult(
+                    added=frozenset(),
+                    removed=frozenset({clean}),
                     current=frozenset(self._dynamic),
                 )
             else:

@@ -73,10 +73,16 @@ class LiveExecutionConfig:
     max_slippage_pct: float = 0.0
     max_api_error_streak: int = 5
     pending_order_timeout_sec: float = 180.0
+    adopt_existing_positions_enabled: bool = False
+    adopt_existing_position_symbols: tuple[str, ...] = ()
+    adopt_existing_position_player: str = "PanteonFlashAdopted"
+    adopt_existing_position_agent: str = "AdoptedExchangePosition"
     genetics_probation_execution_enabled: bool = False
     genetics_probation_labels: tuple[str, ...] = ("GeneticsResearch",)
     genetics_probation_allowed_regimes: tuple[str, ...] = ("bearish", "crash")
+    genetics_probation_allowed_signal_keys: tuple[str, ...] = ()
     genetics_probation_risk_mult: float = 0.25
+    genetics_probation_min_regime_confidence: float = 0.0
     genetics_probation_max_real_trades: int = 20
     genetics_probation_require_shadow_confirmation: bool = True
 
@@ -93,12 +99,23 @@ class LiveExecutionConfig:
                 raise ValueError(f"{name} must be >= 0")
         if not 0.0 < self.genetics_probation_risk_mult <= 1.0:
             raise ValueError("genetics_probation_risk_mult must be in (0, 1]")
+        if not 0.0 <= self.genetics_probation_min_regime_confidence <= 1.0:
+            raise ValueError("genetics_probation_min_regime_confidence must be in [0, 1]")
         if self.genetics_probation_max_real_trades < 0:
             raise ValueError("genetics_probation_max_real_trades must be >= 0")
-        for name in ("genetics_probation_labels", "genetics_probation_allowed_regimes"):
+        for name in (
+            "genetics_probation_labels",
+            "genetics_probation_allowed_regimes",
+            "genetics_probation_allowed_signal_keys",
+            "adopt_existing_position_symbols",
+        ):
             value = getattr(self, name)
             if isinstance(value, str):
-                normalized = (value.strip(),) if value.strip() else ()
+                normalized = tuple(
+                    item.strip()
+                    for item in value.replace(";", ",").split(",")
+                    if item.strip()
+                )
             else:
                 normalized = tuple(
                     str(item).strip()
@@ -106,6 +123,12 @@ class LiveExecutionConfig:
                     if str(item).strip()
                 )
             object.__setattr__(self, name, normalized)
+        for name, default in (
+            ("adopt_existing_position_player", "PanteonFlashAdopted"),
+            ("adopt_existing_position_agent", "AdoptedExchangePosition"),
+        ):
+            value = str(getattr(self, name, "") or "").strip() or default
+            object.__setattr__(self, name, value)
         for name in (
             "max_consecutive_failed_orders",
             "max_exchange_desync_events",

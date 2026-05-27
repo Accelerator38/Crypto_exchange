@@ -12,6 +12,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 
 FITNESS_V3_REGIMES = ("crash", "bearish", "neutral", "bullish")
+FITNESS_V4_REGIMES = FITNESS_V3_REGIMES
 
 
 def _period_year(period: str) -> int:
@@ -358,6 +359,238 @@ def fitness_v3_robust_score(
     }
 
 
+def fitness_v4_robust_score(
+    period_rets: Sequence[float],
+    *,
+    period_turnover_rates: Sequence[float] | None = None,
+    period_effective_turnover_rates: Sequence[float] | None = None,
+    period_saturation_rates: Sequence[float] | None = None,
+    period_invalid_open_pressures: Sequence[float] | None = None,
+    period_costs_pct: Sequence[float] | None = None,
+    period_slippage_pct: Sequence[float] | None = None,
+    period_regimes: Sequence[str] | None = None,
+    required_regimes: Sequence[str] = FITNESS_V4_REGIMES,
+    max_single_period_contribution_pct: float = 30.0,
+    max_turnover_rate: float = 0.20,
+    max_saturation_rate: float = 0.15,
+    max_invalid_open_pressure: float = 0.25,
+    min_positive_period_pct: float = 50.0,
+    cvar_loss_penalty_weight: float = 0.50,
+    downside_penalty_weight: float = 0.30,
+    turnover_penalty_weight: float = 2.00,
+    saturation_penalty_weight: float = 3.00,
+    invalid_open_penalty_weight: float = 1.50,
+    concentration_penalty_weight: float = 0.03,
+    cost_penalty_weight: float = 1.00,
+) -> dict[str, Any]:
+    """Compute the v4 robust genetics utility.
+
+    v4 is a promotion/selection utility, not a raw-return score: it starts from
+    regime-balanced return and subtracts tail risk, downside, turnover,
+    saturation, invalid-open pressure, costs, and single-period concentration.
+    Returns are in percent points; rates are fractions.
+    """
+
+    rets = _finite_array(period_rets)
+    if rets.size == 0:
+        return {
+            "n_periods": 0,
+            "fitness_v4_robust": float("-inf"),
+            "passes_default_gates": False,
+            "failed_gates": ["no_periods"],
+        }
+
+    n = int(rets.size)
+    turnover = _aligned_array(period_turnover_rates, n)
+    effective_turnover = _aligned_array(period_effective_turnover_rates, n)
+    saturation = _aligned_array(period_saturation_rates, n)
+    invalid_pressure = _aligned_array(period_invalid_open_pressures, n)
+    costs = _aligned_array(period_costs_pct, n)
+    slippage = _aligned_array(period_slippage_pct, n)
+    regimes = _aligned_regimes(period_regimes, n)
+
+    regime_means: dict[str, float] = {}
+    missing_regimes: list[str] = []
+    required = [str(regime) for regime in required_regimes]
+    for regime in required:
+        mask = np.asarray([item == regime for item in regimes], dtype=bool)
+        if mask.any():
+            regime_means[regime] = float(rets[mask].mean())
+        else:
+            regime_means[regime] = 0.0
+            missing_regimes.append(regime)
+    regime_balanced_mean = (
+        float(np.mean([regime_means[regime] for regime in required]))
+        if required
+        else float(rets.mean())
+    )
+
+    sorted_rets = np.sort(rets)
+    tail_n = max(1, int(math.ceil(n * 0.05)))
+    cvar_5_ret = float(sorted_rets[:tail_n].mean())
+    cvar_loss = max(0.0, -cvar_5_ret)
+    downside = np.minimum(rets, 0.0)
+    downside_deviation = float(np.sqrt(np.mean(np.square(downside))))
+    positives = rets[rets > 0.0]
+    positive_sum = float(positives.sum())
+    max_positive_contribution = (
+        float(positives.max() / positive_sum * 100.0)
+        if positive_sum > 0.0 and positives.size
+        else 0.0
+    )
+    concentration_excess = max(
+        0.0,
+        max_positive_contribution - float(max_single_period_contribution_pct),
+    )
+
+    mean_ret = float(rets.mean())
+    min_ret = float(rets.min())
+    positive_period_pct = float((rets > 0.0).mean() * 100.0)
+    mean_turnover = float(turnover.mean())
+    mean_effective_turnover = float(effective_turnover.mean())
+    max_turnover = float(turnover.max())
+    mean_saturation = float(saturation.mean())
+    max_saturation = float(saturation.max())
+    mean_invalid = float(invalid_pressure.mean())
+    max_invalid = float(invalid_pressure.max())
+    mean_cost = float(np.abs(costs).mean())
+    mean_slippage = float(np.abs(slippage).mean())
+    crash_floor_ret = float(regime_means.get("crash", 0.0))
+
+    penalty = (
+        cvar_loss * float(cvar_loss_penalty_weight)
+        + downside_deviation * float(downside_penalty_weight)
+        + mean_turnover * float(turnover_penalty_weight)
+        + mean_effective_turnover * float(turnover_penalty_weight) * 0.5
+        + max_saturation * float(saturation_penalty_weight)
+        + max_invalid * float(invalid_open_penalty_weight)
+        + concentration_excess * float(concentration_penalty_weight)
+        + (mean_cost + mean_slippage) * float(cost_penalty_weight)
+    )
+    fitness = float(regime_balanced_mean - penalty)
+
+    failed: list[str] = []
+    failed.extend(f"missing_regime:{regime}" for regime in missing_regimes)
+    if positive_period_pct < min_positive_period_pct:
+        failed.append("positive_period_pct")
+    if max_positive_contribution > max_single_period_contribution_pct:
+        failed.append("single_period_concentration")
+    if max_turnover > max_turnover_rate:
+        failed.append("turnover")
+    if max_saturation > max_saturation_rate:
+        failed.append("saturation")
+    if max_invalid > max_invalid_open_pressure:
+        failed.append("invalid_open_pressure")
+
+    return {
+        "n_periods": n,
+        "fitness_v4_robust": fitness,
+        "mean_ret": mean_ret,
+        "regime_balanced_mean_ret": regime_balanced_mean,
+        "regime_mean_rets": regime_means,
+        "min_ret": min_ret,
+        "crash_floor_ret": crash_floor_ret,
+        "cvar_5_ret": cvar_5_ret,
+        "cvar_loss": float(cvar_loss),
+        "downside_deviation": downside_deviation,
+        "positive_period_pct": positive_period_pct,
+        "max_positive_contribution_pct": max_positive_contribution,
+        "concentration_excess_pct": float(concentration_excess),
+        "mean_turnover_rate": mean_turnover,
+        "mean_effective_turnover_rate": mean_effective_turnover,
+        "max_turnover_rate": max_turnover,
+        "mean_saturation_rate": mean_saturation,
+        "max_saturation_rate": max_saturation,
+        "mean_invalid_open_pressure": mean_invalid,
+        "max_invalid_open_pressure": max_invalid,
+        "mean_cost_pct": mean_cost,
+        "mean_slippage_pct": mean_slippage,
+        "penalty": penalty,
+        "failed_gates": failed,
+        "passes_default_gates": not failed,
+    }
+
+
+def evaluate_fitness_v4_uplift_gate(
+    *,
+    baseline_validation: dict[str, Any],
+    candidate_validation: dict[str, Any],
+    baseline_oos: dict[str, Any] | None = None,
+    candidate_oos: dict[str, Any] | None = None,
+    baseline_final_sanity: dict[str, Any] | None = None,
+    candidate_final_sanity: dict[str, Any] | None = None,
+    max_turnover_rate: float = 0.20,
+    max_saturation_rate: float = 0.15,
+    max_invalid_open_pressure: float = 0.25,
+    max_single_period_contribution_pct: float = 30.0,
+    min_validation_fitness_delta: float | None = None,
+) -> dict[str, Any]:
+    """Gate candidates by Flash uplift against the matched baseline.
+
+    The pass criteria are deliberately split-level: mean uplift >= 0, min-return
+    uplift >= 0, positive-period rate not worse, and action-contract metrics
+    within gates. Fitness v4 is reported as a diagnostic and can be made a hard
+    validation requirement with ``min_validation_fitness_delta``.
+    """
+
+    failures: list[str] = []
+    validation_payload = _fitness_v4_split_uplift(
+        failures,
+        prefix="validation",
+        baseline=baseline_validation,
+        candidate=candidate_validation,
+        max_turnover_rate=max_turnover_rate,
+        max_saturation_rate=max_saturation_rate,
+        max_invalid_open_pressure=max_invalid_open_pressure,
+        max_single_period_contribution_pct=max_single_period_contribution_pct,
+    )
+    if min_validation_fitness_delta is not None:
+        if validation_payload["fitness_v4_delta"] < float(min_validation_fitness_delta):
+            failures.append("validation_fitness_v4")
+
+    oos_payload: dict[str, Any] | None = None
+    if baseline_oos is not None and candidate_oos is not None:
+        oos_payload = _fitness_v4_split_uplift(
+            failures,
+            prefix="oos",
+            baseline=baseline_oos,
+            candidate=candidate_oos,
+            max_turnover_rate=max_turnover_rate,
+            max_saturation_rate=max_saturation_rate,
+            max_invalid_open_pressure=max_invalid_open_pressure,
+            max_single_period_contribution_pct=max_single_period_contribution_pct,
+        )
+
+    final_payload: dict[str, Any] | None = None
+    if baseline_final_sanity is not None and candidate_final_sanity is not None:
+        final_payload = _fitness_v4_split_uplift(
+            failures,
+            prefix="final_sanity",
+            baseline=baseline_final_sanity,
+            candidate=candidate_final_sanity,
+            max_turnover_rate=max_turnover_rate,
+            max_saturation_rate=max_saturation_rate,
+            max_invalid_open_pressure=max_invalid_open_pressure,
+            max_single_period_contribution_pct=max_single_period_contribution_pct,
+        )
+
+    failures = list(dict.fromkeys(failures))
+    return {
+        "promotion_eligible": not failures,
+        "promotion_failures": failures,
+        "validation": validation_payload,
+        "oos": oos_payload,
+        "final_sanity": final_payload,
+        "thresholds": {
+            "max_turnover_rate": max_turnover_rate,
+            "max_saturation_rate": max_saturation_rate,
+            "max_invalid_open_pressure": max_invalid_open_pressure,
+            "max_single_period_contribution_pct": max_single_period_contribution_pct,
+            "min_validation_fitness_delta": min_validation_fitness_delta,
+        },
+    }
+
+
 def evaluate_fitness_v3_promotion_gate(
     *,
     baseline_validation: dict[str, Any],
@@ -507,3 +740,71 @@ def _extend_score_gate_failures(
 ) -> None:
     for gate in score.get("failed_gates", []) or []:
         failures.append(f"{prefix}_{gate}")
+
+
+def _fitness_v4_split_uplift(
+    failures: list[str],
+    *,
+    prefix: str,
+    baseline: dict[str, Any],
+    candidate: dict[str, Any],
+    max_turnover_rate: float,
+    max_saturation_rate: float,
+    max_invalid_open_pressure: float,
+    max_single_period_contribution_pct: float,
+) -> dict[str, Any]:
+    mean_delta = _metric(candidate, "mean_ret") - _metric(baseline, "mean_ret")
+    min_delta = _metric(candidate, "min_ret") - _metric(baseline, "min_ret")
+    positive_delta = _metric(candidate, "positive_period_pct") - _metric(
+        baseline,
+        "positive_period_pct",
+    )
+    fitness_delta = _metric(candidate, "fitness_v4_robust") - _metric(
+        baseline,
+        "fitness_v4_robust",
+    )
+    crash_delta = _metric(candidate, "crash_floor_ret") - _metric(
+        baseline,
+        "crash_floor_ret",
+    )
+
+    if mean_delta < 0.0:
+        failures.append(f"{prefix}_mean_ret")
+    if min_delta < 0.0:
+        failures.append(f"{prefix}_min_ret")
+    if positive_delta < 0.0:
+        failures.append(f"{prefix}_positive_period_pct")
+    if _metric(candidate, "max_turnover_rate") > max_turnover_rate:
+        failures.append(f"{prefix}_turnover")
+    if _metric(candidate, "max_saturation_rate") > max_saturation_rate:
+        failures.append(f"{prefix}_saturation")
+    if _metric(candidate, "max_invalid_open_pressure") > max_invalid_open_pressure:
+        failures.append(f"{prefix}_invalid_open_pressure")
+    if (
+        _metric(candidate, "max_positive_contribution_pct")
+        > max_single_period_contribution_pct
+    ):
+        failures.append(f"{prefix}_single_period_concentration")
+    _extend_score_gate_failures(failures, candidate, prefix=prefix)
+
+    return {
+        "mean_ret_delta": float(mean_delta),
+        "min_ret_delta": float(min_delta),
+        "positive_period_pct_delta": float(positive_delta),
+        "fitness_v4_delta": float(fitness_delta),
+        "crash_floor_delta": float(crash_delta),
+        "baseline_mean_ret": _metric(baseline, "mean_ret"),
+        "candidate_mean_ret": _metric(candidate, "mean_ret"),
+        "baseline_min_ret": _metric(baseline, "min_ret"),
+        "candidate_min_ret": _metric(candidate, "min_ret"),
+        "candidate_max_turnover_rate": _metric(candidate, "max_turnover_rate"),
+        "candidate_max_saturation_rate": _metric(candidate, "max_saturation_rate"),
+        "candidate_max_invalid_open_pressure": _metric(
+            candidate,
+            "max_invalid_open_pressure",
+        ),
+        "candidate_max_positive_contribution_pct": _metric(
+            candidate,
+            "max_positive_contribution_pct",
+        ),
+    }

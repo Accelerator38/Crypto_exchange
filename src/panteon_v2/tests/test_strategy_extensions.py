@@ -191,6 +191,8 @@ class TestExperimentalFlashAgents(unittest.TestCase):
             (
                 "MomentumScalperShortOnly",
                 "MomentumScalperSpotQuality",
+                "MomentumScalperUltimaQualityLongs",
+                "MomentumScalperUltimaMajorShorts",
                 "VolBreakoutSpotOnly",
                 "MomentumScalperShortCrashOnly",
                 "MomentumScalperShortBearOnly",

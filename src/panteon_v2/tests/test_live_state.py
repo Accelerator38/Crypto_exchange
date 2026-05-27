@@ -10,10 +10,12 @@ from panteon_v2.app.live_state import (
     reconcile_tracker_with_exchange,
     sync_player_agents_to_real_positions,
 )
+from panteon_v2.app.bootstrap import LiveExecutionConfig
 from panteon_v2.attribution import EventLog, PositionClosed
 from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.execution import ExchangePosition, PositionTracker
 from panteon_v2.execution.position_tracker import TrackedPosition
+from panteon_v2.memory import PerformanceMemory
 
 
 def _signal(sid: int, action: Action, *, price: float = 100.0) -> Signal:
@@ -238,6 +240,49 @@ class TestLiveExchangeReconcile(unittest.TestCase):
         self.assertEqual(pos.by_player, "RecoveredExchangePosition")
         self.assertAlmostEqual(pos.qty, 0.25)
         self.assertAlmostEqual(pos.entry_price, 101.0)
+
+    def test_reconcile_adopts_unknown_exchange_position_when_enabled(self):
+        tracker = PositionTracker()
+        perf = PerformanceMemory(trade_fraction=1.0)
+
+        class Exchange:
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(
+                        sym="BTC",
+                        side="short",
+                        qty=0.25,
+                        entry=101.0,
+                    )
+                }
+
+        class Executor:
+            _tracker = tracker
+            _exchange = Exchange()
+
+        class Pipeline:
+            executor = Executor()
+            live_execution = LiveExecutionConfig(
+                adopt_existing_positions_enabled=True,
+            )
+
+        pipeline = Pipeline()
+        pipeline.perf = perf
+
+        summary = reconcile_tracker_with_exchange(pipeline, bar_index=7)
+
+        self.assertEqual(summary["added"], 1)
+        self.assertEqual(summary["adopted_added"], 1)
+        self.assertEqual(summary["external_added"], 0)
+        pos = tracker.get("BTC")
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.by_player, "PanteonFlashAdopted")
+        self.assertEqual(pos.by_agent, "AdoptedExchangePosition")
+        self.assertEqual(pos.open_action, "FUT_SHORT_FULL")
+        self.assertEqual(pos.open_regime, "neutral")
+        opened = perf.snapshot()["open"]
+        self.assertIn("AdoptedExchangePosition|BTC", opened)
+        self.assertIn("PanteonFlashAdopted|BTC", opened)
 
     def test_reconcile_external_close_keeps_forensic_context(self):
         tracker = PositionTracker()

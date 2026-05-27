@@ -32,6 +32,11 @@ from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import optional_labels, register_all_v1_agents
 from .bootstrap import LiveExecutionConfig, PRODUCTION_PROFILES, build_production_pipeline
 from .main_loop import main_loop
+from .live_state import (
+    adopted_position_labels,
+    seed_perf_open_position_for_adoption,
+    should_adopt_existing_position,
+)
 from .migration import (
     load_v2_snapshot,
     migrate_from_v1_memory_files,
@@ -335,6 +340,35 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
             return bool(default)
         return bool(default)
 
+    def tuple_any(names: Sequence[str], default: Sequence[str] = ()) -> tuple[str, ...]:
+        for name in names:
+            if name not in settings:
+                continue
+            value = settings.get(name)
+            if isinstance(value, str):
+                return tuple(
+                    item.strip()
+                    for item in value.replace(";", ",").split(",")
+                    if item.strip()
+                )
+            try:
+                return tuple(
+                    str(item).strip()
+                    for item in (value or ())
+                    if str(item).strip()
+                )
+            except TypeError:
+                item = str(value or "").strip()
+                return (item,) if item else tuple(default)
+        return tuple(default)
+
+    def str_any(names: Sequence[str], default: str) -> str:
+        for name in names:
+            if name in settings:
+                value = str(settings.get(name) or "").strip()
+                return value or default
+        return default
+
     return LiveExecutionConfig(
         max_new_opens_per_bar=int_any(("v2_max_new_opens_per_bar", "max_new_opens_per_bar"), 1),
         max_daily_loss_pct=num_any(("v2_max_daily_loss_pct", "max_daily_loss_pct"), 5.0),
@@ -362,6 +396,38 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
             ("v2_pending_order_timeout_sec", "pending_order_timeout_sec"),
             180.0,
         ),
+        adopt_existing_positions_enabled=bool_any(
+            (
+                "v2_adopt_existing_positions_enabled",
+                "adopt_existing_positions_enabled",
+                "v2_adopt_existing_positions",
+                "adopt_existing_positions",
+            ),
+            False,
+        ),
+        adopt_existing_position_symbols=tuple_any(
+            (
+                "v2_adopt_existing_position_symbols",
+                "adopt_existing_position_symbols",
+                "v2_adopt_existing_positions_symbols",
+                "adopt_existing_positions_symbols",
+            ),
+            (),
+        ),
+        adopt_existing_position_player=str_any(
+            (
+                "v2_adopt_existing_position_player",
+                "adopt_existing_position_player",
+            ),
+            "PanteonFlashAdopted",
+        ),
+        adopt_existing_position_agent=str_any(
+            (
+                "v2_adopt_existing_position_agent",
+                "adopt_existing_position_agent",
+            ),
+            "AdoptedExchangePosition",
+        ),
         genetics_probation_execution_enabled=bool_any(
             (
                 "v2_genetics_probation_execution_enabled",
@@ -371,7 +437,14 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
         ),
         genetics_probation_risk_mult=num_any(
             ("v2_genetics_probation_risk_mult", "genetics_probation_risk_mult"),
-            0.25,
+            0.20,
+        ),
+        genetics_probation_min_regime_confidence=num_any(
+            (
+                "v2_genetics_probation_min_regime_confidence",
+                "genetics_probation_min_regime_confidence",
+            ),
+            0.0,
         ),
         genetics_probation_max_real_trades=int_any(
             (
@@ -474,6 +547,78 @@ def _settings_csv_tuple(settings: dict, names: Sequence[str]) -> tuple[str, ...]
         text = str(raw).strip()
         return (text,) if text else ()
     return ()
+
+
+def _exchange_scoped_setting_names(exchange_name: str, base: str) -> tuple[str, ...]:
+    exchange_key = str(exchange_name or "").strip().lower()
+    base_key = str(base or "").strip().lower()
+    if not exchange_key:
+        return (base_key,)
+    return (
+        f"{exchange_key}_{base_key}",
+        f"{base_key}_{exchange_key}",
+        base_key,
+    )
+
+
+def _quarantine_override_labels_from_settings(
+    settings: dict,
+    exchange_name: str,
+) -> tuple[str, ...]:
+    return _settings_csv_tuple(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_quarantine_override_labels",
+        ) + _exchange_scoped_setting_names(
+            exchange_name,
+            "quarantine_override_labels",
+        ),
+    )
+
+
+def _quarantine_recovery_config_from_settings(
+    settings: dict,
+    exchange_name: str,
+) -> dict[str, object]:
+    return {
+        "enabled": _settings_bool(
+            settings,
+            _exchange_scoped_setting_names(
+                exchange_name,
+                "v2_quarantine_recovery_enabled",
+            ) + _exchange_scoped_setting_names(
+                exchange_name,
+                "quarantine_recovery_enabled",
+            ),
+            True,
+        ),
+        "min_pnl_pct": _settings_float(
+            settings,
+            _exchange_scoped_setting_names(
+                exchange_name,
+                "v2_quarantine_recovery_min_pnl_pct",
+            ) + _exchange_scoped_setting_names(
+                exchange_name,
+                "quarantine_recovery_min_pnl_pct",
+            ),
+            0.10,
+        ),
+        "min_closed_trades": max(
+            1,
+            int(_settings_float(
+                settings,
+                _exchange_scoped_setting_names(
+                    exchange_name,
+                    "v2_quarantine_recovery_min_closed_trades",
+                ) + _exchange_scoped_setting_names(
+                    exchange_name,
+                    "quarantine_recovery_min_closed_trades",
+                ),
+                3,
+            )),
+        ),
+    }
 
 
 def _load_exchange_settings(exchange_name: str) -> dict:
@@ -990,12 +1135,137 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             2.0,
         ),
+        technical_overlay_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_technical_overlay_enabled",
+                "v2_flash_technical_overlay_enabled",
+                "flash_technical_overlay_enabled",
+            ),
+            False,
+        ),
+        technical_hard_gate_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_technical_hard_gate_enabled",
+                "v2_flash_technical_hard_gate_enabled",
+                "flash_technical_hard_gate_enabled",
+            ),
+            False,
+        ),
+        technical_score_bonus=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_score_bonus",
+                "v2_flash_technical_score_bonus",
+                "flash_technical_score_bonus",
+            ),
+            0.10,
+        ),
+        technical_score_penalty=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_score_penalty",
+                "v2_flash_technical_score_penalty",
+                "flash_technical_score_penalty",
+            ),
+            0.25,
+        ),
+        technical_rsi_long_min=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_rsi_long_min",
+                "v2_flash_technical_rsi_long_min",
+                "flash_technical_rsi_long_min",
+            ),
+            45.0,
+        ),
+        technical_rsi_long_max=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_rsi_long_max",
+                "v2_flash_technical_rsi_long_max",
+                "flash_technical_rsi_long_max",
+            ),
+            72.0,
+        ),
+        technical_rsi_short_min=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_rsi_short_min",
+                "v2_flash_technical_rsi_short_min",
+                "flash_technical_rsi_short_min",
+            ),
+            28.0,
+        ),
+        technical_rsi_short_max=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_rsi_short_max",
+                "v2_flash_technical_rsi_short_max",
+                "flash_technical_rsi_short_max",
+            ),
+            55.0,
+        ),
+        technical_macd_histogram_min_abs_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_macd_histogram_min_abs_pct",
+                "v2_flash_technical_macd_histogram_min_abs_pct",
+                "flash_technical_macd_histogram_min_abs_pct",
+            ),
+            0.0,
+        ),
+        technical_atr_risk_sizing_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_technical_atr_risk_sizing_enabled",
+                "v2_flash_technical_atr_risk_sizing_enabled",
+                "flash_technical_atr_risk_sizing_enabled",
+            ),
+            False,
+        ),
+        technical_atr_target_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_atr_target_pct",
+                "v2_flash_technical_atr_target_pct",
+                "flash_technical_atr_target_pct",
+            ),
+            2.0,
+        ),
+        technical_atr_min_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_atr_min_pct",
+                "v2_flash_technical_atr_min_pct",
+                "flash_technical_atr_min_pct",
+            ),
+            0.25,
+        ),
+        technical_atr_max_mult=_settings_float(
+            settings,
+            (
+                "panteon_flash_technical_atr_max_mult",
+                "v2_flash_technical_atr_max_mult",
+                "flash_technical_atr_max_mult",
+            ),
+            1.5,
+        ),
         selected_subset_score_boosts=_settings_csv_tuple(
             settings,
             (
                 "panteon_flash_selected_subset_score_boosts",
                 "v2_flash_selected_subset_score_boosts",
                 "flash_selected_subset_score_boosts",
+            ),
+        ),
+        selected_subset_context_score_boosts=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_selected_subset_context_score_boosts",
+                "v2_flash_selected_subset_context_score_boosts",
+                "flash_selected_subset_context_score_boosts",
             ),
         ),
         selected_subset_do_not_demote_signal_keys=_settings_csv_tuple(
@@ -1012,6 +1282,14 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
                 "panteon_flash_selected_subset_risk_mult_overrides",
                 "v2_flash_selected_subset_risk_mult_overrides",
                 "flash_selected_subset_risk_mult_overrides",
+            ),
+        ),
+        selected_subset_context_risk_mult_overrides=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_selected_subset_context_risk_mult_overrides",
+                "v2_flash_selected_subset_context_risk_mult_overrides",
+                "flash_selected_subset_context_risk_mult_overrides",
             ),
         ),
         selected_subset_risk_min_mult=_settings_float(
@@ -1271,6 +1549,42 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             -25.0,
         ),
+        degradation_signal_min_pnl_per_trade_lcb_usd=_settings_optional_float(
+            settings,
+            (
+                "panteon_flash_degradation_signal_min_pnl_per_trade_lcb_usd",
+                "v2_flash_degradation_signal_min_pnl_per_trade_lcb_usd",
+                "flash_degradation_signal_min_pnl_per_trade_lcb_usd",
+            ),
+            None,
+        ),
+        degradation_pnl_per_trade_lcb_z=_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_pnl_per_trade_lcb_z",
+                "v2_flash_degradation_pnl_per_trade_lcb_z",
+                "flash_degradation_pnl_per_trade_lcb_z",
+            ),
+            1.0,
+        ),
+        degradation_signal_risk_sizing_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_degradation_signal_risk_sizing_enabled",
+                "v2_flash_degradation_signal_risk_sizing_enabled",
+                "flash_degradation_signal_risk_sizing_enabled",
+            ),
+            False,
+        ),
+        degradation_signal_risk_mult=_settings_float(
+            settings,
+            (
+                "panteon_flash_degradation_signal_risk_mult",
+                "v2_flash_degradation_signal_risk_mult",
+                "flash_degradation_signal_risk_mult",
+            ),
+            0.25,
+        ),
         degradation_reserve_actor_cap=_settings_bool(
             settings,
             (
@@ -1382,6 +1696,71 @@ def _resolve_flash_stale_position_exit_config(exchange_name: str) -> dict[str, o
     )
 
 
+def _flash_partial_profit_lock_config_from_settings(settings: dict) -> dict[str, object]:
+    close_fraction = _settings_float(
+        settings,
+        (
+            "panteon_flash_partial_profit_lock_close_fraction",
+            "v2_flash_partial_profit_lock_close_fraction",
+            "flash_partial_profit_lock_close_fraction",
+        ),
+        0.5,
+    )
+    return {
+        "enabled": _settings_bool(
+            settings,
+            (
+                "panteon_flash_partial_profit_lock_enabled",
+                "v2_flash_partial_profit_lock_enabled",
+                "flash_partial_profit_lock_enabled",
+            ),
+            False,
+        ),
+        "trigger_pnl_pct": max(0.0, _settings_float(
+            settings,
+            (
+                "panteon_flash_partial_profit_lock_trigger_pnl_pct",
+                "v2_flash_partial_profit_lock_trigger_pnl_pct",
+                "flash_partial_profit_lock_trigger_pnl_pct",
+            ),
+            1.5,
+        )),
+        "close_fraction": min(1.0, max(1e-9, close_fraction)),
+        "min_age_bars": max(0, int(_settings_float(
+            settings,
+            (
+                "panteon_flash_partial_profit_lock_min_age_bars",
+                "v2_flash_partial_profit_lock_min_age_bars",
+                "flash_partial_profit_lock_min_age_bars",
+            ),
+            2.0,
+        ))),
+        "skip_protected_signal_keys": _settings_bool(
+            settings,
+            (
+                "panteon_flash_partial_profit_lock_skip_protected_signal_keys",
+                "v2_flash_partial_profit_lock_skip_protected_signal_keys",
+                "flash_partial_profit_lock_skip_protected_signal_keys",
+            ),
+            True,
+        ),
+        "skip_signal_keys": _settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_partial_profit_lock_skip_signal_keys",
+                "v2_flash_partial_profit_lock_skip_signal_keys",
+                "flash_partial_profit_lock_skip_signal_keys",
+            ),
+        ),
+    }
+
+
+def _resolve_flash_partial_profit_lock_config(exchange_name: str) -> dict[str, object]:
+    return _flash_partial_profit_lock_config_from_settings(
+        _load_exchange_settings(exchange_name)
+    )
+
+
 def _resolve_include_genetics(value: Optional[bool]) -> bool:
     if value is not None:
         return bool(value)
@@ -1487,6 +1866,8 @@ def _load_or_migrate_state(
     perf,
     real_perf=None,
     order_ledger=None,
+    position_tracker=None,
+    shadow_positions_target: Optional[dict] = None,
     snapshot_path: Optional[str],
     migrate_from_v1: Optional[Union[str, Sequence[str]]],
     exchange_name: str,
@@ -1498,6 +1879,8 @@ def _load_or_migrate_state(
             snapshot_path,
             real_perf=real_perf,
             order_ledger=order_ledger,
+            position_tracker=position_tracker,
+            shadow_positions_target=shadow_positions_target,
         )
         if loaded:
             if _perf_has_state(perf):
@@ -1532,6 +1915,8 @@ def _load_or_migrate_state(
                 snapshot_path,
                 real_perf=real_perf,
                 order_ledger=order_ledger,
+                position_tracker=position_tracker,
+                shadow_positions=shadow_positions_target,
             )
             log.info("Saved migrated v2-snapshot -> %s", snapshot_path)
     else:
@@ -1606,9 +1991,11 @@ def _recover_exchange_positions(pipeline) -> int:
     memory_by_symbol = _open_memory_by_symbol(pipeline)
     recovered = 0
     external = 0
+    adopted = 0
+    preserved = 0
     for raw_sym, exchange_pos in exchange_positions.items():
         sym = str(getattr(exchange_pos, "sym", raw_sym) or raw_sym).upper()
-        if not sym or tracker.get(sym) is not None:
+        if not sym:
             continue
         memory = memory_by_symbol.get(sym, {})
         qty = _float_or_zero(getattr(exchange_pos, "qty", None), memory.get("qty"))
@@ -1625,11 +2012,55 @@ def _recover_exchange_positions(pipeline) -> int:
         side = str(getattr(exchange_pos, "side", memory.get("side", "long")) or "long").lower()
         if side not in ("long", "short"):
             side = "long"
-        by_player = str(memory.get("by_player") or "RecoveredExchangePosition")
-        by_agent = str(memory.get("by_agent") or "")
+        existing = tracker.get(sym)
+        if existing is not None and str(existing.side).lower() == side:
+            tracker.force_set(TrackedPosition(
+                open_signal_id=existing.open_signal_id,
+                sym=sym,
+                side=side,
+                entry_price=entry,
+                qty=qty,
+                fee_open=existing.fee_open,
+                by_player=existing.by_player,
+                by_agent=existing.by_agent,
+                opened_at=existing.opened_at,
+                opened_bar=existing.opened_bar,
+                open_action=existing.open_action,
+                open_regime=existing.open_regime,
+                funding_open=existing.funding_open,
+                partial_profit_locked=existing.partial_profit_locked,
+            ))
+            preserved += 1
+            recovered += 1
+            continue
+        if existing is not None:
+            log.warning(
+                "[%s] exchange position %s side changed from tracker=%s to exchange=%s; "
+                "not preserving tracker provenance",
+                pipeline.exchange_name,
+                sym,
+                existing.side,
+                side,
+            )
+            memory = {}
+        should_adopt = (
+            not memory.get("by_player")
+            and not memory.get("by_agent")
+            and should_adopt_existing_position(pipeline, sym)
+        )
+        if should_adopt:
+            by_player, by_agent = adopted_position_labels(pipeline)
+        else:
+            by_player = str(memory.get("by_player") or "RecoveredExchangePosition")
+            by_agent = str(memory.get("by_agent") or "")
         if not memory.get("by_player") and not memory.get("by_agent"):
-            external += 1
-        tracker.force_set(TrackedPosition(
+            if should_adopt:
+                adopted += 1
+            else:
+                external += 1
+        open_action = "FUT_SHORT_FULL" if side == "short" else "FUT_LONG_FULL"
+        open_regime = str(memory.get("regime") or ("neutral" if should_adopt else ""))
+        tracked = TrackedPosition(
             open_signal_id=int(memory.get("signal_id") or 0),
             sym=sym,
             side=side,
@@ -1640,16 +2071,24 @@ def _recover_exchange_positions(pipeline) -> int:
             by_agent=by_agent,
             opened_at=datetime.now(timezone.utc),
             opened_bar=0,
-        ))
+            open_action=open_action,
+            open_regime=open_regime,
+            funding_open=float(memory.get("funding_open") or 0.0),
+        )
+        tracker.force_set(tracked)
+        if should_adopt:
+            seed_perf_open_position_for_adoption(pipeline, tracked)
         recovered += 1
 
     if recovered:
         log.info(
             "[%s] recovered %d open exchange position(s) into v2 tracker "
-            "(external=%d)",
+            "(preserved=%d external=%d adopted=%d)",
             pipeline.exchange_name,
             recovered,
+            preserved,
             external,
+            adopted,
         )
     return recovered
 
@@ -1749,6 +2188,50 @@ def _float_or_zero(*values) -> float:
     return 0.0
 
 
+def _snapshot_shadow_positions(pipeline) -> Dict[str, tuple]:
+    tournament = getattr(pipeline, "shadow_tournament", None)
+    getter = getattr(tournament, "last_player_open_positions", None)
+    raw = None
+    if callable(getter):
+        try:
+            raw = getter()
+        except Exception:
+            log.debug("failed to snapshot shadow positions", exc_info=True)
+            raw = None
+    if raw is None:
+        raw = getattr(pipeline, "_pending_shadow_player_positions", {}) or {}
+    out: Dict[str, tuple] = {}
+    if not isinstance(raw, dict):
+        return out
+    for label, payloads in raw.items():
+        rows = []
+        for payload in tuple(payloads or ()):
+            if isinstance(payload, dict):
+                rows.append(dict(payload))
+        out[str(label)] = tuple(rows)
+    return out
+
+
+def _save_runtime_snapshot(pipeline, snapshot_path: Optional[str]) -> None:
+    if not snapshot_path:
+        return
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    save_v2_snapshot(
+        pipeline.perf,
+        snapshot_path,
+        real_perf=pipeline.real_perf,
+        order_ledger=pipeline.order_ledger,
+        position_tracker=tracker,
+        shadow_positions=_snapshot_shadow_positions(pipeline),
+    )
+
+
+def _default_bridge_cache_path(snapshot_path: Optional[str], exchange: str) -> Optional[str]:
+    if not snapshot_path:
+        return None
+    return str(Path(snapshot_path).with_name(f"{exchange.lower()}_bridge_cache.json"))
+
+
 # ────────────────────────────────────────────────────────────────────
 # Main entry: start_production
 # ────────────────────────────────────────────────────────────────────
@@ -1771,6 +2254,8 @@ def start_production(
     use_v1_bridge:      bool = True,
     results_root:       str = "Results",
     warmup_bars:        Optional[int] = None,
+    bridge_cache_path:  Optional[str] = None,
+    bridge_cache_max_age_sec: float = 6 * 3600,
     allow_live_feed_fallback: Optional[bool] = None,
     include_genetics:   Optional[bool] = None,
     genetics_shadow_only: Optional[bool] = None,
@@ -1809,6 +2294,7 @@ def start_production(
     flash_enabled = _resolve_flash_enabled(exchange)
     flash_allocator_config = _resolve_flash_allocator_config(exchange)
     flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
+    flash_partial_profit_lock_config = _resolve_flash_partial_profit_lock_config(exchange)
     log.info(
         "[%s] v2 risk capital_fraction=%.2f%% max_open_positions=%d",
         exchange,
@@ -1840,6 +2326,14 @@ def start_production(
                 exchange,
                 int(flash_stale_exit_config["max_age_bars"]),
                 bool(flash_stale_exit_config["require_nonpositive_unrealized"]),
+            )
+        if flash_partial_profit_lock_config["enabled"]:
+            log.info(
+                "[%s] Panteon_Flash partial profit-lock enabled: trigger=%.2f%% close_fraction=%.2f min_age_bars=%d",
+                exchange,
+                float(flash_partial_profit_lock_config["trigger_pnl_pct"]),
+                float(flash_partial_profit_lock_config["close_fraction"]),
+                int(flash_partial_profit_lock_config["min_age_bars"]),
             )
 
     # 2. Регистрируем v1-агенты. Они получают актуальный v2 balance.
@@ -1919,15 +2413,67 @@ def start_production(
     pipeline.flash_stale_position_exit_require_nonpositive_unrealized = bool(
         flash_stale_exit_config["require_nonpositive_unrealized"]
     )
+    pipeline.flash_partial_profit_lock_enabled = bool(
+        flash_partial_profit_lock_config["enabled"]
+    )
+    pipeline.flash_partial_profit_lock_trigger_pnl_pct = float(
+        flash_partial_profit_lock_config["trigger_pnl_pct"]
+    )
+    pipeline.flash_partial_profit_lock_close_fraction = float(
+        flash_partial_profit_lock_config["close_fraction"]
+    )
+    pipeline.flash_partial_profit_lock_min_age_bars = int(
+        flash_partial_profit_lock_config["min_age_bars"]
+    )
+    pipeline.flash_partial_profit_lock_skip_protected_signal_keys = bool(
+        flash_partial_profit_lock_config["skip_protected_signal_keys"]
+    )
+    pipeline.flash_partial_profit_lock_skip_signal_keys = tuple(
+        flash_partial_profit_lock_config["skip_signal_keys"]
+    )
     pipeline_holder["pipeline"] = pipeline
     log.info("Pipeline built: %d profiles, capital=$%.2f",
              len(pipeline.profiles), pipeline.initial_capital)
+    exchange_settings = _load_exchange_settings(exchange)
+    quarantine_override_labels = _quarantine_override_labels_from_settings(
+        exchange_settings,
+        exchange,
+    )
+    quarantine_recovery_config = _quarantine_recovery_config_from_settings(
+        exchange_settings,
+        exchange,
+    )
+    pipeline.quarantine_override_labels = quarantine_override_labels
+    pipeline.quarantine_recovery_enabled = bool(
+        quarantine_recovery_config["enabled"]
+    )
+    pipeline.quarantine_recovery_min_pnl_pct = float(
+        quarantine_recovery_config["min_pnl_pct"]
+    )
+    pipeline.quarantine_recovery_min_closed_trades = int(
+        quarantine_recovery_config["min_closed_trades"]
+    )
+    for label in quarantine_override_labels:
+        pipeline.qm.force_release_override(
+            label,
+            reason="startup_release_override",
+            bar=0,
+        )
+    if quarantine_override_labels:
+        log.warning(
+            "[%s] quarantine release override active: %s",
+            exchange,
+            ", ".join(quarantine_override_labels),
+        )
 
     # 4. Загрузка persisted state
+    restored_shadow_positions: Dict[str, tuple] = {}
     _load_or_migrate_state(
         perf=pipeline.perf,
         real_perf=pipeline.real_perf,
         order_ledger=pipeline.order_ledger,
+        position_tracker=getattr(pipeline.executor, "_tracker", None),
+        shadow_positions_target=restored_shadow_positions,
         snapshot_path=snapshot_path,
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
@@ -1944,6 +2490,8 @@ def start_production(
         risk_config=risk_config,
         event_log=pipeline.event_log,
     )
+    if restored_shadow_positions:
+        pipeline._pending_shadow_player_positions = dict(restored_shadow_positions)
     log.info(
         "[%s] production shadow tournament enabled: agents=%d profiles=%d",
         exchange,
@@ -1979,15 +2527,16 @@ def start_production(
                 max_idle_polls=max_idle_polls,
                 sleep_between_polls_sec=sleep_between_polls_sec,
                 warmup_bars=warmup_bars,
+                bridge_cache_path=(
+                    bridge_cache_path
+                    or _default_bridge_cache_path(snapshot_path, exchange)
+                ),
+                bridge_cache_max_age_sec=bridge_cache_max_age_sec,
+                snapshot_callback=lambda: _save_runtime_snapshot(pipeline, snapshot_path),
             )
             # Сохраняем snapshot
             if snapshot_path:
-                save_v2_snapshot(
-                    pipeline.perf,
-                    snapshot_path,
-                    real_perf=pipeline.real_perf,
-                    order_ledger=pipeline.order_ledger,
-                )
+                _save_runtime_snapshot(pipeline, snapshot_path)
                 log.info("Saved snapshot → %s", snapshot_path)
             if rc == 0:
                 return rc
@@ -2096,12 +2645,7 @@ def start_production(
 
     writer.close()
     if snapshot_path:
-        save_v2_snapshot(
-            pipeline.perf,
-            snapshot_path,
-            real_perf=pipeline.real_perf,
-            order_ledger=pipeline.order_ledger,
-        )
+        _save_runtime_snapshot(pipeline, snapshot_path)
         log.info("Saved snapshot → %s", snapshot_path)
     processed = len(steps) if steps is not None else n_step[0]
     log.info("Shutdown. Processed %d bars.", processed)

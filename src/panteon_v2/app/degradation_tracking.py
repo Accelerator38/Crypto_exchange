@@ -9,6 +9,7 @@ the rolling windows and cooldowns are updated.
 
 from __future__ import annotations
 
+import math
 from collections import deque
 
 from ..attribution import PositionClosed
@@ -27,6 +28,20 @@ def flash_update_degradation_state_from_events(
     window = max(1, int(getattr(config, "degradation_window_closed_trades", 3) or 3))
     min_closed = max(1, int(getattr(config, "degradation_min_closed_trades", 3) or 3))
     threshold = float(getattr(config, "degradation_max_recent_pnl_usd", -25.0) or 0.0)
+    signal_lcb_threshold_raw = getattr(
+        config,
+        "degradation_signal_min_pnl_per_trade_lcb_usd",
+        None,
+    )
+    signal_lcb_threshold = (
+        None
+        if signal_lcb_threshold_raw is None
+        else float(signal_lcb_threshold_raw)
+    )
+    signal_lcb_z = max(
+        0.0,
+        float(getattr(config, "degradation_pnl_per_trade_lcb_z", 1.0) or 0.0),
+    )
     recovery_enabled = bool(getattr(config, "degradation_recovery_enabled", False))
     recovery_min_closed = max(
         1,
@@ -191,7 +206,20 @@ def flash_update_degradation_state_from_events(
             bucket = _rolling_bucket(outcomes.get(key), maxlen=window)
             bucket.append(realized_pnl)
             outcomes[key] = bucket
-            if len(bucket) >= min_closed and sum(float(value) for value in bucket) <= threshold:
+            recent_pnl = sum(float(value) for value in bucket)
+            lcb_pnl = flash_degradation_pnl_per_trade_lcb(
+                bucket,
+                z=signal_lcb_z,
+            )
+            lcb_degraded = (
+                signal_lcb_threshold is not None
+                and len(bucket) >= min_closed
+                and lcb_pnl <= signal_lcb_threshold
+            )
+            if (
+                len(bucket) >= min_closed
+                and (recent_pnl <= threshold or lcb_degraded)
+            ):
                 degraded.add(key)
                 _extend_cooldown(
                     signal_degraded_until,
@@ -266,6 +294,19 @@ def flash_degradation_recent_pnl(bucket: object, closed_trades: int) -> float:
     if len(values) < closed:
         return float("-inf")
     return sum(values[-closed:])
+
+
+def flash_degradation_pnl_per_trade_lcb(bucket: object, *, z: float = 1.0) -> float:
+    values = [float(value) for value in list(bucket or ())]
+    count = len(values)
+    if count <= 0:
+        return float("-inf")
+    mean = sum(values) / float(count)
+    if count == 1:
+        return mean
+    variance = sum((value - mean) ** 2 for value in values) / float(count - 1)
+    std = math.sqrt(max(0.0, variance))
+    return mean - max(0.0, float(z)) * std / math.sqrt(float(count))
 
 
 def flash_event_log_tail(event_log: object, cursor: int) -> tuple[list[object], int]:

@@ -118,13 +118,22 @@ def _render_operator_dashboard(
     panteon_pnl_pct: float,
 ) -> None:
     plt = _setup_pyplot()
-    fig = plt.figure(figsize=(14, 8), facecolor=DARK)
-    gs = fig.add_gridspec(2, 3, width_ratios=[1.05, 1, 1], height_ratios=[1, 1])
+    fig = plt.figure(figsize=(14, 9.5), facecolor=DARK)
+    gs = fig.add_gridspec(
+        3,
+        3,
+        width_ratios=[1.05, 1, 1],
+        height_ratios=[1, 1, 0.82],
+        hspace=0.30,
+        wspace=0.20,
+    )
 
     ax_status = fig.add_subplot(gs[:, 0])
     ax_agents = fig.add_subplot(gs[0, 1:])
     ax_players = fig.add_subplot(gs[1, 1:])
-    for ax in (ax_status, ax_agents, ax_players):
+    ax_flash_selected = fig.add_subplot(gs[2, 1])
+    ax_flash_candidates = fig.add_subplot(gs[2, 2])
+    for ax in (ax_status, ax_agents, ax_players, ax_flash_selected, ax_flash_candidates):
         _style_ax(ax)
 
     _draw_status_panel(ax_status, status)
@@ -132,9 +141,11 @@ def _render_operator_dashboard(
                panteon_pnl_pct=panteon_pnl_pct)
     _draw_barh(ax_players, players[:10], "Top Shadow Players", PURPLE,
                panteon_pnl_pct=panteon_pnl_pct)
+    _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status))
+    _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status))
 
     fig.suptitle("Panteon v2 Operator Dashboard", color=TEXT, fontsize=16, fontweight="bold")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.subplots_adjust(top=0.92, bottom=0.08, left=0.06, right=0.97)
     fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
     plt.close(fig)
 
@@ -255,6 +266,191 @@ def _draw_barh(
     ax.set_xlabel(x_label or default_label, color=MUTED, fontsize=8)
     for idx, value in enumerate(values[::-1]):
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
+
+
+def _flash_selected_rows(status: Mapping[str, object]) -> List[dict]:
+    flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
+    selected = flash.get("selected_actors_by_symbol") if isinstance(flash, Mapping) else {}
+    by_symbol: Dict[str, str] = {}
+    if isinstance(selected, Mapping):
+        for raw_symbol, raw_label in selected.items():
+            symbol = str(raw_symbol or "").strip().upper()
+            label = str(raw_label or "").strip()
+            if symbol and label:
+                by_symbol[symbol] = label
+    if not by_symbol and isinstance(flash, Mapping):
+        decisions = flash.get("decisions")
+        if isinstance(decisions, (list, tuple)):
+            for decision in decisions:
+                if not isinstance(decision, Mapping):
+                    continue
+                symbol = str(decision.get("symbol") or "").strip().upper()
+                label = str(decision.get("selected_actor") or "").strip()
+                if symbol and label:
+                    by_symbol[symbol] = label
+
+    grouped: Dict[str, List[str]] = {}
+    for symbol, label in by_symbol.items():
+        grouped.setdefault(label, []).append(symbol)
+    rows = [
+        {
+            "label": label,
+            "count": len(symbols),
+            "symbols": tuple(sorted(symbols)),
+        }
+        for label, symbols in grouped.items()
+    ]
+    rows.sort(key=lambda row: (
+        row["label"] == "NoTrade",
+        -int(row["count"]),
+        str(row["label"]),
+    ))
+    return rows
+
+
+def _flash_candidate_rows(status: Mapping[str, object]) -> List[dict]:
+    flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
+    decisions = flash.get("decisions") if isinstance(flash, Mapping) else ()
+    if not isinstance(decisions, (list, tuple)):
+        return []
+    grouped: Dict[Tuple[str, str], dict] = {}
+    for decision in decisions:
+        if not isinstance(decision, Mapping):
+            continue
+        symbol = str(decision.get("symbol") or "").strip().upper()
+        selected_actor = str(decision.get("selected_actor") or "").strip()
+        candidates = decision.get("candidates")
+        if not isinstance(candidates, (list, tuple)):
+            candidates = ()
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping):
+                continue
+            label = str(candidate.get("label") or "").strip()
+            actor_type = str(candidate.get("actor_type") or "").strip() or "unknown"
+            if not label or label == "NoTrade" or actor_type == "no_trade":
+                continue
+            key = (label, actor_type)
+            row = grouped.setdefault(key, {
+                "label": label,
+                "actor_type": actor_type,
+                "symbols": set(),
+                "candidate_count": 0,
+                "actionable_count": 0,
+                "rejected_count": 0,
+                "selected_count": 0,
+                "best_score": 0.0,
+                "technical_aligned_count": 0,
+                "technical_misaligned_count": 0,
+                "technical_missing_count": 0,
+                "technical_score_adjustment": 0.0,
+            })
+            if symbol:
+                row["symbols"].add(symbol)
+            row["candidate_count"] += 1
+            score = _float_value(candidate.get("effective_score", candidate.get("score", 0.0)))
+            row["best_score"] = max(float(row["best_score"]), score)
+            alignment = str(candidate.get("technical_alignment") or "").strip()
+            if alignment in {"long_aligned", "short_aligned"}:
+                row["technical_aligned_count"] += 1
+            elif alignment in {"long_misaligned", "short_misaligned"}:
+                row["technical_misaligned_count"] += 1
+            elif alignment == "missing":
+                row["technical_missing_count"] += 1
+            row["technical_score_adjustment"] += _float_value(
+                candidate.get("technical_score_adjustment", 0.0)
+            )
+            rejected = bool(candidate.get("rejected", False))
+            if rejected:
+                row["rejected_count"] += 1
+            action = str(candidate.get("action") or "").strip().upper()
+            is_hold = not action or action == "HOLD" or action.endswith(".HOLD")
+            if not rejected and not is_hold:
+                row["actionable_count"] += 1
+            if selected_actor and selected_actor == label:
+                row["selected_count"] += 1
+    rows = []
+    for row in grouped.values():
+        out = dict(row)
+        out["symbols"] = tuple(sorted(out["symbols"]))
+        rows.append(out)
+    rows.sort(key=lambda row: (
+        -int(row["selected_count"]),
+        -int(row["actionable_count"]),
+        -float(row["best_score"]),
+        -int(row["candidate_count"]),
+        str(row["label"]),
+    ))
+    return rows
+
+
+def _draw_flash_selected_panel(ax, rows: List[dict]) -> None:
+    _style_ax(ax, "Flash Selected Actors")
+    if not rows:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No Flash decisions yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=10)
+        return
+    usable = rows[:8]
+    labels = [_short(str(row["label"]), 20) for row in usable]
+    values = [int(row["count"]) for row in usable]
+    colors = [MUTED if row["label"] == "NoTrade" else GREEN for row in usable]
+    ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
+    ax.set_xlabel("Selected symbols", color=MUTED, fontsize=8)
+    ax.set_xlim(0, max(values) * 1.25 if values else 1)
+    for idx, row in enumerate(usable[::-1]):
+        symbols = ", ".join(row["symbols"][:4])
+        if len(row["symbols"]) > 4:
+            symbols += ", ..."
+        ax.text(
+            int(row["count"]),
+            idx,
+            f" {int(row['count'])} {symbols}",
+            color=TEXT,
+            va="center",
+            fontsize=7,
+        )
+
+
+def _draw_flash_candidates_panel(ax, rows: List[dict]) -> None:
+    _style_ax(ax, "Flash Top Candidates")
+    if not rows:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No Flash candidates yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=10)
+        return
+    usable = rows[:8]
+    values = [int(row["actionable_count"]) for row in usable]
+    if not any(values):
+        values = [int(row["candidate_count"]) for row in usable]
+        x_label = "Candidate symbols"
+    else:
+        x_label = "Actionable symbols"
+    labels = [_short(str(row["label"]), 20) for row in usable]
+    colors = [
+        GREEN if int(row["actionable_count"]) > 0 else
+        RED if int(row["rejected_count"]) > 0 else
+        BLUE
+        for row in usable
+    ]
+    ax.barh(labels[::-1], values[::-1], color=colors[::-1], alpha=0.86)
+    ax.set_xlabel(x_label, color=MUTED, fontsize=8)
+    ax.set_xlim(0, max(values) * 1.30 if values else 1)
+    for idx, row in enumerate(usable[::-1]):
+        suffix = (
+            f" a{int(row['actionable_count'])}/r{int(row['rejected_count'])}"
+            f" score {float(row['best_score']):+.2f}"
+        )
+        tech_total = (
+            int(row.get("technical_aligned_count", 0))
+            + int(row.get("technical_misaligned_count", 0))
+            + int(row.get("technical_missing_count", 0))
+        )
+        if tech_total:
+            suffix += (
+                f" tech {int(row.get('technical_aligned_count', 0))}/"
+                f"{int(row.get('technical_misaligned_count', 0))}"
+            )
+        ax.text(values[::-1][idx], idx, suffix, color=TEXT, va="center", fontsize=7)
 
 
 def _is_inactive_status(status: object) -> bool:

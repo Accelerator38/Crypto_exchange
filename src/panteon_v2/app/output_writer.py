@@ -32,6 +32,7 @@ from ..dashboards import (
 )
 from ..domain.types import Regime
 from .bootstrap import ProductionPipeline
+from .live_state import adopted_position_labels
 from .main_loop import StepResult, sync_pipeline_balance
 
 
@@ -51,6 +52,41 @@ def _first_positive(*values) -> float:
 
 def _is_external_player(label: object) -> bool:
     return str(label or "") in {"", "RecoveredExchangePosition"}
+
+
+def _is_adopted_player(label: object, pipeline: object = None) -> bool:
+    adopted_player, _ = adopted_position_labels(pipeline)
+    return str(label or "") == adopted_player
+
+
+def _configured_dynamic_player_labels(pipeline: object) -> set[str]:
+    labels: set[str] = set()
+    for attr in ("regime_switch_player_sets", "rotating_agent_player_sets"):
+        for raw_spec in getattr(pipeline, attr, ()) or ():
+            if isinstance(raw_spec, dict):
+                label = raw_spec.get("label")
+            else:
+                try:
+                    parts = tuple(raw_spec)  # type: ignore[arg-type]
+                except TypeError:
+                    parts = ()
+                label = parts[0] if parts else ""
+            clean = str(label or "").strip()
+            if clean:
+                labels.add(clean)
+    for label in getattr(pipeline, "_current_actionable_player_labels", set()) or set():
+        clean = str(label or "").strip()
+        if clean:
+            labels.add(clean)
+    return labels
+
+
+def _flash_decision_has_selected_signal(decision: Any) -> bool:
+    if not isinstance(decision, dict):
+        return False
+    if str(decision.get("selected_actor") or "") == "NoTrade":
+        return False
+    return isinstance(decision.get("signal"), dict)
 
 
 def _format_float(value: object) -> str:
@@ -76,6 +112,7 @@ class OutputWriterConfig:
     events_jsonl:         str = "events.jsonl"
     causal_entry_decisions_jsonl: str = "causal_entry_decisions.jsonl"
     compact_causal_entry_decisions: bool = False
+    compact_causal_entry_selected_only: bool = False
     compact_causal_entry_top_rejected_candidates: int = 5
     latest_dir:           Optional[str] = None
 
@@ -104,6 +141,8 @@ class OutputWriter:
         self._assets_history: List[float] = []
         self._panteon_equity_history: List[float] = []
         self._panteon_realized_equity_history: List[float] = []
+        self._clean_panteon_equity_history: List[float] = []
+        self._clean_panteon_realized_equity_history: List[float] = []
         self._shadow_session_counts = {
             "signals": 0,
             "filled": 0,
@@ -276,6 +315,12 @@ class OutputWriter:
         row = dict(payload)
         if self._config.compact_causal_entry_decisions:
             row = self._compact_causal_entry_decision(row)
+            if (
+                self._config.compact_causal_entry_selected_only
+                and not row.get("flash_decisions")
+                and not row.get("shadow_position_diagnostics")
+            ):
+                return
         row.setdefault("bar", step.bar)
         row.setdefault("regime", step.regime.label)
         row.setdefault("selected_leader", step.selected_leader or step.leader or "")
@@ -294,6 +339,12 @@ class OutputWriter:
         out = dict(row)
         decisions = out.get("flash_decisions")
         if isinstance(decisions, list):
+            if self._config.compact_causal_entry_selected_only:
+                decisions = [
+                    decision
+                    for decision in decisions
+                    if _flash_decision_has_selected_signal(decision)
+                ]
             out["flash_decisions"] = [
                 self._compact_flash_decision(
                     decision,
@@ -473,6 +524,17 @@ class OutputWriter:
             pnl for player, pnl in player_pnl.items()
             if _is_external_player(player)
         )
+        adopted_realized_pnl = sum(
+            pnl for player, pnl in player_pnl.items()
+            if _is_adopted_player(player, self._pipeline)
+        )
+        clean_panteon_realized_pnl = sum(
+            pnl for player, pnl in player_pnl.items()
+            if (
+                not _is_external_player(player)
+                and not _is_adopted_player(player, self._pipeline)
+            )
+        )
         panteon_owned_realized_pnl = sum(
             pnl for player, pnl in player_pnl.items()
             if not _is_external_player(player)
@@ -485,8 +547,16 @@ class OutputWriter:
             panteon_owned_realized_pnl
             + position_pnl["panteon_owned_unrealized_pnl_usd"]
         )
+        clean_panteon_total_pnl = (
+            clean_panteon_realized_pnl
+            + position_pnl["clean_panteon_unrealized_pnl_usd"]
+        )
         panteon_realized_equity = self._initial_capital + panteon_owned_realized_pnl
         panteon_equity = self._initial_capital + panteon_owned_total_pnl
+        clean_panteon_realized_equity = (
+            self._initial_capital + clean_panteon_realized_pnl
+        )
+        clean_panteon_equity = self._initial_capital + clean_panteon_total_pnl
         self._panteon_realized_equity_history = self._append_curve_value(
             self._panteon_realized_equity_history,
             panteon_realized_equity,
@@ -495,12 +565,30 @@ class OutputWriter:
             self._panteon_equity_history,
             panteon_equity,
         )
+        self._clean_panteon_realized_equity_history = self._append_curve_value(
+            self._clean_panteon_realized_equity_history,
+            clean_panteon_realized_equity,
+        )
+        self._clean_panteon_equity_history = self._append_curve_value(
+            self._clean_panteon_equity_history,
+            clean_panteon_equity,
+        )
         panteon_realized_max_dd_pct = self._curve_max_drawdown_pct(
             self._panteon_realized_equity_history
         )
         panteon_max_dd_pct = self._curve_max_drawdown_pct(self._panteon_equity_history)
+        clean_panteon_realized_max_dd_pct = self._curve_max_drawdown_pct(
+            self._clean_panteon_realized_equity_history
+        )
+        clean_panteon_max_dd_pct = self._curve_max_drawdown_pct(
+            self._clean_panteon_equity_history
+        )
         panteon_owned_pnl_pct = (
             panteon_owned_total_pnl / self._initial_capital * 100.0
+            if self._initial_capital > 0 else 0.0
+        )
+        clean_panteon_pnl_pct = (
+            clean_panteon_total_pnl / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
         real_trades = self._real_trade_summary(position_pnl=position_pnl)
@@ -515,6 +603,16 @@ class OutputWriter:
             "panteon_realized_equity_usd": panteon_realized_equity,
             "panteon_max_drawdown_pct": panteon_max_dd_pct,
             "panteon_realized_max_drawdown_pct": panteon_realized_max_dd_pct,
+            "clean_panteon_equity_pnl_usd": clean_panteon_total_pnl,
+            "clean_panteon_realized_pnl_usd": clean_panteon_realized_pnl,
+            "clean_panteon_unrealized_pnl_usd": position_pnl["clean_panteon_unrealized_pnl_usd"],
+            "clean_panteon_total_pnl_usd": clean_panteon_total_pnl,
+            "clean_panteon_pnl_pct": clean_panteon_pnl_pct,
+            "clean_panteon_equity_usd": clean_panteon_equity,
+            "clean_panteon_realized_equity_usd": clean_panteon_realized_equity,
+            "clean_panteon_max_drawdown_pct": clean_panteon_max_dd_pct,
+            "clean_panteon_realized_max_drawdown_pct": clean_panteon_realized_max_dd_pct,
+            "clean_panteon_positions_count": position_pnl["clean_panteon_positions_count"],
             "panteon_owned_realized_pnl_usd": panteon_owned_realized_pnl,
             "panteon_owned_unrealized_pnl_usd": position_pnl["panteon_owned_unrealized_pnl_usd"],
             "panteon_owned_total_pnl_usd": panteon_owned_total_pnl,
@@ -523,11 +621,15 @@ class OutputWriter:
             "external_realized_pnl_usd": external_realized_pnl,
             "external_unrealized_pnl_usd": position_pnl["external_unrealized_pnl_usd"],
             "external_positions_count": position_pnl["external_positions_count"],
+            "adopted_realized_pnl_usd": adopted_realized_pnl,
+            "adopted_unrealized_pnl_usd": position_pnl["adopted_unrealized_pnl_usd"],
+            "adopted_positions_count": position_pnl["adopted_positions_count"],
             "leader_realized_pnl_usd": leader_realized_pnl,
             "leader_unrealized_pnl_usd": position_pnl["leader_unrealized_pnl_usd"],
             "leader_positions_count": position_pnl["leader_positions_count"],
             "handoff_positions_count": position_pnl["handoff_positions_count"],
             "comparison_scope": "panteon_owned",
+            "profit_accounting_scope": "clean_panteon_owned",
             "leader": leader,
             "selected_leader": selected_leader,
             "executed_leader": executed_leader,
@@ -540,8 +642,15 @@ class OutputWriter:
             "real_successful_trades": real_trades["successful"],
             "real_unsuccessful_trades": real_trades["unsuccessful"],
             "real_unresolved_trades": real_trades["unresolved"],
+            "clean_real_total_trades": real_trades["clean_total"],
+            "clean_real_closed_trades": real_trades["clean_closed"],
+            "clean_real_successful_trades": real_trades["clean_successful"],
+            "clean_real_unsuccessful_trades": real_trades["clean_unsuccessful"],
+            "clean_real_unresolved_trades": real_trades["clean_unresolved"],
             "external_closed_trades": real_trades["external_closed"],
             "external_unresolved_trades": real_trades["external_unresolved"],
+            "adopted_closed_trades": real_trades["adopted_closed"],
+            "adopted_unresolved_trades": real_trades["adopted_unresolved"],
         }
         shadow_bar = {
             "actors": step.n_shadow_actors if step is not None else 0,
@@ -601,6 +710,14 @@ class OutputWriter:
             "panteon_realized_equity_curve": list(self._panteon_realized_equity_history),
             "panteon_max_drawdown_pct": panteon_max_dd_pct,
             "panteon_realized_max_drawdown_pct": panteon_realized_max_dd_pct,
+            "clean_panteon_equity_usd": clean_panteon_equity,
+            "clean_panteon_realized_equity_usd": clean_panteon_realized_equity,
+            "clean_panteon_equity_curve": list(self._clean_panteon_equity_history),
+            "clean_panteon_realized_equity_curve": list(
+                self._clean_panteon_realized_equity_history
+            ),
+            "clean_panteon_max_drawdown_pct": clean_panteon_max_dd_pct,
+            "clean_panteon_realized_max_drawdown_pct": clean_panteon_realized_max_dd_pct,
             "unrealized_pnl_usd": account_snapshot.get("unrealized_pnl", 0.0),
             "pnl_usd":          realized_pnl,
             "pnl_pct":          pnl_pct,
@@ -839,10 +956,14 @@ class OutputWriter:
     def _position_pnl_summary(self, *, leader: Optional[str]) -> Dict[str, float]:
         summary = {
             "panteon_owned_unrealized_pnl_usd": 0.0,
+            "clean_panteon_unrealized_pnl_usd": 0.0,
             "external_unrealized_pnl_usd": 0.0,
+            "adopted_unrealized_pnl_usd": 0.0,
             "leader_unrealized_pnl_usd": 0.0,
             "panteon_owned_positions_count": 0,
+            "clean_panteon_positions_count": 0,
             "external_positions_count": 0,
+            "adopted_positions_count": 0,
             "leader_positions_count": 0,
             "handoff_positions_count": 0,
         }
@@ -864,6 +985,12 @@ class OutputWriter:
                 continue
             summary["panteon_owned_unrealized_pnl_usd"] += unrealized
             summary["panteon_owned_positions_count"] += 1
+            if _is_adopted_player(owner, self._pipeline):
+                summary["adopted_unrealized_pnl_usd"] += unrealized
+                summary["adopted_positions_count"] += 1
+            else:
+                summary["clean_panteon_unrealized_pnl_usd"] += unrealized
+                summary["clean_panteon_positions_count"] += 1
             if leader and owner == leader:
                 summary["leader_unrealized_pnl_usd"] += unrealized
                 summary["leader_positions_count"] += 1
@@ -875,21 +1002,37 @@ class OutputWriter:
         panteon_closed = 0
         successful = 0
         unsuccessful = 0
+        clean_closed = 0
+        clean_successful = 0
+        clean_unsuccessful = 0
+        adopted_closed = 0
         external_closed = 0
         try:
             closed = self._pipeline.ledger.realized_attributions()
         except Exception:
             closed = []
         for attr in closed:
-            if _is_external_player(getattr(attr, "by_player", "")):
+            by_player = getattr(attr, "by_player", "")
+            realized = float(getattr(attr, "realized_pnl", 0.0) or 0.0)
+            if _is_external_player(by_player):
                 external_closed += 1
                 continue
             panteon_closed += 1
-            if float(getattr(attr, "realized_pnl", 0.0) or 0.0) > 0:
+            if _is_adopted_player(by_player, self._pipeline):
+                adopted_closed += 1
+            else:
+                clean_closed += 1
+                if realized > 0:
+                    clean_successful += 1
+                else:
+                    clean_unsuccessful += 1
+            if realized > 0:
                 successful += 1
             else:
                 unsuccessful += 1
         unresolved = int(position_pnl.get("panteon_owned_positions_count", 0) or 0)
+        clean_unresolved = int(position_pnl.get("clean_panteon_positions_count", 0) or 0)
+        adopted_unresolved = int(position_pnl.get("adopted_positions_count", 0) or 0)
         external_unresolved = int(position_pnl.get("external_positions_count", 0) or 0)
         return {
             "total": panteon_closed + unresolved,
@@ -897,6 +1040,13 @@ class OutputWriter:
             "successful": successful,
             "unsuccessful": unsuccessful,
             "unresolved": unresolved,
+            "clean_total": clean_closed + clean_unresolved,
+            "clean_closed": clean_closed,
+            "clean_successful": clean_successful,
+            "clean_unsuccessful": clean_unsuccessful,
+            "clean_unresolved": clean_unresolved,
+            "adopted_closed": adopted_closed,
+            "adopted_unresolved": adopted_unresolved,
             "external_closed": external_closed,
             "external_unresolved": external_unresolved,
         }
@@ -1108,6 +1258,7 @@ class OutputWriter:
         trade_counts = self._pipeline.ledger.trade_counts_by_player()
         win_counts = self._pipeline.ledger.win_counts_by_player()
         player_labels = {profile.label for profile in self._pipeline.profiles}
+        player_labels.update(_configured_dynamic_player_labels(self._pipeline))
         player_labels.update(player_pnl.keys())
         for label in sorted(player_labels):
             metrics_agg = self._pipeline.perf.get(label)
@@ -1204,6 +1355,7 @@ class OutputWriter:
         exchange = self._latest_exchange_suffix()
         selected = {
             "dashboard_latest.png": f"dashboard_latest_{exchange}.png",
+            "shadow_dashboard.png": f"shadow_dashboard_{exchange}.png",
             "regime_dashboard.png": f"regime_dashboard_{exchange}.png",
             "memory_dashboard.png": f"memory_dashboard_{exchange}.png",
         }
@@ -1260,6 +1412,7 @@ class OutputWriter:
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="30">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23161b22'/%3E%3Cpath d='M14 42h36L32 12z' fill='%2358a6ff'/%3E%3Ccircle cx='32' cy='38' r='6' fill='%23d6deeb'/%3E%3C/svg%3E">
 <title>Panteon v2 dashboard</title>
 <style>
 body {{ margin: 0; background: #0d1117; color: #d6deeb; font-family: Consolas, monospace; }}
@@ -1272,6 +1425,7 @@ figure {{ margin: 0; background: #161b22; border: 1px solid #30363d; padding: 8p
 img {{ width: 100%; height: auto; display: block; }}
 figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
 .muted {{ color: #8b949e; }}
+.sr-only {{ position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }}
 </style>
 </head>
 <body>
@@ -1281,6 +1435,7 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
 <span class="muted">status: <a href="{html.escape(status_path)}">{html.escape(status_path)}</a></span>
 </header>
 <main>
+<div class="sr-only">Панель №1</div>
 <section class="gallery">
 {image_links}
 </section>
@@ -1407,6 +1562,7 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
             "## PnL",
             "",
             f"- Account PnL: `${_format_float(live.get('account_equity_pnl_usd'))}` / `{_format_float(live.get('account_pnl_pct'))}%`",
+            f"- Clean Panteon PnL: `${_format_float(live.get('clean_panteon_total_pnl_usd'))}` / `{_format_float(live.get('clean_panteon_pnl_pct'))}%`",
             f"- Panteon realized PnL: `${_format_float(live.get('panteon_realized_pnl_usd'))}`",
             f"- Panteon total PnL: `${_format_float(live.get('panteon_owned_total_pnl_usd'))}` / `{_format_float(live.get('panteon_owned_pnl_pct'))}%`",
             f"- Panteon max drawdown: `{_format_float(live.get('panteon_max_drawdown_pct'))}%`",
@@ -1414,6 +1570,7 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
             "## Trading",
             "",
             f"- Real trades total: `{real_trades.get('total', live.get('real_total_trades', 0))}`",
+            f"- Clean real trades total: `{real_trades.get('clean_total', live.get('clean_real_total_trades', 0))}`",
             f"- Closed: `{real_trades.get('closed', live.get('real_closed_trades', 0))}`",
             f"- Successful / unsuccessful: `{real_trades.get('successful', 0)}` / `{real_trades.get('unsuccessful', 0)}`",
             f"- Open Panteon positions: `{live.get('panteon_owned_positions_count', 0)}`",

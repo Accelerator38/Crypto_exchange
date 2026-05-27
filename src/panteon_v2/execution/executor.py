@@ -313,7 +313,8 @@ class TradeExecutor:
                     signal=signal,
                     reason="no position to close (post-risk)",
                 )
-            qty = existing.qty
+            close_fraction = self._close_fraction(signal)
+            qty = existing.qty * close_fraction
             idempotency_side = existing.side or signal.action.name.lower()
         else:
             qty = self._quantize_open_qty(signal, risk_check.qty)
@@ -919,6 +920,16 @@ class TradeExecutor:
             return float(quantize(signal, qty) or 0.0)
         except Exception:
             return 0.0
+
+    @staticmethod
+    def _close_fraction(signal: Signal) -> float:
+        try:
+            value = float(getattr(signal, "close_fraction", 1.0) or 1.0)
+        except (TypeError, ValueError):
+            return 1.0
+        if value <= 0.0 or value > 1.0:
+            return 1.0
+        return value
 
     def _poll_pending(self, signal: Signal, result: OrderResult) -> Optional[OrderResult]:
         order_id = result.exchange_order_id

@@ -12,8 +12,11 @@ def _bootstrap_project_paths():
     project_root = os.path.dirname(base_dir)
     search_roots = (base_dir, project_root, os.path.dirname(project_root))
     src_dir = os.path.join(project_root, "src")
+    runtime_dir = os.path.join(src_dir, "panteon_runtime")
     if os.path.isdir(src_dir) and src_dir not in sys.path:
         sys.path.insert(0, src_dir)
+    if os.path.isdir(runtime_dir) and runtime_dir not in sys.path:
+        sys.path.insert(0, runtime_dir)
     for root in search_roots:
         for extra_dir in (
             os.path.join(root, "Retrodate_cryptotrade"),
@@ -25,11 +28,46 @@ def _bootstrap_project_paths():
 
 _bootstrap_project_paths()
 
+_DLL_DIRECTORY_HANDLES = []
+
+
+def _bootstrap_windows_dll_paths():
+    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+        return
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(base_dir)
+    candidates = [
+        os.path.join(sys.prefix, "Lib", "site-packages", "llvmlite", "binding"),
+        os.path.join(project_root, ".venv", "Lib", "site-packages", "llvmlite", "binding"),
+    ]
+    seen = set()
+    for path in candidates:
+        norm = os.path.normcase(os.path.abspath(path))
+        if norm in seen or not os.path.isdir(path):
+            continue
+        seen.add(norm)
+        try:
+            _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(path))
+        except (FileNotFoundError, OSError):
+            pass
+
+
+_bootstrap_windows_dll_paths()
+
 warnings.filterwarnings("ignore")
 np.seterr(divide='ignore', invalid='ignore', over='ignore')
 
 
 def _safe_print(*args, **kwargs):
+    if (
+        "flush" not in kwargs
+        and (
+            os.environ.get("GENETICS_FORCE_FLUSH") == "1"
+            or os.environ.get("PYTHONUNBUFFERED")
+        )
+    ):
+        kwargs["flush"] = True
     """Печатает безопасно для Windows-консолей без UTF-8, не роняя импорт genetics."""
     try:
         _builtins.print(*args, **kwargs)
@@ -158,6 +196,21 @@ def _gscfg_b(cfg, key, default_on=True):
     return v in ("on", "yes", "true", "1")
 
 _GS = _load_genetic_settings()   # глобальный словарь настроек
+
+
+def _training_window_from_config(cfg: dict) -> tuple[str, str]:
+    """Return the genetics train window without mutating shared exchange config."""
+    start = (
+        os.environ.get("GENETICS_TRAIN_START_DATE")
+        or _GS.get("train_start_date")
+        or cfg.get("start_date", "")
+    )
+    end = (
+        os.environ.get("GENETICS_TRAIN_END_DATE")
+        or _GS.get("train_end_date")
+        or cfg.get("end_date", "")
+    )
+    return str(start or ""), str(end or "")
 
 # ── Импорт параметров биржи для синхронизации train == live ───────────────────
 # Все общие параметры симуляции (комиссии, плечо, стоп, fraction и т.д.)
@@ -319,6 +372,7 @@ FITNESS_W_BONUS_20  = _gscfg_f(_GS, 'win20_fitness_weight',0.10)
 # Всё остальное синхронизируется с биржей автоматически.
 SNAPSHOT_BARS  = _gscfg_i(_GS, 'snapshot_bars',  24)
 GPU_CHUNK_BARS = _gscfg_i(_GS, 'gpu_chunk_bars', 1024)
+CPU_BATCH_EVALUATOR = _gscfg_b(_GS, 'cpu_batch_evaluator', True)
 
 if _CX_OK:
     # ── Комиссии ────────────────────────────────────────────────────────────────
@@ -380,6 +434,14 @@ _asl_raw = _GS.get('agent_seed_list', '').strip()
 AGENT_SEED_LIST = [x.strip() for x in _asl_raw.split(',') if x.strip()] if _asl_raw else []
 
 _BC_AGENT_ALIAS_MAP = {
+    "Panteon_Flash": (
+        "MomentumScalper",
+        "LiveOIBreakout",
+        "VolBreakoutHunter",
+        "FundingArb",
+        "ResearchValidatorAgent",
+        "CrashPanicShortAgent",
+    ),
     "Solo_MomentumScalper": (
         "MomentumScalper",
     ),
@@ -388,6 +450,9 @@ _BC_AGENT_ALIAS_MAP = {
         "FundingArb",
         "ResearchValidatorAgent",
         "CrashPanicShortAgent",
+    ),
+    "LiveOIBreakout": (
+        "LiveOIBreakout",
     ),
 }
 
@@ -728,6 +793,8 @@ def _apply_currency_selection(actions: np.ndarray,
 N_WORKERS = 0   # 0 = auto (GPU если доступен, иначе CPU)
 
 # ── Геном ─────────────────────────────────────────────────────────────────────
+N_WORKERS = _gscfg_i(_GS, 'n_workers', N_WORKERS)
+
 _W1s = N_INPUT * N_HIDDEN1;    _b1s = N_HIDDEN1
 _W2s = N_HIDDEN1 * N_HIDDEN2;  _b2s = N_HIDDEN2
 _W3s = N_HIDDEN2 * N_HIDDEN3;  _b3s = N_HIDDEN3   # 3-й скрытый слой
@@ -757,7 +824,15 @@ except ImportError as e:
     print(f"[ERROR] Не найден модуль ретрорасчёта Retrodate_cryptotrade/crypto_exchange.py: {e}")
     sys.exit(1)
 
-AGENTS_DIR = os.path.join(_here, "Agents", "genetics")
+_agents_dir_override = os.environ.get("GENETICS_AGENTS_DIR")
+if _agents_dir_override:
+    AGENTS_DIR = (
+        _agents_dir_override
+        if os.path.isabs(_agents_dir_override)
+        else os.path.abspath(os.path.join(os.path.dirname(_here), _agents_dir_override))
+    )
+else:
+    AGENTS_DIR = os.path.join(_here, "Agents", "genetics")
 os.makedirs(AGENTS_DIR, exist_ok=True)
 IS_WINDOWS = platform.system() == 'Windows'
 
@@ -2788,12 +2863,25 @@ def _worker_task(gbytes: bytes):
     return float(_compute_fitness(r_arr, d_arr, tr_arr, dpv_list, rw_arr, sat_arr, pressure_arr)[0]), rl
 
 
+def _worker_ping(_: int):
+    if _W_PRECOMP is None:
+        return -1
+    return len(_W_PRECOMP)
+
+
 class CPUEvaluator:
     def __init__(self, precomp, n_workers):
         import concurrent.futures as cfu
         global _W_PRECOMP, _W_IC
         self.n   = n_workers
         self._ex = None
+        self._pkl = None
+        if n_workers > 1 and os.name == 'nt':
+            _W_PRECOMP = precomp
+            _W_IC = _cx.INITIAL_CAPITAL
+            self._ex = cfu.ThreadPoolExecutor(max_workers=n_workers)
+            print(f"  Запуск {n_workers} thread-workers (shared precomp)... done")
+            return
         tmp = tempfile.NamedTemporaryFile(suffix='.pkl', delete=False)
         tmp.close()
         self._pkl = tmp.name
@@ -2813,11 +2901,12 @@ class CPUEvaluator:
                 initializer=_worker_init,
                 initargs=(self._pkl, _cx.INITIAL_CAPITAL))
             print(f"  Запуск {n_workers} постоянных воркеров...", end=' ', flush=True)
-            dummy = np.zeros(GENOME_SIZE, dtype=np.float32).tobytes()
             try:
-                list(self._ex.map(_worker_task, [dummy]*n_workers, timeout=180))
-            except Exception:
-                pass
+                ready = list(self._ex.map(_worker_ping, range(n_workers), timeout=300))
+                if any(x <= 0 for x in ready):
+                    print(f"warn ready={ready}", end=' ', flush=True)
+            except Exception as exc:
+                print(f"warn {type(exc).__name__}: {exc}", end=' ', flush=True)
             print("done")
 
     def evaluate(self, population):
@@ -2881,16 +2970,17 @@ def _bc_worker(args):
     - [fix] Повторяющиеся ошибки одного типа показываются только один раз
     """
     # ── Подавляем "[OK] numba найден" из дочерних процессов ──────────────────
-    import io as _io
-    _old_stdout, _old_stderr = sys.stdout, sys.stderr
-    _devnull = _io.StringIO()
-    sys.stdout = sys.stderr = _devnull
-    try:
-        import numba  # noqa – тихая инициализация
-    except ImportError:
-        pass
-    finally:
-        sys.stdout, sys.stderr = _old_stdout, _old_stderr
+    if _mp.current_process().name != 'MainProcess':
+        import io as _io
+        _old_stdout, _old_stderr = sys.stdout, sys.stderr
+        _devnull = _io.StringIO()
+        sys.stdout = sys.stderr = _devnull
+        try:
+            import numba  # noqa – тихая инициализация
+        except ImportError:
+            pass
+        finally:
+            sys.stdout, sys.stderr = _old_stdout, _old_stderr
 
     agent_name, pkl_path, seed = args
     logs = []
@@ -3218,6 +3308,7 @@ def _resolve_bc_agent_class(agent_name: str):
         "crypto_players",
         "crypto_exchange",
         "panteon_runtime.panteon_agents",
+        "panteon_agents",
     ):
         try:
             module = importlib.import_module(module_name)
@@ -3276,52 +3367,70 @@ def _seed_from_agents(pop: np.ndarray, precomp, rng: np.random.Generator) -> np.
     BATCH_SIZE = min(n_agents, max(1, min(4 if IS_WIN else 6,
                                          _mp.cpu_count() - 1)))
 
-    # Устанавливаем флаг ДО spawn — дочерние процессы наследуют его и не спамят логами
-    os.environ['_GENETICS_WORKER'] = '1'
-    ctx = _mp.get_context('spawn')
-
     done = 0
-    # Обрабатываем агентов батчами BATCH_SIZE
-    for batch_start in range(0, n_agents, BATCH_SIZE):
-        batch = args[batch_start: batch_start + BATCH_SIZE]
-        result_q = ctx.Queue()
-        procs = []
-        for a in batch:
-            p = ctx.Process(target=_bc_run_one, args=(a, result_q), daemon=True)
-            p.start()
-            procs.append((p, a[0]))
-
-        # Собираем результаты с таймаутом на каждый процесс
-        deadline = time.time() + BC_AGENT_TIMEOUT
-        collected = 0
-        collected_names: set = set()   # FIX: дедупликация по имени агента
-        while collected < len(batch) and time.time() < deadline:
-            try:
-                ag_name, gbytes, logs = result_q.get(timeout=1.0)
-                if ag_name in collected_names:
-                    continue   # FIX: уже получили от этого агента — игнорируем дубль
-                collected_names.add(ag_name)
+    if IS_WIN:
+        print(f"  [BC] Windows thread mode: {BATCH_SIZE} workers (no mp.Queue IPC)")
+        with cfu.ThreadPoolExecutor(max_workers=BATCH_SIZE) as pool:
+            futs = {pool.submit(_bc_worker, a): a[0] for a in args}
+            for fut in cfu.as_completed(futs):
+                ag_name = futs[fut]
+                try:
+                    ag_name, gbytes, logs = fut.result()
+                except Exception as exc:
+                    gbytes = None
+                    logs = [f"    [BC] {ag_name} ошибка thread worker: {type(exc).__name__}: {exc}"]
                 for line in logs:
                     print(line)
                 if gbytes is not None:
                     genomes[ag_name] = np.frombuffer(gbytes, dtype=np.float32).copy()
                 done += 1
                 print(f"  [BC] {done}/{n_agents} завершён: {ag_name}")
-                collected += 1
-                deadline = time.time() + BC_AGENT_TIMEOUT  # сброс на каждый успех
-            except Exception:
-                pass  # queue.Empty — ждём дальше
+    else:
+        # Устанавливаем флаг ДО spawn — дочерние процессы наследуют его и не спамят логами
+        os.environ['_GENETICS_WORKER'] = '1'
+        ctx = _mp.get_context('spawn')
 
-        # Принудительно убиваем всё что ещё живо
-        for p, name in procs:
-            if p.is_alive():
-                p.terminate()
-                p.join(5)
-                if p.is_alive():
-                    p.kill()
-                if name not in collected_names:   # FIX: считаем только незавершённых
+        # Обрабатываем агентов батчами BATCH_SIZE
+        for batch_start in range(0, n_agents, BATCH_SIZE):
+            batch = args[batch_start: batch_start + BATCH_SIZE]
+            result_q = ctx.Queue()
+            procs = []
+            for a in batch:
+                p = ctx.Process(target=_bc_run_one, args=(a, result_q), daemon=True)
+                p.start()
+                procs.append((p, a[0]))
+
+            # Собираем результаты с таймаутом на каждый процесс
+            deadline = time.time() + BC_AGENT_TIMEOUT
+            collected = 0
+            collected_names: set = set()   # FIX: дедупликация по имени агента
+            while collected < len(batch) and time.time() < deadline:
+                try:
+                    ag_name, gbytes, logs = result_q.get(timeout=1.0)
+                    if ag_name in collected_names:
+                        continue   # FIX: уже получили от этого агента — игнорируем дубль
+                    collected_names.add(ag_name)
+                    for line in logs:
+                        print(line)
+                    if gbytes is not None:
+                        genomes[ag_name] = np.frombuffer(gbytes, dtype=np.float32).copy()
                     done += 1
-                    print(f"  [BC] {done}/{n_agents} завершён (таймаут/убит): {name}")
+                    print(f"  [BC] {done}/{n_agents} завершён: {ag_name}")
+                    collected += 1
+                    deadline = time.time() + BC_AGENT_TIMEOUT  # сброс на каждый успех
+                except Exception:
+                    pass  # queue.Empty — ждём дальше
+
+            # Принудительно убиваем всё что ещё живо
+            for p, name in procs:
+                if p.is_alive():
+                    p.terminate()
+                    p.join(5)
+                    if p.is_alive():
+                        p.kill()
+                    if name not in collected_names:   # FIX: считаем только незавершённых
+                        done += 1
+                        print(f"  [BC] {done}/{n_agents} завершён (таймаут/убит): {name}")
 
     # Удаляем временный pkl
     try:
@@ -3498,10 +3607,17 @@ class GeneticTrainer:
             except Exception:
                 pass
         else:
-            nw = max(1, min(max(1, _mp.cpu_count()-2), POP_SIZE)) if not N_WORKERS else N_WORKERS
-            self.ev   = CPUEvaluator(precomp, nw)
+            if CPU_BATCH_EVALUATOR:
+                nw = 0
+                self.ev = None
+            else:
+                nw = max(1, min(max(1, _mp.cpu_count()-2), POP_SIZE)) if not N_WORKERS else N_WORKERS
+                self.ev = CPUEvaluator(precomp, nw)
             self.mode = 'cpu'
-            print(f"  Режим: CPU ({nw} воркеров)")
+            if CPU_BATCH_EVALUATOR:
+                print("  Режим: CPU batch (numpy forward + numba simulation)")
+            else:
+                print(f"  Режим: CPU ({nw} воркеров)")
 
         np.save(os.path.join(AGENTS_DIR, "genome_size.npy"),
                 np.array([GENOME_SIZE], dtype=np.int32))
@@ -3991,6 +4107,8 @@ class GeneticTrainer:
             feat, prices, syms, month, period = entry[:5]
             rw     = float(entry[5]) if len(entry) > 5 else 1.0
             regime = map_regime_3(entry[6]) if len(entry) > 6 else 'neutral'
+            if rw_override is not None and regime in rw_override:
+                rw = float(rw_override[regime])
             rw_list.append(rw)
 
             # Векторизованный forward pass для всего острова
@@ -5133,6 +5251,12 @@ class GeneticTrainer:
                     if self.mode == 'gpu':
                         fits, rets = self.ev.evaluate(self.pop, self.precomp,
                                                       rw_override=_dyn_rw)
+                    elif CPU_BATCH_EVALUATOR:
+                        fits, rets = self._eval_island_batch(
+                            self.pop,
+                            self.precomp,
+                            rw_override=_dyn_rw,
+                        )
                     else:
                         fits, rets = self.ev.evaluate(self.pop)
 
@@ -5415,7 +5539,7 @@ class GeneticTrainer:
                     self.pop = self._next(fits)
 
         finally:
-            if self.mode == 'cpu':
+            if self.mode == 'cpu' and self.ev is not None:
                 self.ev.shutdown()
             _glog(
                 f"DONE  Best={self.best_fit:+.4f}  Restarts={self.restart_count}  "
@@ -6786,7 +6910,7 @@ def _load_precomp():
         mt = re.match(r'(\d{4})', str(s))
         if mt: return int(mt.group(1)), fm
         return fy, fm
-    sd = cfg.get('start_date',''); ed = cfg.get('end_date','')
+    sd, ed = _training_window_from_config(cfg)
     ys, ms = ym(sd, 2022, 1) if sd else (2022, 1)
     ye, me = ym(ed, 2025, 12) if ed else (2025, 12)
     print(f"  Period: {ys}-{ms:02d} -> {ye}-{me:02d}")

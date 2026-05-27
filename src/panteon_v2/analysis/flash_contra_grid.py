@@ -20,6 +20,9 @@ def build_flash_contra_grid(
     reliable_negative_lcb_pct: float = 0.0,
     allowed_relationships: Sequence[str] = DEFAULT_CONTRA_RELATIONSHIPS,
     min_selected_loss_usd: float = 0.0,
+    support_period_bars: int = 720,
+    min_support_periods: int = 1,
+    min_regimes: int = 1,
 ) -> dict[str, Any]:
     """Return validation-required contra candidates from intersection rows.
 
@@ -30,6 +33,9 @@ def build_flash_contra_grid(
     min_closed = max(0, int(min_genetics_closed or 0))
     lcb_floor = float(reliable_negative_lcb_pct or 0.0)
     selected_loss_floor = abs(float(min_selected_loss_usd or 0.0))
+    period_bars = max(1, int(support_period_bars or 1))
+    min_periods = max(1, int(min_support_periods or 1))
+    min_regime_count = max(1, int(min_regimes or 1))
     relationships = {
         str(relationship or "").strip()
         for relationship in allowed_relationships
@@ -42,6 +48,8 @@ def build_flash_contra_grid(
     rejected_selected_not_loss = 0
     rejected_sparse_genetics = 0
     rejected_nonnegative_genetics_lcb = 0
+    rejected_unstable_support_periods = 0
+    rejected_unstable_regimes = 0
     eligible_rows = 0
 
     for row in intersection_rows:
@@ -78,6 +86,9 @@ def build_flash_contra_grid(
                 min_genetics_closed=min_closed,
                 reliable_negative_lcb_pct=lcb_floor,
                 min_selected_loss_usd=selected_loss_floor,
+                support_period_bars=period_bars,
+                min_support_periods=min_periods,
+                min_regimes=min_regime_count,
             ),
         )
         _merge_candidate_row(
@@ -89,9 +100,20 @@ def build_flash_contra_grid(
             genetics_closed=genetics_closed,
             genetics_lcb=genetics_lcb,
             seen_selected_keys=seen_selected_by_key.setdefault(key, set()),
+            support_period=_support_period(row, period_bars=period_bars),
         )
 
-    candidates = [_finalize_candidate(candidate) for candidate in groups.values()]
+    stable_groups: list[dict[str, Any]] = []
+    for candidate in groups.values():
+        if len(candidate.get("support_periods") or ()) < min_periods:
+            rejected_unstable_support_periods += 1
+            continue
+        if len(candidate.get("regimes") or ()) < min_regime_count:
+            rejected_unstable_regimes += 1
+            continue
+        stable_groups.append(candidate)
+
+    candidates = [_finalize_candidate(candidate) for candidate in stable_groups]
     candidates.sort(
         key=lambda item: (
             _as_float(item.get("selected_loss_usd")),
@@ -108,10 +130,15 @@ def build_flash_contra_grid(
             "min_genetics_closed": min_closed,
             "reliable_negative_lcb_pct": lcb_floor,
             "min_selected_loss_usd": selected_loss_floor,
+            "support_period_bars": period_bars,
+            "min_support_periods": min_periods,
+            "min_regimes": min_regime_count,
             "rejected_relationship": rejected_relationship,
             "rejected_selected_not_loss": rejected_selected_not_loss,
             "rejected_sparse_genetics": rejected_sparse_genetics,
             "rejected_nonnegative_genetics_lcb": rejected_nonnegative_genetics_lcb,
+            "rejected_unstable_support_periods": rejected_unstable_support_periods,
+            "rejected_unstable_regimes": rejected_unstable_regimes,
             "contra_candidates": len(candidates),
         },
         "contra_candidates": candidates,
@@ -130,6 +157,9 @@ def write_flash_contra_grid(
     reliable_negative_lcb_pct: float = 0.0,
     allowed_relationships: Sequence[str] = DEFAULT_CONTRA_RELATIONSHIPS,
     min_selected_loss_usd: float = 0.0,
+    support_period_bars: int = 720,
+    min_support_periods: int = 1,
+    min_regimes: int = 1,
     top_n: int = 25,
 ) -> tuple[Path, Path]:
     run_path = Path(run_dir)
@@ -141,6 +171,9 @@ def write_flash_contra_grid(
         reliable_negative_lcb_pct=reliable_negative_lcb_pct,
         allowed_relationships=allowed_relationships,
         min_selected_loss_usd=min_selected_loss_usd,
+        support_period_bars=support_period_bars,
+        min_support_periods=min_support_periods,
+        min_regimes=min_regimes,
     )
 
     out_dir = Path(output_dir) if output_dir is not None else run_path
@@ -165,6 +198,9 @@ def _new_candidate(
     min_genetics_closed: int,
     reliable_negative_lcb_pct: float,
     min_selected_loss_usd: float,
+    support_period_bars: int,
+    min_support_periods: int,
+    min_regimes: int,
 ) -> dict[str, Any]:
     return {
         "contra_signal_key": contra_signal_key,
@@ -176,6 +212,7 @@ def _new_candidate(
         "symbols": set(),
         "actions": set(),
         "regimes": set(),
+        "support_periods": set(),
         "relationship_counts": {},
         "selected_signal_keys": set(),
         "selected_loss_usd": 0.0,
@@ -188,6 +225,9 @@ def _new_candidate(
             "min_genetics_closed": min_genetics_closed,
             "reliable_negative_lcb_pct": reliable_negative_lcb_pct,
             "min_selected_loss_usd": min_selected_loss_usd,
+            "support_period_bars": support_period_bars,
+            "min_support_periods": min_support_periods,
+            "min_regimes": min_regimes,
         },
         "recommended_flags": [
             "--enable-flash-genetics-confirmation-overlay",
@@ -207,11 +247,13 @@ def _merge_candidate_row(
     genetics_closed: int,
     genetics_lcb: float,
     seen_selected_keys: set[str],
+    support_period: int,
 ) -> None:
     candidate["support_rows"] = _as_int(candidate.get("support_rows")) + 1
     _add_if_present(candidate["symbols"], row.get("symbol"))
     _add_if_present(candidate["actions"], row.get("genetics_action") or row.get("selected_action"))
     _add_if_present(candidate["regimes"], row.get("regime"))
+    candidate["support_periods"].add(support_period)
     relationship_counts = candidate["relationship_counts"]
     relationship_counts[relationship] = _as_int(relationship_counts.get(relationship)) + 1
 
@@ -248,6 +290,11 @@ def _finalize_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     result["symbols"] = sorted(str(item) for item in result.get("symbols", ()) if item)
     result["actions"] = sorted(str(item) for item in result.get("actions", ()) if item)
     result["regimes"] = sorted(str(item) for item in result.get("regimes", ()) if item)
+    support_periods = sorted(
+        _as_int(item) for item in result.get("support_periods", ()) if item is not None
+    )
+    result["support_periods"] = support_periods
+    result["support_period_count"] = len(support_periods)
     result["selected_signal_keys"] = sorted(
         str(item) for item in result.get("selected_signal_keys", ()) if item
     )
@@ -257,6 +304,10 @@ def _finalize_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
     result["genetics_closed_trades"] = _as_int(result.pop("genetics_max_closed_trades", 0))
     return result
+
+
+def _support_period(row: Mapping[str, Any], *, period_bars: int) -> int:
+    return max(0, _as_int(row.get("bar"))) // max(1, int(period_bars or 1))
 
 
 def _experiment_spec(candidate: Mapping[str, Any], *, index: int) -> dict[str, Any]:
@@ -305,10 +356,15 @@ def _markdown_report(report: Mapping[str, Any], *, run_path: Path, top_n: int) -
         "min_genetics_closed",
         "reliable_negative_lcb_pct",
         "min_selected_loss_usd",
+        "support_period_bars",
+        "min_support_periods",
+        "min_regimes",
         "rejected_relationship",
         "rejected_selected_not_loss",
         "rejected_sparse_genetics",
         "rejected_nonnegative_genetics_lcb",
+        "rejected_unstable_support_periods",
+        "rejected_unstable_regimes",
         "contra_candidates",
     ):
         lines.append(f"- {key}: `{summary.get(key)}`")
@@ -320,18 +376,19 @@ def _markdown_report(report: Mapping[str, Any], *, run_path: Path, top_n: int) -
         return "\n".join(lines) + "\n"
 
     lines.append(
-        "| Contra key | Mode | Selected loss USD | Genetics LCB % | Closed | Support | Relationships |"
+        "| Contra key | Mode | Selected loss USD | Genetics LCB % | Closed | Support | Periods | Relationships |"
     )
-    lines.append("|---|---|---:|---:|---:|---:|---|")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---|")
     for candidate in candidates:
         lines.append(
-            "| {key} | {mode} | {loss:.2f} | {lcb} | {closed} | {support} | {relationships} |".format(
+            "| {key} | {mode} | {loss:.2f} | {lcb} | {closed} | {support} | {periods} | {relationships} |".format(
                 key=candidate.get("contra_signal_key", ""),
                 mode=candidate.get("mode", ""),
                 loss=_as_float(candidate.get("selected_loss_usd")),
                 lcb=_fmt_optional(candidate.get("genetics_min_lcb_pct")),
                 closed=_as_int(candidate.get("genetics_closed_trades")),
                 support=_as_int(candidate.get("support_rows")),
+                periods=_as_int(candidate.get("support_period_count")),
                 relationships=json.dumps(
                     candidate.get("relationship_counts") or {},
                     ensure_ascii=False,
@@ -389,6 +446,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--reliable-negative-lcb-pct", type=float, default=0.0)
     parser.add_argument("--allowed-relationships", default=",".join(DEFAULT_CONTRA_RELATIONSHIPS))
     parser.add_argument("--min-selected-loss-usd", type=float, default=0.0)
+    parser.add_argument("--support-period-bars", type=int, default=720)
+    parser.add_argument("--min-support-periods", type=int, default=1)
+    parser.add_argument("--min-regimes", type=int, default=1)
     parser.add_argument("--top-n", type=int, default=25)
     args = parser.parse_args(argv)
     json_path, md_path = write_flash_contra_grid(
@@ -398,6 +458,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         reliable_negative_lcb_pct=args.reliable_negative_lcb_pct,
         allowed_relationships=_split_csv(args.allowed_relationships),
         min_selected_loss_usd=args.min_selected_loss_usd,
+        support_period_bars=args.support_period_bars,
+        min_support_periods=args.min_support_periods,
+        min_regimes=args.min_regimes,
         top_n=args.top_n,
     )
     print(f"json={json_path}")

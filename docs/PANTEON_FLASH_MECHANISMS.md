@@ -1,5 +1,9 @@
 # Panteon Flash mechanisms
 
+Live-oriented documentation for the currently trading Flash build is in
+`docs/PANTEON_FLASH_LIVE_TRADING.md`. This file remains a lower-level notes
+page for individual mechanisms and configuration flags.
+
 ## Selection controls
 
 `anchor_actor_keys` marks preferred actors by `actor_type:label` or plain label.
@@ -118,3 +122,26 @@ tilt for funding-aligned opens.
 
 `volatility_risk_sizing_enabled` scales `risk_mult` toward constant volatility
 exposure using `MarketSnapshot.lookback_volatility_pct`.
+
+## Technical overlay
+
+`technical_overlay_enabled` adds RSI(14), MACD(12,26,9), and ATR(14) context
+to Flash candidate audit rows. The overlay is diagnostic by default.
+
+For open candidates:
+
+- Long alignment requires RSI inside `technical_rsi_long_min/max` and a
+  positive MACD histogram above `technical_macd_histogram_min_abs_pct`.
+- Short alignment requires RSI inside `technical_rsi_short_min/max` and a
+  negative MACD histogram below the negative histogram threshold.
+- Aligned candidates receive `technical_score_bonus`.
+- Misaligned candidates receive `technical_score_penalty`.
+- `technical_hard_gate_enabled` converts misalignment into a hard NoTrade
+  rejection. This remains disabled until retrodate evidence beats baseline.
+- `technical_atr_risk_sizing_enabled` scales open risk toward constant ATR
+  exposure with `technical_atr_target_pct / atr_14_pct`, capped by
+  `technical_atr_max_mult`.
+
+Technical indicators are computed from closed OHLC candles in Retrodate and
+stored on `MarketSnapshot.technicals_by_symbol`. They are not allowed to read
+future bars or execution outcomes.

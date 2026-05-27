@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from ..domain.types import Action, Metrics, Regime, Signal, Trade
@@ -114,6 +114,7 @@ class _OpenPosition:
     qty:          float
     fee_open:     float
     funding_open: float = 0.0
+    open_action:  str = ""
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -127,6 +128,12 @@ class _OpenPosition:
 _DEFAULT_TRADE_FRACTION = 0.10
 _CASH_FLAT_AGENT = "CashFlat"
 _NO_TRADE_PLAYER = "NoTrade"
+_OPENER_ATTRIBUTED_CLOSE_AGENTS = frozenset({
+    _CASH_FLAT_AGENT,
+    "GeneticsProbationRegimeExit",
+    "PartialProfitLock",
+    "StalePositionGuard",
+})
 
 
 class PerformanceMemory:
@@ -145,10 +152,16 @@ class PerformanceMemory:
         top = perf.top_k_for_regime(Regime.NEUTRAL, k=5, scorer=score_fn)
     """
 
-    def __init__(self, *, trade_fraction: float = _DEFAULT_TRADE_FRACTION):
+    def __init__(
+        self,
+        *,
+        trade_fraction: float = _DEFAULT_TRADE_FRACTION,
+        strict_close_action_family: bool = False,
+    ):
         if not 0 < trade_fraction <= 1.0:
             raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
         self._trade_fraction = float(trade_fraction)
+        self._strict_close_action_family = bool(strict_close_action_family)
         # (label, regime) → state
         self._state: Dict[Tuple[str, Regime], _LabelRegimeState] = {}
         # Открытые позиции по (label, sym) — нужно знать для close.
@@ -209,6 +222,55 @@ class PerformanceMemory:
                 status=normalized,
                 count_signal=False,
             )
+
+    def seed_open_position(
+        self,
+        *,
+        labels: List[str],
+        regime: Regime,
+        sym: str,
+        side: str,
+        entry_price: float,
+        qty: float,
+        fee_open: float = 0.0,
+        funding_open: float = 0.0,
+        signal_id: int = 0,
+        position_scope: str = "",
+        count_entry: bool = False,
+    ) -> None:
+        """Seed an already-open real position for later close-PnL accounting."""
+        normalized_labels: List[str] = []
+        for label in labels:
+            item = str(label or "").strip()
+            if item and item not in normalized_labels:
+                normalized_labels.append(item)
+        symbol = str(sym or "").upper()
+        if not normalized_labels or not symbol:
+            return
+        side_key = str(side or "").lower()
+        if side_key not in {"long", "short"}:
+            return
+        try:
+            entry = float(entry_price)
+            position_qty = float(qty)
+        except (TypeError, ValueError):
+            return
+        if entry <= 0.0 or position_qty <= 0.0:
+            return
+        for label in normalized_labels:
+            if count_entry:
+                self._get_or_create(label, regime).entries += 1
+            self._open[(position_scope, label, symbol)] = _OpenPosition(
+                signal_id=int(signal_id or 0),
+                label=label,
+                regime=regime,
+                side=side_key,
+                entry_price=entry,
+                qty=position_qty,
+                fee_open=float(fee_open or 0.0),
+                funding_open=float(funding_open or 0.0),
+            )
+            self._aggregate_cache.pop(label, None)
 
     def update_from_trade(self, trade: Trade, signal: Signal) -> None:
         """Главный entry point. Обновляет метрики на основании trade.
@@ -367,7 +429,7 @@ class PerformanceMemory:
             self._get_or_create(label, signal.regime).signals += 1
 
     def _labels_for_signal(self, signal: Signal, *, trade: Optional[Trade] = None) -> List[str]:
-        if self._is_cash_flat_close(signal):
+        if self._is_opener_attributed_close(signal):
             sym = trade.sym if trade is not None else signal.sym
             opener_labels = self._open_labels_for(signal.position_scope, sym)
             if opener_labels:
@@ -383,6 +445,14 @@ class PerformanceMemory:
                 or signal.by_player == _NO_TRADE_PLAYER
             )
         )
+
+    @staticmethod
+    def _is_opener_attributed_close(signal: Signal) -> bool:
+        if not signal.action.is_close:
+            return False
+        if signal.by_agent in _OPENER_ATTRIBUTED_CLOSE_AGENTS:
+            return True
+        return signal.by_player == _NO_TRADE_PLAYER
 
     def _open_labels_for(self, position_scope: str, sym: str) -> List[str]:
         labels: List[str] = []
@@ -429,6 +499,7 @@ class PerformanceMemory:
             qty=trade.qty,
             fee_open=trade.fee,
             funding_open=trade.funding,
+            open_action=signal.action.name,
         )
 
     def _record_close(
@@ -439,27 +510,47 @@ class PerformanceMemory:
         signal: Signal,
     ) -> None:
         key = (signal.position_scope, label, trade.sym)
-        opened = self._open.pop(key, None)
+        opened = self._open.get(key)
         # Считаем close в любом случае (для signal counter etc)
         state = self._get_or_create(label, regime)
+        if (
+            self._strict_close_action_family
+            and opened is not None
+            and not _close_matches_open_action(signal.action, opened.open_action)
+        ):
+            return
         state.closed_trades += 1
         if opened is None:
             # Пытаемся закрыть несуществующую позицию — записываем close,
             # но без realized PnL (не знаем entry). В v1 такое случалось.
             return
         # Realized PnL pct (long: (exit - entry)/entry; short: наоборот).
+        quantity_limited_close = _is_quantity_limited_close(signal)
+        close_qty = (
+            min(float(trade.qty), float(opened.qty))
+            if quantity_limited_close
+            else float(opened.qty)
+        )
+        if close_qty <= 0.0:
+            return
+        open_fraction = close_qty / float(opened.qty)
+        trade_fraction = close_qty / float(trade.qty) if quantity_limited_close else 1.0
+        fee_open = opened.fee_open * open_fraction
+        funding_open = opened.funding_open * open_fraction
+        fee_close = trade.fee * trade_fraction
+        funding_close = trade.funding * trade_fraction
         if opened.side == "long":
             return_pct = (trade.fill_price - opened.entry_price) / opened.entry_price
         else:
             return_pct = (opened.entry_price - trade.fill_price) / opened.entry_price
         # Учитываем фракцию + fees
-        entry_notional = max(opened.entry_price * opened.qty, 1e-12)
+        entry_notional = max(opened.entry_price * close_qty, 1e-12)
         gross_pnl = return_pct * self._trade_fraction
         fee_total_pct = (
-            (opened.fee_open + trade.fee) / entry_notional * self._trade_fraction
+            (fee_open + fee_close) / entry_notional * self._trade_fraction
         )
         funding_total_pct = (
-            (opened.funding_open + trade.funding)
+            (funding_open + funding_close)
             / entry_notional
             * self._trade_fraction
         )
@@ -488,6 +579,16 @@ class PerformanceMemory:
         dd = (state.peak - state.equity) / max(state.peak, 1e-12) * 100.0
         if dd > state.max_dd_pct:
             state.max_dd_pct = dd
+        remaining_qty = float(opened.qty) - close_qty
+        if not quantity_limited_close or remaining_qty <= 1e-12:
+            self._open.pop(key, None)
+        else:
+            self._open[key] = replace(
+                opened,
+                qty=remaining_qty,
+                fee_open=opened.fee_open - fee_open,
+                funding_open=opened.funding_open - funding_open,
+            )
 
     def _aggregate_metrics(self, label: str) -> Metrics:
         """Сумма метрик по всем регимам для одного label."""
@@ -565,6 +666,19 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
     }
 
 
+def _is_intentional_partial_close(signal: Signal) -> bool:
+    if not signal.action.is_close:
+        return False
+    try:
+        return 0.0 < float(getattr(signal, "close_fraction", 1.0) or 1.0) < 1.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_quantity_limited_close(signal: Signal) -> bool:
+    return signal.action == Action.SPOT_SELL_ALL or _is_intentional_partial_close(signal)
+
+
 def _state_from_dict(d: dict) -> _LabelRegimeState:
     s = _LabelRegimeState()
     s.closed_trades = int(d.get("closed_trades", 0))
@@ -597,6 +711,7 @@ def _open_to_dict(p: _OpenPosition) -> dict:
         "qty":         p.qty,
         "fee_open":    p.fee_open,
         "funding_open": p.funding_open,
+        "open_action": p.open_action,
     }
 
 
@@ -627,4 +742,28 @@ def _open_from_dict(d: dict) -> _OpenPosition:
         qty=float(d["qty"]),
         fee_open=float(d["fee_open"]),
         funding_open=float(d.get("funding_open", 0.0)),
+        open_action=str(d.get("open_action", "")),
     )
+
+
+_SPOT_OPEN_ACTION_NAMES = frozenset({
+    Action.SPOT_BUY_HALF.name,
+    Action.SPOT_BUY_FULL.name,
+})
+_FUTURE_OPEN_ACTION_NAMES = frozenset({
+    Action.FUT_LONG_HALF.name,
+    Action.FUT_LONG_FULL.name,
+    Action.FUT_SHORT_HALF.name,
+    Action.FUT_SHORT_FULL.name,
+})
+
+
+def _close_matches_open_action(close_action: Action, open_action: str) -> bool:
+    open_action_name = str(open_action or "")
+    if not open_action_name:
+        return True
+    if close_action == Action.SPOT_SELL_ALL:
+        return open_action_name in _SPOT_OPEN_ACTION_NAMES
+    if close_action == Action.FUT_CLOSE_ALL:
+        return open_action_name in _FUTURE_OPEN_ACTION_NAMES
+    return True

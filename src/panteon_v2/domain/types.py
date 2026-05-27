@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import IntEnum
@@ -158,6 +159,37 @@ class Regime(IntEnum):
 
 
 @dataclass(frozen=True)
+class TechnicalIndicators:
+    """Per-symbol normalized technical context for a closed market bar."""
+
+    rsi_14: Optional[float] = None
+    macd_line_pct: Optional[float] = None
+    macd_signal_pct: Optional[float] = None
+    macd_histogram_pct: Optional[float] = None
+    atr_14_pct: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "rsi_14",
+            "macd_line_pct",
+            "macd_signal_pct",
+            "macd_histogram_pct",
+            "atr_14_pct",
+        ):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            parsed = float(value)
+            if not math.isfinite(parsed):
+                raise ValueError(f"TechnicalIndicators.{name} must be finite")
+            object.__setattr__(self, name, parsed)
+        if self.rsi_14 is not None and not 0.0 <= self.rsi_14 <= 100.0:
+            raise ValueError("TechnicalIndicators.rsi_14 must be in [0, 100]")
+        if self.atr_14_pct is not None and self.atr_14_pct < 0.0:
+            raise ValueError("TechnicalIndicators.atr_14_pct must be >= 0")
+
+
+@dataclass(frozen=True)
 class MarketSnapshot:
     """Immutable снимок состояния рынка для одного bar-а.
 
@@ -178,10 +210,18 @@ class MarketSnapshot:
     fees_bps_by_symbol: Dict[str, float] = field(default_factory=dict)
     lookback_returns_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
     lookback_volatility_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
+    technicals_by_symbol: Dict[str, TechnicalIndicators] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not 0.0 <= float(self.regime_confidence) <= 1.0:
             raise ValueError("MarketSnapshot.regime_confidence must be in [0, 1]")
+        price_symbols = {str(item).upper() for item in self.prices}
+        for symbol in self.technicals_by_symbol:
+            if str(symbol).upper() not in price_symbols:
+                raise ValueError(
+                    "MarketSnapshot.technicals_by_symbol contains unknown symbol "
+                    f"{symbol!r}"
+                )
 
     def has_price(self, sym: str) -> bool:
         return sym in self.prices and self.prices[sym] > 0
@@ -212,6 +252,7 @@ class Signal:
     vote_weights: Dict[str, float] = field(default_factory=dict)
     vote_actions: Dict[str, Action] = field(default_factory=dict)
     risk_mult:  float = 1.0
+    close_fraction: float = 1.0
     timestamp:  datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
@@ -225,6 +266,8 @@ class Signal:
             raise ValueError("Signal.by_player must be non-empty")
         if "|" in self.position_scope:
             raise ValueError("Signal.position_scope must not contain '|'")
+        if not 0.0 < float(self.close_fraction) <= 1.0:
+            raise ValueError("Signal.close_fraction must be in (0, 1]")
 
 
 # ────────────────────────────────────────────────────────────────────

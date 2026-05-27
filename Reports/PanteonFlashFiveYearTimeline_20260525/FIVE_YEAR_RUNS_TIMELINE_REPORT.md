@@ -1,18 +1,18 @@
 # Panteon Flash: timeline полных 5-летних прогонов
 
-- Сформировано: 2026-05-25 23:10
+- Сформировано: 2026-05-27 17:31
 - Фильтр включения: `executed_years` содержит 2022-2026, `bars_processed >= 38000`, период 2022-01-01 -> 2026-05-18.
-- Включено полных 5-летних прогонов: 31.
-- Исключено неполных/годовых/H1 прогонов: 481.
+- Включено полных 5-летних прогонов: 39.
+- Исключено неполных/годовых/H1 прогонов: 663.
 
 ## Главная динамика
 
 - Первый полный Flash-прогон: 2026-05-19 14:32:38 — -0.62% PnL, MaxDD 1.41%.
-- Лучший полный прогон: 2026-05-25 11:09:53 — 106.31% PnL, MaxDD 4.12%, `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026`.
-- Последний полный прогон: 2026-05-25 16:14:18 — 106.31% PnL, MaxDD 4.12%, `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_final`.
-- Прирост от первого к последнему: 106.93 п.п.
-- Медиана по всем полным версиям: 8.82% PnL, 5.25% MaxDD.
-- Доля версий, где Flash обошёл лучший standalone-компонент: 32.3%.
+- Лучший полный прогон: 2026-05-26 19:02:52 — 112.45% PnL, MaxDD 6.24%, `PanteonFlashRiskFractionSweep_20260526/full2022_2026_risk_12`.
+- Последний полный прогон: 2026-05-27 09:30:40 — 44.51% PnL, MaxDD 9.89%, `PanteonPretradeRiskSizing_20260527/full2022_2026/baseline_control`.
+- Прирост от первого к последнему: 45.13 п.п.
+- Медиана по всем полным версиям: 15.08% PnL, 5.81% MaxDD.
+- Доля версий, где Flash обошёл лучший standalone-компонент: 41.0%.
 
 ## Графики
 
@@ -26,16 +26,16 @@
 
 | # | Дата версии | PnL % | MaxDD % | Alpha п.п. | Closed | Best component | Версия |
 |---:|---|---:|---:|---:|---:|---|---|
-| 1 | 2026-05-25 14:13:29 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_compact_v2` |
-| 2 | 2026-05-25 12:11:35 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_compact` |
-| 3 | 2026-05-25 11:09:53 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026` |
-| 4 | 2026-05-25 16:14:18 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_final` |
-| 5 | 2026-05-25 07:12:52 | 105.64 | 4.19 | 43.30 | 495 | Antonius_conservative | `PanteonFlashTargetedLcbDenyRegimePullbackTrxFull2022_2026_20260525` |
-| 6 | 2026-05-23 17:49:26 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashCooldown720ActorRegime72Round3Deny8_Full2022_2026_20260523` |
-| 7 | 2026-05-23 21:15:29 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashRound3Deny8EntryRegime_Full2022_2026_20260524` |
-| 8 | 2026-05-24 09:23:27 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashRound3Deny8EntryRegime_RetestFull2022_2026_20260524` |
-| 9 | 2026-05-24 00:20:33 | 100.50 | 4.29 | 38.16 | 494 | Antonius_conservative | `PanteonFlashPreLiveSymbolGuard_Full2022_2026_20260524` |
-| 10 | 2026-05-23 14:26:41 | 70.68 | 5.25 | 8.34 | 320 | Antonius_conservative | `PanteonFlashCooldown720ActorRegime72_Full2022_2026_20260523` |
+| 1 | 2026-05-26 19:02:52 | 112.45 | 6.24 | 112.45 | 658 |  | `PanteonFlashRiskFractionSweep_20260526/full2022_2026_risk_12` |
+| 2 | 2026-05-25 14:13:29 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_compact_v2` |
+| 3 | 2026-05-25 16:14:18 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_final` |
+| 4 | 2026-05-25 12:11:35 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026_compact` |
+| 5 | 2026-05-25 11:09:53 | 106.31 | 4.12 | 43.97 | 495 | Antonius_conservative | `PanteonFlashSelectedSubsetPredeploy_20260525/candidate_no_weak_cut_full2022_2026` |
+| 6 | 2026-05-25 07:12:52 | 105.64 | 4.19 | 43.30 | 495 | Antonius_conservative | `PanteonFlashTargetedLcbDenyRegimePullbackTrxFull2022_2026_20260525` |
+| 7 | 2026-05-23 17:49:26 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashCooldown720ActorRegime72Round3Deny8_Full2022_2026_20260523` |
+| 8 | 2026-05-23 21:15:29 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashRound3Deny8EntryRegime_Full2022_2026_20260524` |
+| 9 | 2026-05-24 09:23:27 | 105.42 | 4.19 | 43.08 | 496 | Antonius_conservative | `PanteonFlashRound3Deny8EntryRegime_RetestFull2022_2026_20260524` |
+| 10 | 2026-05-24 00:20:33 | 100.50 | 4.29 | 38.16 | 494 | Antonius_conservative | `PanteonFlashPreLiveSymbolGuard_Full2022_2026_20260524` |
 
 ## Legacy scaled comparison
 

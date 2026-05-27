@@ -260,6 +260,50 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         self.assertFalse(adapter.live_trading_eligible)
         self.assertTrue(adapter.shadow_only)
 
+    def test_regime_router_live_gate_requires_paper_gate_confirmation(self):
+        from panteon_v2.app.agent_bootstrap import build_genetics_regime_router_adapter
+
+        class FakeGeneticsAgent:
+            def __init__(self, genome):
+                self.genome = np.asarray(genome, dtype=np.float32)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "Results" / "neiro_genetics" / "run"
+            root.mkdir(parents=True)
+            baseline_path = root / "warm_start_genome.npy"
+            candidate_path = root / "archive_rank1.npy"
+            np.save(baseline_path, np.asarray([3], dtype=np.float32))
+            np.save(candidate_path, np.asarray([4], dtype=np.float32))
+            manifest_path = root / "selection_router.json"
+            manifest_path.write_text(json.dumps({
+                "selected_is_baseline": False,
+                "selected_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(candidate_path),
+                    "bullish": str(baseline_path),
+                },
+                "baseline_regime_map": {
+                    "bearish": str(baseline_path),
+                    "neutral": str(baseline_path),
+                    "bullish": str(baseline_path),
+                },
+                "validation": {"mean_ret": 0.5, "min_ret": 0.2, "positive_period_pct": 100.0},
+                "baseline_validation": {"mean_ret": 0.1, "min_ret": 0.0, "positive_period_pct": 66.7},
+                "paper_trading_eligible": True,
+                "live_trading_eligible": True,
+            }), encoding="utf-8")
+
+            adapter = build_genetics_regime_router_adapter(
+                manifest_path,
+                FakeGeneticsAgent,
+                results_root=Path(td) / "Results" / "neiro_genetics",
+            )
+
+        self.assertTrue(adapter.promotion_eligible)
+        self.assertTrue(adapter.paper_trading_eligible)
+        self.assertFalse(adapter.live_trading_eligible)
+        self.assertTrue(adapter.shadow_only)
+
     def test_shadow_only_genetics_is_not_exposed_as_real_solo_candidate(self):
         from panteon_v2.app.main_loop import _compose_solo_agent_candidates
 

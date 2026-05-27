@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import Callable, Iterable, Mapping, Optional
 
 from ..domain.types import Regime
 
@@ -14,6 +14,7 @@ def build_walk_forward_report(
     *,
     results_root: str = "Results",
     event_logs: Optional[Iterable[str]] = None,
+    temporal_window_count: int = 5,
 ) -> dict:
     event_paths = [Path(p) for p in event_logs] if event_logs is not None else _default_event_logs()
     events = _load_events(event_paths)
@@ -36,6 +37,12 @@ def build_walk_forward_report(
         "totals": totals,
         "by_regime": by_regime,
         "by_actor": _actor_stats(closed),
+        "temporal_windows": _temporal_windows(
+            events,
+            closed,
+            fills,
+            window_count=temporal_window_count,
+        ),
     }
 
 
@@ -43,6 +50,7 @@ def build_walk_forward_report_from_events(
     *,
     results_root: str = "Results",
     events: Iterable[Mapping],
+    temporal_window_count: int = 5,
 ) -> dict:
     event_rows = [dict(event) for event in events if isinstance(event, Mapping)]
     regime_by_bar = _regime_map(event_rows)
@@ -64,6 +72,12 @@ def build_walk_forward_report_from_events(
         "totals": totals,
         "by_regime": by_regime,
         "by_actor": _actor_stats(closed),
+        "temporal_windows": _temporal_windows(
+            event_rows,
+            closed,
+            fills,
+            window_count=temporal_window_count,
+        ),
     }
 
 
@@ -72,8 +86,13 @@ def write_walk_forward_report(
     results_root: str = "Results",
     event_logs: Optional[Iterable[str]] = None,
     output_path: Optional[str] = None,
+    temporal_window_count: int = 5,
 ) -> str:
-    report = build_walk_forward_report(results_root=results_root, event_logs=event_logs)
+    report = build_walk_forward_report(
+        results_root=results_root,
+        event_logs=event_logs,
+        temporal_window_count=temporal_window_count,
+    )
     path = Path(output_path) if output_path else Path(results_root) / "walk_forward_report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
@@ -85,10 +104,12 @@ def write_walk_forward_report_from_events(
     results_root: str = "Results",
     events: Iterable[Mapping],
     output_path: Optional[str] = None,
+    temporal_window_count: int = 5,
 ) -> str:
     report = build_walk_forward_report_from_events(
         results_root=results_root,
         events=events,
+        temporal_window_count=temporal_window_count,
     )
     path = Path(output_path) if output_path else Path(results_root) / "walk_forward_report.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,6 +204,8 @@ def _closed_trades(events: Iterable[Mapping], regime_by_bar: Mapping[int, str]) 
             "realized_pnl": pnl,
             "by_player": str(event.get("by_player") or ""),
             "by_agent": str(event.get("by_agent") or ""),
+            "side": str(event.get("side") or ""),
+            "open_action": str(event.get("open_action") or event.get("action") or ""),
             "regime": entry_regime,
             "entry_regime": entry_regime,
             "exit_regime": close_regime,
@@ -204,6 +227,7 @@ def _fills(events: Iterable[Mapping]) -> list[dict]:
             price = _float(trade.get("fill_price") or trade.get("fillPrice"))
             notional = qty * price
         out.append({
+            "bar": _int(event.get("bar"), default=0),
             "notional": notional,
             "fee": _float(trade.get("fee")),
             "sym": str(trade.get("sym") or ""),
@@ -249,6 +273,143 @@ def _actor_stats(trades: list[Mapping]) -> dict:
     return {
         label: _trade_stats(items, fills=[])
         for label, items in sorted(buckets.items())
+    }
+
+
+def _group_stats(
+    trades: list[Mapping],
+    key_fn: Callable[[Mapping], str],
+) -> dict:
+    buckets: dict[str, list[Mapping]] = {}
+    for trade in trades:
+        label = key_fn(trade)
+        if label:
+            buckets.setdefault(label, []).append(trade)
+    return {
+        label: _trade_stats(items, fills=[])
+        for label, items in sorted(buckets.items())
+    }
+
+
+def _actor_labels(trade: Mapping) -> list[str]:
+    labels = []
+    player = str(trade.get("by_player") or "")
+    agent = str(trade.get("by_agent") or "")
+    if player:
+        labels.append(f"player:{player}")
+    if agent:
+        labels.append(f"agent:{agent}")
+    return labels
+
+
+def _actor_keyed_stats(trades: list[Mapping]) -> dict:
+    buckets: dict[str, list[Mapping]] = {}
+    for trade in trades:
+        for label in _actor_labels(trade):
+            buckets.setdefault(label, []).append(trade)
+    return {
+        label: _trade_stats(items, fills=[])
+        for label, items in sorted(buckets.items())
+    }
+
+
+def _actor_symbol_stats(trades: list[Mapping]) -> dict:
+    buckets: dict[str, list[Mapping]] = {}
+    for trade in trades:
+        sym = str(trade.get("sym") or "")
+        if not sym:
+            continue
+        for actor in _actor_labels(trade):
+            buckets.setdefault(f"{actor}|{sym}", []).append(trade)
+    return {
+        label: _trade_stats(items, fills=[])
+        for label, items in sorted(buckets.items())
+    }
+
+
+def _action_label(trade: Mapping) -> str:
+    return str(trade.get("open_action") or trade.get("side") or "unknown")
+
+
+def _ranked_stats_rows(stats: Mapping[str, Mapping], *, limit: int = 10) -> list[dict]:
+    rows = []
+    for key, value in stats.items():
+        row = {"key": key}
+        row.update(dict(value))
+        rows.append(row)
+    rows.sort(key=lambda row: (
+        _float(row.get("net_pnl")),
+        -_int(row.get("closed_trades"), default=0),
+        str(row.get("key") or ""),
+    ))
+    return rows[:max(0, limit)]
+
+
+def _temporal_windows(
+    events: Iterable[Mapping],
+    closed: list[Mapping],
+    fills: list[Mapping],
+    *,
+    window_count: int,
+) -> dict:
+    event_rows = list(events)
+    bars = [_int(event.get("bar"), default=0) for event in event_rows]
+    bars = [bar for bar in bars if bar > 0]
+    if not bars:
+        return {
+            "window_count": 0,
+            "bar_start": 0,
+            "bar_end": 0,
+            "windows": [],
+        }
+
+    first_bar = min(bars)
+    last_bar = max(bars)
+    requested_windows = max(1, int(window_count or 1))
+    available_span = max(1, last_bar - first_bar + 1)
+    actual_windows = min(requested_windows, available_span)
+    windows = []
+    for index in range(actual_windows):
+        start = first_bar + (index * available_span) // actual_windows
+        end = first_bar + (((index + 1) * available_span) // actual_windows) - 1
+        if index == actual_windows - 1:
+            end = last_bar
+        window_closed = [
+            trade
+            for trade in closed
+            if start <= _int(trade.get("bar"), default=0) <= end
+        ]
+        window_fills = [
+            fill
+            for fill in fills
+            if start <= _int(fill.get("bar"), default=0) <= end
+        ]
+        by_actor = _actor_keyed_stats(window_closed)
+        by_symbol = _group_stats(
+            window_closed,
+            lambda trade: str(trade.get("sym") or ""),
+        )
+        by_action = _group_stats(window_closed, _action_label)
+        by_actor_symbol = _actor_symbol_stats(window_closed)
+        windows.append({
+            "window": f"window_{index + 1:02d}",
+            "bar_start": start,
+            "bar_end": end,
+            "stats": _trade_stats(window_closed, fills=window_fills),
+            "by_actor": by_actor,
+            "by_symbol": by_symbol,
+            "by_action": by_action,
+            "by_actor_symbol": by_actor_symbol,
+            "worst_actors": _ranked_stats_rows(by_actor),
+            "worst_symbols": _ranked_stats_rows(by_symbol),
+            "worst_actions": _ranked_stats_rows(by_action),
+            "worst_actor_symbols": _ranked_stats_rows(by_actor_symbol),
+        })
+    return {
+        "window_count": len(windows),
+        "bar_start": first_bar,
+        "bar_end": last_bar,
+        "windows": windows,
     }
 
 

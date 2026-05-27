@@ -152,6 +152,41 @@ def test_load_retrodate_year_snapshots_populates_lookback_returns(tmp_path):
     )
 
 
+def test_load_retrodate_year_snapshots_populates_technical_indicators(tmp_path):
+    csv_path = tmp_path / "crypto_1m_2025_all_symbols.csv"
+    start_ts = 1735689600000
+    rows = []
+    for index in range(40):
+        close = 100.0 + index
+        rows.append(
+            {
+                "timestamp": start_ts + index * 60 * 60 * 1000,
+                "open": close - 0.5,
+                "high": close + 2.0,
+                "low": close - 2.0,
+                "close": close,
+                "volume": close * 10,
+                "symbol": "BTC/USDT",
+                "datetime": "",
+            }
+        )
+    _write_rows(csv_path, rows)
+
+    snapshots = load_retrodate_year_snapshots(
+        csv_path,
+        stride_minutes=60,
+        state=RetrodateSnapshotState(),
+    )
+
+    tech = snapshots[-1].technicals_by_symbol["BTC/USDT"]
+    assert tech.rsi_14 == pytest.approx(100.0)
+    assert tech.macd_line_pct is not None
+    assert tech.macd_signal_pct is not None
+    assert tech.macd_histogram_pct is not None
+    assert tech.atr_14_pct is not None
+    assert tech.atr_14_pct > 0.0
+
+
 def test_load_retrodate_year_snapshots_keeps_state_across_files(tmp_path):
     first = tmp_path / "crypto_1m_2025_all_symbols.csv"
     second = tmp_path / "crypto_1m_2026_all_symbols.csv"
@@ -274,6 +309,30 @@ def test_cli_config_accepts_use_v3_rolling_score_flag():
     assert config.fixed_agent_player_sets == (("Fixed_AB", ("AgentA", "AgentB")),)
 
 
+def test_cli_config_accepts_flash_technical_overlay_flags():
+    config = runner._parse_cli_config([
+        "--years",
+        "2025",
+        "--enable-flash",
+        "--enable-flash-technical-overlay",
+        "--enable-flash-technical-hard-gate",
+        "--enable-flash-technical-atr-risk-sizing",
+        "--flash-technical-score-bonus",
+        "0.12",
+        "--flash-technical-score-penalty",
+        "0.30",
+        "--flash-technical-atr-target-pct",
+        "1.8",
+    ])
+
+    assert config.flash_technical_overlay_enabled is True
+    assert config.flash_technical_hard_gate_enabled is True
+    assert config.flash_technical_atr_risk_sizing_enabled is True
+    assert config.flash_technical_score_bonus == pytest.approx(0.12)
+    assert config.flash_technical_score_penalty == pytest.approx(0.30)
+    assert config.flash_technical_atr_target_pct == pytest.approx(1.8)
+
+
 def test_cli_and_flash_allocator_config_accept_flash_flags():
     config = runner._parse_cli_config([
         "--years",
@@ -314,6 +373,9 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "agent:GeneticsNeutral|SOL/USDT|FUT_LONG_FULL",
         "--enable-flash-genetics-confirmation-contra-side-match",
         "--enable-flash-genetics-confirmation-contra-static",
+        "--enable-flash-genetics-confirmation-contra-risk-sizing",
+        "--flash-genetics-confirmation-contra-risk-mult",
+        "0.4",
         "--flash-genetics-confirmation-contra-score-penalty",
         "2.5",
         "--flash-genetics-confirmation-min-closed-trades",
@@ -326,6 +388,10 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "0.75",
         "--flash-shadow-actor-fallback-min-base-score",
         "3.5",
+        "--flash-shadow-position-replay-actor-fallback-min-base-score",
+        "6.75",
+        "--flash-shadow-position-replay-actor-fallback-min-shadow-score",
+        "5.25",
         "--flash-shadow-base-fallback-actor-key",
         "agent:StrongActor",
         "--flash-shadow-base-fallback-actor-key",
@@ -419,20 +485,39 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "1.5",
         "--flash-selected-subset-score-boost",
         "agent:LiveOIBreakout|ADA/USDT|SPOT_BUY_FULL=0.25",
+        "--flash-selected-subset-context-score-boost",
+        "agent:LiveOIBreakout|ADA/USDT|SPOT_BUY_FULL|bullish=0.10",
         "--flash-selected-subset-do-not-demote-signal-key",
         "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL",
         "--flash-selected-subset-risk-mult",
         "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL=1.15",
+        "--flash-selected-subset-context-risk-mult",
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|neutral=0.80",
         "--flash-selected-subset-risk-min-mult",
         "0.75",
         "--flash-selected-subset-risk-max-mult",
         "1.15",
+        "--enable-flash-partial-profit-lock",
+        "--flash-partial-profit-lock-trigger-pnl-pct",
+        "1.5",
+        "--flash-partial-profit-lock-close-fraction",
+        "0.5",
+        "--flash-partial-profit-lock-min-age-bars",
+        "3",
+        "--disable-flash-partial-profit-lock-skip-protected-signal-keys",
+        "--flash-partial-profit-lock-skip-signal-key",
+        "ensemble:Solo_MomentumScalper|ETH/USDT|FUT_LONG_FULL",
+        "--disable-flash-audit-events",
+        "--disable-shadow-audit-events",
+        "--disable-step-result-retention",
         "--flash-deny-signal-key",
         "agent:MomentumScalper|ATOM/USDT|SPOT_BUY_FULL",
         "--flash-deny-signal-key",
         "agent:MomentumScalper|MATIC/USDT|SPOT_BUY_FULL",
         "--flash-terminal-deny-signal-key",
         "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
+        "--flash-terminal-deny-context-signal-key",
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
         "--flash-denied-open-symbol",
         "atom/usdt",
         "--flash-denied-open-regime",
@@ -501,6 +586,8 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     )
     assert flash_config.genetics_confirmation_contra_side_match_enabled is True
     assert flash_config.genetics_confirmation_contra_static_enabled is True
+    assert flash_config.genetics_confirmation_contra_risk_sizing_enabled is True
+    assert flash_config.genetics_confirmation_contra_risk_mult == 0.4
     assert flash_config.genetics_confirmation_contra_score_penalty == 2.5
     assert flash_config.genetics_confirmation_quality_gate_enabled is True
     assert flash_config.genetics_confirmation_min_closed_trades == 4
@@ -508,6 +595,14 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert flash_config.genetics_confirmation_score_bonus == 1.25
     assert flash_config.genetics_confirmation_score_penalty == 0.75
     assert flash_config.shadow_actor_fallback_min_base_score == 3.5
+    assert (
+        flash_config.shadow_position_replay_actor_fallback_min_base_score
+        == 6.75
+    )
+    assert (
+        flash_config.shadow_position_replay_actor_fallback_min_shadow_score
+        == 5.25
+    )
     assert flash_config.shadow_base_fallback_actor_keys == (
         "agent:StrongActor",
         "ensemble:SafeSolo",
@@ -572,20 +667,40 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert flash_config.selected_subset_score_boosts == (
         "agent:LiveOIBreakout|ADA/USDT|SPOT_BUY_FULL=0.25",
     )
+    assert flash_config.selected_subset_context_score_boosts == (
+        "agent:LiveOIBreakout|ADA/USDT|SPOT_BUY_FULL|bullish=0.10",
+    )
     assert flash_config.selected_subset_do_not_demote_signal_keys == (
         "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL",
     )
     assert flash_config.selected_subset_risk_mult_overrides == (
         "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL=1.15",
     )
+    assert flash_config.selected_subset_context_risk_mult_overrides == (
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|neutral=0.80",
+    )
     assert flash_config.selected_subset_risk_min_mult == 0.75
     assert flash_config.selected_subset_risk_max_mult == 1.15
+    assert config.flash_partial_profit_lock_enabled is True
+    assert config.flash_partial_profit_lock_trigger_pnl_pct == 1.5
+    assert config.flash_partial_profit_lock_close_fraction == 0.5
+    assert config.flash_partial_profit_lock_min_age_bars == 3
+    assert config.flash_partial_profit_lock_skip_protected_signal_keys is False
+    assert config.flash_partial_profit_lock_skip_signal_keys == (
+        "ensemble:Solo_MomentumScalper|ETH/USDT|FUT_LONG_FULL",
+    )
+    assert config.flash_audit_events_enabled is False
+    assert config.shadow_audit_events_enabled is False
+    assert config.step_result_retention_enabled is False
     assert flash_config.denied_signal_keys == (
         "agent:MomentumScalper|ATOM/USDT|SPOT_BUY_FULL",
         "agent:MomentumScalper|MATIC/USDT|SPOT_BUY_FULL",
     )
     assert flash_config.terminal_denied_signal_keys == (
         "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
+    )
+    assert flash_config.terminal_denied_context_signal_keys == (
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
     )
     assert flash_config.denied_open_symbols == ("ATOM/USDT",)
     assert flash_config.denied_open_regimes == (Regime.NEUTRAL,)
@@ -610,6 +725,29 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert config.flash_stale_position_exit_enabled is True
     assert config.flash_stale_position_exit_max_age_bars == 168
     assert config.flash_stale_position_exit_require_nonpositive_unrealized is True
+
+
+def test_cli_config_accepts_shadow_position_diagnostic_flags():
+    config = runner._parse_cli_config([
+        "--years",
+        "2022",
+        "--compact-causal-entry-selected-only",
+        "--shadow-position-diagnostic-bar",
+        "2982",
+        "--shadow-position-diagnostic-bar",
+        "2983",
+        "--shadow-position-diagnostic-label",
+        "Optimal_StaticRotator",
+        "--shadow-position-diagnostic-label",
+        "Solo_MomentumScalper",
+    ])
+
+    assert config.compact_causal_entry_selected_only is True
+    assert config.shadow_position_diagnostic_bars == (2982, 2983)
+    assert config.shadow_position_diagnostic_labels == (
+        "Optimal_StaticRotator",
+        "Solo_MomentumScalper",
+    )
 
 
 def test_cli_and_flash_allocator_config_accept_promotion_manifest_flags(tmp_path):
@@ -744,6 +882,41 @@ def test_retro_config_allows_short_degradation_window_when_recovery_disabled():
 
     assert config.flash_degradation_window_closed_trades == 1
     assert config.flash_degradation_recovery_min_closed_trades == 3
+
+
+def test_cli_wires_flash_degradation_lcb_and_risk_sizing():
+    config = runner._parse_cli_config([
+        "--years",
+        "2025",
+        "--enable-flash-degradation-guard",
+        "--flash-degradation-signal-min-pnl-per-trade-lcb-usd",
+        "-2.0",
+        "--flash-degradation-pnl-per-trade-lcb-z",
+        "1.5",
+        "--enable-flash-degradation-signal-risk-sizing",
+        "--flash-degradation-signal-risk-mult",
+        "0.35",
+    ])
+
+    assert config.flash_degradation_signal_min_pnl_per_trade_lcb_usd == -2.0
+    assert config.flash_degradation_pnl_per_trade_lcb_z == 1.5
+    assert config.flash_degradation_signal_risk_sizing_enabled is True
+    assert config.flash_degradation_signal_risk_mult == 0.35
+
+    flash_config = runner._build_flash_allocator_config(config)
+    assert flash_config.degradation_signal_min_pnl_per_trade_lcb_usd == -2.0
+    assert flash_config.degradation_pnl_per_trade_lcb_z == 1.5
+    assert flash_config.degradation_signal_risk_sizing_enabled is True
+    assert flash_config.degradation_signal_risk_mult == 0.35
+
+
+def test_cli_defaults_flash_degradation_signal_risk_mult_to_validated_candidate():
+    config = runner._parse_cli_config(["--years", "2025"])
+
+    assert config.flash_degradation_signal_risk_mult == 0.20
+
+    flash_config = runner._build_flash_allocator_config(config)
+    assert flash_config.degradation_signal_risk_mult == 0.20
 
 
 def test_cli_can_enable_experimental_flash_actor_layer():
@@ -1276,6 +1449,9 @@ def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_
         flash_terminal_denied_signal_keys=(
             "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
         ),
+        flash_terminal_denied_context_signal_keys=(
+            "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
+        ),
         flash_denied_open_symbols=("ATOM/USDT",),
         flash_degradation_symbol_guard_enabled=True,
         flash_degradation_symbol_cooldown_bars=48,
@@ -1288,6 +1464,8 @@ def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_
         flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd=-0.2,
         flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd=0.0,
         flash_shadow_symbol_health_pnl_lcb_penalty_weight=12.0,
+        flash_shadow_position_replay_actor_fallback_min_base_score=6.75,
+        flash_shadow_position_replay_actor_fallback_min_shadow_score=5.25,
         flash_actor_risk_sizing_enabled=True,
         flash_actor_risk_min_mult=0.3,
         flash_actor_risk_max_mult=1.2,
@@ -1340,6 +1518,9 @@ def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_
     assert data["flash_terminal_denied_signal_keys"] == [
         "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
     ]
+    assert data["flash_terminal_denied_context_signal_keys"] == [
+        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
+    ]
     assert data["flash_denied_open_symbols"] == ["ATOM/USDT"]
     assert data["flash_degradation_symbol_guard_enabled"] is True
     assert data["flash_degradation_symbol_cooldown_bars"] == 48
@@ -1352,6 +1533,14 @@ def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_
     assert data["flash_shadow_symbol_health_min_pnl_per_trade_lcb_usd"] == -0.2
     assert data["flash_shadow_symbol_health_pnl_lcb_penalty_floor_usd"] == 0.0
     assert data["flash_shadow_symbol_health_pnl_lcb_penalty_weight"] == 12.0
+    assert (
+        data["flash_shadow_position_replay_actor_fallback_min_base_score"]
+        == 6.75
+    )
+    assert (
+        data["flash_shadow_position_replay_actor_fallback_min_shadow_score"]
+        == 5.25
+    )
     assert data["flash_actor_risk_sizing_enabled"] is True
     assert data["flash_actor_risk_min_mult"] == 0.3
     assert data["flash_actor_risk_max_mult"] == 1.2
@@ -1462,6 +1651,8 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "--enable-genetics-probation-execution",
         "--genetics-probation-risk-mult",
         "0.20",
+        "--genetics-probation-min-regime-confidence",
+        "0.75",
         "--genetics-probation-max-real-trades",
         "7",
         "--genetics-probation-label",
@@ -1474,6 +1665,10 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "neutral",
         "--genetics-probation-allowed-regime",
         "bullish",
+        "--genetics-probation-allowed-signal-key",
+        "agent:GeneticsRegimeRouter|BTC/USDT|FUT_SHORT_FULL",
+        "--genetics-probation-allowed-signal-key",
+        "agent:GeneticsNeutral|DOGE/USDT|FUT_SHORT_FULL",
         "--disable-genetics-probation-shadow-confirmation",
     ])
 
@@ -1488,6 +1683,7 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
     assert risk_config.capital_fraction == 0.15
     assert config.genetics_probation_execution_enabled is True
     assert config.genetics_probation_risk_mult == 0.20
+    assert config.genetics_probation_min_regime_confidence == 0.75
     assert config.genetics_probation_max_real_trades == 7
     assert config.genetics_probation_labels == (
         "GeneticsNeutral",
@@ -1497,6 +1693,10 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "bearish",
         "neutral",
         "bullish",
+    )
+    assert config.genetics_probation_allowed_signal_keys == (
+        "agent:GeneticsRegimeRouter|BTC/USDT|FUT_SHORT_FULL",
+        "agent:GeneticsNeutral|DOGE/USDT|FUT_SHORT_FULL",
     )
     assert config.genetics_probation_require_shadow_confirmation is False
     assert live_config.genetics_probation_execution_enabled is True
@@ -1509,7 +1709,12 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "neutral",
         "bullish",
     )
+    assert live_config.genetics_probation_allowed_signal_keys == (
+        "agent:GeneticsRegimeRouter|BTC/USDT|FUT_SHORT_FULL",
+        "agent:GeneticsNeutral|DOGE/USDT|FUT_SHORT_FULL",
+    )
     assert live_config.genetics_probation_risk_mult == 0.20
+    assert live_config.genetics_probation_min_regime_confidence == 0.75
     assert live_config.genetics_probation_max_real_trades == 7
     assert live_config.genetics_probation_require_shadow_confirmation is False
 
@@ -2097,6 +2302,18 @@ def test_flash_attribution_summary_groups_selection_execution_and_realized_pnl(t
     assert eth["avg_risk_mult"] == 1.0
     assert eth["blocked_signals"] == 1
     assert eth["failure_reasons"]["risk limit"] == 1
+    contexts = {
+        row["context_key"]: row
+        for row in data["context_rows"]
+    }
+    bullish_btc = contexts["agent:Alpha|BTC/USDT|FUT_LONG_FULL|bullish"]
+    bearish_eth = contexts["agent:Alpha|ETH/USDT|FUT_SHORT_FULL|bearish"]
+    assert bullish_btc["selected_signals"] == 1
+    assert bullish_btc["filled_signals"] == 1
+    assert bullish_btc["closed_trades"] == 1
+    assert bullish_btc["realized_pnl_usd"] == 7.25
+    assert bearish_eth["blocked_signals"] == 1
+    assert bearish_eth["failure_reasons"]["risk limit"] == 1
 
 
 def test_flash_attribution_summary_splits_guard_filtered_from_missing_execution(tmp_path):
@@ -2342,6 +2559,9 @@ def test_flash_genetics_intersection_report_matches_selected_flash_to_genetics_s
     assert data["summary"]["same_action_rows"] == 1
     assert data["summary"]["opposite_side_rows"] == 1
     assert data["summary"]["negative_same_action_rows"] == 1
+    assert data["summary"]["direct_genetics_selected_signals"] == 0
+    assert data["summary"]["direct_genetics_closed_trades"] == 0
+    assert data["summary"]["direct_genetics_selection_gate_passed"] is False
     rows = data["rows"]
     assert rows[0]["selected_signal_key"] == "agent:Alpha|BTC/USDT|FUT_LONG_FULL"
     assert rows[0]["genetics_signal_key"] == (
@@ -2351,6 +2571,73 @@ def test_flash_genetics_intersection_report_matches_selected_flash_to_genetics_s
     assert rows[0]["selected_realized_pnl_usd"] == -4.0
     assert rows[0]["genetics_full_pnl_per_trade_lcb_pct"] == -0.5
     assert (tmp_path / "flash_genetics_intersection_report.md").exists()
+
+
+def test_flash_genetics_intersection_report_passes_direct_selection_gate(tmp_path):
+    (tmp_path / "causal_entry_decisions.jsonl").write_text(
+        json.dumps({
+            "bar": 1,
+            "flash_decisions": [
+                {
+                    "symbol": "BTC/USDT",
+                    "selected_actor": "GeneticsBearish",
+                    "actor_type": "agent",
+                    "score": 5.0,
+                    "action": "FUT_SHORT_FULL",
+                    "signal": {
+                        "id": 10,
+                        "sym": "BTC/USDT",
+                        "action": "FUT_SHORT_FULL",
+                        "by_agent": "GeneticsBearish",
+                    },
+                }
+            ],
+            "executable_signals": [
+                {
+                    "id": 10,
+                    "sym": "BTC/USDT",
+                    "action": "FUT_SHORT_FULL",
+                }
+            ],
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    runner.write_flash_attribution_summary(
+        tmp_path,
+        execution_events=[
+            ExecutionAttributed(
+                bar=1,
+                signal_id=10,
+                sym="BTC/USDT",
+                action="FUT_SHORT_FULL",
+                status="filled",
+            ),
+        ],
+        position_closed_events=[
+            PositionClosed(
+                bar=2,
+                open_signal_id=10,
+                close_signal_id=11,
+                sym="BTC/USDT",
+                side="short",
+                realized_pnl=3.0,
+                by_agent="GeneticsBearish",
+            )
+        ],
+    )
+    (tmp_path / "flash_signal_key_shadow_report.json").write_text(
+        json.dumps({"summary": {}, "rows": []}),
+        encoding="utf-8",
+    )
+
+    path = runner.write_flash_genetics_intersection_report(tmp_path)
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["summary"]["direct_genetics_selected_signals"] == 1
+    assert data["summary"]["direct_genetics_closed_trades"] == 1
+    assert data["summary"]["direct_genetics_realized_pnl_usd"] == 3.0
+    assert data["summary"]["direct_genetics_selection_gate_passed"] is True
 
 
 def test_signal_key_shadow_report_computes_pnl_per_trade_lcb(tmp_path):

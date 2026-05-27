@@ -14,6 +14,9 @@ from .agent import Agent
 from .player import Player, normalize_vote_result
 
 
+_SHADOW_POSITION_REPLAY_AGENT = "ShadowPositionReplay"
+
+
 def _actor_cap_override_map(overrides: Sequence[str]) -> dict[str, int]:
     parsed: dict[str, int] = {}
     for raw in overrides:
@@ -63,6 +66,46 @@ def _signal_key_float_map(overrides: Sequence[str], *, field_name: str) -> dict[
             raise ValueError(f"{field_name} value must be a finite number")
         parsed[key] = value
     return parsed
+
+
+def _signal_context_key_float_map(
+    overrides: Sequence[str],
+    *,
+    field_name: str,
+) -> dict[str, float]:
+    parsed: dict[str, float] = {}
+    for raw in overrides:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text.count("=") != 1:
+            raise ValueError(
+                f"{field_name} must use 'actor_key|symbol|action|regime=value' format"
+            )
+        raw_key, raw_value = (part.strip() for part in text.split("=", 1))
+        if not raw_key or not raw_value:
+            raise ValueError(
+                f"{field_name} must use 'actor_key|symbol|action|regime=value' format"
+            )
+        key = _normalize_signal_context_key(raw_key)
+        try:
+            value = float(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} value must be a finite number") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"{field_name} value must be a finite number")
+        parsed[key] = value
+    return parsed
+
+
+def _normalize_string_tuple(raw: object) -> tuple[str, ...]:
+    if raw in (None, ""):
+        return ()
+    if isinstance(raw, str):
+        items: Iterable[object] = (item.strip() for item in raw.split(","))
+    else:
+        items = raw if isinstance(raw, Iterable) else (raw,)
+    return tuple(str(item).strip() for item in items if str(item or "").strip())
 
 
 def _normalize_signal_key_tuple(raw: object, *, field_name: str) -> tuple[str, ...]:
@@ -163,6 +206,8 @@ class FlashAllocatorConfig:
     shadow_base_fallback_confirmation_enabled: bool = False
     shadow_signal_handoff_enabled: bool = False
     shadow_actor_fallback_min_base_score: float = 0.0
+    shadow_position_replay_actor_fallback_min_base_score: float = 0.0
+    shadow_position_replay_actor_fallback_min_shadow_score: float = 0.0
     shadow_base_fallback_actor_keys: Tuple[str, ...] = ()
     actor_switch_margin: float = 0.0
     anchor_actor_keys: Tuple[str, ...] = ()
@@ -200,6 +245,8 @@ class FlashAllocatorConfig:
     genetics_confirmation_contra_side_match_enabled: bool = False
     genetics_confirmation_contra_static_enabled: bool = False
     genetics_confirmation_contra_no_backfill_enabled: bool = False
+    genetics_confirmation_contra_risk_sizing_enabled: bool = False
+    genetics_confirmation_contra_risk_mult: float = 1.0
     genetics_confirmation_quality_gate_enabled: bool = False
     genetics_confirmation_min_closed_trades: int = 0
     genetics_confirmation_min_pnl_per_trade_pct: float = 0.0
@@ -217,6 +264,7 @@ class FlashAllocatorConfig:
     overextension_min_volatility_pct: float = 0.1
     denied_signal_keys: Tuple[str, ...] = ()
     terminal_denied_signal_keys: Tuple[str, ...] = ()
+    terminal_denied_context_signal_keys: Tuple[str, ...] = ()
     denied_open_symbols: Tuple[str, ...] = ()
     denied_open_regimes: Tuple[Regime, ...] = ()
     degradation_guard_enabled: bool = False
@@ -233,6 +281,10 @@ class FlashAllocatorConfig:
     degradation_window_closed_trades: int = 3
     degradation_min_closed_trades: int = 3
     degradation_max_recent_pnl_usd: float = -25.0
+    degradation_signal_min_pnl_per_trade_lcb_usd: Optional[float] = None
+    degradation_pnl_per_trade_lcb_z: float = 1.0
+    degradation_signal_risk_sizing_enabled: bool = False
+    degradation_signal_risk_mult: float = 0.20
     degradation_reserve_actor_cap: bool = False
     degradation_recovery_enabled: bool = False
     degradation_recovery_min_closed_trades: int = 3
@@ -252,9 +304,24 @@ class FlashAllocatorConfig:
     volatility_risk_target_pct: float = 2.0
     volatility_risk_min_volatility_pct: float = 0.5
     volatility_risk_max_mult: float = 2.0
+    technical_overlay_enabled: bool = False
+    technical_hard_gate_enabled: bool = False
+    technical_score_bonus: float = 0.10
+    technical_score_penalty: float = 0.25
+    technical_rsi_long_min: float = 45.0
+    technical_rsi_long_max: float = 72.0
+    technical_rsi_short_min: float = 28.0
+    technical_rsi_short_max: float = 55.0
+    technical_macd_histogram_min_abs_pct: float = 0.0
+    technical_atr_risk_sizing_enabled: bool = False
+    technical_atr_target_pct: float = 2.0
+    technical_atr_min_pct: float = 0.25
+    technical_atr_max_mult: float = 1.5
     selected_subset_score_boosts: Tuple[str, ...] = ()
+    selected_subset_context_score_boosts: Tuple[str, ...] = ()
     selected_subset_do_not_demote_signal_keys: Tuple[str, ...] = ()
     selected_subset_risk_mult_overrides: Tuple[str, ...] = ()
+    selected_subset_context_risk_mult_overrides: Tuple[str, ...] = ()
     selected_subset_risk_min_mult: float = 0.75
     selected_subset_risk_max_mult: float = 1.15
 
@@ -274,6 +341,15 @@ class FlashAllocatorConfig:
             tuple(
                 _normalize_signal_deny_key(key)
                 for key in self.terminal_denied_signal_keys
+                if str(key or "").strip()
+            ),
+        )
+        object.__setattr__(
+            self,
+            "terminal_denied_context_signal_keys",
+            tuple(
+                _normalize_signal_context_key(key)
+                for key in self.terminal_denied_context_signal_keys
                 if str(key or "").strip()
             ),
         )
@@ -406,29 +482,48 @@ class FlashAllocatorConfig:
                 if str(item or "").strip()
             )
         object.__setattr__(self, "portfolio_actor_keys", portfolio_keys)
-        selected_boosts = tuple(
-            str(item).strip()
-            for item in self.selected_subset_score_boosts
-            if str(item or "").strip()
+        selected_boosts = _normalize_string_tuple(self.selected_subset_score_boosts)
+        selected_context_boosts = _normalize_string_tuple(
+            self.selected_subset_context_score_boosts
         )
-        selected_risk = tuple(
-            str(item).strip()
-            for item in self.selected_subset_risk_mult_overrides
-            if str(item or "").strip()
+        selected_risk = _normalize_string_tuple(self.selected_subset_risk_mult_overrides)
+        selected_context_risk = _normalize_string_tuple(
+            self.selected_subset_context_risk_mult_overrides
         )
         selected_boost_map = _signal_key_float_map(
             selected_boosts,
             field_name="selected_subset_score_boosts",
         )
+        selected_context_boost_map = _signal_context_key_float_map(
+            selected_context_boosts,
+            field_name="selected_subset_context_score_boosts",
+        )
         selected_risk_map = _signal_key_float_map(
             selected_risk,
             field_name="selected_subset_risk_mult_overrides",
         )
+        selected_context_risk_map = _signal_context_key_float_map(
+            selected_context_risk,
+            field_name="selected_subset_context_risk_mult_overrides",
+        )
         if any(value < 0.0 for value in selected_boost_map.values()):
             raise ValueError("selected_subset_score_boosts values must be >= 0")
+        if any(value < 0.0 for value in selected_context_boost_map.values()):
+            raise ValueError(
+                "selected_subset_context_score_boosts values must be >= 0"
+            )
         if any(value <= 0.0 for value in selected_risk_map.values()):
             raise ValueError("selected_subset_risk_mult_overrides values must be > 0")
+        if any(value <= 0.0 for value in selected_context_risk_map.values()):
+            raise ValueError(
+                "selected_subset_context_risk_mult_overrides values must be > 0"
+            )
         object.__setattr__(self, "selected_subset_score_boosts", selected_boosts)
+        object.__setattr__(
+            self,
+            "selected_subset_context_score_boosts",
+            selected_context_boosts,
+        )
         object.__setattr__(
             self,
             "selected_subset_do_not_demote_signal_keys",
@@ -438,6 +533,11 @@ class FlashAllocatorConfig:
             ),
         )
         object.__setattr__(self, "selected_subset_risk_mult_overrides", selected_risk)
+        object.__setattr__(
+            self,
+            "selected_subset_context_risk_mult_overrides",
+            selected_context_risk,
+        )
         if self.actionable_bonus < 0:
             raise ValueError("actionable_bonus must be >= 0")
         if self.min_closed_trades_to_trade < 0:
@@ -446,6 +546,14 @@ class FlashAllocatorConfig:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
             raise ValueError("shadow_actor_fallback_min_base_score must be >= 0")
+        if self.shadow_position_replay_actor_fallback_min_base_score < 0:
+            raise ValueError(
+                "shadow_position_replay_actor_fallback_min_base_score must be >= 0"
+            )
+        if self.shadow_position_replay_actor_fallback_min_shadow_score < 0:
+            raise ValueError(
+                "shadow_position_replay_actor_fallback_min_shadow_score must be >= 0"
+            )
         if self.actor_switch_margin < 0:
             raise ValueError("actor_switch_margin must be >= 0")
         if self.anchor_min_score_advantage < 0:
@@ -490,6 +598,8 @@ class FlashAllocatorConfig:
             raise ValueError(
                 "genetics_confirmation_contra_score_penalty must be >= 0"
             )
+        if self.genetics_confirmation_contra_risk_mult < 0:
+            raise ValueError("genetics_confirmation_contra_risk_mult must be >= 0")
         if self.genetics_confirmation_min_closed_trades < 0:
             raise ValueError("genetics_confirmation_min_closed_trades must be >= 0")
         if self.max_signals_per_actor < 0:
@@ -518,6 +628,12 @@ class FlashAllocatorConfig:
             raise ValueError(
                 "degradation_min_closed_trades must be <= degradation_window_closed_trades"
             )
+        if self.degradation_pnl_per_trade_lcb_z < 0:
+            raise ValueError("degradation_pnl_per_trade_lcb_z must be >= 0")
+        if self.degradation_signal_risk_mult < 0:
+            raise ValueError("degradation_signal_risk_mult must be >= 0")
+        if self.degradation_signal_risk_mult > 1.0:
+            raise ValueError("degradation_signal_risk_mult must be <= 1")
         if self.degradation_recovery_enabled:
             if self.degradation_recovery_min_closed_trades <= 0:
                 raise ValueError("degradation_recovery_min_closed_trades must be > 0")
@@ -547,6 +663,22 @@ class FlashAllocatorConfig:
             raise ValueError("volatility_risk_min_volatility_pct must be > 0")
         if self.volatility_risk_max_mult <= 0:
             raise ValueError("volatility_risk_max_mult must be > 0")
+        if self.technical_score_bonus < 0.0:
+            raise ValueError("technical_score_bonus must be >= 0")
+        if self.technical_score_penalty < 0.0:
+            raise ValueError("technical_score_penalty must be >= 0")
+        if not 0.0 <= self.technical_rsi_long_min <= self.technical_rsi_long_max <= 100.0:
+            raise ValueError("technical RSI long bounds must be ordered within [0, 100]")
+        if not 0.0 <= self.technical_rsi_short_min <= self.technical_rsi_short_max <= 100.0:
+            raise ValueError("technical RSI short bounds must be ordered within [0, 100]")
+        if self.technical_macd_histogram_min_abs_pct < 0.0:
+            raise ValueError("technical_macd_histogram_min_abs_pct must be >= 0")
+        if self.technical_atr_target_pct <= 0.0:
+            raise ValueError("technical_atr_target_pct must be > 0")
+        if self.technical_atr_min_pct <= 0.0:
+            raise ValueError("technical_atr_min_pct must be > 0")
+        if self.technical_atr_max_mult <= 0.0:
+            raise ValueError("technical_atr_max_mult must be > 0")
         if self.selected_subset_risk_min_mult < 0:
             raise ValueError("selected_subset_risk_min_mult must be >= 0")
         if self.selected_subset_risk_max_mult <= 0:
@@ -576,6 +708,7 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "degradation_guard_enabled",
     "degradation_actor_guard_enabled",
     "degradation_symbol_guard_enabled",
+    "degradation_signal_risk_sizing_enabled",
     "degradation_reserve_actor_cap",
     "degradation_recovery_enabled",
     "promotion_manifest_enabled",
@@ -583,6 +716,9 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled",
     "no_trade_fee_saving_score_enabled",
     "volatility_risk_sizing_enabled",
+    "technical_overlay_enabled",
+    "technical_hard_gate_enabled",
+    "technical_atr_risk_sizing_enabled",
 )
 
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
@@ -597,6 +733,8 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "shadow_actor_fallback_confirmation_enabled": False,
     "shadow_base_fallback_confirmation_enabled": False,
     "shadow_signal_handoff_enabled": False,
+    "shadow_position_replay_actor_fallback_min_base_score": 0.0,
+    "shadow_position_replay_actor_fallback_min_shadow_score": 0.0,
     "shadow_quality_confirmation_enabled": False,
     "shadow_confirmation_min_pnl_per_trade_lcb_usd": None,
     "shadow_confirmation_pnl_per_trade_lcb_penalty_weight": 0.0,
@@ -616,6 +754,8 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "genetics_confirmation_contra_side_match_enabled": False,
     "genetics_confirmation_contra_static_enabled": False,
     "genetics_confirmation_contra_no_backfill_enabled": False,
+    "genetics_confirmation_contra_risk_sizing_enabled": False,
+    "genetics_confirmation_contra_risk_mult": 1.0,
     "genetics_confirmation_quality_gate_enabled": False,
     "genetics_confirmation_min_closed_trades": 0,
     "genetics_confirmation_min_pnl_per_trade_pct": 0.0,
@@ -646,6 +786,10 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "degradation_window_closed_trades": 3,
     "degradation_min_closed_trades": 3,
     "degradation_max_recent_pnl_usd": -25.0,
+    "degradation_signal_min_pnl_per_trade_lcb_usd": None,
+    "degradation_pnl_per_trade_lcb_z": 1.0,
+    "degradation_signal_risk_sizing_enabled": False,
+    "degradation_signal_risk_mult": 0.20,
     "degradation_reserve_actor_cap": False,
     "degradation_recovery_enabled": False,
     "promotion_manifest_enabled": False,
@@ -663,9 +807,24 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "volatility_risk_target_pct": 2.0,
     "volatility_risk_min_volatility_pct": 0.5,
     "volatility_risk_max_mult": 2.0,
+    "technical_overlay_enabled": False,
+    "technical_hard_gate_enabled": False,
+    "technical_score_bonus": 0.10,
+    "technical_score_penalty": 0.25,
+    "technical_rsi_long_min": 45.0,
+    "technical_rsi_long_max": 72.0,
+    "technical_rsi_short_min": 28.0,
+    "technical_rsi_short_max": 55.0,
+    "technical_macd_histogram_min_abs_pct": 0.0,
+    "technical_atr_risk_sizing_enabled": False,
+    "technical_atr_target_pct": 2.0,
+    "technical_atr_min_pct": 0.25,
+    "technical_atr_max_mult": 1.5,
     "selected_subset_score_boosts": (),
+    "selected_subset_context_score_boosts": (),
     "selected_subset_do_not_demote_signal_keys": (),
     "selected_subset_risk_mult_overrides": (),
+    "selected_subset_context_risk_mult_overrides": (),
     "selected_subset_risk_min_mult": 0.75,
     "selected_subset_risk_max_mult": 1.15,
 }
@@ -688,6 +847,7 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     degradation_guard_enabled=True,
     degradation_actor_guard_enabled=True,
     degradation_symbol_guard_enabled=True,
+    degradation_signal_risk_sizing_enabled=True,
     degradation_reserve_actor_cap=True,
     degradation_recovery_enabled=True,
     promotion_manifest_enabled=True,
@@ -698,6 +858,9 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     genetics_confirmation_contra_no_backfill_enabled=True,
     no_trade_fee_saving_score_enabled=True,
     volatility_risk_sizing_enabled=True,
+    technical_overlay_enabled=True,
+    technical_hard_gate_enabled=True,
+    technical_atr_risk_sizing_enabled=True,
     funding_score_weight=1.0,
     funding_risk_mult_weight=1.0,
     no_trade_default_fee_bps=5.0,
@@ -748,6 +911,12 @@ class FlashCandidateAudit:
     lookback_return_pct: Optional[float] = None
     lookback_volatility_pct: Optional[float] = None
     lookback_return_z: Optional[float] = None
+    technical_rsi_14: Optional[float] = None
+    technical_macd_histogram_pct: Optional[float] = None
+    technical_atr_14_pct: Optional[float] = None
+    technical_alignment: str = ""
+    technical_score_adjustment: float = 0.0
+    technical_gate_reason: str = ""
     actor_key: str = ""
 
     def as_dict(self) -> dict:
@@ -813,6 +982,22 @@ class FlashCandidateAudit:
             "lookback_return_z": (
                 None if self.lookback_return_z is None else float(self.lookback_return_z)
             ),
+            "technical_rsi_14": (
+                None if self.technical_rsi_14 is None else float(self.technical_rsi_14)
+            ),
+            "technical_macd_histogram_pct": (
+                None
+                if self.technical_macd_histogram_pct is None
+                else float(self.technical_macd_histogram_pct)
+            ),
+            "technical_atr_14_pct": (
+                None
+                if self.technical_atr_14_pct is None
+                else float(self.technical_atr_14_pct)
+            ),
+            "technical_alignment": self.technical_alignment,
+            "technical_score_adjustment": float(self.technical_score_adjustment),
+            "technical_gate_reason": self.technical_gate_reason,
         }
 
 
@@ -899,9 +1084,19 @@ class FlashAllocator:
             self._config.selected_subset_score_boosts,
             field_name="selected_subset_score_boosts",
         )
+        self._selected_subset_context_score_boosts = _signal_context_key_float_map(
+            self._config.selected_subset_context_score_boosts,
+            field_name="selected_subset_context_score_boosts",
+        )
         self._selected_subset_risk_mult_overrides = _signal_key_float_map(
             self._config.selected_subset_risk_mult_overrides,
             field_name="selected_subset_risk_mult_overrides",
+        )
+        self._selected_subset_context_risk_mult_overrides = (
+            _signal_context_key_float_map(
+                self._config.selected_subset_context_risk_mult_overrides,
+                field_name="selected_subset_context_risk_mult_overrides",
+            )
         )
         self._selected_subset_do_not_demote_signal_keys = set(
             self._config.selected_subset_do_not_demote_signal_keys
@@ -1050,15 +1245,25 @@ class FlashAllocator:
             metrics_by_actor_key[output.actor_key] = metrics
             effective_score = base_score
             signal_key = _signal_deny_key(output.actor_key, symbol, output.action)
+            context_key = _signal_context_key(
+                output.actor_key,
+                symbol,
+                output.action,
+                market.regime,
+            )
             selected_subset_protected = (
                 signal_key in self._selected_subset_do_not_demote_signal_keys
             )
             selected_subset_score_boost = self._selected_subset_score_boosts.get(
                 signal_key,
                 0.0,
+            ) + self._selected_subset_context_score_boosts.get(
+                context_key,
+                0.0,
             )
             selected_subset_risk_mult = self._selected_subset_risk_mult(
                 signal_key,
+                context_key,
                 output.action,
             )
             portfolio_actor = self._is_portfolio_actor(output.actor_key, output.label)
@@ -1079,9 +1284,7 @@ class FlashAllocator:
                 else "portfolio_actor" if portfolio_actor else "actor"
             )
             shadow_confirmed_by_base = False
-            fallback_min_base_score = (
-                self._config.shadow_actor_fallback_min_base_score
-            )
+            fallback_min_base_score = self._actor_fallback_min_base_score_for(output)
             shadow_min_score = self._shadow_min_score_for(output)
             actor_fallback_base_allowed = (
                 base_score >= fallback_min_base_score
@@ -1118,6 +1321,10 @@ class FlashAllocator:
                     and actor_shadow.closed_trades
                     >= self._config.shadow_confirmation_min_closed_trades
                     and actor_shadow.score > shadow_min_score
+                    and self._actor_fallback_shadow_score_allowed(
+                        output,
+                        actor_shadow,
+                    )
                 ):
                     shadow = actor_shadow
                     shadow_source = "actor_fallback"
@@ -1203,6 +1410,16 @@ class FlashAllocator:
             )
             gate_score += genetics_confirmation_adjustment
             gate_score += selected_subset_score_boost
+            technical_alignment, technical_score_adjustment, technical_gate_reason = (
+                self._technical_alignment(market, symbol, output.action)
+            )
+            gate_score += technical_score_adjustment
+            tech = _technical_indicators_for_symbol(market, symbol)
+            signal_degraded = self._is_signal_degraded(
+                output,
+                symbol,
+                degraded_signal_keys,
+            )
             effective_score = gate_score
             if output.label in actionable:
                 effective_score *= (
@@ -1258,20 +1475,23 @@ class FlashAllocator:
             elif self._is_open_symbol_degraded(output, symbol, degraded_open_symbols):
                 rejected = True
                 reason = "flash_symbol_degraded"
-            elif not metrics.has_data:
+            elif output.action.is_open and not metrics.has_data:
                 rejected = True
                 reason = "no_evidence"
             elif (
+                output.action.is_open
+                and
                 metrics.closed_trades < self._config.min_closed_trades_to_trade
                 and not shadow_bootstrap_evidence
             ):
                 rejected = True
                 reason = "insufficient_closed_trades"
-            elif metrics.pnl_pct < self._config.min_pnl_pct_to_trade:
+            elif output.action.is_open and metrics.pnl_pct < self._config.min_pnl_pct_to_trade:
                 rejected = True
                 reason = "pnl_below_threshold"
             elif (
                 self._config.shadow_confirmation_enabled
+                and output.action.is_open
                 and not shadow_confirmed_by_base
                 and shadow.closed_trades < self._config.shadow_confirmation_min_closed_trades
             ):
@@ -1290,6 +1510,7 @@ class FlashAllocator:
                 reason = "shadow_full_open_unconfirmed"
             elif (
                 self._config.shadow_confirmation_enabled
+                and output.action.is_open
                 and shadow.score <= shadow_min_score
             ):
                 rejected = True
@@ -1343,16 +1564,29 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "shadow_symbol_health_lcb_below_threshold"
+            elif (
+                self._config.technical_overlay_enabled
+                and self._config.technical_hard_gate_enabled
+                and output.action.is_open
+                and technical_gate_reason
+            ):
+                rejected = True
+                reason = technical_gate_reason
             elif overextension_reason:
                 rejected = True
                 reason = overextension_reason
-            elif self._is_actor_degraded(output, degraded_actor_keys):
+            elif output.action.is_open and self._is_actor_degraded(output, degraded_actor_keys):
                 rejected = True
                 reason = "flash_actor_degraded"
-            elif self._is_signal_degraded(output, symbol, degraded_signal_keys):
+            elif (
+                output.action.is_open
+                and
+                signal_degraded
+                and not self._config.degradation_signal_risk_sizing_enabled
+            ):
                 rejected = True
                 reason = "flash_signal_degraded"
-            elif self._is_signal_terminal_denied(output, symbol):
+            elif self._is_signal_terminal_denied(output, symbol, market.regime):
                 rejected = True
                 reason = "flash_signal_terminal_deny_key"
             elif self._is_signal_denied(output, symbol):
@@ -1371,9 +1605,17 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "genetics_contra_no_backfill"
-            elif gate_score <= self._min_score_to_trade_for(output):
+            elif output.action.is_open and gate_score <= self._min_score_to_trade_for(output):
                 rejected = True
                 reason = "score_below_threshold"
+            if (
+                not rejected
+                and reason == "eligible"
+                and signal_degraded
+                and output.action.is_open
+                and self._config.degradation_signal_risk_sizing_enabled
+            ):
+                reason = "flash_signal_degraded_risk_sized"
 
             signal = output.signal
             if signal is not None and signal.sym.upper() == symbol:
@@ -1429,15 +1671,26 @@ class FlashAllocator:
                     output.action,
                     shadow_pnl_per_trade_lcb_usd=shadow_pnl_per_trade_lcb_usd,
                     selected_subset_risk_mult=selected_subset_risk_mult,
+                    genetics_confirmation_counts=genetics_counts,
+                    degraded_signal_risk_sized=signal_degraded,
                 ),
                 lookback_return_pct=lookback_return_pct,
                 lookback_volatility_pct=lookback_volatility_pct,
                 lookback_return_z=lookback_return_z,
+                technical_rsi_14=None if tech is None else tech.rsi_14,
+                technical_macd_histogram_pct=(
+                    None if tech is None else tech.macd_histogram_pct
+                ),
+                technical_atr_14_pct=None if tech is None else tech.atr_14_pct,
+                technical_alignment=technical_alignment,
+                technical_score_adjustment=technical_score_adjustment,
+                technical_gate_reason=technical_gate_reason,
             ))
 
         rows.sort(
             key=lambda row: (
                 row.rejected,
+                not row.action.is_close,
                 -row.score,
                 -row.closed_trades,
                 _stable_candidate_tiebreak(row, market.bar),
@@ -1587,6 +1840,14 @@ class FlashAllocator:
                     selected.action,
                     shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
                     selected_subset_risk_mult=selected.selected_subset_risk_mult,
+                    genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
+                        symbol,
+                        {},
+                    ),
+                    degraded_signal_risk_sized=(
+                        _signal_deny_key(selected.actor_key, symbol, selected.action)
+                        in degraded_signal_keys
+                    ),
                 ),
                 timestamp=market.timestamp,
             )
@@ -1680,6 +1941,60 @@ class FlashAllocator:
         if action.is_short_open:
             return funding * self._config.funding_score_weight
         return 0.0
+
+    def _technical_alignment(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+    ) -> tuple[str, float, str]:
+        if not self._config.technical_overlay_enabled or not action.is_open:
+            return "", 0.0, ""
+        tech = _technical_indicators_for_symbol(market, symbol)
+        if tech is None:
+            return "missing", 0.0, "technical_missing"
+        rsi = getattr(tech, "rsi_14", None)
+        hist = getattr(tech, "macd_histogram_pct", None)
+        if rsi is None or hist is None:
+            return "missing", 0.0, "technical_missing"
+        min_hist = float(self._config.technical_macd_histogram_min_abs_pct)
+        if action.is_long_open:
+            rsi_ok = (
+                self._config.technical_rsi_long_min
+                <= float(rsi)
+                <= self._config.technical_rsi_long_max
+            )
+            macd_ok = float(hist) > min_hist
+            if rsi_ok and macd_ok:
+                return (
+                    "long_aligned",
+                    float(self._config.technical_score_bonus),
+                    "",
+                )
+            return (
+                "long_misaligned",
+                -float(self._config.technical_score_penalty),
+                "technical_long_misaligned",
+            )
+        if action.is_short_open:
+            rsi_ok = (
+                self._config.technical_rsi_short_min
+                <= float(rsi)
+                <= self._config.technical_rsi_short_max
+            )
+            macd_ok = float(hist) < -min_hist
+            if rsi_ok and macd_ok:
+                return (
+                    "short_aligned",
+                    float(self._config.technical_score_bonus),
+                    "",
+                )
+            return (
+                "short_misaligned",
+                -float(self._config.technical_score_penalty),
+                "technical_short_misaligned",
+            )
+        return "", 0.0, ""
 
     def _genetics_confirmation_by_symbol(
         self,
@@ -1887,6 +2202,8 @@ class FlashAllocator:
         *,
         shadow_pnl_per_trade_lcb_usd: Optional[float] = None,
         selected_subset_risk_mult: float = 1.0,
+        genetics_confirmation_counts: Mapping[str, int] | None = None,
+        degraded_signal_risk_sized: bool = False,
     ) -> float:
         base = _finite_positive_or_default(getattr(signal, "risk_mult", 1.0), 1.0)
         return base * self._risk_mult_for_candidate(
@@ -1896,6 +2213,8 @@ class FlashAllocator:
             action,
             shadow_pnl_per_trade_lcb_usd=shadow_pnl_per_trade_lcb_usd,
             selected_subset_risk_mult=selected_subset_risk_mult,
+            genetics_confirmation_counts=genetics_confirmation_counts,
+            degraded_signal_risk_sized=degraded_signal_risk_sized,
         )
 
     def _risk_mult_for_candidate(
@@ -1907,10 +2226,16 @@ class FlashAllocator:
         *,
         shadow_pnl_per_trade_lcb_usd: Optional[float] = None,
         selected_subset_risk_mult: float = 1.0,
+        genetics_confirmation_counts: Mapping[str, int] | None = None,
+        degraded_signal_risk_sized: bool = False,
     ) -> float:
         if not action.is_open:
             return 1.0
         risk_mult = 1.0
+        risk_mult *= self._degraded_signal_risk_mult(
+            action,
+            degraded_signal_risk_sized,
+        )
         risk_mult *= self._shadow_pnl_per_trade_lcb_risk_mult(
             action,
             shadow_pnl_per_trade_lcb_usd,
@@ -1921,13 +2246,59 @@ class FlashAllocator:
             risk_mult *= self._funding_risk_mult(market, symbol, action)
         if self._config.volatility_risk_sizing_enabled:
             risk_mult *= self._volatility_risk_mult(market, symbol)
+        if (
+            self._config.technical_overlay_enabled
+            and self._config.technical_atr_risk_sizing_enabled
+        ):
+            risk_mult *= self._technical_atr_risk_mult(market, symbol)
+        risk_mult *= self._genetics_contra_risk_mult(
+            action,
+            genetics_confirmation_counts or {},
+        )
         risk_mult *= _finite_positive_or_default(selected_subset_risk_mult, 1.0)
         return max(0.0, float(risk_mult))
 
-    def _selected_subset_risk_mult(self, signal_key: str, action: Action) -> float:
+    def _degraded_signal_risk_mult(
+        self,
+        action: Action,
+        signal_degraded: bool,
+    ) -> float:
+        if not (
+            signal_degraded
+            and action.is_open
+            and self._config.degradation_signal_risk_sizing_enabled
+        ):
+            return 1.0
+        return _clamp(
+            float(self._config.degradation_signal_risk_mult),
+            0.0,
+            1.0,
+        )
+
+    def _genetics_contra_risk_mult(
+        self,
+        action: Action,
+        confirmation_counts: Mapping[str, int],
+    ) -> float:
+        if (
+            not self._config.genetics_confirmation_contra_risk_sizing_enabled
+            or not action.is_open
+            or self._genetics_confirmation_contra_count(action, confirmation_counts) <= 0
+        ):
+            return 1.0
+        return max(0.0, float(self._config.genetics_confirmation_contra_risk_mult))
+
+    def _selected_subset_risk_mult(
+        self,
+        signal_key: str,
+        context_key: str,
+        action: Action,
+    ) -> float:
         if not action.is_open:
             return 1.0
-        raw = self._selected_subset_risk_mult_overrides.get(signal_key)
+        raw = self._selected_subset_context_risk_mult_overrides.get(context_key)
+        if raw is None:
+            raw = self._selected_subset_risk_mult_overrides.get(signal_key)
         if raw is None:
             return 1.0
         return _clamp(
@@ -1998,6 +2369,17 @@ class FlashAllocator:
         cap = float(self._config.funding_risk_mult_cap)
         return max(0.0, 1.0 + _clamp(delta, -cap, cap))
 
+    def _technical_atr_risk_mult(self, market: MarketSnapshot, symbol: str) -> float:
+        tech = _technical_indicators_for_symbol(market, symbol)
+        if tech is None or getattr(tech, "atr_14_pct", None) is None:
+            return 1.0
+        atr = max(
+            float(self._config.technical_atr_min_pct),
+            float(getattr(tech, "atr_14_pct")),
+        )
+        raw = float(self._config.technical_atr_target_pct) / atr
+        return _clamp(raw, 0.0, float(self._config.technical_atr_max_mult))
+
     def _volatility_risk_mult(self, market: MarketSnapshot, symbol: str) -> float:
         volatility = _lookback_volatility_pct(
             market,
@@ -2025,29 +2407,42 @@ class FlashAllocator:
         ):
             return set()
         solo_by_raw: dict[str, str] = {}
+        solo_sources_by_raw: dict[str, set[str]] = {}
+
+        def add_solo_source(raw_label: str, solo_label: str, source: str) -> None:
+            if not raw_label:
+                return
+            solo_by_raw.setdefault(raw_label, solo_label)
+            solo_sources_by_raw.setdefault(raw_label, set()).add(source)
+
         for row in player_rows:
             if row.actor_type != "ensemble":
                 continue
             raw_label = _raw_agent_label_from_solo(row.label)
             if raw_label:
-                solo_by_raw.setdefault(raw_label, row.label)
+                add_solo_source(raw_label, row.label, "player")
         for label in shadow_player_labels:
             solo_label = str(label or "")
             raw_label = _raw_agent_label_from_solo(solo_label)
             if raw_label:
-                solo_by_raw.setdefault(raw_label, solo_label)
+                add_solo_source(raw_label, solo_label, "shadow_player")
         for label in actionable_labels:
             solo_label = str(label or "")
             raw_label = _raw_agent_label_from_solo(solo_label)
             if raw_label:
-                solo_by_raw.setdefault(raw_label, solo_label)
+                add_solo_source(raw_label, solo_label, "actionable")
         if self._config.prefer_solo_player_wrappers_enabled:
             return {
                 raw_label
-                for raw_label in solo_by_raw
+                for raw_label, solo_label in solo_by_raw.items()
                 if not self._is_portfolio_actor(
                     _actor_key("agent", raw_label),
                     raw_label,
+                )
+                and (
+                    "player" in solo_sources_by_raw.get(raw_label, set())
+                    or "shadow_player" in solo_sources_by_raw.get(raw_label, set())
+                    or self._solo_wrapper_has_trade_evidence(solo_label, regime)
                 )
             }
         labels: set[str] = set()
@@ -2061,6 +2456,14 @@ class FlashAllocator:
             ):
                 labels.add(raw_label)
         return labels
+
+    def _solo_wrapper_has_trade_evidence(
+        self,
+        solo_label: str,
+        regime: Regime,
+    ) -> bool:
+        metrics = self._metrics_for_label(solo_label, regime)
+        return bool(metrics.has_data)
 
     def _solo_wrapper_outscores_raw(
         self,
@@ -2092,18 +2495,32 @@ class FlashAllocator:
         key = _signal_deny_key(output.actor_key, symbol, output.action)
         return key in self._config.denied_signal_keys
 
-    def _is_signal_terminal_denied(self, output: _ActorSignal, symbol: str) -> bool:
-        if not self._config.terminal_denied_signal_keys:
+    def _is_signal_terminal_denied(
+        self,
+        output: _ActorSignal,
+        symbol: str,
+        regime: Regime,
+    ) -> bool:
+        if not (
+            self._config.terminal_denied_signal_keys
+            or self._config.terminal_denied_context_signal_keys
+        ):
             return False
         key = _signal_deny_key(output.actor_key, symbol, output.action)
-        return key in self._config.terminal_denied_signal_keys
+        if key in self._config.terminal_denied_signal_keys:
+            return True
+        context_key = _signal_context_key(output.actor_key, symbol, output.action, regime)
+        return context_key in self._config.terminal_denied_context_signal_keys
 
     def _terminal_denied_top_candidate(
         self,
         rows: Sequence[FlashCandidateAudit],
         bar: int,
     ) -> Optional[FlashCandidateAudit]:
-        if not self._config.terminal_denied_signal_keys or not rows:
+        if not (
+            self._config.terminal_denied_signal_keys
+            or self._config.terminal_denied_context_signal_keys
+        ) or not rows:
             return None
         top = min(
             rows,
@@ -2206,6 +2623,27 @@ class FlashAllocator:
         ):
             return float(self._config.anchor_shadow_min_score)
         return float(self._config.shadow_confirmation_min_score)
+
+    def _actor_fallback_min_base_score_for(self, output: _ActorSignal) -> float:
+        base_floor = float(self._config.shadow_actor_fallback_min_base_score)
+        replay_floor = float(
+            self._config.shadow_position_replay_actor_fallback_min_base_score
+        )
+        if replay_floor > 0.0 and _is_shadow_position_replay_output(output):
+            return max(base_floor, replay_floor)
+        return base_floor
+
+    def _actor_fallback_shadow_score_allowed(
+        self,
+        output: _ActorSignal,
+        actor_shadow: _ShadowConfirmation,
+    ) -> bool:
+        floor = float(
+            self._config.shadow_position_replay_actor_fallback_min_shadow_score
+        )
+        if floor <= 0.0 or not _is_shadow_position_replay_output(output):
+            return True
+        return actor_shadow.score >= floor
 
     def _shadow_pnl_per_trade_lcb_penalty(
         self,
@@ -2781,6 +3219,14 @@ def _is_no_trade_output(output: _ActorSignal) -> bool:
     )
 
 
+def _is_shadow_position_replay_output(output: _ActorSignal) -> bool:
+    signal = getattr(output, "signal", None)
+    return (
+        str(getattr(signal, "by_agent", "") or "").strip()
+        == _SHADOW_POSITION_REPLAY_AGENT
+    )
+
+
 def _actor_key(actor_type: str, label: str) -> str:
     if label == "NoTrade":
         return "NoTrade"
@@ -2821,6 +3267,18 @@ def _regime_confidence_scale(market: MarketSnapshot) -> float:
 def _signal_deny_key(actor_key: str, symbol: str, action: Action) -> str:
     return _normalize_signal_deny_key(
         f"{actor_key}|{str(symbol or '').upper()}|{action.name}"
+    )
+
+
+def _signal_context_key(
+    actor_key: str,
+    symbol: str,
+    action: Action,
+    regime: Regime,
+) -> str:
+    return _normalize_signal_context_key(
+        f"{actor_key}|{str(symbol or '').upper()}|{action.name}|"
+        f"{_normalize_regime_value(regime).label}"
     )
 
 
@@ -2882,6 +3340,17 @@ def _normalize_signal_deny_key(raw: object) -> str:
     return f"{parts[0]}|{parts[1].upper()}|{parts[2].upper()}"
 
 
+def _normalize_signal_context_key(raw: object) -> str:
+    parts = [part.strip() for part in str(raw or "").split("|")]
+    if len(parts) != 4 or not all(parts):
+        raise ValueError(
+            "Flash signal context key must use 'actor_key|symbol|action|regime' format"
+        )
+    signal_key = _normalize_signal_deny_key("|".join(parts[:3]))
+    regime = _normalize_regime_value(parts[3]).label
+    return f"{signal_key}|{regime}"
+
+
 def _lookback_return_pct(
     market: MarketSnapshot,
     symbol: str,
@@ -2898,6 +3367,16 @@ def _lookback_return_pct(
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _technical_indicators_for_symbol(market: MarketSnapshot, symbol: str):
+    clean_symbol = str(symbol or "").upper()
+    for raw_symbol, indicators in (
+        getattr(market, "technicals_by_symbol", {}) or {}
+    ).items():
+        if str(raw_symbol).upper() == clean_symbol:
+            return indicators
+    return None
 
 
 def _lookback_volatility_pct(

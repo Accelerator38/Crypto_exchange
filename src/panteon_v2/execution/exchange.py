@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
-from ..domain.types import Signal, Trade
+from ..domain.types import Action, Signal, Trade
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -74,6 +74,7 @@ class ExchangePosition:
     entry:      float
     leverage:   int = 1
     unrealized_pnl: float = 0.0
+    open_action: str = ""
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -125,8 +126,14 @@ class FakeExchange:
       • set_slippage_pct(value) — fill_price = signal.price * (1 + slip)
     """
 
-    def __init__(self, *, name: str = "FAKE"):
+    def __init__(
+        self,
+        *,
+        name: str = "FAKE",
+        strict_close_action_family: bool = False,
+    ):
         self.name = name
+        self._strict_close_action_family = bool(strict_close_action_family)
         self._positions: Dict[str, ExchangePosition] = {}
         self._next_orders: Dict[str, List[OrderStatus]] = {}  # forced statuses
         self._next_pending_plans: Dict[str, List[Tuple[Optional[OrderStatus], int]]] = {}
@@ -259,10 +266,36 @@ class FakeExchange:
         # Обновляем internal positions
         if signal.action.is_open:
             self._positions[signal.sym] = ExchangePosition(
-                sym=signal.sym, side=side, qty=qty, entry=fill_price,
+                sym=signal.sym,
+                side=side,
+                qty=qty,
+                entry=fill_price,
+                open_action=signal.action.name,
             )
         elif signal.action.is_close:
-            self._positions.pop(signal.sym, None)
+            existing = self._positions.get(signal.sym)
+            if (
+                self._strict_close_action_family
+                and existing is not None
+                and not _close_matches_open_action(signal.action, existing.open_action)
+            ):
+                pass
+            elif (
+                existing is None
+                or not _is_quantity_limited_close(signal)
+                or qty >= existing.qty
+            ):
+                self._positions.pop(signal.sym, None)
+            else:
+                self._positions[signal.sym] = ExchangePosition(
+                    sym=existing.sym,
+                    side=existing.side,
+                    qty=existing.qty - qty,
+                    entry=existing.entry,
+                    leverage=existing.leverage,
+                    unrealized_pnl=existing.unrealized_pnl,
+                    open_action=existing.open_action,
+                )
 
         result = OrderResult(
             status=OrderStatus.FILLED,
@@ -311,6 +344,14 @@ class FakeExchange:
         side = signal.action.side
         if not side:
             existing = self._positions.get(signal.sym)
+            if existing is None and signal.action.is_close:
+                return OrderResult(
+                    status=OrderStatus.REJECTED,
+                    signal_id=signal.id,
+                    sym=signal.sym,
+                    exchange_order_id=order_id,
+                    message="no position to close",
+                )
             side = existing.side if existing is not None else "long"
 
         fill_price = signal.price * (
@@ -334,10 +375,36 @@ class FakeExchange:
         )
         if signal.action.is_open:
             self._positions[signal.sym] = ExchangePosition(
-                sym=signal.sym, side=side, qty=qty, entry=fill_price,
+                sym=signal.sym,
+                side=side,
+                qty=qty,
+                entry=fill_price,
+                open_action=signal.action.name,
             )
         elif signal.action.is_close:
-            self._positions.pop(signal.sym, None)
+            existing = self._positions.get(signal.sym)
+            if (
+                self._strict_close_action_family
+                and existing is not None
+                and not _close_matches_open_action(signal.action, existing.open_action)
+            ):
+                pass
+            elif (
+                existing is None
+                or not _is_quantity_limited_close(signal)
+                or qty >= existing.qty
+            ):
+                self._positions.pop(signal.sym, None)
+            else:
+                self._positions[signal.sym] = ExchangePosition(
+                    sym=existing.sym,
+                    side=existing.side,
+                    qty=existing.qty - qty,
+                    entry=existing.entry,
+                    leverage=existing.leverage,
+                    unrealized_pnl=existing.unrealized_pnl,
+                    open_action=existing.open_action,
+                )
         result = OrderResult(
             status=OrderStatus.FILLED,
             signal_id=signal.id,
@@ -356,3 +423,39 @@ class FakeExchange:
 
     def get_min_notional(self, sym: str) -> float:
         return self._min_notional.get(sym, 0.0)
+
+
+def _is_intentional_partial_close(signal: Signal) -> bool:
+    if not signal.action.is_close:
+        return False
+    try:
+        return 0.0 < float(getattr(signal, "close_fraction", 1.0) or 1.0) < 1.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_quantity_limited_close(signal: Signal) -> bool:
+    return signal.action == Action.SPOT_SELL_ALL or _is_intentional_partial_close(signal)
+
+
+_SPOT_OPEN_ACTION_NAMES = frozenset({
+    Action.SPOT_BUY_HALF.name,
+    Action.SPOT_BUY_FULL.name,
+})
+_FUTURE_OPEN_ACTION_NAMES = frozenset({
+    Action.FUT_LONG_HALF.name,
+    Action.FUT_LONG_FULL.name,
+    Action.FUT_SHORT_HALF.name,
+    Action.FUT_SHORT_FULL.name,
+})
+
+
+def _close_matches_open_action(close_action: Action, open_action: str) -> bool:
+    open_action_name = str(open_action or "")
+    if not open_action_name:
+        return True
+    if close_action == Action.SPOT_SELL_ALL:
+        return open_action_name in _SPOT_OPEN_ACTION_NAMES
+    if close_action == Action.FUT_CLOSE_ALL:
+        return open_action_name in _FUTURE_OPEN_ACTION_NAMES
+    return True

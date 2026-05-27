@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import tempfile
 import types
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from panteon_v2.domain.types import Regime
@@ -146,6 +149,36 @@ class V1BridgeRunnerTests(unittest.TestCase):
         snap = feed.next_bar()
 
         self.assertEqual(snap.regime, Regime.BULLISH)
+
+    def test_bridge_feed_populates_technical_indicators_from_warmup_history(self):
+        from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
+
+        class TrendingBridge(FakeBridge):
+            def __init__(self):
+                super().__init__()
+                self._price_hist = [
+                    {"BTC": 100.0 + idx}
+                    for idx in range(40)
+                ]
+                self._volume_hist = [
+                    {"BTC": 10.0 + idx}
+                    for idx in range(40)
+                ]
+
+            def _fetch_market(self):
+                self.fetch_calls += 1
+                return {"BTC": 140.0}, {"BTC": 50.0}
+
+        bridge = TrendingBridge()
+        feed = V1BridgeFeed(bridge, exchange_name="MEXC")
+
+        snap = feed.next_bar()
+
+        tech = snap.technicals_by_symbol["BTC"]
+        self.assertIsNotNone(tech.rsi_14)
+        self.assertIsNotNone(tech.macd_histogram_pct)
+        self.assertIsNotNone(tech.atr_14_pct)
+        self.assertGreater(tech.atr_14_pct, 0.0)
 
     def test_bitget_bridge_feed_excludes_non_contract_symbols_before_snapshot(self):
         from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
@@ -412,6 +445,105 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertIn("12 historical bars", writer.heartbeats[0]["message"])
         self.assertEqual(len(writer.steps), 1)
         self.assertTrue(writer.closed)
+
+    def test_run_with_v1_bridge_uses_cached_warmup_without_remote_warmup(self):
+        from panteon_v2.app.v1_bridge_runner import run_with_v1_bridge
+        from panteon_v2.app.bootstrap import build_production_pipeline
+        from panteon_v2.execution import FakeExchange
+        from panteon_v2.selection import AgentRegistry
+        from panteon_v2.tests._helpers import FakeAgent
+
+        class Writer:
+            output_dir = "out-dir"
+
+            def __init__(self):
+                self.heartbeats = []
+                self.steps = []
+                self.closed = False
+
+            def write_heartbeat(self, **kwargs):
+                self.heartbeats.append(kwargs)
+
+            def write(self, step):
+                self.steps.append(step)
+
+            def close(self):
+                self.closed = True
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("A"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        bridge = FakeBridge()
+        bridge.symbols = ["BTC"]
+        writer = Writer()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = os.path.join(tmp, "mexc_bridge_cache.json")
+            with open(cache_path, "w", encoding="utf-8") as fh:
+                json.dump({
+                    "schema_version": 1,
+                    "exchange": "MEXC",
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "bar": 99,
+                    "symbols": ["BTC"],
+                    "price_hist": [{"BTC": 100.0}, {"BTC": 101.0}],
+                    "volume_hist": [{"BTC": 10.0}, {"BTC": 11.0}],
+                }, fh)
+
+            rc = run_with_v1_bridge(
+                pipeline,
+                exchange_name="MEXC",
+                bridge=bridge,
+                output_writer=writer,
+                max_bars=1,
+                sleep_between_polls_sec=0.0,
+                bridge_cache_path=cache_path,
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(bridge.warmup_calls, [])
+        self.assertEqual(bridge._bar, 100)
+        self.assertEqual(bridge._price_hist[:2], [{"BTC": 100.0}, {"BTC": 101.0}])
+        self.assertEqual(
+            [hb["feed_status"] for hb in writer.heartbeats],
+            ["warmup_cached", "agent_warmup", "active"],
+        )
+        self.assertIn("cached warmup", writer.heartbeats[0]["message"])
+        self.assertEqual(len(writer.steps), 1)
+
+    def test_bridge_warmup_cache_rejects_stale_or_symbol_mismatch(self):
+        from panteon_v2.app.v1_bridge_runner import restore_bridge_state_cache
+
+        bridge = FakeBridge()
+        bridge.symbols = ["BTC", "ETH"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = os.path.join(tmp, "mexc_bridge_cache.json")
+            with open(cache_path, "w", encoding="utf-8") as fh:
+                json.dump({
+                    "schema_version": 1,
+                    "exchange": "MEXC",
+                    "generated_at": "2026-05-27T07:00:00+00:00",
+                    "bar": 99,
+                    "symbols": ["BTC"],
+                    "price_hist": [{"BTC": 100.0}],
+                    "volume_hist": [{"BTC": 10.0}],
+                }, fh)
+
+            status = restore_bridge_state_cache(
+                bridge,
+                cache_path,
+                exchange_name="MEXC",
+                max_age_sec=3600,
+                now=datetime(2026, 5, 27, 7, 1, tzinfo=timezone.utc),
+            )
+
+        self.assertFalse(status["restored"])
+        self.assertEqual(status["reason"], "symbols_changed")
 
     def test_run_with_v1_bridge_reports_processed_steps_after_keyboard_interrupt(self):
         from panteon_v2.app.v1_bridge_runner import run_with_v1_bridge

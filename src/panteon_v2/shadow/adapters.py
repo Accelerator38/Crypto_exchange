@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping, Optional, Tuple
 
-from ..domain.types import Action, MarketSnapshot, Regime
+from ..domain.types import Action, MarketSnapshot, Regime, TechnicalIndicators
 from ..selection.agent import Agent
 
 
@@ -451,6 +451,7 @@ def make_market_snapshot(
     prices:    Dict[str, float],
     volumes:   Optional[Dict[str, float]] = None,
     funding:   Optional[Dict[str, float]] = None,
+    technicals_by_symbol: Optional[Dict[str, TechnicalIndicators]] = None,
     regime:    str = "neutral",
     regime_confidence: float = 1.0,
     month:     Optional[int] = None,
@@ -490,6 +491,12 @@ def make_market_snapshot(
         except (TypeError, ValueError):
             continue
 
+    clean_technicals: Dict[str, TechnicalIndicators] = {}
+    for sym, indicators in (technicals_by_symbol or {}).items():
+        sym = str(sym).upper()
+        if sym in clean_prices and indicators is not None:
+            clean_technicals[sym] = indicators
+
     return MarketSnapshot(
         bar=int(bar),
         timestamp=timestamp or datetime.now(timezone.utc),
@@ -499,6 +506,7 @@ def make_market_snapshot(
         regime_confidence=float(regime_confidence),
         funding=clean_funding,
         month=month,
+        technicals_by_symbol=clean_technicals,
     )
 
 

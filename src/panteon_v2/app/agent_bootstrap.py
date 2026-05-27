@@ -102,6 +102,25 @@ EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS: Tuple[str, ...] = (
     "ETC/USDT",
 )
 
+EXPERIMENTAL_FLASH_ULTIMA_QUALITY_LONG_SYMBOLS: Tuple[str, ...] = (
+    "FIL/USDT",
+    "APT/USDT",
+    "ICP/USDT",
+    "LTC/USDT",
+)
+
+EXPERIMENTAL_FLASH_ULTIMA_MAJOR_SHORT_SYMBOLS: Tuple[str, ...] = (
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+)
+
+EXPERIMENTAL_FLASH_ULTIMA_OI_SPOT_SYMBOLS: Tuple[str, ...] = (
+    "ADA/USDT",
+    "FIL/USDT",
+    "XLM/USDT",
+)
+
 EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
     Tuple[
         str,
@@ -128,6 +147,33 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
         "MomentumScalper",
         (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
         EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS,
+        (),
+        (),
+        {},
+    ),
+    (
+        "MomentumScalperUltimaQualityLongs",
+        "MomentumScalper",
+        (Action.FUT_LONG_HALF, Action.FUT_LONG_FULL),
+        EXPERIMENTAL_FLASH_ULTIMA_QUALITY_LONG_SYMBOLS,
+        (),
+        (),
+        {},
+    ),
+    (
+        "MomentumScalperUltimaMajorShorts",
+        "MomentumScalper",
+        (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL),
+        EXPERIMENTAL_FLASH_ULTIMA_MAJOR_SHORT_SYMBOLS,
+        (),
+        ("bearish", "crash"),
+        {},
+    ),
+    (
+        "LiveOIBreakoutUltimaSpot",
+        "LiveOIBreakout",
+        (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL, Action.SPOT_SELL_ALL),
+        EXPERIMENTAL_FLASH_ULTIMA_OI_SPOT_SYMBOLS,
         (),
         (),
         {},
@@ -648,8 +694,29 @@ def _router_promotion_eligible(selection: dict[str, Any]) -> bool:
 
 
 def _router_live_trading_eligible(selection: dict[str, Any]) -> bool:
-    return _router_promotion_eligible(selection) and bool(
-        selection.get("live_trading_eligible", False)
+    return (
+        _router_promotion_eligible(selection)
+        and bool(selection.get("live_trading_eligible", False))
+        and _router_paper_gate_confirmed(selection)
+    )
+
+
+def _router_paper_gate_confirmed(selection: dict[str, Any]) -> bool:
+    if not bool(selection.get("paper_trading_eligible", False)):
+        return False
+    paper_gate = selection.get("paper_gate")
+    if not isinstance(paper_gate, dict):
+        return False
+    if not bool(paper_gate.get("paper_trading_eligible", False)):
+        return False
+    if paper_gate.get("paper_failures"):
+        return False
+    paper_reports = paper_gate.get("paper_reports")
+    if not isinstance(paper_reports, list) or len(paper_reports) < 2:
+        return False
+    return all(
+        isinstance(report, dict) and bool(report.get("accepted", False))
+        for report in paper_reports
     )
 
 

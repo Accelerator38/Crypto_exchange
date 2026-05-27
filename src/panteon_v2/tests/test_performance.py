@@ -24,12 +24,14 @@ def _open_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
 
 def _close_signal(sid: int, sym: str, regime: Regime, by_agent: str = "AgentA",
                   by_player: str = "PlayerP", price: float = 100.0,
-                  bar: int = 2, position_scope: str = "") -> Signal:
+                  bar: int = 2, position_scope: str = "",
+                  close_fraction: float = 1.0) -> Signal:
     return Signal(
         id=sid, bar=bar, sym=sym, action=Action.FUT_CLOSE_ALL,
         price=price, regime=regime,
         by_player=by_player, by_agent=by_agent,
         position_scope=position_scope,
+        close_fraction=close_fraction,
     )
 
 
@@ -112,6 +114,110 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
         self.assertEqual(m.losses, 0)
         self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
         self.assertEqual(m.win_rate, 100.0)
+
+    def test_partial_close_keeps_open_lot_for_later_realized_pnl(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = _close_signal(
+            2,
+            "BTC",
+            Regime.BULLISH,
+            price=110.0,
+            bar=2,
+            close_fraction=0.25,
+        )
+        cs2 = _close_signal(3, "BTC", Regime.BULLISH, price=120.0, bar=3)
+        perf.update_from_trade(_open_trade(os, qty=2.0), os)
+        perf.update_from_trade(_close_trade(os, cs1, 110.0, qty=0.5), cs1)
+        perf.update_from_trade(_close_trade(os, cs2, 120.0, qty=1.5), cs2)
+
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 2)
+        self.assertEqual(m.wins, 2)
+        self.assertAlmostEqual(m.pnl_pct, 30.0, places=5)
+
+    def test_default_close_all_removes_open_lot_even_when_trade_qty_is_smaller(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+
+        perf.update_from_trade(_open_trade(os, qty=2.0), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0, qty=0.5), cs)
+
+        self.assertNotIn(("", "AgentA", "BTC"), perf._open)
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 1)
+        self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
+
+    def test_spot_sell_all_does_not_close_futures_open_lot_when_family_strict(self):
+        perf = PerformanceMemory(
+            trade_fraction=1.0,
+            strict_close_action_family=True,
+        )
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="PlayerP",
+            by_agent="AgentA",
+        )
+
+        perf.update_from_trade(_open_trade(os, qty=2.0), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0, qty=2.0), cs)
+
+        self.assertIn(("", "AgentA", "BTC"), perf._open)
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 0)
+        self.assertAlmostEqual(m.pnl_pct, 0.0, places=5)
+
+    def test_default_close_family_keeps_legacy_shadow_performance(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="PlayerP",
+            by_agent="AgentA",
+        )
+
+        perf.update_from_trade(_open_trade(os, qty=2.0), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0, qty=2.0), cs)
+
+        self.assertNotIn(("", "AgentA", "BTC"), perf._open)
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 1)
+        self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
+
+    def test_spot_sell_all_uses_trade_qty_when_smaller_than_open_lot(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.SPOT_SELL_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="PlayerP",
+            by_agent="AgentA",
+        )
+
+        perf.update_from_trade(_open_trade(os, qty=2.0), os)
+        perf.update_from_trade(_close_trade(os, cs, 110.0, qty=0.5), cs)
+
+        remaining = perf._open[("", "AgentA", "BTC")]
+        self.assertAlmostEqual(remaining.qty, 1.5)
+        m = perf.get("AgentA", regime=Regime.BULLISH)
+        self.assertEqual(m.closed_trades, 1)
+        self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
 
     def test_long_losing_trade(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -230,6 +336,79 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
 
         self.assertFalse(perf.get("CashFlat", regime=Regime.BULLISH).has_data)
         self.assertFalse(perf.get("NoTrade", regime=Regime.BULLISH).has_data)
+
+    def test_guard_close_is_attributed_to_original_opener(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(
+            1,
+            "BTC",
+            Regime.BULLISH,
+            by_agent="AdoptedExchangePosition",
+            by_player="PanteonFlashAdopted",
+            price=100.0,
+        )
+        cs = _close_signal(
+            2,
+            "BTC",
+            Regime.BULLISH,
+            by_agent="PartialProfitLock",
+            by_player="Panteon_Flash",
+            price=110.0,
+            bar=2,
+        )
+
+        perf.update_from_trade(_open_trade(os), os)
+        perf.record_signal(cs)
+        perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+
+        adopted_agent = perf.get("AdoptedExchangePosition", regime=Regime.BULLISH)
+        adopted_player = perf.get("PanteonFlashAdopted", regime=Regime.BULLISH)
+        self.assertEqual(adopted_agent.closed_trades, 1)
+        self.assertEqual(adopted_player.closed_trades, 1)
+        self.assertAlmostEqual(adopted_agent.pnl_pct, 10.0, places=5)
+        self.assertAlmostEqual(adopted_player.pnl_pct, 10.0, places=5)
+
+        self.assertFalse(perf.get("PartialProfitLock", regime=Regime.BULLISH).has_data)
+        self.assertFalse(perf.get("Panteon_Flash", regime=Regime.BULLISH).has_data)
+
+    def test_actor_close_from_other_label_does_not_update_opener(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(
+            1,
+            "BTC",
+            Regime.BEARISH,
+            by_agent="OpeningAgent",
+            by_player="OpeningPlayer",
+            price=100.0,
+            long_side=False,
+        )
+        cs = _close_signal(
+            2,
+            "BTC",
+            Regime.BEARISH,
+            by_agent="ClosingAgent",
+            by_player="ClosingPlayer",
+            price=90.0,
+            bar=2,
+        )
+
+        perf.update_from_trade(_open_trade(os), os)
+        perf.record_signal(cs)
+        perf.update_from_trade(_close_trade(os, cs, 90.0), cs)
+
+        opener_agent = perf.get("OpeningAgent", regime=Regime.BEARISH)
+        opener_player = perf.get("OpeningPlayer", regime=Regime.BEARISH)
+        closer_agent = perf.get("ClosingAgent", regime=Regime.BEARISH)
+        closer_player = perf.get("ClosingPlayer", regime=Regime.BEARISH)
+
+        self.assertEqual(opener_agent.closed_trades, 0)
+        self.assertEqual(opener_player.closed_trades, 0)
+        self.assertEqual(closer_agent.closed_trades, 1)
+        self.assertEqual(closer_player.closed_trades, 1)
+        self.assertAlmostEqual(opener_agent.pnl_pct, 0.0, places=5)
+        self.assertAlmostEqual(opener_player.pnl_pct, 0.0, places=5)
+        self.assertAlmostEqual(closer_agent.pnl_pct, 0.0, places=5)
+        self.assertAlmostEqual(closer_player.pnl_pct, 0.0, places=5)
 
 
 class TestPerRegimeIsolation(unittest.TestCase):

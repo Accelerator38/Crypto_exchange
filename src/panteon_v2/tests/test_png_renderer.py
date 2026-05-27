@@ -112,6 +112,129 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(rows[0][1]["display_pnl_pct"], 3.0)
         self.assertEqual(rows[1][1]["display_pnl_pct"], -1.0)
 
+    def test_flash_selected_rows_count_current_flash_actors(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._flash_selected_rows({
+            "flash": {
+                "selected_actors_by_symbol": {
+                    "BTC": "NoTrade",
+                    "ETH": "Antonius_conservative",
+                    "SOL": "Antonius_conservative",
+                },
+            },
+        })
+
+        self.assertEqual(rows[0]["label"], "Antonius_conservative")
+        self.assertEqual(rows[0]["count"], 2)
+        self.assertEqual(rows[0]["symbols"], ("ETH", "SOL"))
+        self.assertEqual(rows[1]["label"], "NoTrade")
+
+    def test_flash_candidate_rows_include_actual_flash_candidates(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._flash_candidate_rows({
+            "flash": {
+                "decisions": [
+                    {
+                        "symbol": "BTC",
+                        "selected_actor": "NoTrade",
+                        "candidates": [
+                            {
+                                "label": "NoTrade",
+                                "actor_type": "no_trade",
+                                "score": 0.0,
+                                "rejected": False,
+                            },
+                            {
+                                "label": "Antonius_conservative",
+                                "actor_type": "ensemble",
+                                "score": 1.4,
+                                "action": "FUT_LONG_FULL",
+                                "rejected": False,
+                            },
+                            {
+                                "label": "MomentumScalper",
+                                "actor_type": "agent",
+                                "score": 1.8,
+                                "action": "HOLD",
+                                "rejected": True,
+                                "reason": "inactive",
+                            },
+                        ],
+                    },
+                    {
+                        "symbol": "ETH",
+                        "selected_actor": "Antonius_conservative",
+                        "candidates": [
+                            {
+                                "label": "Antonius_conservative",
+                                "actor_type": "ensemble",
+                                "score": 1.9,
+                                "action": "FUT_SHORT_FULL",
+                                "rejected": False,
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+
+        self.assertEqual(rows[0]["label"], "Antonius_conservative")
+        self.assertEqual(rows[0]["actor_type"], "ensemble")
+        self.assertEqual(rows[0]["symbols"], ("BTC", "ETH"))
+        self.assertEqual(rows[0]["actionable_count"], 2)
+        self.assertEqual(rows[0]["best_score"], 1.9)
+        self.assertEqual(rows[1]["label"], "MomentumScalper")
+        self.assertEqual(rows[1]["rejected_count"], 1)
+
+    def test_flash_candidate_rows_aggregate_technical_overlay_counts(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._flash_candidate_rows({
+            "flash": {
+                "decisions": [
+                    {
+                        "symbol": "BTC",
+                        "selected_actor": "TechAgent",
+                        "candidates": [
+                            {
+                                "label": "TechAgent",
+                                "actor_type": "agent",
+                                "effective_score": 1.2,
+                                "action": "FUT_LONG_FULL",
+                                "rejected": False,
+                                "technical_alignment": "long_aligned",
+                                "technical_score_adjustment": 0.10,
+                            },
+                        ],
+                    },
+                    {
+                        "symbol": "ETH",
+                        "selected_actor": "NoTrade",
+                        "candidates": [
+                            {
+                                "label": "TechAgent",
+                                "actor_type": "agent",
+                                "effective_score": 0.7,
+                                "action": "FUT_LONG_FULL",
+                                "rejected": True,
+                                "reason": "technical_long_misaligned",
+                                "technical_alignment": "long_misaligned",
+                                "technical_score_adjustment": -0.25,
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+
+        row = next(item for item in rows if item["label"] == "TechAgent")
+
+        self.assertEqual(row["technical_aligned_count"], 1)
+        self.assertEqual(row["technical_misaligned_count"], 1)
+        self.assertAlmostEqual(row["technical_score_adjustment"], -0.15)
+
     def test_memory_dashboard_uses_cumulative_memory_pnl(self):
         from panteon_v2.dashboards import png_renderer
 

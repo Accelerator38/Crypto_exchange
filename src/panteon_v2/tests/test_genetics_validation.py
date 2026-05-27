@@ -3,7 +3,9 @@ from __future__ import annotations
 from panteon_v2.analysis.genetics_validation import (
     build_fixed_walk_forward_contract,
     build_rolling_year_folds,
+    evaluate_fitness_v4_uplift_gate,
     evaluate_fitness_v3_promotion_gate,
+    fitness_v4_robust_score,
     fitness_v3_robust_score,
     robust_period_score,
     split_precomp_by_periods,
@@ -129,6 +131,75 @@ def test_fitness_v3_robust_regime_balance_does_not_hide_missing_crash():
     assert score["mean_ret"] == 2.0
     assert score["regime_balanced_mean_ret"] < score["mean_ret"]
     assert "missing_regime:crash" in score["failed_gates"]
+
+
+def test_fitness_v4_prefers_regime_balanced_utility_over_single_outlier():
+    stable = fitness_v4_robust_score(
+        [0.8, 0.7, 0.6, 0.5, 0.8, 0.7, 0.6, 0.5],
+        period_turnover_rates=[0.02] * 8,
+        period_saturation_rates=[0.01] * 8,
+        period_invalid_open_pressures=[0.00] * 8,
+        period_regimes=["crash", "bearish", "neutral", "bullish"] * 2,
+    )
+    spiky = fitness_v4_robust_score(
+        [-0.2, -0.2, -0.2, -0.2, -0.2, -0.2, -0.2, 8.0],
+        period_turnover_rates=[0.02] * 8,
+        period_saturation_rates=[0.01] * 8,
+        period_invalid_open_pressures=[0.00] * 8,
+        period_regimes=["crash", "bearish", "neutral", "bullish"] * 2,
+    )
+
+    assert stable["fitness_v4_robust"] > spiky["fitness_v4_robust"]
+    assert spiky["max_positive_contribution_pct"] > 30.0
+    assert "single_period_concentration" in spiky["failed_gates"]
+    assert spiky["passes_default_gates"] is False
+
+
+def test_fitness_v4_uplift_gate_rejects_oos_and_final_sanity_degradation():
+    baseline_validation = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_validation = fitness_v4_robust_score(
+        [0.5, 0.5, 0.5, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    baseline_oos = fitness_v4_robust_score(
+        [0.3, 0.3, 0.3, 0.3],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_oos = fitness_v4_robust_score(
+        [0.3, 0.3, 0.3, -0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    baseline_final = fitness_v4_robust_score(
+        [0.2, 0.2, 0.2, 0.2],
+        period_turnover_rates=[0.02] * 4,
+        period_saturation_rates=[0.02] * 4,
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_final = fitness_v4_robust_score(
+        [0.2, 0.2, 0.2, 0.2],
+        period_turnover_rates=[0.22] * 4,
+        period_saturation_rates=[0.02] * 4,
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    gate = evaluate_fitness_v4_uplift_gate(
+        baseline_validation=baseline_validation,
+        candidate_validation=candidate_validation,
+        baseline_oos=baseline_oos,
+        candidate_oos=candidate_oos,
+        baseline_final_sanity=baseline_final,
+        candidate_final_sanity=candidate_final,
+    )
+
+    assert gate["promotion_eligible"] is False
+    assert gate["validation"]["mean_ret_delta"] > 0.0
+    assert gate["oos"]["mean_ret_delta"] < 0.0
+    assert "oos_mean_ret" in gate["promotion_failures"]
+    assert "oos_min_ret" in gate["promotion_failures"]
+    assert "final_sanity_turnover" in gate["promotion_failures"]
 
 
 def test_fitness_v3_gate_rejects_validation_tie_oos_loss_and_crash_floor_loss():

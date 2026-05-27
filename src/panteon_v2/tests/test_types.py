@@ -19,6 +19,30 @@ from panteon_v2.domain.types import (
 )
 
 
+def test_market_snapshot_accepts_immutable_technical_indicators():
+    from panteon_v2.domain.types import TechnicalIndicators
+
+    snapshot = MarketSnapshot(
+        bar=1,
+        timestamp=datetime.now(timezone.utc),
+        regime=Regime.BULLISH,
+        prices={"BTC/USDT": 100.0},
+        volumes={"BTC/USDT": 1000.0},
+        technicals_by_symbol={
+            "BTC/USDT": TechnicalIndicators(
+                rsi_14=61.0,
+                macd_line_pct=0.25,
+                macd_signal_pct=0.15,
+                macd_histogram_pct=0.10,
+                atr_14_pct=1.75,
+            )
+        },
+    )
+
+    assert snapshot.technicals_by_symbol["BTC/USDT"].rsi_14 == 61.0
+    assert snapshot.technicals_by_symbol["BTC/USDT"].atr_14_pct == 1.75
+
+
 class TestAction(unittest.TestCase):
     def test_open_close_predicates(self):
         opens = [

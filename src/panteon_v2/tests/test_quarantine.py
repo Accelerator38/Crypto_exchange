@@ -240,6 +240,67 @@ class TestForceOps(unittest.TestCase):
         self.assertEqual(len(events), 0)
 
 
+    def test_release_override_prevents_hopeless_requarantine(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _seal_trade_for_label(
+            perf,
+            "LiveVolCompress",
+            Regime.NEUTRAL,
+            pnl_pct=-1.0,
+            closed_trades=5,
+        )
+        qm = QuarantineManager(seed=set())
+        first = qm.recompute(perf)
+        self.assertIn("LiveVolCompress", first.added)
+        self.assertTrue(qm.is_quarantined("LiveVolCompress"))
+
+        qm.force_release_override(
+            "LiveVolCompress",
+            reason="session_recovery:pnl_pct=0.50;closed=3",
+            bar=12,
+        )
+        self.assertFalse(qm.is_quarantined("LiveVolCompress"))
+
+        second = qm.recompute(perf)
+
+        self.assertFalse(qm.is_quarantined("LiveVolCompress"))
+        self.assertTrue(second.is_no_op)
+        self.assertIn("LiveVolCompress", qm.release_override_labels())
+        record = qm.record_for("LiveVolCompress")
+        self.assertIsNotNone(record)
+        self.assertIn("session_recovery", record.reason)
+
+    def test_release_override_does_not_override_degradation_quarantine(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _seal_trade_for_label(
+            perf,
+            "LiveVolCompress",
+            Regime.NEUTRAL,
+            pnl_pct=-1.0,
+            closed_trades=5,
+        )
+        qm = QuarantineManager(seed=set())
+        qm.recompute(perf)
+        qm.force_release_override(
+            "LiveVolCompress",
+            reason="session_recovery:pnl_pct=0.50;closed=3",
+            bar=12,
+        )
+
+        qm.force_quarantine(
+            "LiveVolCompress",
+            reason="degradation_gate:session_loss_pct",
+            bar=20,
+        )
+        result = qm.recompute(perf)
+
+        self.assertTrue(qm.is_quarantined("LiveVolCompress"))
+        self.assertTrue(result.is_no_op)
+        record = qm.record_for("LiveVolCompress")
+        self.assertIsNotNone(record)
+        self.assertEqual(record.reason, "degradation_gate:session_loss_pct")
+
+
 class TestRecomputeResult(unittest.TestCase):
     def test_no_op_predicate(self):
         r = RecomputeResult(
