@@ -234,6 +234,103 @@ def test_selected_subset_candidate_overrides_shadow_pnl_lcb_floor(
     assert args.count(option) == 1
 
 
+def test_selected_subset_candidate_passes_flash_1_1_control_args(
+    tmp_path,
+    monkeypatch,
+):
+    module = _load_candidate_tool()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({
+            "score_boosts": [],
+            "context_score_boosts": [],
+            "do_not_demote_signal_keys": [],
+            "risk_mult_overrides": [],
+            "context_risk_mult_overrides": [],
+        }),
+        encoding="utf-8",
+    )
+    captured: dict[str, list[str]] = {}
+
+    def fake_runner_main(args):
+        captured["args"] = list(args)
+        return 0
+
+    monkeypatch.setattr(module.runner, "main", fake_runner_main)
+    monkeypatch.setattr(
+        module.matrix,
+        "ROUND3_DENY8_ENTRY_REGIME_ARGS",
+        (
+            "--flash-min-score-to-trade",
+            "4.0",
+            "--flash-degradation-window-closed-trades",
+            "1",
+            "--flash-degradation-min-closed-trades",
+            "1",
+            "--flash-degradation-max-recent-pnl-usd",
+            "-1.0",
+            "--flash-degradation-signal-cooldown-bars",
+            "720",
+            "--flash-degradation-actor-cooldown-bars",
+            "72",
+            "--v3-shadow-fresh-handoff-max-age-bars",
+            "24",
+            "--flash-anchor-min-score-advantage",
+            "0.0",
+        ),
+    )
+
+    rc = module.main([
+        "--manifest",
+        str(manifest),
+        "--results-root",
+        str(tmp_path / "Results"),
+        "--years",
+        "2022",
+        "--flash-min-score-to-trade",
+        "3.5",
+        "--flash-degradation-window-closed-trades",
+        "5",
+        "--flash-degradation-min-closed-trades",
+        "3",
+        "--flash-degradation-max-recent-pnl-usd",
+        "-50.0",
+        "--flash-degradation-signal-cooldown-bars",
+        "240",
+        "--flash-degradation-actor-cooldown-bars",
+        "36",
+        "--v3-shadow-fresh-handoff-max-age-bars",
+        "12",
+        "--flash-anchor-actor-key",
+        "ensemble:Optimal_StaticRotator",
+        "--flash-portfolio-actor-key",
+        "ensemble:Antonius_conservative",
+        "--flash-anchor-min-score-advantage",
+        "0.3",
+    ])
+
+    assert rc == 0
+    args = captured["args"]
+    expectations = {
+        "--flash-min-score-to-trade": 3.5,
+        "--flash-degradation-window-closed-trades": 5,
+        "--flash-degradation-min-closed-trades": 3,
+        "--flash-degradation-max-recent-pnl-usd": -50.0,
+        "--flash-degradation-signal-cooldown-bars": 240,
+        "--flash-degradation-actor-cooldown-bars": 36,
+        "--v3-shadow-fresh-handoff-max-age-bars": 12,
+        "--flash-anchor-min-score-advantage": 0.3,
+    }
+    for option, expected in expectations.items():
+        idx = args.index(option)
+        assert float(args[idx + 1]) == expected
+        assert args.count(option) == 1
+    anchor_idx = args.index("--flash-anchor-actor-key")
+    portfolio_idx = args.index("--flash-portfolio-actor-key")
+    assert args[anchor_idx + 1] == "ensemble:Optimal_StaticRotator"
+    assert args[portfolio_idx + 1] == "ensemble:Antonius_conservative"
+
+
 def test_selected_subset_candidate_passes_shadow_pnl_lcb_risk_sizing_args(
     tmp_path,
     monkeypatch,

@@ -29,6 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-new-opens-per-bar", type=int, default=1)
     parser.add_argument("--risk-max-open-positions", type=int, default=8)
     parser.add_argument("--stale-exit-age-bars", type=int, default=168)
+    parser.add_argument("--flash-min-score-to-trade", type=float, default=None)
     parser.add_argument("--enable-partial-profit-lock", action="store_true")
     parser.add_argument("--partial-profit-lock-trigger-pnl-pct", type=float, default=1.5)
     parser.add_argument("--partial-profit-lock-close-fraction", type=float, default=0.5)
@@ -68,6 +69,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         default=None,
     )
+    parser.add_argument("--v3-shadow-fresh-handoff-max-age-bars", type=int, default=None)
+    parser.add_argument("--flash-anchor-actor-key", action="append", default=[])
+    parser.add_argument("--flash-portfolio-actor-key", action="append", default=[])
+    parser.add_argument("--flash-anchor-min-score-advantage", type=float, default=None)
     parser.add_argument("--enable-flash-shadow-pnl-lcb-risk-sizing", action="store_true")
     parser.add_argument(
         "--flash-shadow-pnl-lcb-risk-min-mult",
@@ -117,6 +122,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--flash-short-overextension-z-floor", type=float, default=None)
     parser.add_argument("--flash-long-overextension-z-ceiling", type=float, default=None)
     parser.add_argument("--flash-overextension-min-volatility-pct", type=float, default=None)
+    parser.add_argument("--flash-degradation-window-closed-trades", type=int, default=None)
+    parser.add_argument("--flash-degradation-min-closed-trades", type=int, default=None)
+    parser.add_argument("--flash-degradation-max-recent-pnl-usd", type=float, default=None)
+    parser.add_argument("--flash-degradation-signal-cooldown-bars", type=int, default=None)
+    parser.add_argument("--flash-degradation-actor-cooldown-bars", type=int, default=None)
     parser.add_argument("--enable-flash-degradation-symbol-guard", action="store_true")
     parser.add_argument("--flash-degradation-symbol-cooldown-bars", type=int, default=None)
     parser.add_argument("--flash-degradation-symbol-lookback-bars", type=int, default=None)
@@ -197,6 +207,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--flash-stale-position-exit-max-age-bars",
         str(int(args.stale_exit_age_bars)),
     )
+    if args.flash_min_score_to_trade is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-min-score-to-trade",
+            f"{float(args.flash_min_score_to_trade):.4g}",
+        )
     if args.experimental_flash_real_actors:
         profile_args += [
             "--enable-experimental-flash-actors",
@@ -225,6 +241,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile_args,
             "--flash-shadow-min-pnl-per-trade-lcb-usd",
             f"{float(args.flash_shadow_min_pnl_per_trade_lcb_usd):.4g}",
+        )
+    if args.v3_shadow_fresh_handoff_max_age_bars is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--v3-shadow-fresh-handoff-max-age-bars",
+            str(int(args.v3_shadow_fresh_handoff_max_age_bars)),
+        )
+    for item in args.flash_anchor_actor_key:
+        text = str(item or "").strip()
+        if text:
+            profile_args += ["--flash-anchor-actor-key", text]
+    for item in args.flash_portfolio_actor_key:
+        text = str(item or "").strip()
+        if text:
+            profile_args += ["--flash-portfolio-actor-key", text]
+    if args.flash_anchor_min_score_advantage is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-anchor-min-score-advantage",
+            f"{float(args.flash_anchor_min_score_advantage):.4g}",
         )
     if args.enable_flash_shadow_pnl_lcb_risk_sizing and (
         "--enable-flash-shadow-pnl-lcb-risk-sizing" not in profile_args
@@ -347,6 +383,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             profile_args,
             "--flash-overextension-min-volatility-pct",
             f"{float(args.flash_overextension_min_volatility_pct):.4g}",
+        )
+    if args.flash_degradation_window_closed_trades is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-degradation-window-closed-trades",
+            str(int(args.flash_degradation_window_closed_trades)),
+        )
+    if args.flash_degradation_min_closed_trades is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-degradation-min-closed-trades",
+            str(int(args.flash_degradation_min_closed_trades)),
+        )
+    if args.flash_degradation_max_recent_pnl_usd is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-degradation-max-recent-pnl-usd",
+            f"{float(args.flash_degradation_max_recent_pnl_usd):.4g}",
+        )
+    if args.flash_degradation_signal_cooldown_bars is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-degradation-signal-cooldown-bars",
+            str(int(args.flash_degradation_signal_cooldown_bars)),
+        )
+    if args.flash_degradation_actor_cooldown_bars is not None:
+        profile_args = matrix._with_arg_value(
+            profile_args,
+            "--flash-degradation-actor-cooldown-bars",
+            str(int(args.flash_degradation_actor_cooldown_bars)),
         )
     if args.enable_flash_degradation_symbol_guard and (
         "--enable-flash-degradation-symbol-guard" not in profile_args
