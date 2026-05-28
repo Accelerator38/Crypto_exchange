@@ -67,6 +67,21 @@ FLASH_1_1_REPORT_CORE_ARGS = (
     "0.0",
 )
 
+FLASH_1_1_ABLATION_ARGS = {
+    "handoff-age12": (
+        "--v3-shadow-fresh-handoff-max-age-bars",
+        "12",
+    ),
+    "symbol-lookback504": (
+        "--flash-degradation-symbol-lookback-bars",
+        "504",
+    ),
+    "signal-cooldown480": (
+        "--flash-degradation-signal-cooldown-bars",
+        "480",
+    ),
+}
+
 FLASH_1_1_EXPERIMENTAL_PROFIT_ARGS = (
     "--max-new-opens-per-bar",
     "3",
@@ -131,6 +146,9 @@ def build_args(parsed: argparse.Namespace) -> list[str]:
         args += ["--compact-causal-entry-selected-only"]
     if parsed.profile == "best-compatible":
         args.extend(FLASH_1_1_BEST_COMPATIBLE_ARGS)
+    elif parsed.profile in FLASH_1_1_ABLATION_ARGS:
+        args.extend(FLASH_1_1_BEST_COMPATIBLE_ARGS)
+        args.extend(FLASH_1_1_ABLATION_ARGS[parsed.profile])
     else:
         args.extend(FLASH_1_1_REPORT_CORE_ARGS)
     if parsed.profile == "experimental":
@@ -146,10 +164,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-bars", type=int, default=None)
     parser.add_argument(
         "--profile",
-        choices=("best-compatible", "report-core", "experimental"),
+        choices=(
+            "best-compatible",
+            "handoff-age12",
+            "symbol-lookback504",
+            "signal-cooldown480",
+            "report-core",
+            "experimental",
+        ),
         default="best-compatible",
         help=(
             "best-compatible keeps the proven full-window risk_12 Flash profile; "
+            "handoff-age12, symbol-lookback504, and signal-cooldown480 run "
+            "single-parameter ablations; "
             "report-core applies the report's degradation/handoff changes; "
             "experimental also applies unproven profit-expansion ideas."
         ),
