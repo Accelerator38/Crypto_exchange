@@ -128,36 +128,83 @@ def _lock_owner_hint(path: Path) -> str:
     return f"pid={pid}, parent_pid={parent_pid}, executable={executable}"
 
 
-def _spawn_child(exchange: str, script: Path, python_executable: str) -> subprocess.Popen:
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _spawn_child(exchange: str, script: Path, python_executable: str) -> int:
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     out_path = log_dir / f"v3_{exchange.lower()}_launcher.out.log"
     err_path = log_dir / f"v3_{exchange.lower()}_launcher.err.log"
+    with out_path.open("a", encoding="utf-8") as out_handle:
+        out_handle.write(
+            f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] launching {exchange} via {script.name}\n"
+        )
+    if os.name == "nt":
+        return _spawn_child_windows(
+            script=script,
+            python_executable=python_executable,
+            out_path=out_path,
+            err_path=err_path,
+        )
+
     out_handle = out_path.open("a", encoding="utf-8")
     err_handle = err_path.open("a", encoding="utf-8")
-    out_handle.write(
-        f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] launching {exchange} via {script.name}\n"
-    )
-    out_handle.flush()
     try:
-        kwargs: dict[str, object] = {
-            "cwd": str(PROJECT_ROOT),
-            "stdout": out_handle,
-            "stderr": err_handle,
-        }
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
-            kwargs["startupinfo"] = startupinfo
-            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        return subprocess.Popen(
+        process = subprocess.Popen(
             [python_executable, str(script.relative_to(PROJECT_ROOT))],
-            **kwargs,
+            cwd=str(PROJECT_ROOT),
+            stdout=out_handle,
+            stderr=err_handle,
         )
+        return int(process.pid)
     finally:
         out_handle.close()
         err_handle.close()
+
+
+def _spawn_child_windows(
+    *,
+    script: Path,
+    python_executable: str,
+    out_path: Path,
+    err_path: Path,
+) -> int:
+    command = (
+        "$p = Start-Process "
+        f"-FilePath {_ps_quote(python_executable)} "
+        f"-ArgumentList {_ps_quote(str(script.relative_to(PROJECT_ROOT)))} "
+        f"-WorkingDirectory {_ps_quote(str(PROJECT_ROOT))} "
+        f"-RedirectStandardOutput {_ps_quote(str(out_path))} "
+        f"-RedirectStandardError {_ps_quote(str(err_path))} "
+        "-WindowStyle Hidden -PassThru; "
+        "$p.Id"
+    )
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Start-Process failed: "
+            + (completed.stderr.strip() or completed.stdout.strip() or "unknown error")
+        )
+    for raw in reversed(completed.stdout.splitlines()):
+        text = raw.strip()
+        if text.isdigit():
+            return int(text)
+    raise RuntimeError("Start-Process did not return a child pid")
 
 
 def _launch_exchange(
@@ -183,12 +230,12 @@ def _launch_exchange(
     if dry_run:
         return LaunchResult(exchange, "dry_run", f"would launch {script.name}")
 
-    process = _spawn_child(
+    pid = _spawn_child(
         exchange,
         script,
         python_executable or _python_executable(),
     )
-    return LaunchResult(exchange, "launched", f"started {script.name}", process.pid)
+    return LaunchResult(exchange, "launched", f"started {script.name}", pid)
 
 
 def _print_plan(selected: Sequence[str]) -> None:
