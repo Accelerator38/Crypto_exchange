@@ -179,7 +179,7 @@ def _spawn_child_windows(
         f"-RedirectStandardOutput {_ps_quote(str(out_path))} "
         f"-RedirectStandardError {_ps_quote(str(err_path))} "
         "-WindowStyle Hidden -PassThru; "
-        "$p.Id"
+        "Write-Output $p.Id"
     )
     completed = subprocess.run(
         [
