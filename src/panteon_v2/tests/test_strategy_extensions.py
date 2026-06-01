@@ -12,7 +12,9 @@ from panteon_v2.domain.types import Action, MarketSnapshot, Regime
 from panteon_v2.app.agent_bootstrap import (
     _ensure_paths,
     experimental_flash_agent_labels,
+    legacy_flash_real_agent_labels,
     known_labels,
+    promote_legacy_flash_real_agents,
     register_all_v1_agents,
 )
 from panteon_v2.app.bootstrap import PRODUCTION_PROFILES
@@ -117,6 +119,31 @@ class TestNewStrategyAgents(unittest.TestCase):
                 self.assertIsNotNone(agent)
                 self.assertTrue(getattr(agent, "shadow_only", False))
                 self.assertFalse(getattr(agent, "live_trading_eligible", True))
+
+    def test_flash_can_promote_selected_legacy_agents_to_real_execution(self):
+        registry = AgentRegistry()
+
+        register_all_v1_agents(registry)
+        promoted = promote_legacy_flash_real_agents(
+            registry,
+            labels=("CarryFlowAgentV2", "CandlePatternAgent"),
+        )
+
+        self.assertEqual(
+            tuple(promoted),
+            ("CarryFlowAgentV2", "CandlePatternAgent"),
+        )
+        self.assertEqual(
+            tuple(legacy_flash_real_agent_labels()),
+            ("CarryFlowAgentV2", "CandlePatternAgent"),
+        )
+        for label in promoted:
+            with self.subTest(label=label):
+                agent = registry.get(label)
+                self.assertIsNotNone(agent)
+                self.assertFalse(getattr(agent, "shadow_only", False))
+                self.assertTrue(getattr(agent, "live_trading_eligible", False))
+                self.assertTrue(getattr(agent, "paper_trading_eligible", False))
 
 
 class TestExperimentalFlashAgents(unittest.TestCase):

@@ -112,6 +112,21 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(rows[0][1]["display_pnl_pct"], 3.0)
         self.assertEqual(rows[1][1]["display_pnl_pct"], -1.0)
 
+    def test_asset_rows_are_sorted_by_asset_size_with_panteon_highlight_only(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._asset_rows(
+            {"initial_capital": 100.0, "panteon_equity_usd": 100.0},
+            agents=[("LiveAfterShock", {"session_pnl_pct": 2.0})],
+            players=[("Antonius_conservative", {"session_pnl_pct": 1.0})],
+        )
+
+        self.assertEqual(
+            [row["label"] for row in rows],
+            ["A:LiveAfterShock", "P:Antonius_conservative", "PANTEON"],
+        )
+        self.assertEqual(rows[-1]["kind"], "panteon")
+
     def test_flash_selected_rows_count_current_flash_actors(self):
         from panteon_v2.dashboards import png_renderer
 
@@ -380,6 +395,78 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(ax.lines[1][0], 0.75)
         self.assertEqual(ax.lines[1][1]["color"], png_renderer.MUTED)
         self.assertEqual(ax.lines[1][1]["linestyle"], (0, (2, 3)))
+
+    def test_current_session_rows_exclude_inactive_pool_members(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = [
+            ("LiveParticipant", {"session_signals": 2, "session_pnl_pct": 0.1}),
+            ("OpenPositionAgent", {"session_signals": 0, "session_pnl_pct": 0.0}),
+            ("OldMemoryOnly", {"pnl_pct": 5.0, "session_signals": 0, "session_pnl_pct": 0.0}),
+        ]
+        status = {
+            "real_trading_actors": {
+                "open_positions": [{"agent": "OpenPositionAgent"}],
+            },
+        }
+
+        filtered = png_renderer._current_session_rows(
+            rows,
+            status=status,
+            actor_kind="agent",
+        )
+
+        self.assertEqual(
+            [name for name, _ in filtered],
+            ["LiveParticipant", "OpenPositionAgent"],
+        )
+
+    def test_flash_diagnostics_explain_no_trade_in_plain_terms(self):
+        from panteon_v2.dashboards import png_renderer
+
+        info = png_renderer._flash_diagnostics({
+            "flash": {
+                "selected_actors_by_symbol": {
+                    "BTC": "NoTrade",
+                    "ETH": "NoTrade",
+                },
+                "decisions": [
+                    {
+                        "symbol": "BTC",
+                        "selected_actor": "NoTrade",
+                        "candidates": [
+                            {"label": "A", "actor_type": "agent", "rejected": True, "reason": "inactive"},
+                            {"label": "B", "actor_type": "agent", "rejected": True, "reason": "raw_suppressed_by_solo"},
+                        ],
+                    },
+                    {
+                        "symbol": "ETH",
+                        "selected_actor": "NoTrade",
+                        "candidates": [
+                            {"label": "A", "actor_type": "agent", "rejected": True, "reason": "inactive"},
+                        ],
+                    },
+                ],
+            },
+        })
+
+        self.assertTrue(info["all_no_trade"])
+        self.assertEqual(info["symbols_total"], 2)
+        self.assertEqual(info["top_reasons"][0], ("inactive", 2))
+
+    def test_price_history_rows_normalize_status_payload(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._price_history_rows({
+            "price_history": [
+                {"bar": 1, "regime": "bullish", "prices": {"BTC": "100", "BAD": "x"}},
+                {"bar": 2, "regime": "neutral", "prices": {"BTC": 101, "ETH": 50}},
+            ],
+        })
+
+        self.assertEqual(rows[0]["bar"], 1)
+        self.assertEqual(rows[0]["prices"], {"BTC": 100.0})
+        self.assertEqual(rows[1]["prices"], {"BTC": 101.0, "ETH": 50.0})
 
 
 if __name__ == "__main__":

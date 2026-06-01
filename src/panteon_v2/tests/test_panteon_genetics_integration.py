@@ -122,6 +122,37 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         )
         self.assertEqual(real_enabled, ("FundingArb",))
 
+    def test_startup_resolves_genetics_from_settings_when_env_absent(self):
+        from panteon_v2.app import startup
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertTrue(startup._resolve_include_genetics(None, "MEXC"))
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertFalse(startup._resolve_include_genetics(False, "MEXC"))
+
+        with patch.dict(os.environ, {"PANTEON_V2_LOAD_GENETICS": "0"}), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertFalse(startup._resolve_include_genetics(None, "MEXC"))
+
+    def test_startup_resolves_genetics_shadow_only_from_settings(self):
+        from panteon_v2.app import startup
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"v2_genetics_shadow_only": "off"}):
+            self.assertFalse(startup._resolve_genetics_shadow_only(None, "MEXC"))
+
+        with patch.dict(os.environ, {"PANTEON_V2_GENETICS_SHADOW_ONLY": "1"}), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"v2_genetics_shadow_only": "off"}):
+            self.assertTrue(startup._resolve_genetics_shadow_only(None, "MEXC"))
+
     def test_startup_loads_genetics_as_shadow_only_when_enabled(self):
         from panteon_v2.app.startup import start_production
 

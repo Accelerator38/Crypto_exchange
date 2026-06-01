@@ -44,16 +44,37 @@ def _block_system_python_for_live(mode: str) -> None:
         sys.exit(4)
 
 
+def _lock_owner_hint(lock_path: Path) -> str:
+    info_path = lock_path.with_name(lock_path.name + ".info")
+    try:
+        data = {}
+        source = info_path if info_path.exists() else lock_path
+        with source.open("rb") as fh:
+            text = fh.read(4096).decode("utf-8", errors="replace")
+        for raw in text.splitlines():
+            key, sep, value = raw.partition("=")
+            if sep:
+                data[key.strip()] = value.strip()
+        pid = data.get("pid", "?")
+        parent_pid = data.get("parent_pid", "?")
+        executable = data.get("sys_executable", "?")
+        return f"lock owner pid={pid}, parent_pid={parent_pid}, executable={executable}"
+    except OSError:
+        return f"lock file: {lock_path}"
+
+
 def _acquire_instance_lock() -> None:
     from panteon_v2.app.single_instance import acquire_single_instance
 
+    lock_path = PROJECT_ROOT / "state" / "locks" / "panteon_v2_mexc.lock"
     instance_lock = acquire_single_instance(
         "panteon_v2_mexc",
-        lock_dir=PROJECT_ROOT / "state" / "locks",
+        lock_dir=lock_path.parent,
     )
     if instance_lock is None:
         print(
-            "[START v2] MEXC is already running; second live instance blocked.",
+            "[START v2] MEXC is already running; second live instance blocked "
+            f"({_lock_owner_hint(lock_path)}).",
             file=sys.stderr,
         )
         sys.exit(3)
@@ -78,6 +99,11 @@ def _configure_logging() -> Path:
         os.getppid(),
         sys.executable,
     )
+    if os.name == "nt":
+        logging.getLogger(__name__).info(
+            "Windows note: a tiny venv launcher parent process can appear next "
+            "to the lock-owning trading process; the lock owner is the active bot."
+        )
     return log_file
 
 

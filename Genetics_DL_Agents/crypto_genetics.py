@@ -818,11 +818,90 @@ _here = os.path.dirname(os.path.abspath(__file__))
 if _here not in sys.path:
     sys.path.insert(0, _here)
 
+def _fallback_ema(values, period):
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return 0.0
+    period = max(1, int(period))
+    alpha = 2.0 / (period + 1.0)
+    ema_value = float(arr[0])
+    for value in arr[1:]:
+        ema_value = alpha * float(value) + (1.0 - alpha) * ema_value
+    return ema_value
+
+
+def _fallback_rsi(values, period=14):
+    arr = np.asarray(values, dtype=float)
+    period = max(1, int(period))
+    if arr.size <= period:
+        return 50.0
+    deltas = np.diff(arr[-(period + 1):])
+    gains = np.clip(deltas, 0.0, None)
+    losses = np.clip(-deltas, 0.0, None)
+    avg_gain = float(gains.mean()) if gains.size else 0.0
+    avg_loss = float(losses.mean()) if losses.size else 0.0
+    if avg_loss <= 1e-12:
+        return 100.0 if avg_gain > 0.0 else 50.0
+    rs = avg_gain / avg_loss
+    return float(100.0 - (100.0 / (1.0 + rs)))
+
+
+def _fallback_detect_regime_live(price_history, current_month=None):
+    arr = np.asarray(price_history, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size < 24:
+        return "neutral"
+    lookback = min(arr.size - 1, max(24, int(TRAIN_BAR) * 24))
+    start = float(arr[-lookback - 1])
+    end = float(arr[-1])
+    if start <= 0.0:
+        return "neutral"
+    change_pct = (end / start - 1.0) * 100.0
+    if change_pct >= 1.0:
+        return "bullish"
+    if change_pct <= -1.0:
+        return "bearish"
+    return "neutral"
+
+
+def _fallback_load_data(*args, **kwargs):
+    raise RuntimeError(
+        "crypto_exchange.load_data is unavailable; genetics training needs "
+        "Retrodate_cryptotrade/crypto_exchange.py"
+    )
+
+
+class _FallbackCryptoExchange:
+    BAR = int(TRAIN_BAR)
+    INITIAL_CAPITAL = float(TRAIN_INITIAL_CAPITAL)
+    TRADE_FRACTION = float(TRAIN_FRACTION)
+    LEVERAGE = float(TRAIN_LEVERAGE)
+    SPOT_FEE = float(TRAIN_FEE)
+    FUTURES_FEE = float(TRAIN_FUTURES_FEE)
+    SLIPPAGE = float(TRAIN_SLIPPAGE)
+    LIQUIDATION_FEE = float(TRAIN_LIQ_FEE)
+    STOP_TRADE_ENABLED = bool(TRAIN_STOP_PCT > 0.0)
+    STOP_TRADE_PCT = float(TRAIN_STOP_PCT) * 100.0
+    STOP_TRADE_MODE = str(TRAIN_STOP_MODE)
+    STOP_TRADE_NEXT_PERIOD = "hold"
+    APY_RATE = float(TRAIN_APY_RATE)
+    FUTURES_FUNDING_RATE = float(TRAIN_FUNDING_RATE)
+    DATA_DIR = os.path.join(os.path.dirname(_here), "CriptoData")
+    TIMEFRAME = "1m" if int(TRAIN_BAR) > 1 else "1h"
+    _CFG = {"timeframe": TIMEFRAME}
+    __file__ = __file__
+    rsi = staticmethod(_fallback_rsi)
+    ema = staticmethod(_fallback_ema)
+    _detect_regime_live = staticmethod(_fallback_detect_regime_live)
+    load_data = staticmethod(_fallback_load_data)
+
+
 try:
     import crypto_exchange as _cx
 except ImportError as e:
-    print(f"[ERROR] Не найден модуль ретрорасчёта Retrodate_cryptotrade/crypto_exchange.py: {e}")
-    sys.exit(1)
+    _cx = _FallbackCryptoExchange()
+    if not _is_worker():
+        print(f"  [genetics] crypto_exchange unavailable ({e}); using live inference fallback")
 
 _agents_dir_override = os.environ.get("GENETICS_AGENTS_DIR")
 if _agents_dir_override:

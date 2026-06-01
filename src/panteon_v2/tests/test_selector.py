@@ -163,6 +163,31 @@ class TestAgentSelector(unittest.TestCase):
         else:
             self.assertEqual([sa.label for sa in after], ["SessionWinner"])
 
+    def test_default_session_overlay_reacts_to_recent_pnl_swings(self):
+        registry = AgentRegistry()
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        for label in ["MemoryLeader", "SessionWinner"]:
+            registry.register(FakeAgent(label))
+
+        _add_perf(perf, "MemoryLeader", Regime.NEUTRAL, 8, 1.0, start_id=1)
+        _add_perf(perf, "SessionWinner", Regime.NEUTRAL, 8, 0.1, start_id=100)
+        selector = AgentSelector(
+            registry,
+            perf,
+            qm,
+            session_overlay=SessionOverlayConfig(enabled=True),
+        )
+
+        before = selector.select(Regime.NEUTRAL, k=2)
+        self.assertEqual(before[0].label, "MemoryLeader")
+
+        _add_perf(perf, "MemoryLeader", Regime.NEUTRAL, 1, -0.75, start_id=300)
+        _add_perf(perf, "SessionWinner", Regime.NEUTRAL, 1, 1.5, start_id=400)
+        after = selector.select(Regime.NEUTRAL, k=2)
+
+        self.assertEqual(after[0].label, "SessionWinner")
+
 
 class TestQuarantineDoesNotLeak(unittest.TestCase):
     """Property test: при ЛЮБЫХ метриках карантинный никогда не выходит."""

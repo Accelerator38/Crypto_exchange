@@ -21,6 +21,7 @@ class RiskLimitsConfig:
     min_notional_usd:      float = 5.0   # минимальный ордер в USDT
     max_notional_usd:      float = 1000.0  # верхняя граница чтобы не разогнаться
     max_leverage:          int   = 5
+    apply_leverage_to_notional: bool = False
     floor_to_exchange_min_notional: bool = False
     max_min_notional_upscale: float = 4.0
     external_position_player_labels: Tuple[str, ...] = ("", "RecoveredExchangePosition")
@@ -123,7 +124,8 @@ class RiskLimits:
         # Notional-расчёт с учётом fraction × signal.action.fraction (half/full)
         size_mult = signal.action.fraction or 1.0  # 0.5 для half, 1.0 для full
         risk_mult = max(0.0, signal.risk_mult)
-        notional = balance_usd * cfg.capital_fraction * size_mult * risk_mult
+        leverage_mult = max(1.0, float(cfg.max_leverage)) if cfg.apply_leverage_to_notional else 1.0
+        notional = balance_usd * cfg.capital_fraction * size_mult * risk_mult * leverage_mult
 
         # Min/max notional
         exchange_min = float(min_notional_for_sym or 0.0)

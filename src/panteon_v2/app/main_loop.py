@@ -69,6 +69,7 @@ from .flash_state import (
     flash_regime_degradation_key,
 )
 from .live_state import (
+    RealSignalGuardResult,
     filter_real_signals_against_tracker,
     is_external_position,
     reconcile_tracker_with_exchange,
@@ -791,14 +792,38 @@ def _run_one_bar(
     leader = decision.new_leader
     selected_leader = leader
     executed_leader = selected_leader
-    vote_attempt = _vote_candidate_for_real_signals(
+    soft_allocator_payload: Dict[str, Any] = {}
+    soft_allocator_soft_only = _soft_allocator_execution_soft_only(pipeline)
+    vote_attempt = _soft_allocator_execution_attempt(
         pipeline,
         market,
-        selected_leader,
+        candidates,
         signal_id_counter=signal_id_counter,
-        trace_id=trace,
     )
-    if selected_leader.label == "NoTrade" and vote_attempt["raw_signal_count"] == 0:
+    if vote_attempt is not None:
+        executed_leader = vote_attempt["leader"]
+        soft_allocator_payload = dict(vote_attempt.get("soft_allocator", {}) or {})
+    elif soft_allocator_soft_only:
+        vote_attempt = _soft_allocator_idle_attempt(
+            pipeline,
+            signal_id_counter=signal_id_counter,
+            reason="soft_only_no_executable_soft_signal",
+        )
+        executed_leader = vote_attempt["leader"]
+        soft_allocator_payload = dict(vote_attempt.get("soft_allocator", {}) or {})
+    else:
+        vote_attempt = _vote_candidate_for_real_signals(
+            pipeline,
+            market,
+            selected_leader,
+            signal_id_counter=signal_id_counter,
+            trace_id=trace,
+        )
+    if (
+        selected_leader.label == "NoTrade"
+        and vote_attempt["raw_signal_count"] == 0
+        and not _soft_allocator_execution_prevents_notrade_cash_flat(pipeline)
+    ):
         cash_flat_signals = _cash_flat_close_signals(
             pipeline,
             market,
@@ -834,6 +859,7 @@ def _run_one_bar(
     if (
         selected_leader.label != "NoTrade"
         and vote_attempt["raw_signal_count"] == 0
+        and not soft_allocator_soft_only
     ):
         replay_attempt = _find_selected_shadow_position_replay(
             pipeline,
@@ -856,6 +882,7 @@ def _run_one_bar(
         fallback_enabled = (
             bool(getattr(pipeline, "actionable_fallback_enabled", False))
             and not forced_no_trade
+            and not soft_allocator_soft_only
         )
         fallback_attempt = None
         if fallback_enabled:
@@ -880,7 +907,11 @@ def _run_one_bar(
             fallback_skipped = any(
                 candidate.label != selected_leader.label for candidate in candidates
             )
-            if fallback_skipped:
+            if soft_allocator_soft_only:
+                fallback_reason = (
+                    "soft allocator soft-only mode: normal leader execution suppressed"
+                )
+            elif fallback_skipped:
                 fallback_reason = (
                     "portfolio equity guard active; fallback disabled"
                     if forced_no_trade
@@ -1003,6 +1034,7 @@ def _run_one_bar(
                 n_blocked=n_blocked,
                 blocked_reasons=blocked_reasons,
                 pipeline=pipeline,
+                soft_allocator_payload=soft_allocator_payload,
             ),
             error=(
                 f"kill switch active: {kill_reason_after_execution}"
@@ -2569,6 +2601,396 @@ def _apply_genetics_probation_execution_overlay(
     )
 
 
+def _soft_allocator_execution_attempt(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    candidates: Sequence[EnsemblePlayer],
+    *,
+    signal_id_counter: int,
+) -> Optional[Dict[str, Any]]:
+    if not bool(getattr(pipeline, "soft_allocator_execution_enabled", False)):
+        return None
+    allocator = getattr(pipeline, "soft_allocator_execution", None)
+    weights_for_bar = getattr(allocator, "weights_for_bar", None)
+    if not callable(weights_for_bar):
+        return None
+    try:
+        raw_weights = weights_for_bar(market.regime, market.bar) or {}
+    except Exception:
+        log.debug("soft allocator weight lookup failed", exc_info=True)
+        return None
+    weights = {
+        str(label).strip(): max(0.0, min(1.0, float(weight or 0.0)))
+        for label, weight in dict(raw_weights).items()
+        if str(label).strip()
+    }
+    weights = {label: weight for label, weight in weights.items() if weight > 1e-12}
+    if not weights:
+        return None
+
+    candidates_by_label = {
+        str(getattr(candidate, "label", "") or ""): candidate
+        for candidate in candidates or ()
+        if str(getattr(candidate, "label", "") or "")
+    }
+    shadow_registry = {
+        str(label): tuple(signals or ())
+        for label, signals in dict(
+            getattr(pipeline, "_current_shadow_player_signals", {}) or {}
+        ).items()
+    }
+    raw_signals: List[Signal] = []
+    selected_labels: List[str] = []
+    skipped: List[str] = []
+    agent_labels: List[str] = []
+    agents: List[object] = []
+    next_signal_id = int(signal_id_counter)
+    allowed_labels = _soft_allocator_execution_allowed_labels(pipeline)
+    denied_actor_symbols = _soft_allocator_execution_denied_actor_symbols(pipeline)
+    for label, weight in sorted(weights.items(), key=lambda item: (-item[1], item[0])):
+        if allowed_labels and label not in allowed_labels:
+            skipped.append(f"{label}:not_allowed")
+            continue
+        realized_gate_reason = _soft_allocator_realized_gate_reason(
+            pipeline,
+            label,
+            current_bar=market.bar,
+        )
+        if realized_gate_reason:
+            skipped.append(f"{label}:{realized_gate_reason}")
+            continue
+        candidate = candidates_by_label.get(label)
+        if candidate is None:
+            skipped.append(f"{label}:not_candidate")
+            continue
+        safety_reason = _fallback_candidate_safety_reason(pipeline, candidate, market)
+        if safety_reason:
+            skipped.append(f"{label}:{safety_reason}")
+            continue
+        shadow_signals = shadow_registry.get(label, ())
+        if not shadow_signals:
+            skipped.append(f"{label}:no_current_shadow_signal")
+            continue
+        converted, next_signal_id = _real_signals_from_shadow_registry(
+            shadow_signals,
+            market,
+            candidate,
+            signal_id_counter=next_signal_id,
+        )
+        converted = _filter_shadow_state_entry_signals(pipeline, candidate, converted)
+        if not converted:
+            skipped.append(f"{label}:no_real_signal_after_filter")
+            continue
+        if denied_actor_symbols:
+            kept: list[Signal] = []
+            for signal in converted:
+                if _soft_allocator_actor_symbol_denied(
+                    denied_actor_symbols,
+                    label,
+                    getattr(signal, "sym", ""),
+                ):
+                    skipped.append(
+                        f"{label}:denied_symbol:{str(getattr(signal, 'sym', '') or '')}"
+                    )
+                    continue
+                kept.append(signal)
+            converted = tuple(kept)
+            if not converted:
+                skipped.append(f"{label}:no_real_signal_after_symbol_gate")
+                continue
+        for signal in converted:
+            raw_signals.append(_soft_allocator_scaled_signal(signal, weight))
+        selected_labels.append(label)
+        for agent_label in getattr(candidate, "agent_labels", ()) or ():
+            clean = str(agent_label or "").strip()
+            if clean and clean not in agent_labels:
+                agent_labels.append(clean)
+        for agent in getattr(candidate, "agents", ()) or ():
+            agents.append(agent)
+
+    if not raw_signals:
+        return None
+
+    policy_name = _soft_allocator_policy_name(pipeline)
+    actor = _soft_allocator_execution_actor(
+        pipeline,
+        agents=tuple(agents),
+        agent_labels=tuple(agent_labels),
+        selected_labels=tuple(selected_labels),
+    )
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=actor,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=getattr(
+            getattr(pipeline, "live_execution", None),
+            "max_new_opens_per_bar",
+            1,
+        ),
+        max_open_positions=getattr(
+            getattr(pipeline, "risk_config", None),
+            "max_open_positions",
+            None,
+        ),
+    )
+    executable = tuple(getattr(signal_guard, "signals", ()) or ())
+    if not executable:
+        return None
+    details = list(getattr(signal_guard, "details", []) or [])
+    details.append(f"soft_allocator_policy:{policy_name}")
+    for label in selected_labels:
+        details.append(f"soft_allocator_weight:{label}:{weights[label]:.4f}")
+    if skipped:
+        details.extend(f"soft_allocator_skip:{item}" for item in skipped[:8])
+    signal_guard = replace(signal_guard, details=details)
+    return {
+        "leader": actor,
+        "raw_signals": raw_signals,
+        "raw_signal_count": len(raw_signals),
+        "leader_vote_error_count": 0,
+        "signal_guard": signal_guard,
+        "signal_id_counter": next_signal_id,
+        "soft_allocator": {
+            "enabled": True,
+            "policy_name": policy_name,
+            "soft_only": _soft_allocator_execution_soft_only(pipeline),
+            "realized_gate_enabled": _soft_allocator_realized_gate_enabled(pipeline),
+            "weights": {label: weights[label] for label in sorted(weights)},
+            "selected_labels": tuple(selected_labels),
+            "skipped": tuple(skipped),
+            "raw_signal_count": len(raw_signals),
+            "executable_signal_count": len(executable),
+            "single_position_model": True,
+        },
+    }
+
+
+def _soft_allocator_scaled_signal(signal: Signal, weight: float) -> Signal:
+    if not signal.action.is_open:
+        return signal
+    risk_mult = max(0.0, float(getattr(signal, "risk_mult", 1.0) or 1.0))
+    return replace(signal, risk_mult=risk_mult * max(0.0, min(1.0, float(weight))))
+
+
+def _soft_allocator_policy_name(pipeline: ProductionPipeline) -> str:
+    allocator = getattr(pipeline, "soft_allocator_execution", None)
+    policy = getattr(allocator, "policy", None)
+    return str(getattr(policy, "name", "") or "soft_allocator")
+
+
+def _soft_allocator_execution_actor(
+    pipeline: ProductionPipeline,
+    *,
+    agents: Sequence[object] = (),
+    agent_labels: Sequence[str] = (),
+    selected_labels: Sequence[str] = (),
+) -> _FlashExecutionActor:
+    labels = tuple(selected_labels or agent_labels or ())
+    return _FlashExecutionActor(
+        label=f"PanteonSoft:{_soft_allocator_policy_name(pipeline)}",
+        agents=tuple(agents or ()),
+        agent_labels=labels,
+    )
+
+
+def _soft_allocator_idle_attempt(
+    pipeline: ProductionPipeline,
+    *,
+    signal_id_counter: int,
+    reason: str,
+) -> Dict[str, Any]:
+    policy_name = _soft_allocator_policy_name(pipeline)
+    actor = _soft_allocator_execution_actor(pipeline)
+    details = [
+        f"soft_allocator_policy:{policy_name}",
+        str(reason or "soft_allocator_idle"),
+    ]
+    return {
+        "leader": actor,
+        "raw_signals": [],
+        "raw_signal_count": 0,
+        "leader_vote_error_count": 0,
+        "signal_guard": RealSignalGuardResult(signals=[], details=details),
+        "signal_id_counter": signal_id_counter,
+        "soft_allocator": {
+            "enabled": True,
+            "policy_name": policy_name,
+            "soft_only": _soft_allocator_execution_soft_only(pipeline),
+            "realized_gate_enabled": _soft_allocator_realized_gate_enabled(pipeline),
+            "reason": str(reason or "soft_allocator_idle"),
+            "weights": {},
+            "selected_labels": tuple(),
+            "skipped": tuple(),
+            "raw_signal_count": 0,
+            "executable_signal_count": 0,
+            "single_position_model": True,
+        },
+    }
+
+
+def _soft_allocator_execution_soft_only(pipeline: ProductionPipeline) -> bool:
+    return (
+        bool(getattr(pipeline, "soft_allocator_execution_enabled", False))
+        and bool(getattr(pipeline, "soft_allocator_execution_soft_only", False))
+        and getattr(pipeline, "soft_allocator_execution", None) is not None
+    )
+
+
+def _soft_allocator_execution_allowed_labels(
+    pipeline: ProductionPipeline,
+) -> set[str]:
+    return {
+        str(label or "").strip()
+        for label in getattr(pipeline, "soft_allocator_execution_allow_labels", ()) or ()
+        if str(label or "").strip()
+    }
+
+
+def _soft_allocator_execution_denied_actor_symbols(
+    pipeline: ProductionPipeline,
+) -> set[tuple[str, str]]:
+    denied: set[tuple[str, str]] = set()
+    for item in getattr(pipeline, "soft_allocator_execution_deny_actor_symbols", ()) or ():
+        raw = str(item or "").strip()
+        if not raw or "|" not in raw:
+            continue
+        label, symbol = (part.strip() for part in raw.split("|", 1))
+        if not label or not symbol:
+            continue
+        for key in _soft_allocator_symbol_keys(symbol):
+            denied.add((label, key))
+    return denied
+
+
+def _soft_allocator_actor_symbol_denied(
+    denied_actor_symbols: set[tuple[str, str]],
+    label: str,
+    symbol: object,
+) -> bool:
+    actor_label = str(label or "").strip()
+    if not actor_label:
+        return False
+    return any(
+        (actor_label, key) in denied_actor_symbols
+        for key in _soft_allocator_symbol_keys(symbol)
+    )
+
+
+def _soft_allocator_symbol_keys(symbol: object) -> set[str]:
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return set()
+    keys = {raw}
+    if "/" in raw:
+        base = raw.split("/", 1)[0].strip()
+        if base:
+            keys.add(base)
+    else:
+        keys.add(f"{raw}/USDT")
+    return keys
+
+
+def _soft_allocator_realized_gate_enabled(pipeline: ProductionPipeline) -> bool:
+    return bool(getattr(pipeline, "soft_allocator_realized_gate_enabled", False))
+
+
+def _soft_allocator_realized_gate_reason(
+    pipeline: ProductionPipeline,
+    label: str,
+    *,
+    current_bar: int,
+) -> str:
+    if not _soft_allocator_realized_gate_enabled(pipeline):
+        return ""
+    clean = str(label or "").strip()
+    if not clean:
+        return ""
+    try:
+        lookback_bars = int(
+            getattr(pipeline, "soft_allocator_realized_gate_lookback_bars", 0) or 0
+        )
+    except (TypeError, ValueError):
+        lookback_bars = 0
+    try:
+        min_closed = int(
+            getattr(pipeline, "soft_allocator_realized_gate_min_closed_trades", 0) or 0
+        )
+    except (TypeError, ValueError):
+        min_closed = 0
+    try:
+        max_recent_pnl = float(
+            getattr(pipeline, "soft_allocator_realized_gate_max_recent_pnl_usd", 0.0)
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        max_recent_pnl = 0.0
+    if min_closed <= 0:
+        return ""
+    events = _soft_allocator_recent_realized_events(
+        pipeline,
+        clean,
+        current_bar=current_bar,
+        lookback_bars=lookback_bars,
+    )
+    closed = sum(max(0, int(item[2] or 0)) for item in events)
+    if closed < min_closed:
+        return ""
+    pnl = sum(float(item[1] or 0.0) for item in events)
+    wins = sum(max(0, int(item[3] or 0)) for item in events)
+    if pnl <= max_recent_pnl:
+        return (
+            f"realized_gate_recent_pnl:{pnl:.2f}:closed={closed}:"
+            f"wins={wins}:lookback={lookback_bars}"
+        )
+    return ""
+
+
+def _soft_allocator_recent_realized_events(
+    pipeline: ProductionPipeline,
+    label: str,
+    *,
+    current_bar: int,
+    lookback_bars: int,
+) -> tuple[tuple[int, float, int, int], ...]:
+    events_by_player = dict(
+        getattr(pipeline, "_soft_allocator_realized_events_by_player", {}) or {}
+    )
+    events = tuple(events_by_player.get(str(label or "").strip(), ()) or ())
+    if lookback_bars <= 0:
+        return tuple(_normalize_soft_allocator_realized_event(item) for item in events)
+    floor_bar = max(0, int(current_bar or 0) - int(lookback_bars))
+    out = []
+    for item in events:
+        event = _normalize_soft_allocator_realized_event(item)
+        if event[0] >= floor_bar:
+            out.append(event)
+    return tuple(out)
+
+
+def _normalize_soft_allocator_realized_event(
+    item: object,
+) -> tuple[int, float, int, int]:
+    try:
+        values = tuple(item)  # type: ignore[arg-type]
+    except TypeError:
+        values = ()
+    bar = int(values[0] if len(values) > 0 else 0 or 0)
+    pnl = float(values[1] if len(values) > 1 else 0.0 or 0.0)
+    closed = int(values[2] if len(values) > 2 else 0 or 0)
+    wins = int(values[3] if len(values) > 3 else 0 or 0)
+    return (bar, pnl, closed, wins)
+
+
+def _soft_allocator_execution_prevents_notrade_cash_flat(
+    pipeline: ProductionPipeline,
+) -> bool:
+    return (
+        bool(getattr(pipeline, "soft_allocator_execution_enabled", False))
+        and getattr(pipeline, "soft_allocator_execution", None) is not None
+    )
+
+
 def _genetics_probation_preselection_degraded_signal_keys(
     pipeline: ProductionPipeline,
     shadow_player_signals: Mapping[str, Sequence[Signal]] | None,
@@ -3815,6 +4237,16 @@ def _apply_pending_shadow_updates_to_strategist(pipeline: ProductionPipeline) ->
             update(pending)
         except Exception:
             log.debug("failed to sync shadow updates into strategist", exc_info=True)
+    soft_update = getattr(
+        getattr(pipeline, "soft_allocator_execution", None),
+        "update_from_shadow_updates",
+        None,
+    )
+    if pending and callable(soft_update):
+        try:
+            soft_update(pending)
+        except Exception:
+            log.debug("failed to sync shadow updates into soft allocator", exc_info=True)
     update_positions = getattr(
         getattr(pipeline, "strategist", None),
         "update_shadow_position_snapshot",
@@ -4081,10 +4513,11 @@ def _causal_decision_payload(
     n_blocked: int,
     blocked_reasons: Dict[str, int],
     pipeline: ProductionPipeline,
+    soft_allocator_payload: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, object]:
     selected_label = str(getattr(selected_leader, "label", "") or "")
     executed_label = str(getattr(executed_leader, "label", "") or "")
-    return {
+    payload = {
         "bar": int(getattr(market, "bar", 0) or 0),
         "timestamp": _timestamp_payload(getattr(market, "timestamp", None)),
         "regime": getattr(getattr(market, "regime", None), "label", str(getattr(market, "regime", ""))),
@@ -4152,6 +4585,9 @@ def _causal_decision_payload(
         "candidate_scores": _candidate_score_payloads(decision),
         "candidate_rejections": _candidate_rejection_payloads(decision),
     }
+    if soft_allocator_payload:
+        payload["soft_allocator"] = dict(soft_allocator_payload)
+    return payload
 
 
 def _flash_causal_decision_payload(
@@ -4914,6 +5350,64 @@ def _record_realized_result_for_strategy(
     pipeline._allocator_realized_pnl_by_player = pnl_by_player
     pipeline._allocator_realized_trade_counts_by_player = trades_by_player
     pipeline._allocator_realized_win_counts_by_player = wins_by_player
+    _record_soft_allocator_realized_gate_result(pipeline, result)
+
+
+def _record_soft_allocator_realized_gate_result(
+    pipeline: ProductionPipeline,
+    result: ExecutionResult,
+) -> None:
+    if not _soft_allocator_realized_gate_enabled(pipeline):
+        return
+    counts_by_player = {
+        str(label or ""): int(count or 0)
+        for label, count in getattr(result, "closed_trade_counts_by_player", ()) or ()
+        if str(label or "")
+    }
+    if not counts_by_player:
+        return
+    wins_by_player = {
+        str(label or ""): int(count or 0)
+        for label, count in getattr(result, "win_counts_by_player", ()) or ()
+        if str(label or "")
+    }
+    pnl_by_player = {
+        str(label or ""): float(pnl or 0.0)
+        for label, pnl in getattr(result, "realized_pnl_by_player", ()) or ()
+        if str(label or "")
+    }
+    try:
+        bar = int(getattr(getattr(result, "signal", None), "bar", 0) or 0)
+    except (TypeError, ValueError):
+        bar = 0
+    events_by_player = {
+        str(label): [
+            _normalize_soft_allocator_realized_event(item)
+            for item in (events or ())
+        ]
+        for label, events in dict(
+            getattr(pipeline, "_soft_allocator_realized_events_by_player", {}) or {}
+        ).items()
+    }
+    trim_lookback = int(
+        max(0, getattr(pipeline, "soft_allocator_realized_gate_lookback_bars", 0) or 0)
+    )
+    trim_floor = max(0, bar - trim_lookback * 2) if trim_lookback > 0 else 0
+    for label, closed in counts_by_player.items():
+        if closed <= 0:
+            continue
+        events = events_by_player.setdefault(label, [])
+        events.append((
+            bar,
+            float(pnl_by_player.get(label, 0.0) or 0.0),
+            int(closed),
+            int(wins_by_player.get(label, 0) or 0),
+        ))
+        if trim_floor > 0:
+            events_by_player[label] = [
+                event for event in events if int(event[0] or 0) >= trim_floor
+            ]
+    pipeline._soft_allocator_realized_events_by_player = events_by_player
 
 
 def _sync_strategist_realized_snapshot(pipeline: ProductionPipeline) -> None:

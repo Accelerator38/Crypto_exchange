@@ -1416,9 +1416,12 @@ def test_cli_and_strategist_config_accept_executable_soft_top1_score_flag():
     assert config.use_v3_executable_soft_top1_score is True
     assert strategist_config.use_v3_rolling_score is True
     assert strategist_config.use_v3_soft_shadow_score is True
-    assert strategist_config.v3_current_actionable_gate_enabled is True
+    assert strategist_config.v3_current_actionable_gate_enabled is False
+    assert strategist_config.v3_solo_current_actionable_gate_enabled is True
     assert strategist_config.v3_shadow_rolling_window_bars == 24
     assert strategist_config.v3_shadow_rolling_min_closed_trades == 20
+    assert strategist_config.v3_min_score_to_trade > 0.0
+    assert strategist_config.v3_real_loss_kill_min_closed_trades == 0
 
 
 def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_path):
@@ -1511,7 +1514,8 @@ def test_run_summary_records_effective_executable_soft_top1_strategy_config(tmp_
     assert data["use_v3_executable_soft_top1_score"] is True
     assert data["effective_v3_shadow_rolling_window_bars"] == 24
     assert data["effective_v3_shadow_rolling_min_closed_trades"] == 20
-    assert data["effective_v3_current_actionable_gate_enabled"] is True
+    assert data["effective_v3_current_actionable_gate_enabled"] is False
+    assert data["effective_v3_solo_current_actionable_gate_enabled"] is True
     assert data["flash_denied_signal_keys"] == [
         "agent:MomentumScalper|ATOM/USDT|SPOT_BUY_FULL",
     ]
@@ -1646,6 +1650,9 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "3",
         "--risk-max-open-positions",
         "16",
+        "--risk-max-leverage",
+        "3",
+        "--apply-risk-leverage-to-notional",
         "--risk-capital-fraction",
         "0.15",
         "--enable-genetics-probation-execution",
@@ -1677,9 +1684,13 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
 
     assert config.max_new_opens_per_bar == 3
     assert config.risk_max_open_positions == 16
+    assert config.risk_max_leverage == 3
+    assert config.apply_risk_leverage_to_notional is True
     assert config.risk_capital_fraction == 0.15
     assert live_config.max_new_opens_per_bar == 3
     assert risk_config.max_open_positions == 16
+    assert risk_config.max_leverage == 3
+    assert risk_config.apply_leverage_to_notional is True
     assert risk_config.capital_fraction == 0.15
     assert config.genetics_probation_execution_enabled is True
     assert config.genetics_probation_risk_mult == 0.20

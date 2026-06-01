@@ -22,14 +22,19 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List, Optional, Sequence, Union
 
 from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
 from ..selection import AgentRegistry, FlashAllocatorConfig, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
-from .agent_bootstrap import optional_labels, register_all_v1_agents
+from .agent_bootstrap import (
+    legacy_flash_real_agent_labels,
+    optional_labels,
+    promote_legacy_flash_real_agents,
+    register_all_v1_agents,
+)
 from .bootstrap import LiveExecutionConfig, PRODUCTION_PROFILES, build_production_pipeline
 from .main_loop import main_loop
 from .live_state import (
@@ -237,13 +242,13 @@ def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
         min_live_score=num("player_min_live_score", 0.0),
         max_live_drawdown_pct=num("player_max_live_drawdown_pct", 100.0),
         min_regime_confidence=num("regime_min_confidence", 0.0),
-        player_session_overlay_weight=num("player_session_overlay_weight", 0.25),
+        player_session_overlay_weight=num("player_session_overlay_weight", 1.00),
         player_session_underperformance_weight=num(
             "player_session_underperformance_weight",
-            0.35,
+            0.75,
         ),
-        player_session_stale_penalty=num("player_session_stale_penalty", 0.10),
-        player_session_pnl_cap_pct=num("player_session_pnl_cap_pct", 3.0),
+        player_session_stale_penalty=num("player_session_stale_penalty", 0.15),
+        player_session_pnl_cap_pct=num("player_session_pnl_cap_pct", 5.0),
         player_session_min_activity=int(num("player_session_min_activity", 1)),
         use_v3_rolling_score=bool_any(
             ("v2_use_v3_rolling_score", "use_v3_rolling_score"),
@@ -561,6 +566,30 @@ def _exchange_scoped_setting_names(exchange_name: str, base: str) -> tuple[str, 
     )
 
 
+def _run_scoped_event_log_path(
+    exchange_name: str,
+    jsonl_event_log: Optional[str],
+    *,
+    now: Optional[datetime] = None,
+    pid: Optional[int] = None,
+) -> Optional[str]:
+    if not jsonl_event_log:
+        return jsonl_event_log
+    exchange_key = str(exchange_name or "").strip().lower().replace("-", "_")
+    if not exchange_key:
+        return jsonl_event_log
+    path = Path(jsonl_event_log)
+    if path.name.lower() != f"v2_{exchange_key}_events.jsonl":
+        return str(path)
+
+    ts = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    process_id = os.getpid() if pid is None else int(pid)
+    scoped_name = (
+        f"v2_{exchange_key}_{ts.strftime('%Y%m%d_%H%M%S')}_{process_id}_events.jsonl"
+    )
+    return str(path.with_name(scoped_name))
+
+
 def _quarantine_override_labels_from_settings(
     settings: dict,
     exchange_name: str,
@@ -648,6 +677,41 @@ def _flash_enabled_from_settings(settings: dict, default: bool = False) -> bool:
         ),
         default,
     )
+
+
+def _flash_legacy_real_agents_enabled_from_settings(
+    settings: dict,
+    exchange_name: str,
+    default: bool = False,
+) -> bool:
+    return _settings_bool(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_flash_legacy_real_agents_enabled",
+        ) + _exchange_scoped_setting_names(
+            exchange_name,
+            "panteon_flash_legacy_real_agents_enabled",
+        ),
+        default,
+    )
+
+
+def _flash_legacy_real_agent_labels_from_settings(
+    settings: dict,
+    exchange_name: str,
+) -> tuple[str, ...]:
+    labels = _settings_csv_tuple(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_flash_legacy_real_agent_labels",
+        ) + _exchange_scoped_setting_names(
+            exchange_name,
+            "panteon_flash_legacy_real_agent_labels",
+        ),
+    )
+    return labels or tuple(legacy_flash_real_agent_labels())
 
 
 def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfig:
@@ -1654,6 +1718,21 @@ def _resolve_flash_enabled(exchange_name: str) -> bool:
     )
 
 
+def _resolve_flash_legacy_real_agents(exchange_name: str) -> tuple[bool, tuple[str, ...]]:
+    settings = _load_exchange_settings(exchange_name)
+    env_default = (
+        _env_flag(f"{exchange_name.upper()}_PANTEON_FLASH_LEGACY_REAL_AGENTS", False)
+        or _env_flag("PANTEON_FLASH_LEGACY_REAL_AGENTS", False)
+    )
+    enabled = _flash_legacy_real_agents_enabled_from_settings(
+        settings,
+        exchange_name,
+        default=env_default,
+    )
+    labels = _flash_legacy_real_agent_labels_from_settings(settings, exchange_name)
+    return enabled, labels
+
+
 def _resolve_flash_allocator_config(exchange_name: str) -> FlashAllocatorConfig:
     return _flash_allocator_config_from_settings(_load_exchange_settings(exchange_name))
 
@@ -1761,16 +1840,41 @@ def _resolve_flash_partial_profit_lock_config(exchange_name: str) -> dict[str, o
     )
 
 
-def _resolve_include_genetics(value: Optional[bool]) -> bool:
+def _resolve_include_genetics(
+    value: Optional[bool],
+    exchange_name: str = "",
+) -> bool:
     if value is not None:
         return bool(value)
-    return _env_flag("PANTEON_V2_LOAD_GENETICS", False)
+    raw_env = os.getenv("PANTEON_V2_LOAD_GENETICS")
+    if raw_env is not None:
+        return _env_flag("PANTEON_V2_LOAD_GENETICS", False)
+    settings = _load_exchange_settings(exchange_name) if exchange_name else {}
+    return _settings_bool(
+        settings,
+        _exchange_scoped_setting_names(exchange_name, "v2_load_genetics")
+        + _exchange_scoped_setting_names(exchange_name, "load_genetics")
+        + _exchange_scoped_setting_names(exchange_name, "agent_genetics"),
+        False,
+    )
 
 
-def _resolve_genetics_shadow_only(value: Optional[bool]) -> bool:
+def _resolve_genetics_shadow_only(
+    value: Optional[bool],
+    exchange_name: str = "",
+) -> bool:
     if value is not None:
         return bool(value)
-    return _env_flag("PANTEON_V2_GENETICS_SHADOW_ONLY", True)
+    raw_env = os.getenv("PANTEON_V2_GENETICS_SHADOW_ONLY")
+    if raw_env is not None:
+        return _env_flag("PANTEON_V2_GENETICS_SHADOW_ONLY", True)
+    settings = _load_exchange_settings(exchange_name) if exchange_name else {}
+    return _settings_bool(
+        settings,
+        _exchange_scoped_setting_names(exchange_name, "v2_genetics_shadow_only")
+        + _exchange_scoped_setting_names(exchange_name, "genetics_shadow_only"),
+        True,
+    )
 
 
 def _seed_quarantine_with_shadow_only_genetics(
@@ -2259,6 +2363,12 @@ def start_production(
     allow_live_feed_fallback: Optional[bool] = None,
     include_genetics:   Optional[bool] = None,
     genetics_shadow_only: Optional[bool] = None,
+    risk_config_override: Optional[RiskLimitsConfig] = None,
+    strategist_config_override: Optional[StrategistConfig] = None,
+    live_execution_config_override: Optional[LiveExecutionConfig] = None,
+    flash_enabled_override: Optional[bool] = None,
+    flash_allocator_config_override: Optional[FlashAllocatorConfig] = None,
+    configure_pipeline: Optional[Callable[[object], None]] = None,
 ) -> int:
     """Запустить production main_loop для указанной биржи.
 
@@ -2276,8 +2386,11 @@ def start_production(
     os.environ[f"{exchange.upper()}_TRADING_MODE"] = mode
     if allow_live_feed_fallback is None:
         allow_live_feed_fallback = _env_flag("PANTEON_ALLOW_LIVE_FEED_FALLBACK", False)
-    include_genetics = _resolve_include_genetics(include_genetics)
-    genetics_shadow_only = _resolve_genetics_shadow_only(genetics_shadow_only)
+    include_genetics = _resolve_include_genetics(include_genetics, exchange)
+    genetics_shadow_only = _resolve_genetics_shadow_only(genetics_shadow_only, exchange)
+    jsonl_event_log = _run_scoped_event_log_path(exchange, jsonl_event_log)
+    if jsonl_event_log:
+        log.info("[%s] EventLog JSONL: %s", exchange, jsonl_event_log)
 
     # 1. Exchange adapter + capital base
     exchange_adapter = resolve_exchange(exchange, mode=mode)
@@ -2293,6 +2406,17 @@ def start_production(
     live_execution_config = _resolve_live_execution_config(exchange)
     flash_enabled = _resolve_flash_enabled(exchange)
     flash_allocator_config = _resolve_flash_allocator_config(exchange)
+    if risk_config_override is not None:
+        risk_config = risk_config_override
+        trade_fraction = float(risk_config.capital_fraction)
+    if strategist_config_override is not None:
+        strategist_config = strategist_config_override
+    if live_execution_config_override is not None:
+        live_execution_config = live_execution_config_override
+    if flash_enabled_override is not None:
+        flash_enabled = bool(flash_enabled_override)
+    if flash_allocator_config_override is not None:
+        flash_allocator_config = flash_allocator_config_override
     flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
     flash_partial_profit_lock_config = _resolve_flash_partial_profit_lock_config(exchange)
     log.info(
@@ -2358,6 +2482,24 @@ def start_production(
             "No v1-agents registered. Check sys.path / panteon_runtime presence."
         )
         return 2
+    legacy_real_enabled, legacy_real_labels = _resolve_flash_legacy_real_agents(exchange)
+    if flash_enabled and legacy_real_enabled:
+        promoted_legacy = promote_legacy_flash_real_agents(
+            registry,
+            labels=legacy_real_labels,
+            skip_missing=True,
+        )
+        if promoted_legacy:
+            log.info(
+                "[%s] Panteon_Flash legacy real agents enabled: %s",
+                exchange,
+                ", ".join(promoted_legacy),
+            )
+        else:
+            log.warning(
+                "[%s] Panteon_Flash legacy real agents requested but none promoted",
+                exchange,
+            )
     genetics_limit_labels = _apply_genetics_position_limit(
         registry,
         max_open_positions=risk_config.max_open_positions,
@@ -2402,6 +2544,8 @@ def start_production(
         perf_trade_fraction=trade_fraction,
         jsonl_event_log=jsonl_event_log,
     )
+    if configure_pipeline is not None:
+        configure_pipeline(pipeline)
     pipeline.mode = mode
     pipeline.timeframe = _resolve_timeframe(exchange)
     pipeline.flash_stale_position_exit_enabled = bool(

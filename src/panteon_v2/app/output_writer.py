@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shutil
 import time
@@ -96,6 +97,14 @@ def _format_float(value: object) -> str:
         return "0.00"
 
 
+def _safe_float_or_none(value: object) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
 @dataclass
 class OutputWriterConfig:
     """Конфигурация писателя."""
@@ -143,6 +152,7 @@ class OutputWriter:
         self._panteon_realized_equity_history: List[float] = []
         self._clean_panteon_equity_history: List[float] = []
         self._clean_panteon_realized_equity_history: List[float] = []
+        self._price_history: List[Dict[str, object]] = []
         self._shadow_session_counts = {
             "signals": 0,
             "filled": 0,
@@ -207,6 +217,7 @@ class OutputWriter:
         if not getattr(pipeline, "run_id", ""):
             pipeline.run_id = pipeline.session_id
         kwargs.setdefault("latest_dir", results_root)
+        kwargs.setdefault("compact_causal_entry_decisions", True)
         cfg = OutputWriterConfig(output_dir=output_dir, **kwargs)
         return cls(pipeline, cfg)
 
@@ -256,9 +267,11 @@ class OutputWriter:
         position_counts = self._position_counts()
         selected_leader = step.selected_leader or step.leader or "-"
         executed_leader = step.executed_leader or step.leader or "-"
+        market_view = self._market_view_payload(step, fallback_regime=step.regime.label)
         parts = [
             ts,
             f"bar={step.bar}",
+            f"market={market_view['market']}",
             f"regime={step.regime.label}",
             f"leader={step.leader or '-'}",
             f"selected_leader={selected_leader}",
@@ -275,6 +288,13 @@ class OutputWriter:
             f"shadow_session_signals={self._shadow_session_counts['signals']}",
             f"shadow_session_filled={self._shadow_session_counts['filled']}",
         ]
+        if market_view.get("regime_confidence") is not None:
+            parts.append(f"market_confidence={float(market_view['regime_confidence']):.2f}")
+        if market_view.get("funding_symbols"):
+            avg_funding = market_view.get("avg_funding")
+            if avg_funding is not None:
+                parts.append(f"avg_funding={float(avg_funding) * 100:.4f}%")
+            parts.append(f"funding_symbols={market_view['funding_symbols']}")
         if step.leader_vote_errors:
             parts.append(f"leader_vote_errors={step.leader_vote_errors}")
         if step.n_filtered_real_signals:
@@ -494,6 +514,12 @@ class OutputWriter:
         s = int(uptime_sec % 60)
         bar = step.bar if step is not None else 0
         regime = step.regime.label if step is not None else "unknown"
+        market_view = self._market_view_payload(step, fallback_regime=regime)
+        current_prices = self._append_price_history(
+            step,
+            regime=regime,
+            market_view=market_view,
+        )
         n_signals = step.n_signals if step is not None else 0
         n_filled = step.n_filled if step is not None else 0
         n_rejected = step.n_rejected if step is not None else 0
@@ -592,6 +618,10 @@ class OutputWriter:
             if self._initial_capital > 0 else 0.0
         )
         real_trades = self._real_trade_summary(position_pnl=position_pnl)
+        real_trading_actors = self._real_actor_payload(
+            open_positions=open_positions,
+            position_counts=position_counts,
+        )
         live_session = {
             "account_equity_pnl_usd": total_assets - self._initial_capital,
             "account_realized_pnl_usd": realized_pnl,
@@ -695,7 +725,12 @@ class OutputWriter:
             "message":          message,
             "uptime":           f"{h:02d}:{m:02d}:{s:02d}",
             "bar_count":        bar,
+            "market":           market_view["market"],
             "regime":           regime,
+            "regime_confidence": market_view.get("regime_confidence"),
+            "market_view":      market_view,
+            "current_prices":    current_prices,
+            "price_history":     list(self._price_history),
             "initial_capital":  self._initial_capital,
             "current_balance":  self._current_balance,
             "futures_equity_usd": account_snapshot.get("futures_equity", self._current_balance),
@@ -740,6 +775,8 @@ class OutputWriter:
             "executed_leader":  executed_leader,
             "live_session":     live_session,
             "real_trades":      real_trades,
+            "real_trading_actors": real_trading_actors,
+            "configured_actor_pool": self._configured_actor_pool_payload(),
             "live_state_sync":  getattr(self._pipeline, "live_state_sync", None),
             "shadow":           shadow,
             "flash":            flash,
@@ -873,6 +910,53 @@ class OutputWriter:
             "decisions": decisions,
         }
 
+    def _market_view_payload(
+        self,
+        step: Optional[StepResult],
+        *,
+        fallback_regime: str,
+    ) -> Dict[str, object]:
+        causal = (
+            dict(getattr(step, "causal_decision", {}) or {})
+            if step is not None
+            else {}
+        )
+        market = str(
+            causal.get("market")
+            or causal.get("regime")
+            or fallback_regime
+            or "unknown"
+        ).strip().lower()
+        confidence = _safe_float_or_none(causal.get("regime_confidence"))
+        funding = causal.get("funding")
+        funding_values: List[float] = []
+        if isinstance(funding, dict):
+            for raw_value in funding.values():
+                parsed = _safe_float_or_none(raw_value)
+                if parsed is not None:
+                    funding_values.append(parsed)
+        avg_funding = (
+            sum(funding_values) / len(funding_values)
+            if funding_values
+            else None
+        )
+        if avg_funding is None:
+            funding_bias = "unknown"
+        elif avg_funding > 0:
+            funding_bias = "positive"
+        elif avg_funding < 0:
+            funding_bias = "negative"
+        else:
+            funding_bias = "neutral"
+        return {
+            "market": market,
+            "regime": str(fallback_regime or "unknown").lower(),
+            "regime_confidence": confidence,
+            "funding_symbols": len(funding_values),
+            "avg_funding": avg_funding,
+            "funding_bias": funding_bias,
+        }
+
     def _refresh_account_view(self, *, realized_pnl: float = 0.0) -> Dict[str, float]:
         try:
             sync_pipeline_balance(self._pipeline)
@@ -934,6 +1018,51 @@ class OutputWriter:
         out.append(float(value))
         if len(out) > limit:
             out = out[-limit:]
+        return out
+
+    def _append_price_history(
+        self,
+        step: Optional[StepResult],
+        *,
+        regime: str,
+        market_view: Dict[str, object],
+        limit: int = 720,
+    ) -> Dict[str, float]:
+        prices: Dict[str, float] = {}
+        if step is not None:
+            causal = getattr(step, "causal_decision", {}) or {}
+            if isinstance(causal, dict):
+                prices = self._clean_price_mapping(causal.get("prices"))
+        if prices:
+            self._price_history.append({
+                "bar": int(step.bar if step is not None else 0),
+                "regime": str(regime or ""),
+                "market": str(market_view.get("market", regime) or regime or ""),
+                "regime_confidence": market_view.get("regime_confidence"),
+                "prices": prices,
+            })
+            if len(self._price_history) > limit:
+                self._price_history = self._price_history[-limit:]
+        if self._price_history:
+            last = self._price_history[-1].get("prices")
+            if isinstance(last, dict):
+                return {
+                    str(symbol): float(price)
+                    for symbol, price in last.items()
+                    if _safe_float_or_none(price) is not None
+                }
+        return {}
+
+    @staticmethod
+    def _clean_price_mapping(raw: object) -> Dict[str, float]:
+        if not isinstance(raw, dict):
+            return {}
+        out: Dict[str, float] = {}
+        for raw_symbol, raw_price in raw.items():
+            symbol = str(raw_symbol or "").strip().upper()
+            price = _safe_float_or_none(raw_price)
+            if symbol and price is not None and price > 0.0:
+                out[symbol] = float(price)
         return out
 
     @staticmethod
@@ -1049,6 +1178,91 @@ class OutputWriter:
             "adopted_unresolved": adopted_unresolved,
             "external_closed": external_closed,
             "external_unresolved": external_unresolved,
+        }
+
+    def _real_actor_payload(
+        self,
+        *,
+        open_positions: Dict[str, dict],
+        position_counts: Dict[str, int],
+    ) -> Dict[str, object]:
+        try:
+            player_pnl = self._pipeline.ledger.total_pnl_by_player()
+            player_trades = self._pipeline.ledger.trade_counts_by_player()
+            player_wins = self._pipeline.ledger.win_counts_by_player()
+        except Exception:
+            player_pnl = {}
+            player_trades = {}
+            player_wins = {}
+        try:
+            agent_pnl = self._pipeline.ledger.total_pnl_by_agent()
+        except Exception:
+            agent_pnl = {}
+
+        closed_players = []
+        for label, pnl in sorted(
+            player_pnl.items(),
+            key=lambda item: -float(item[1] or 0.0),
+        ):
+            trades = int(player_trades.get(label, 0) or 0)
+            wins = int(player_wins.get(label, 0) or 0)
+            if _is_external_player(label):
+                scope = "external"
+            elif _is_adopted_player(label, self._pipeline):
+                scope = "adopted"
+            else:
+                scope = "panteon"
+            closed_players.append({
+                "player": str(label),
+                "scope": scope,
+                "realized_pnl_usd": float(pnl or 0.0),
+                "closed_trades": trades,
+                "wins": wins,
+                "win_rate": (wins / trades * 100.0) if trades else 0.0,
+            })
+
+        closed_agents = [
+            {
+                "agent": str(label),
+                "realized_pnl_usd": float(pnl or 0.0),
+            }
+            for label, pnl in sorted(
+                agent_pnl.items(),
+                key=lambda item: -float(item[1] or 0.0),
+            )
+        ]
+
+        open_rows = []
+        for symbol, pos in sorted((open_positions or {}).items()):
+            player = str(pos.get("by_player", "") or "")
+            if _is_external_player(player):
+                scope = "external"
+            elif _is_adopted_player(player, self._pipeline):
+                scope = "adopted"
+            else:
+                scope = "panteon"
+            open_rows.append({
+                "symbol": str(symbol),
+                "side": str(pos.get("side", "") or ""),
+                "qty": float(pos.get("qty", 0.0) or 0.0),
+                "entry": float(pos.get("entry", 0.0) or 0.0),
+                "player": player,
+                "agent": str(pos.get("by_agent", "") or ""),
+                "scope": scope,
+                "unrealized_pnl_usd": float(pos.get("unrealized_pnl_usd", 0.0) or 0.0),
+                "external": bool(pos.get("external", False)),
+            })
+
+        return {
+            "source": "real ledger closed trades + tracked live open positions",
+            "shadow_leaderboard_is_virtual": True,
+            "closed_trade_count": int(getattr(self._pipeline.ledger, "closed_count", 0) or 0),
+            "open_position_count": len(open_rows),
+            "tracked_positions_count": int(position_counts.get("tracked_positions_count", 0) or 0),
+            "exchange_positions_count": int(position_counts.get("exchange_positions_count", 0) or 0),
+            "closed_players": closed_players,
+            "closed_agents": closed_agents,
+            "open_positions": open_rows,
         }
 
     def _position_counts(self, *, tracked_count: Optional[int] = None) -> Dict[str, int]:
@@ -1201,17 +1415,24 @@ class OutputWriter:
         except Exception:
             return
 
-        # AGENTS: registered agent labels from PerformanceMemory
+        # AGENTS: registered agent labels from PerformanceMemory plus configured pool.
         agents: Dict[str, dict] = {}
+        actor_pool_agents = {
+            str(row.get("label") or ""): row
+            for row in self._actor_pool_agent_rows()
+            if str(row.get("label") or "")
+        }
         agent_labels = set(self._pipeline.registry.all_labels())
         agent_labels.update(
             str(label)
             for label in (getattr(self._pipeline, "shadow_agent_labels", ()) or ())
             if str(label)
         )
+        agent_labels.update(actor_pool_agents.keys())
         for label in sorted(agent_labels):
             metrics_agg = self._pipeline.perf.get(label)
-            if not metrics_agg.has_data:
+            configured_pool = label in actor_pool_agents
+            if not metrics_agg.has_data and not configured_pool:
                 continue
             session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
@@ -1230,6 +1451,7 @@ class OutputWriter:
                         "max_drawdown_pct": rm.max_dd_pct,
                     }
             quarantine_record = self._pipeline.qm.record_for(label)
+            configured_pool_only = configured_pool and not metrics_agg.has_data
             agents["V_" + label] = {
                 "pnl_pct":        metrics_agg.pnl_pct,
                 "session_pnl_pct": session["pnl_pct"],
@@ -1249,6 +1471,13 @@ class OutputWriter:
                 "max_drawdown_pct": metrics_agg.max_dd_pct,
                 "is_quarantined": self._pipeline.qm.is_quarantined(label),
                 "quarantine_reason": quarantine_record.reason if quarantine_record else "",
+                "configured_pool": configured_pool,
+                "configured_pool_only": configured_pool_only,
+                "actor_pool_flags": str(actor_pool_agents.get(label, {}).get("flags", "")),
+                "status_reason": (
+                    "configured actor pool; no leaderboard activity yet"
+                    if configured_pool_only else ""
+                ),
                 "per_regime":     per_regime,
             }
 
@@ -1257,12 +1486,23 @@ class OutputWriter:
         player_pnl = self._pipeline.ledger.total_pnl_by_player()
         trade_counts = self._pipeline.ledger.trade_counts_by_player()
         win_counts = self._pipeline.ledger.win_counts_by_player()
-        player_labels = {profile.label for profile in self._pipeline.profiles}
+        actor_pool_players = {
+            str(row.get("label") or ""): row
+            for row in self._actor_pool_player_rows()
+            if str(row.get("label") or "")
+        }
+        player_labels = {
+            str(profile.label)
+            for profile in self._pipeline.profiles
+            if str(getattr(profile, "label", "") or "")
+        }
+        player_labels.update(actor_pool_players.keys())
         player_labels.update(_configured_dynamic_player_labels(self._pipeline))
         player_labels.update(player_pnl.keys())
         for label in sorted(player_labels):
             metrics_agg = self._pipeline.perf.get(label)
-            if not metrics_agg.has_data and label not in player_pnl:
+            configured_pool = label in actor_pool_players
+            if not metrics_agg.has_data and label not in player_pnl and not configured_pool:
                 continue
             session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
@@ -1282,6 +1522,11 @@ class OutputWriter:
                     }
             real_trades = trade_counts.get(label, 0)
             real_wins = win_counts.get(label, 0)
+            configured_pool_only = (
+                configured_pool
+                and not metrics_agg.has_data
+                and label not in player_pnl
+            )
             players["V_" + label] = {
                 "pnl_pct":          metrics_agg.pnl_pct,
                 "session_pnl_pct":  session["pnl_pct"],
@@ -1303,6 +1548,13 @@ class OutputWriter:
                 "real_trades":      real_trades,
                 "real_wins":        real_wins,
                 "real_win_rate":    (real_wins / real_trades * 100.0) if real_trades else 0.0,
+                "configured_pool":   configured_pool,
+                "configured_pool_only": configured_pool_only,
+                "actor_pool_kind":   str(actor_pool_players.get(label, {}).get("kind", "")),
+                "status_reason": (
+                    "configured actor pool; no leaderboard activity yet"
+                    if configured_pool_only else ""
+                ),
                 "per_regime":       per_regime,
             }
 
@@ -1328,6 +1580,8 @@ class OutputWriter:
         try:
             main = self._pipeline.renderer.build_main(timeline_max=20)
             text = TextRenderer().render_main(main)
+            text = self._append_actor_pool_summary(text)
+            text = self._append_real_actor_summary(text)
             path = os.path.join(self._config.output_dir, self._config.dashboard_filename)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
@@ -1335,6 +1589,340 @@ class OutputWriter:
             self._write_dashboard_html(text)
         except Exception:
             log.exception("dashboard render failed")
+
+    def _append_actor_pool_summary(self, text: str) -> str:
+        title = "Configured actor pool"
+        line = "=" * max(len(title) + 4, 60)
+        player_rows = self._actor_pool_player_rows()
+        agent_rows = self._actor_pool_agent_rows()
+        actionable = sorted(
+            str(label)
+            for label in (getattr(self._pipeline, "_current_actionable_player_labels", set()) or set())
+            if str(label)
+        )
+
+        out = ["", line, f"  {title}", line]
+        out.append(
+            "  Source: configured profiles/dynamic players + registered agents; "
+            "rows are shown even before leaderboard activity."
+        )
+        out.append(
+            "  players={players} registered_agents={agents} actionable={actionable}".format(
+                players=len(player_rows),
+                agents=len(agent_rows),
+                actionable=len(actionable),
+            )
+        )
+        if actionable:
+            out.append(f"  Current actionable players: {', '.join(actionable)}")
+
+        out.append("  Players:")
+        if player_rows:
+            out.append(
+                f"    {'Label':<32s} {'Kind':<14s} {'Affinity/regimes':<24s} Agents"
+            )
+            out.append(
+                f"    {'-'*32} {'-'*14} {'-'*24} {'-'*24}"
+            )
+            for row in player_rows:
+                out.append(
+                    "    {label:<32s} {kind:<14s} {scope:<24s} {agents}".format(
+                        label=row["label"],
+                        kind=row["kind"],
+                        scope=row["scope"],
+                        agents=row["agents"],
+                    )
+                )
+        else:
+            out.append("    none")
+
+        out.append("  Agents:")
+        if agent_rows:
+            out.append(
+                f"    {'Label':<32s} {'Flags':<22s} {'Pnl%':>8s} {'Closed':>6s} {'Signals':>7s}"
+            )
+            out.append(
+                f"    {'-'*32} {'-'*22} {'-'*8} {'-'*6} {'-'*7}"
+            )
+            for row in agent_rows:
+                out.append(
+                    "    {label:<32s} {flags:<22s} {pnl:>+8.4f} {closed:>6d} {signals:>7d}".format(
+                        label=row["label"],
+                        flags=row["flags"],
+                        pnl=float(row["session_pnl_pct"]),
+                        closed=int(row["session_closed_trades"]),
+                        signals=int(row["session_signals"]),
+                    )
+                )
+        else:
+            out.append("    none")
+        return text + "\n" + "\n".join(out)
+
+    def _configured_actor_pool_payload(self) -> Dict[str, object]:
+        actionable = sorted(
+            str(label)
+            for label in (getattr(self._pipeline, "_current_actionable_player_labels", set()) or set())
+            if str(label)
+        )
+        return {
+            "source": (
+                "configured profiles/dynamic players + registered agents; "
+                "rows are shown even before leaderboard activity"
+            ),
+            "players": self._actor_pool_player_rows(),
+            "agents": self._actor_pool_agent_rows(),
+            "current_actionable_players": actionable,
+        }
+
+    def _actor_pool_player_rows(self) -> List[Dict[str, str]]:
+        rows: List[Dict[str, str]] = []
+        for profile in getattr(self._pipeline, "profiles", ()) or ():
+            label = str(getattr(profile, "label", "") or "").strip()
+            if not label:
+                continue
+            affinity = getattr(getattr(profile, "affinity", None), "label", None) or "any"
+            agent_labels = tuple(
+                str(item).strip()
+                for item in tuple(getattr(profile, "allowed_labels", ()) or ())
+                if str(item).strip()
+            )
+            if not agent_labels:
+                raw_bias = getattr(profile, "bias", {}) or {}
+                bias_keys = raw_bias.keys() if isinstance(raw_bias, dict) else ()
+                agent_labels = tuple(
+                    str(item).strip()
+                    for item in bias_keys
+                    if str(item).strip()
+                )
+            rows.append({
+                "label": label,
+                "kind": "profile",
+                "scope": str(affinity),
+                "agents": self._format_pool_items(agent_labels or ("selector",)),
+            })
+
+        for label, mapping in self._regime_switch_pool_specs():
+            rows.append({
+                "label": label,
+                "kind": "regime_switch",
+                "scope": self._format_pool_items(sorted(mapping.keys())),
+                "agents": self._format_regime_mapping(mapping),
+            })
+
+        for label, mapping, fallback in self._rotating_pool_specs():
+            agents = self._format_regime_mapping(mapping)
+            if fallback:
+                agents = f"{agents}; fallback={self._format_pool_items(fallback)}"
+            rows.append({
+                "label": label,
+                "kind": "rotating",
+                "scope": self._format_pool_items(sorted(mapping.keys())),
+                "agents": agents,
+            })
+
+        deduped: Dict[tuple[str, str], Dict[str, str]] = {}
+        for row in rows:
+            deduped[(row["kind"], row["label"])] = row
+        return list(deduped.values())
+
+    def _actor_pool_agent_rows(self) -> List[Dict[str, object]]:
+        registry = getattr(self._pipeline, "registry", None)
+        labels = set()
+        all_labels = getattr(registry, "all_labels", None)
+        if callable(all_labels):
+            try:
+                labels.update(str(label) for label in all_labels() if str(label))
+            except Exception:
+                pass
+        labels.update(
+            str(label)
+            for label in (getattr(self._pipeline, "shadow_agent_labels", ()) or ())
+            if str(label)
+        )
+        rows: List[Dict[str, object]] = []
+        for label in sorted(labels):
+            agent = registry.get(label) if registry is not None and hasattr(registry, "get") else None
+            metrics = self._pipeline.perf.get(label)
+            session = self._session_metrics_for(label, metrics)
+            rows.append({
+                "label": label,
+                "flags": self._actor_pool_agent_flags(label, agent),
+                "session_pnl_pct": session["pnl_pct"],
+                "session_closed_trades": session["closed_trades"],
+                "session_signals": session["signals"],
+            })
+        return rows
+
+    def _actor_pool_agent_flags(self, label: str, agent: object) -> str:
+        flags: List[str] = []
+        if agent is None:
+            flags.append("missing")
+        else:
+            if bool(getattr(agent, "shadow_only", False)):
+                flags.append("shadow")
+            elif getattr(agent, "live_trading_eligible", True) is False:
+                flags.append("not_live")
+            else:
+                flags.append("live")
+        if self._pipeline.qm.is_quarantined(label):
+            flags.append("Q")
+        return ",".join(flags) or "-"
+
+    def _regime_switch_pool_specs(self) -> List[tuple[str, Dict[str, tuple[str, ...]]]]:
+        rows: List[tuple[str, Dict[str, tuple[str, ...]]]] = []
+        for raw_spec in getattr(self._pipeline, "regime_switch_player_sets", ()) or ():
+            if isinstance(raw_spec, dict):
+                label = str(raw_spec.get("label") or "").strip()
+                raw_mapping = raw_spec.get("regime_agents") or raw_spec.get("agents") or {}
+            else:
+                try:
+                    parts = tuple(raw_spec)  # type: ignore[arg-type]
+                except TypeError:
+                    parts = ()
+                label = str(parts[0] or "").strip() if parts else ""
+                raw_mapping = parts[1] if len(parts) > 1 else {}
+            mapping = self._normalize_pool_regime_mapping(raw_mapping)
+            if label and mapping:
+                rows.append((label, mapping))
+        return rows
+
+    def _rotating_pool_specs(self) -> List[tuple[str, Dict[str, tuple[str, ...]], tuple[str, ...]]]:
+        rows: List[tuple[str, Dict[str, tuple[str, ...]], tuple[str, ...]]] = []
+        for raw_spec in getattr(self._pipeline, "rotating_agent_player_sets", ()) or ():
+            if isinstance(raw_spec, dict):
+                label = str(raw_spec.get("label") or "").strip()
+                raw_mapping = raw_spec.get("regime_agent_order") or raw_spec.get("agents") or {}
+                raw_fallback = raw_spec.get("fallback_agent_order") or raw_spec.get("fallback") or ()
+            else:
+                try:
+                    parts = tuple(raw_spec)  # type: ignore[arg-type]
+                except TypeError:
+                    parts = ()
+                label = str(parts[0] or "").strip() if parts else ""
+                raw_mapping = parts[1] if len(parts) > 1 else {}
+                raw_fallback = parts[2] if len(parts) > 2 else ()
+            mapping = self._normalize_pool_regime_mapping(raw_mapping)
+            fallback = self._normalize_pool_label_tuple(raw_fallback)
+            if label and (mapping or fallback):
+                rows.append((label, mapping, fallback))
+        return rows
+
+    @staticmethod
+    def _normalize_pool_regime_mapping(raw_mapping: object) -> Dict[str, tuple[str, ...]]:
+        if not isinstance(raw_mapping, dict):
+            return {}
+        aliases = {
+            "bull": "bullish",
+            "bear": "bearish",
+            "flat": "neutral",
+            "sideways": "neutral",
+            "panic": "crash",
+        }
+        out: Dict[str, tuple[str, ...]] = {}
+        for raw_regime, raw_agents in raw_mapping.items():
+            raw_key = str(raw_regime or "").strip().lower()
+            regime = aliases.get(raw_key, raw_key)
+            labels = OutputWriter._normalize_pool_label_tuple(raw_agents)
+            if regime and labels:
+                out[regime] = labels
+        return out
+
+    @staticmethod
+    def _normalize_pool_label_tuple(raw_value: object) -> tuple[str, ...]:
+        if isinstance(raw_value, str):
+            values = raw_value.replace(";", ",").split(",")
+        else:
+            try:
+                values = tuple(raw_value)  # type: ignore[arg-type]
+            except TypeError:
+                values = (raw_value,)
+        labels: List[str] = []
+        for value in values:
+            label = str(value or "").strip()
+            if label and label not in labels:
+                labels.append(label)
+        return tuple(labels)
+
+    @staticmethod
+    def _format_regime_mapping(mapping: Dict[str, tuple[str, ...]]) -> str:
+        return "; ".join(
+            f"{regime}:{OutputWriter._format_pool_items(labels)}"
+            for regime, labels in sorted(mapping.items())
+        ) or "-"
+
+    @staticmethod
+    def _format_pool_items(items: object, *, limit: int = 12) -> str:
+        values = tuple(str(item).strip() for item in (items or ()) if str(item).strip())
+        if not values:
+            return "-"
+        head = ", ".join(values[:limit])
+        if len(values) > limit:
+            return f"{head}, +{len(values) - limit} more"
+        return head
+
+    def _append_real_actor_summary(self, text: str) -> str:
+        status = self._last_status_data if isinstance(self._last_status_data, dict) else {}
+        payload = status.get("real_trading_actors")
+        if not isinstance(payload, dict):
+            return text
+
+        title = "Real trading actors (live ledger/tracker)"
+        line = "=" * max(len(title) + 4, 60)
+        out = ["", line, f"  {title}", line]
+        out.append(
+            "  Source: real closed ledger + tracked open exchange positions; "
+            "Shadow Leaderboard below is virtual."
+        )
+        out.append(
+            "  closed_trades={closed} open_positions={open_} "
+            "tracked={tracked} exchange_positions={exchange}".format(
+                closed=int(payload.get("closed_trade_count", 0) or 0),
+                open_=int(payload.get("open_position_count", 0) or 0),
+                tracked=int(payload.get("tracked_positions_count", 0) or 0),
+                exchange=int(payload.get("exchange_positions_count", 0) or 0),
+            )
+        )
+
+        open_rows = payload.get("open_positions")
+        if isinstance(open_rows, list) and open_rows:
+            out.append("  Open real positions:")
+            for row in open_rows[:10]:
+                if not isinstance(row, dict):
+                    continue
+                out.append(
+                    "    {symbol:<12s} {side:<5s} qty={qty:.8g} entry={entry:.8g} "
+                    "player={player} agent={agent} scope={scope}".format(
+                        symbol=str(row.get("symbol", "") or ""),
+                        side=str(row.get("side", "") or ""),
+                        qty=float(row.get("qty", 0.0) or 0.0),
+                        entry=float(row.get("entry", 0.0) or 0.0),
+                        player=str(row.get("player", "") or "-"),
+                        agent=str(row.get("agent", "") or "-"),
+                        scope=str(row.get("scope", "") or "-"),
+                    )
+                )
+        else:
+            out.append("  Open real positions: none")
+
+        closed_players = payload.get("closed_players")
+        if isinstance(closed_players, list) and closed_players:
+            out.append("  Closed real players:")
+            for row in closed_players[:10]:
+                if not isinstance(row, dict):
+                    continue
+                out.append(
+                    "    {player:<28s} pnl={pnl:+.4f} trades={trades} "
+                    "win={win:.1f}% scope={scope}".format(
+                        player=str(row.get("player", "") or ""),
+                        pnl=float(row.get("realized_pnl_usd", 0.0) or 0.0),
+                        trades=int(row.get("closed_trades", 0) or 0),
+                        win=float(row.get("win_rate", 0.0) or 0.0),
+                        scope=str(row.get("scope", "") or "-"),
+                    )
+                )
+        else:
+            out.append("  Closed real players: none")
+        return text.rstrip() + "\n" + "\n".join(out) + "\n"
 
     def _write_visual_dashboards(self) -> None:
         try:
@@ -1366,24 +1954,55 @@ class OutputWriter:
             if not dest_name or not src.exists():
                 continue
             dest = Path(latest_dir) / dest_name
-            tmp = dest.with_suffix(dest.suffix + ".tmp")
+            if not self._publish_latest_dashboard_file(src, dest):
+                continue
+
+    def _publish_latest_dashboard_file(
+        self,
+        src: Path,
+        dest: Path,
+        *,
+        attempts: int = 5,
+    ) -> bool:
+        tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
+        last_error: Exception | None = None
+        for attempt in range(max(1, int(attempts))):
             try:
                 shutil.copyfile(src, tmp)
                 os.replace(tmp, dest)
-            except PermissionError:
-                self._latest_dashboard_publish_disabled = True
-                log.exception("latest dashboard publish failed: %s -> %s", src, dest)
+                return True
+            except PermissionError as exc:
+                last_error = exc
                 try:
                     tmp.unlink()
                 except OSError:
                     pass
-                return
+                time.sleep(min(0.2 * (attempt + 1), 1.0))
             except Exception:
                 log.exception("latest dashboard publish failed: %s -> %s", src, dest)
                 try:
                     tmp.unlink()
                 except OSError:
                     pass
+                return False
+
+        try:
+            shutil.copyfile(src, dest)
+            return True
+        except PermissionError as exc:
+            last_error = exc
+        except Exception:
+            log.exception("latest dashboard publish failed: %s -> %s", src, dest)
+            return False
+        finally:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+        log.warning("latest dashboard publish skipped; destination is locked: %s -> %s (%s)",
+                    src, dest, last_error)
+        return False
 
     def _latest_exchange_suffix(self) -> str:
         raw = str(self._pipeline.exchange_name or "UNKNOWN").upper()

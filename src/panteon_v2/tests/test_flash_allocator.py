@@ -438,6 +438,29 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertIsNone(decision.signal)
         self.assertEqual(decision.original_selected_actor, "CloseAgent")
 
+    def test_stale_close_falls_back_to_next_eligible_trade_candidate(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        close_agent = FakeAgent("CloseAgent", {"BTC": Action.FUT_CLOSE_ALL})
+        open_agent = FakeAgent("OpenAgent", {"BTC": Action.FUT_LONG_FULL})
+        _add_perf(perf, "CloseAgent", Regime.BULLISH, 5, 10.0, start_id=1)
+        _add_perf(perf, "OpenAgent", Regime.BULLISH, 5, 2.0, start_id=100)
+
+        allocator = FlashAllocator(perf=perf, qm=qm)
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[close_agent, open_agent],
+            players=[],
+            signal_id_start=10,
+            open_position_sides_by_symbol={},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "OpenAgent")
+        self.assertEqual(decision.action, Action.FUT_LONG_FULL)
+        self.assertEqual(decision.reason, "position_state_fallback")
+        self.assertEqual(decision.original_selected_actor, "CloseAgent")
+        self.assertIsNotNone(decision.signal)
+
     def test_quarantine_rejects_actor_before_scoring(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed={"StarAgent"})
@@ -722,7 +745,7 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(decision.selected_actor, "MomentumScalper")
         self.assertIn("MomentumScalper", {row.label for row in decision.candidates})
 
-    def test_prefer_solo_player_wrappers_suppresses_shadow_agent_handoff(self):
+    def test_prefer_solo_player_wrappers_allows_shadow_agent_without_active_solo(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
         agent = FakeAgent("MomentumScalper", {"BTC": Action.HOLD})
@@ -762,11 +785,15 @@ class TestFlashAllocator(unittest.TestCase):
             shadow_agent_signals={"MomentumScalper": [shadow_signal]},
         )[0]
 
-        self.assertEqual(decision.selected_actor, "NoTrade")
-        rows = {row.label: row for row in decision.candidates}
-        self.assertIn("MomentumScalper", rows)
-        self.assertTrue(rows["MomentumScalper"].rejected)
-        self.assertEqual(rows["MomentumScalper"].reason, "raw_suppressed_by_solo")
+        self.assertEqual(decision.selected_actor, "MomentumScalper")
+        self.assertEqual(decision.actor_type, "agent")
+        active_rows = [
+            row
+            for row in decision.candidates
+            if row.label == "MomentumScalper" and row.action.is_open
+        ]
+        self.assertTrue(active_rows)
+        self.assertFalse(active_rows[0].rejected)
 
     def test_prefer_solo_player_wrappers_uses_shadow_player_labels(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -808,6 +835,131 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertIn("MomentumScalper", rows)
         self.assertTrue(rows["MomentumScalper"].rejected)
         self.assertEqual(rows["MomentumScalper"].reason, "raw_suppressed_by_solo")
+
+    def test_solo_shadow_player_replay_uses_raw_agent_memory(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("LiveRegimePullback", {"BTC": Action.HOLD})
+        replay_signal = Signal(
+            id=0,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="Solo_LiveRegimePullback",
+            by_agent="ShadowPositionReplay",
+        )
+        _add_perf(perf, "LiveRegimePullback", Regime.BULLISH, 10, 4.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                prefer_solo_player_wrappers_enabled=True,
+                shadow_signal_handoff_enabled=True,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=1,
+            shadow_player_signals={"Solo_LiveRegimePullback": [replay_signal]},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "Solo_LiveRegimePullback")
+        self.assertEqual(decision.actor_type, "ensemble")
+        self.assertEqual(decision.action, Action.FUT_LONG_FULL)
+        solo_row = next(
+            row for row in decision.candidates if row.label == "Solo_LiveRegimePullback"
+        )
+        self.assertTrue(solo_row.has_data)
+        self.assertFalse(solo_row.rejected)
+
+    def test_solo_shadow_player_replay_normalizes_live_usdt_symbol_alias(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("LiveMeanRev", {"BTC": Action.HOLD})
+        replay_signal = Signal(
+            id=0,
+            bar=1,
+            sym="BTC/USDT",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="Solo_LiveMeanRev",
+            by_agent="ShadowPositionReplay",
+        )
+        _add_perf(perf, "LiveMeanRev", Regime.BULLISH, 10, 4.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                prefer_solo_player_wrappers_enabled=True,
+                shadow_signal_handoff_enabled=True,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=1,
+            shadow_player_signals={"Solo_LiveMeanRev": [replay_signal]},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "Solo_LiveMeanRev")
+        self.assertEqual(decision.actor_type, "ensemble")
+        self.assertEqual(decision.signal.sym, "BTC")
+        self.assertEqual(decision.signal.price, 100.0)
+
+    def test_solo_shadow_player_replay_uses_raw_symbol_confirmation(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("LiveRegimePullback", {"BTC": Action.HOLD})
+        replay_signal = Signal(
+            id=0,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="Solo_LiveRegimePullback",
+            by_agent="ShadowPositionReplay",
+        )
+        _add_perf(perf, "Solo_LiveRegimePullback", Regime.BULLISH, 10, 4.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                prefer_solo_player_wrappers_enabled=True,
+                shadow_signal_handoff_enabled=True,
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_confirmation_min_score=0.1,
+                shadow_confirmation_min_closed_trades=5,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=1,
+            shadow_player_signals={"Solo_LiveRegimePullback": [replay_signal]},
+            shadow_confirmation={
+                ("LiveRegimePullback", "BTC", "FUT_LONG_FULL"): (2.0, 20)
+            },
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "Solo_LiveRegimePullback")
+        solo_row = next(
+            row for row in decision.candidates if row.label == "Solo_LiveRegimePullback"
+        )
+        self.assertEqual(solo_row.shadow_score, 2.0)
+        self.assertEqual(solo_row.shadow_closed_trades, 20)
+        self.assertEqual(solo_row.shadow_source, "symbol")
 
     def test_prefer_solo_player_wrappers_does_not_suppress_on_actionable_label_only(self):
         perf = PerformanceMemory(trade_fraction=1.0)

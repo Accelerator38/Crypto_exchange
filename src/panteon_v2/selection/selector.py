@@ -64,9 +64,9 @@ class SessionOverlayConfig:
     """
 
     enabled: bool = False
-    overlay_weight: float = 0.50
-    stale_penalty: float = 0.10
-    underperformance_weight: float = 0.25
+    overlay_weight: float = 1.00
+    stale_penalty: float = 0.15
+    underperformance_weight: float = 0.75
     session_pnl_cap_pct: float = 3.0
     min_session_activity: int = 1
 

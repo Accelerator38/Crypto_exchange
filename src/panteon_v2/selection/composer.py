@@ -17,6 +17,7 @@ EnsemblePlayer, который собирается через PlayerComposer.co
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -251,6 +252,23 @@ def _scored_agent_sort_key(sa: ScoredAgent) -> Tuple[float, int, int, str]:
     )
 
 
+_DYNAMIC_WEIGHT_POWER = 1.60
+_DYNAMIC_WEIGHT_FLOOR = 1e-6
+_NEGATIVE_WEIGHT_DECAY = 1.0
+
+
+def _dynamic_score_weight(score: float) -> float:
+    try:
+        score = float(score)
+    except (TypeError, ValueError):
+        score = 0.0
+    if not math.isfinite(score):
+        score = 0.0
+    if score > 0.0:
+        return max(_DYNAMIC_WEIGHT_FLOOR, score ** _DYNAMIC_WEIGHT_POWER)
+    return _DYNAMIC_WEIGHT_FLOOR * math.exp(max(score, -20.0) * _NEGATIVE_WEIGHT_DECAY)
+
+
 class PlayerComposer:
     """Фабрика EnsemblePlayer-ов.
 
@@ -352,7 +370,7 @@ class PlayerComposer:
         # Веса = score, но с biases добавляем
         raw: Dict[str, float] = {}
         for sa in scored:
-            base = max(sa.score, 0.0001)  # защита от делений на 0
+            base = _dynamic_score_weight(sa.score)
             bonus = float(profile.bias.get(sa.label, 0.0))
             raw[sa.label] = base + bonus
         total = sum(raw.values())

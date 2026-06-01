@@ -5,15 +5,80 @@ from __future__ import annotations
 import unittest
 
 from panteon_v2.analysis.soft_allocator import (
+    OnlineSoftAllocator,
     ShadowPnLEvent,
     SoftAllocatorPolicy,
     default_soft_allocator_policies,
     simulate_perfect_monthly_panteon,
     simulate_soft_allocator_policies,
 )
+from panteon_v2.attribution import ShadowActorUpdated
 
 
 class TestSoftAllocator(unittest.TestCase):
+    def test_online_allocator_matches_policy_weights_without_current_bar_leak(self):
+        allocator = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="regime_top3_w144_m20_cap45_cash15",
+                top_k=3,
+                cash_reserve_weight=0.15,
+                max_weight_per_leader=0.45,
+                min_closed_trades=1,
+                half_life_bars=1_000_000,
+                drawdown_penalty=0.0,
+                persistent_loss_max_weight=0.0,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=100.0,
+        )
+
+        self.assertEqual(allocator.weights_for_bar("bullish", 1), {})
+
+        allocator.update_from_shadow_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Alpha",
+                regime="bullish",
+                realized_pnl_usd=10.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Beta",
+                regime="bullish",
+                realized_pnl_usd=5.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+        ])
+
+        weights = allocator.weights_for_bar("bullish", 2)
+
+        self.assertAlmostEqual(weights["Alpha"], 0.45)
+        self.assertAlmostEqual(weights["Beta"], 0.40)
+        self.assertAlmostEqual(sum(weights.values()), 0.85)
+
+        allocator.update_from_shadow_updates([
+            ShadowActorUpdated(
+                bar=2,
+                actor_type="player",
+                actor_label="Beta",
+                regime="bullish",
+                realized_pnl_usd=100.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+        ])
+
+        updated = allocator.weights_for_bar("bullish", 3)
+
+        self.assertAlmostEqual(updated["Beta"], 0.45)
+        self.assertAlmostEqual(updated["Alpha"], 0.40)
+
     def test_decayed_policy_allocates_before_current_bar_and_reports_best(self):
         events = [
             ShadowPnLEvent(bar=1, label="Alpha", pnl_usd=10.0, closed_trades=2, wins=2),

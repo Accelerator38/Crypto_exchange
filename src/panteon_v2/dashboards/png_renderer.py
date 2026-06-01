@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -118,31 +119,52 @@ def _render_operator_dashboard(
     panteon_pnl_pct: float,
 ) -> None:
     plt = _setup_pyplot()
-    fig = plt.figure(figsize=(14, 9.5), facecolor=DARK)
+    session_agents = _current_session_rows(agents, status=status, actor_kind="agent")
+    session_players = _current_session_rows(players, status=status, actor_kind="player")
+    fig = plt.figure(figsize=(16, 12), facecolor=DARK)
     gs = fig.add_gridspec(
-        3,
+        4,
         3,
         width_ratios=[1.05, 1, 1],
-        height_ratios=[1, 1, 0.82],
+        height_ratios=[0.95, 0.95, 0.82, 0.78],
         hspace=0.30,
         wspace=0.20,
     )
 
     ax_status = fig.add_subplot(gs[:, 0])
-    ax_agents = fig.add_subplot(gs[0, 1:])
-    ax_players = fig.add_subplot(gs[1, 1:])
-    ax_flash_selected = fig.add_subplot(gs[2, 1])
-    ax_flash_candidates = fig.add_subplot(gs[2, 2])
-    for ax in (ax_status, ax_agents, ax_players, ax_flash_selected, ax_flash_candidates):
+    ax_assets = fig.add_subplot(gs[0, 1:])
+    ax_prices = fig.add_subplot(gs[1, 1:])
+    ax_agents = fig.add_subplot(gs[2, 1])
+    ax_players = fig.add_subplot(gs[2, 2])
+    ax_flash_selected = fig.add_subplot(gs[3, 1])
+    ax_flash_candidates = fig.add_subplot(gs[3, 2])
+    for ax in (
+        ax_status,
+        ax_assets,
+        ax_prices,
+        ax_agents,
+        ax_players,
+        ax_flash_selected,
+        ax_flash_candidates,
+    ):
         _style_ax(ax)
 
     _draw_status_panel(ax_status, status)
-    _draw_barh(ax_agents, agents[:10], "Top Shadow Agents", BLUE,
+    _draw_assets_panel(
+        ax_assets,
+        status,
+        session_agents,
+        session_players,
+        title="Current Session Assets: Panteon, Players, Agents",
+    )
+    _draw_price_panel(ax_prices, status)
+    _draw_barh(ax_agents, session_agents[:12], "Current Session Agents", BLUE,
                panteon_pnl_pct=panteon_pnl_pct)
-    _draw_barh(ax_players, players[:10], "Top Shadow Players", PURPLE,
+    _draw_barh(ax_players, session_players[:12], "Current Session Players", PURPLE,
                panteon_pnl_pct=panteon_pnl_pct)
-    _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status))
-    _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status))
+    flash_info = _flash_diagnostics(status)
+    _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status), flash_info)
+    _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status), flash_info)
 
     fig.suptitle("Panteon v2 Operator Dashboard", color=TEXT, fontsize=16, fontweight="bold")
     fig.subplots_adjust(top=0.92, bottom=0.08, left=0.06, right=0.97)
@@ -268,6 +290,326 @@ def _draw_barh(
         ax.text(value, idx, f" {_pct(value)}", color=TEXT, va="center", fontsize=8)
 
 
+def _current_session_rows(
+    rows: List[Tuple[str, dict]],
+    *,
+    status: Mapping[str, object],
+    actor_kind: str,
+) -> List[Tuple[str, dict]]:
+    explicit = _real_actor_names(status, actor_kind) | _selected_flash_actor_names(status, actor_kind)
+    selected: List[Tuple[str, dict]] = []
+    for name, data in rows:
+        clean = _clean_actor_name(name)
+        if clean in explicit or _has_current_session_activity(data):
+            selected.append((name, data))
+    selected.sort(
+        key=lambda item: (
+            _has_current_session_activity(item[1]),
+            item[0] in explicit,
+            _row_pnl_value(item[1]),
+        ),
+        reverse=True,
+    )
+    return selected
+
+
+def _clean_actor_name(value: object) -> str:
+    text = str(value or "").strip()
+    if text.startswith("V_"):
+        text = text[2:]
+    return text
+
+
+def _has_current_session_activity(data: Mapping[str, object]) -> bool:
+    count_keys = (
+        "session_signals",
+        "session_entries",
+        "session_closed_trades",
+        "session_wins",
+        "session_losses",
+    )
+    if any(int(_float_value(data.get(key, 0))) > 0 for key in count_keys):
+        return True
+    return abs(_float_value(data.get("session_pnl_pct", 0.0))) > 1e-12
+
+
+def _real_actor_names(status: Mapping[str, object], actor_kind: str) -> set[str]:
+    payload = status.get("real_trading_actors")
+    if not isinstance(payload, Mapping):
+        return set()
+    names: set[str] = set()
+    if actor_kind == "player":
+        for row in payload.get("open_positions", []) or []:
+            if isinstance(row, Mapping):
+                name = _clean_actor_name(row.get("player"))
+                if name:
+                    names.add(name)
+        for row in payload.get("closed_players", []) or []:
+            if isinstance(row, Mapping):
+                name = _clean_actor_name(row.get("player"))
+                if name:
+                    names.add(name)
+    elif actor_kind == "agent":
+        for row in payload.get("open_positions", []) or []:
+            if isinstance(row, Mapping):
+                name = _clean_actor_name(row.get("agent"))
+                if name:
+                    names.add(name)
+        for row in payload.get("closed_agents", []) or []:
+            if isinstance(row, Mapping):
+                name = _clean_actor_name(row.get("agent"))
+                if name:
+                    names.add(name)
+    return names
+
+
+def _selected_flash_actor_names(status: Mapping[str, object], actor_kind: str) -> set[str]:
+    flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
+    selected = flash.get("selected_actors_by_symbol") if isinstance(flash, Mapping) else {}
+    actor_types = flash.get("actor_types_by_symbol") if isinstance(flash, Mapping) else {}
+    if not isinstance(selected, Mapping):
+        return set()
+    if not isinstance(actor_types, Mapping):
+        actor_types = {}
+    want = "agent" if actor_kind == "agent" else "ensemble"
+    names: set[str] = set()
+    for symbol, raw_label in selected.items():
+        label = _clean_actor_name(raw_label)
+        if not label or label == "NoTrade":
+            continue
+        raw_type = str(actor_types.get(symbol, "") or "").strip().lower()
+        if raw_type and raw_type != want:
+            continue
+        names.add(label)
+    return names
+
+
+def _draw_assets_panel(
+    ax,
+    status: Mapping[str, object],
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+    *,
+    title: str,
+) -> None:
+    _style_ax(ax, title)
+    rows = _asset_rows(status, agents=agents, players=players)
+    if not rows:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No actor asset data yet", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=11)
+        return
+    usable = rows[:24]
+    labels = [row["label"] for row in usable]
+    values = [float(row["asset"]) for row in usable]
+    colors = [
+        GOLD if row["kind"] == "panteon"
+        else PURPLE if row["kind"] == "player"
+        else BLUE
+        for row in usable
+    ]
+    y_pos = list(range(len(usable)))
+    ax.barh(y_pos, values, color=colors, alpha=0.88)
+    ax.set_yticks(y_pos, labels=[_short(label, 28) for label in labels], color=MUTED)
+    ax.invert_yaxis()
+    ax.set_xlabel("Current assets / virtual equity, USD", color=MUTED, fontsize=8)
+    for idx, row in enumerate(usable):
+        weight = "bold" if row["kind"] == "panteon" else "normal"
+        color = GOLD if row["kind"] == "panteon" else TEXT
+        ax.text(float(row["asset"]), idx, f" {_usd(row['asset'])}",
+                color=color, va="center", fontsize=8, fontweight=weight)
+
+
+def _asset_rows(
+    status: Mapping[str, object],
+    *,
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+) -> List[dict]:
+    kind_order = {"panteon": 0, "player": 1, "agent": 2}
+    initial = _float_value(status.get("initial_capital", 0.0))
+    if initial <= 0.0:
+        initial = _float_value(status.get("current_balance", 100.0)) or 100.0
+    live_session = status.get("live_session") if isinstance(status.get("live_session"), Mapping) else {}
+    panteon_asset = _float_value(
+        status.get(
+            "panteon_equity_usd",
+            live_session.get("panteon_equity_usd", status.get("total_assets_usd", initial)),
+        )
+    )
+    rows: List[dict] = [{
+        "label": "PANTEON",
+        "kind": "panteon",
+        "asset": panteon_asset or initial,
+    }]
+    for kind, source in (("player", players), ("agent", agents)):
+        for name, data in source:
+            if _is_virtual_panteon_name(name):
+                continue
+            rows.append({
+                "label": f"{'P' if kind == 'player' else 'A'}:{_clean_actor_name(name)}",
+                "kind": kind,
+                "asset": _actor_asset_value(data, initial),
+            })
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row["asset"]),
+            kind_order.get(str(row["kind"]), 99),
+            str(row["label"]),
+        ),
+    )
+
+
+def _actor_asset_value(data: Mapping[str, object], initial: float) -> float:
+    for key in ("equity", "asset", "assets", "total_assets_usd"):
+        value = _float_value(data.get(key, 0.0))
+        if value > 0.0:
+            return value
+    pnl = _row_pnl_value(data)
+    return max(0.0, initial * (1.0 + pnl / 100.0))
+
+
+def _price_history_rows(
+    status: Mapping[str, object],
+    *,
+    limit: int = 240,
+) -> List[dict]:
+    raw = status.get("price_history")
+    if not isinstance(raw, (list, tuple)):
+        raw = []
+    rows: List[dict] = []
+    for idx, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            continue
+        prices = item.get("prices")
+        if not isinstance(prices, Mapping):
+            prices = item
+        clean_prices = _clean_price_mapping(prices)
+        if not clean_prices:
+            continue
+        rows.append({
+            "bar": int(_float_value(item.get("bar", idx))),
+            "regime": str(item.get("regime", "") or ""),
+            "market": str(item.get("market", "") or ""),
+            "prices": clean_prices,
+        })
+    if not rows:
+        current = _clean_price_mapping(status.get("current_prices"))
+        if current:
+            rows.append({
+                "bar": int(_float_value(status.get("bar_count", 0))),
+                "regime": str(status.get("regime", "") or ""),
+                "market": str(status.get("market", "") or ""),
+                "prices": current,
+            })
+    return rows[-max(1, int(limit)):]
+
+
+def _clean_price_mapping(raw: object) -> Dict[str, float]:
+    if not isinstance(raw, Mapping):
+        return {}
+    out: Dict[str, float] = {}
+    for raw_symbol, raw_price in raw.items():
+        symbol = str(raw_symbol or "").strip().upper()
+        if not symbol:
+            continue
+        price = _float_value(raw_price)
+        if price > 0.0:
+            out[symbol] = price
+    return out
+
+
+def _draw_price_panel(ax, status: Mapping[str, object]) -> None:
+    _style_ax(ax, "Currency Prices With Current Market Type")
+    rows = _price_history_rows(status)
+    market_view = status.get("market_view") if isinstance(status.get("market_view"), Mapping) else {}
+    market = str(market_view.get("market", status.get("market", status.get("regime", "-"))) or "-")
+    confidence = market_view.get("regime_confidence", status.get("regime_confidence", None))
+    note = f"market={market}"
+    if confidence is not None:
+        note += f" confidence={_float_value(confidence):.2f}"
+    ax.text(0.01, 0.97, note, transform=ax.transAxes,
+            color=GOLD, fontsize=9, fontweight="bold", va="top",
+            bbox={"facecolor": MID, "edgecolor": "none", "alpha": 0.82, "pad": 2.0})
+    if len(rows) < 2:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "Price history will appear after two live bars",
+                transform=ax.transAxes, ha="center", va="center",
+                color=MUTED, fontsize=11)
+        return
+    symbols = _price_panel_symbols(rows, status)
+    if not symbols:
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No clean prices in history", transform=ax.transAxes,
+                ha="center", va="center", color=MUTED, fontsize=11)
+        return
+    try:
+        import matplotlib.pyplot as plt  # noqa: WPS433
+
+        palette = plt.cm.tab10
+    except Exception:
+        palette = None
+    x_values = [row["bar"] for row in rows]
+    for idx, symbol in enumerate(symbols):
+        series = []
+        for row in rows:
+            value = row["prices"].get(symbol)
+            series.append(float(value) if value else None)
+        first = next((value for value in series if value and value > 0.0), None)
+        if not first:
+            continue
+        normalized = [
+            (value / first * 100.0) if value and value > 0.0 else None
+            for value in series
+        ]
+        xs = [x for x, value in zip(x_values, normalized) if value is not None]
+        ys = [value for value in normalized if value is not None]
+        if len(xs) < 2:
+            continue
+        color = palette(idx % 10) if palette is not None else BLUE
+        ax.plot(xs, ys, label=symbol, color=color, linewidth=1.4, alpha=0.9)
+    ax.axhline(100.0, color=GRID, linewidth=0.8)
+    ax.set_xlabel("Bar", color=MUTED, fontsize=8)
+    ax.set_ylabel("Indexed price (first=100)", color=MUTED, fontsize=8)
+    ax.legend(loc="lower left", frameon=False, labelcolor=TEXT, fontsize=7, ncol=3)
+
+
+def _price_panel_symbols(
+    rows: List[dict],
+    status: Mapping[str, object],
+    *,
+    limit: int = 6,
+) -> List[str]:
+    preferred: List[str] = []
+    open_positions = status.get("open_positions")
+    if isinstance(open_positions, Mapping):
+        preferred.extend(str(sym).upper() for sym in open_positions.keys())
+    flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
+    selected = flash.get("selected_actors_by_symbol") if isinstance(flash, Mapping) else {}
+    if isinstance(selected, Mapping):
+        preferred.extend(str(sym).upper() for sym in selected.keys())
+    all_symbols = sorted({sym for row in rows for sym in row["prices"]})
+    ranked: List[Tuple[float, str]] = []
+    for symbol in all_symbols:
+        values = [row["prices"].get(symbol) for row in rows if row["prices"].get(symbol)]
+        if len(values) < 2:
+            move = 0.0
+        else:
+            first = float(values[0])
+            last = float(values[-1])
+            move = abs(last / first - 1.0) if first > 0.0 else 0.0
+        ranked.append((move, symbol))
+    ranked.sort(reverse=True)
+    out: List[str] = []
+    for symbol in preferred + [symbol for _, symbol in ranked]:
+        if symbol in all_symbols and symbol not in out:
+            out.append(symbol)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _flash_selected_rows(status: Mapping[str, object]) -> List[dict]:
     flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
     selected = flash.get("selected_actors_by_symbol") if isinstance(flash, Mapping) else {}
@@ -383,12 +725,70 @@ def _flash_candidate_rows(status: Mapping[str, object]) -> List[dict]:
     return rows
 
 
-def _draw_flash_selected_panel(ax, rows: List[dict]) -> None:
+def _flash_diagnostics(status: Mapping[str, object]) -> dict:
+    selected_rows = _flash_selected_rows(status)
+    symbols_total = sum(int(row.get("count", 0) or 0) for row in selected_rows)
+    no_trade_symbols = sum(
+        int(row.get("count", 0) or 0)
+        for row in selected_rows
+        if str(row.get("label", "")) == "NoTrade"
+    )
+    flash = status.get("flash") if isinstance(status.get("flash"), Mapping) else {}
+    decisions = flash.get("decisions") if isinstance(flash, Mapping) else ()
+    reasons: Counter[str] = Counter()
+    actionable = 0
+    rejected = 0
+    if isinstance(decisions, (list, tuple)):
+        for decision in decisions:
+            if not isinstance(decision, Mapping):
+                continue
+            for candidate in decision.get("candidates", ()) or ():
+                if not isinstance(candidate, Mapping):
+                    continue
+                label = str(candidate.get("label") or "")
+                actor_type = str(candidate.get("actor_type") or "")
+                if label == "NoTrade" or actor_type == "no_trade":
+                    continue
+                action = str(candidate.get("action") or "").strip().upper()
+                is_hold = not action or action == "HOLD" or action.endswith(".HOLD")
+                if bool(candidate.get("rejected", False)):
+                    rejected += 1
+                    reason = str(candidate.get("reason") or "rejected").strip() or "rejected"
+                    reasons[reason] += 1
+                elif not is_hold:
+                    actionable += 1
+    return {
+        "symbols_total": symbols_total,
+        "no_trade_symbols": no_trade_symbols,
+        "selected_symbols": symbols_total - no_trade_symbols,
+        "all_no_trade": symbols_total > 0 and symbols_total == no_trade_symbols,
+        "actionable_candidates": actionable,
+        "rejected_candidates": rejected,
+        "top_reasons": reasons.most_common(5),
+    }
+
+
+def _draw_flash_selected_panel(ax, rows: List[dict], diagnostics: Mapping[str, object]) -> None:
     _style_ax(ax, "Flash Selected Actors")
     if not rows:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "No Flash decisions yet", transform=ax.transAxes,
                 ha="center", va="center", color=MUTED, fontsize=10)
+        return
+    if diagnostics.get("all_no_trade"):
+        ax.set_axis_off()
+        top_reasons = diagnostics.get("top_reasons") or []
+        reason_text = ", ".join(f"{name} x{count}" for name, count in top_reasons[:3])
+        lines = [
+            f"NoTrade selected on {int(diagnostics.get('symbols_total', 0))} symbols.",
+            "Flash did not find an executable actor this bar.",
+        ]
+        if reason_text:
+            lines.append(f"Top blocks: {reason_text}")
+        ax.text(0.03, 0.76, lines[0], transform=ax.transAxes,
+                color=GOLD, fontsize=10, fontweight="bold", va="top")
+        ax.text(0.03, 0.56, "\n".join(lines[1:]), transform=ax.transAxes,
+                color=TEXT, fontsize=8, va="top")
         return
     usable = rows[:8]
     labels = [_short(str(row["label"]), 20) for row in usable]
@@ -411,12 +811,35 @@ def _draw_flash_selected_panel(ax, rows: List[dict]) -> None:
         )
 
 
-def _draw_flash_candidates_panel(ax, rows: List[dict]) -> None:
-    _style_ax(ax, "Flash Top Candidates")
+def _draw_flash_candidates_panel(
+    ax,
+    rows: List[dict],
+    diagnostics: Mapping[str, object],
+) -> None:
+    _style_ax(ax, "Flash Candidate Diagnostics")
     if not rows:
         ax.set_axis_off()
         ax.text(0.5, 0.5, "No Flash candidates yet", transform=ax.transAxes,
                 ha="center", va="center", color=MUTED, fontsize=10)
+        return
+    if diagnostics.get("all_no_trade") or int(diagnostics.get("actionable_candidates", 0) or 0) <= 0:
+        reasons = list(diagnostics.get("top_reasons") or [])
+        if not reasons:
+            ax.set_axis_off()
+            ax.text(0.5, 0.5, "No actionable candidates this bar",
+                    transform=ax.transAxes, ha="center", va="center",
+                    color=MUTED, fontsize=10)
+            return
+        labels = [_short(str(reason), 24) for reason, _ in reasons]
+        values = [int(count) for _, count in reasons]
+        ax.barh(labels[::-1], values[::-1], color=RED, alpha=0.82)
+        ax.set_xlabel("Rejected candidate count", color=MUTED, fontsize=8)
+        ax.set_xlim(0, max(values) * 1.25 if values else 1)
+        for idx, value in enumerate(values[::-1]):
+            ax.text(value, idx, f" {value}", color=TEXT, va="center", fontsize=8)
+        ax.text(0.01, 0.98, "No executable candidates",
+                transform=ax.transAxes, color=GOLD, fontsize=8,
+                fontweight="bold", va="top")
         return
     usable = rows[:8]
     values = [int(row["actionable_count"]) for row in usable]
@@ -437,8 +860,9 @@ def _draw_flash_candidates_panel(ax, rows: List[dict]) -> None:
     ax.set_xlim(0, max(values) * 1.30 if values else 1)
     for idx, row in enumerate(usable[::-1]):
         suffix = (
-            f" a{int(row['actionable_count'])}/r{int(row['rejected_count'])}"
-            f" score {float(row['best_score']):+.2f}"
+            f" actionable {int(row['actionable_count'])},"
+            f" rejected {int(row['rejected_count'])},"
+            f" best {float(row['best_score']):+.2f}"
         )
         tech_total = (
             int(row.get("technical_aligned_count", 0))
@@ -465,7 +889,12 @@ def _is_virtual_panteon_name(name: object) -> bool:
 
 
 def _row_pnl_value(data: Mapping[str, object]) -> float:
-    return _float_value(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)))
+    return _float_value(
+        data.get(
+            "display_pnl_pct",
+            data.get("session_pnl_pct", data.get("pnl_pct", 0.0)),
+        )
+    )
 
 
 def _split_virtual_panteon(
@@ -523,21 +952,27 @@ def _render_combined_shadow_dashboard(
     panteon_pnl_pct: float,
 ) -> None:
     plt = _setup_pyplot()
-    fig = plt.figure(figsize=(14, 9), facecolor=DARK)
-    gs = fig.add_gridspec(2, 1, height_ratios=[1, 1], hspace=0.36)
+    fig_h = max(9.0, min(22.0, 3.5 + (len(players) + len(agents)) * 0.23))
+    fig = plt.figure(figsize=(14, fig_h), facecolor=DARK)
+    gs = fig.add_gridspec(
+        2,
+        1,
+        height_ratios=[max(6, len(players)), max(6, len(agents))],
+        hspace=0.36,
+    )
     ax_players = fig.add_subplot(gs[0, 0])
     ax_agents = fig.add_subplot(gs[1, 0])
     _draw_barh(
         ax_players,
-        players[:16],
-        "Shadow Players",
+        players,
+        "Shadow Players - Full Pool",
         PURPLE,
         panteon_pnl_pct=panteon_pnl_pct,
     )
     _draw_barh(
         ax_agents,
-        agents[:16],
-        "Shadow Agents",
+        agents,
+        "Shadow Agents - Full Pool",
         BLUE,
         panteon_pnl_pct=panteon_pnl_pct,
     )
@@ -553,7 +988,8 @@ def _render_combined_regime_dashboard(
     players: List[Tuple[str, dict]],
 ) -> None:
     plt = _setup_pyplot()
-    fig = plt.figure(figsize=(17, 10), facecolor=DARK)
+    fig_h = max(10.0, min(22.0, 4.0 + (len(players) + len(agents)) * 0.18))
+    fig = plt.figure(figsize=(17, fig_h), facecolor=DARK)
     gs = fig.add_gridspec(
         2,
         2,
@@ -587,7 +1023,8 @@ def _render_memory_dashboard(
     players: List[Tuple[str, dict]],
 ) -> None:
     plt = _setup_pyplot()
-    fig = plt.figure(figsize=(16, 10), facecolor=DARK)
+    fig_h = max(10.0, min(24.0, 4.0 + (len(players) + len(agents)) * 0.20))
+    fig = plt.figure(figsize=(16, fig_h), facecolor=DARK)
     gs = fig.add_gridspec(
         2,
         2,
@@ -603,8 +1040,8 @@ def _render_memory_dashboard(
 
     _draw_barh(
         ax_player_score,
-        players[:12],
-        "Memory: Players PnL",
+        players,
+        "Memory: Players PnL - Full Pool",
         PURPLE,
         panteon_pnl_pct=0.0,
         x_label="Cumulative Memory PnL %",
@@ -612,8 +1049,8 @@ def _render_memory_dashboard(
     )
     _draw_barh(
         ax_agent_score,
-        agents[:12],
-        "Memory: Agents PnL",
+        agents,
+        "Memory: Agents PnL - Full Pool",
         BLUE,
         panteon_pnl_pct=0.0,
         x_label="Cumulative Memory PnL %",
@@ -686,7 +1123,7 @@ def _memory_experience_rows(
     players: List[Tuple[str, dict]],
     agents: List[Tuple[str, dict]],
     *,
-    limit: int = 16,
+    limit: Optional[int] = None,
 ) -> List[Tuple[str, float, float, str]]:
     rows: List[Tuple[str, float, float, str]] = []
     for group, source, color in (("P", players, PURPLE), ("A", agents, BLUE)):
@@ -697,6 +1134,8 @@ def _memory_experience_rows(
                 continue
             rows.append((f"{group}:{_short(name, 18)}", closed, signals, color))
     rows.sort(key=lambda row: (row[2], row[1]), reverse=True)
+    if limit is None:
+        return rows
     return rows[: max(0, int(limit))]
 
 
@@ -704,7 +1143,7 @@ def _memory_regime_rows(
     *,
     players: List[Tuple[str, dict]],
     agents: List[Tuple[str, dict]],
-    limit: int = 18,
+    limit: Optional[int] = None,
 ) -> List[Tuple[str, List[float], int]]:
     regimes = ["bullish", "bearish", "neutral", "crash"]
     candidates: List[Tuple[str, List[float], int, float]] = []
@@ -738,7 +1177,7 @@ def _memory_regime_rows(
 
     def add_rows(rows: List[Tuple[str, List[float], int, float]]) -> None:
         for row in rows:
-            if len(selected) >= limit:
+            if limit is not None and len(selected) >= limit:
                 return
             if row[0] in seen:
                 continue
@@ -771,7 +1210,7 @@ def _heatmap_limits(matrix: List[List[float]]) -> Tuple[float, float]:
 def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:
     plt = _setup_pyplot()
     regimes = ["bullish", "bearish", "neutral", "crash"]
-    usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)][:16]
+    usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)]
     fig_h = max(4.5, 2.0 + len(usable) * 0.42)
     fig, ax = plt.subplots(figsize=(11, fig_h), facecolor=DARK)
     image = _draw_regime_heatmap(ax, title, rows, regimes=regimes)
@@ -791,7 +1230,7 @@ def _draw_regime_heatmap(
     regimes: List[str] | None = None,
 ):
     regimes = regimes or ["bullish", "bearish", "neutral", "crash"]
-    usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)][:16]
+    usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)]
     ax.set_facecolor(MID)
     if not usable:
         ax.set_axis_off()
@@ -836,7 +1275,7 @@ def _draw_equity_curves(
         palette = plt.cm.tab20
     except Exception:
         palette = None
-    for idx, (name, data) in enumerate(rows[:12]):
+    for idx, (name, data) in enumerate(rows):
         curve = _equity_curve(data)
         if len(curve) < 2:
             continue

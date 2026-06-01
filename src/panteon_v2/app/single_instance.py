@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Dict, Optional, Union
@@ -18,10 +19,32 @@ def _lock_key(path: Path) -> str:
     return text.lower() if os.name == "nt" else text
 
 
+def _clean_metadata_value(value: object) -> str:
+    return str(value).replace("\r", " ").replace("\n", " ").strip()
+
+
+def _lock_metadata_payload(name: str) -> bytes:
+    argv = " ".join(_clean_metadata_value(item) for item in sys.argv)
+    lines = (
+        f"pid={os.getpid()}",
+        f"parent_pid={os.getppid()}",
+        f"name={name}",
+        f"sys_executable={_clean_metadata_value(sys.executable)}",
+        f"sys_prefix={_clean_metadata_value(sys.prefix)}",
+        f"sys_base_prefix={_clean_metadata_value(getattr(sys, 'base_prefix', ''))}",
+        f"argv={argv}",
+    )
+    payload = ("\n".join(lines) + "\n").encode("utf-8")
+    if len(payload) >= _WINDOWS_LOCK_OFFSET:
+        payload = payload[: _WINDOWS_LOCK_OFFSET - 2] + b"\n"
+    return payload
+
+
 @dataclass
 class SingleInstanceLock:
     name: str
     path: Path
+    info_path: Path
     _fh: BinaryIO
     _key: str
     _released: bool = False
@@ -46,6 +69,12 @@ class SingleInstanceLock:
                 self._fh.close()
             except Exception:
                 pass
+            try:
+                self.info_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
 
 
 def acquire_single_instance(
@@ -57,6 +86,7 @@ def acquire_single_instance(
     lock_root = Path(lock_dir)
     lock_root.mkdir(parents=True, exist_ok=True)
     lock_path = lock_root / f"{name}.lock"
+    info_path = lock_root / f"{name}.lock.info"
     key = _lock_key(lock_path)
     if key in _ACTIVE_LOCKS:
         return None
@@ -78,10 +108,18 @@ def acquire_single_instance(
 
     fh.seek(0)
     fh.truncate()
-    fh.write(f"pid={os.getpid()}\nname={name}\n".encode("utf-8"))
+    payload = _lock_metadata_payload(name)
+    fh.write(payload)
     fh.flush()
+    info_path.write_bytes(payload)
 
-    lock = SingleInstanceLock(name=name, path=lock_path, _fh=fh, _key=key)
+    lock = SingleInstanceLock(
+        name=name,
+        path=lock_path,
+        info_path=info_path,
+        _fh=fh,
+        _key=key,
+    )
     _ACTIVE_LOCKS[key] = lock
     atexit.register(lock.release)
     return lock

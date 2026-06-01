@@ -534,6 +534,21 @@ class TestBootstrap(unittest.TestCase):
 
         self.assertEqual(capital, 77.0)
 
+    def test_live_startup_scopes_legacy_event_log_path_per_run(self):
+        from panteon_v2.app.startup import _run_scoped_event_log_path
+
+        with tempfile.TemporaryDirectory() as td:
+            legacy = os.path.join(td, "v2_mexc_events.jsonl")
+            scoped = _run_scoped_event_log_path(
+                "MEXC",
+                legacy,
+                now=datetime(2026, 5, 31, 8, 0, 1, tzinfo=timezone.utc),
+                pid=12345,
+            )
+
+        self.assertTrue(scoped.endswith("v2_mexc_20260531_080001_12345_events.jsonl"))
+        self.assertNotEqual(scoped, legacy)
+
     def test_sync_pipeline_balance_uses_live_exchange_equity(self):
         from panteon_v2.app.main_loop import sync_pipeline_balance
 
@@ -694,6 +709,62 @@ class TestBootstrap(unittest.TestCase):
         self.assertTrue(cfg["enabled"])
         self.assertEqual(cfg["min_pnl_pct"], 0.25)
         self.assertEqual(cfg["min_closed_trades"], 4)
+
+    def test_flash_legacy_real_agent_settings_parse_exchange_scoped_override(self):
+        from panteon_v2.app.startup import (
+            _flash_legacy_real_agent_labels_from_settings,
+            _flash_legacy_real_agents_enabled_from_settings,
+        )
+
+        settings = {
+            "v2_flash_legacy_real_agents_enabled": "off",
+            "mexc_v2_flash_legacy_real_agents_enabled": "on",
+            "mexc_v2_flash_legacy_real_agent_labels": (
+                "CarryFlowAgentV2,CandlePatternAgent"
+            ),
+        }
+
+        self.assertTrue(
+            _flash_legacy_real_agents_enabled_from_settings(settings, "MEXC")
+        )
+        self.assertFalse(
+            _flash_legacy_real_agents_enabled_from_settings(settings, "BITGET")
+        )
+        self.assertEqual(
+            _flash_legacy_real_agent_labels_from_settings(settings, "MEXC"),
+            ("CarryFlowAgentV2", "CandlePatternAgent"),
+        )
+
+    def test_include_genetics_resolves_settings_when_env_absent(self):
+        from panteon_v2.app import startup
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertTrue(startup._resolve_include_genetics(None, "MEXC"))
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertFalse(startup._resolve_include_genetics(False, "MEXC"))
+
+        with patch.dict(os.environ, {"PANTEON_V2_LOAD_GENETICS": "0"}), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"agent_genetics": "on"}):
+            self.assertFalse(startup._resolve_include_genetics(None, "MEXC"))
+
+    def test_genetics_shadow_only_resolves_settings_when_env_absent(self):
+        from panteon_v2.app import startup
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"v2_genetics_shadow_only": "off"}):
+            self.assertFalse(startup._resolve_genetics_shadow_only(None, "MEXC"))
+
+        with patch.dict(os.environ, {"PANTEON_V2_GENETICS_SHADOW_ONLY": "1"}), \
+                patch.object(startup, "_load_exchange_settings",
+                             return_value={"v2_genetics_shadow_only": "off"}):
+            self.assertTrue(startup._resolve_genetics_shadow_only(None, "MEXC"))
 
     def test_flash_settings_parse_flag_and_allocator_knobs(self):
         from panteon_v2.app.startup import (
@@ -952,6 +1023,33 @@ class TestBootstrap(unittest.TestCase):
         self.assertTrue(stale_exit["enabled"])
         self.assertEqual(stale_exit["max_age_bars"], 168)
         self.assertTrue(stale_exit["require_nonpositive_unrealized"])
+
+    def test_leaderboard_agents_include_configured_pool_without_activity(self):
+        from panteon_v2.app.output_writer import OutputWriterConfig
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("NoDataAgent"))
+        pipeline = build_production_pipeline(
+            registry=registry,
+            exchange=FakeExchange(name="TEST"),
+            initial_capital=1000.0,
+            profiles=(),
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter(
+                pipeline,
+                config=OutputWriterConfig(output_dir=td),
+            )
+            writer._write_leaderboards()
+            with open(os.path.join(td, "leaderboard_agents.json"), encoding="utf-8") as fh:
+                payload = json.load(fh)
+
+        row = payload["agents"]["V_NoDataAgent"]
+        self.assertTrue(row["configured_pool"])
+        self.assertTrue(row["configured_pool_only"])
+        self.assertEqual(row["session_signals"], 0)
+        self.assertEqual(row["closed_trades"], 0)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -3416,6 +3514,831 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(steps[0].n_raw_signals, 1)
         self.assertEqual(steps[0].n_filled, 1)
         self.assertEqual(len(exchange.orders_log), 1)
+
+    def test_soft_allocator_execution_uses_prior_shadow_weights_and_scales_open_risk(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+        from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+        alpha_agent = FakeAgent("AlphaAgent")
+        beta_agent = FakeAgent("BetaAgent")
+        reg = AgentRegistry()
+        reg.register(alpha_agent)
+        reg.register(beta_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Alpha",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="Beta",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+            live_execution_config=LiveExecutionConfig(max_new_opens_per_bar=2),
+        )
+        policy = SoftAllocatorPolicy(
+            name="regime_top3_w144_m20_cap45_cash15",
+            top_k=3,
+            cash_reserve_weight=0.15,
+            max_weight_per_leader=0.45,
+            min_closed_trades=1,
+            half_life_bars=1_000_000,
+            drawdown_penalty=0.0,
+            persistent_loss_max_weight=0.0,
+            score_scope="regime",
+            rolling_window_bars=144,
+        )
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=policy,
+            initial_capital=1000.0,
+        )
+        players = {
+            "Alpha": EnsemblePlayer(
+                label="Alpha",
+                agents=[alpha_agent],
+                weights={"AlphaAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "Beta": EnsemblePlayer(
+                label="Beta",
+                agents=[beta_agent],
+                weights={"BetaAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def update_shadow_actor_updates(self, updates):
+                self.shadow_updates = tuple(updates)
+
+            def update_current_actionable_labels(self, labels):
+                self.actionable_labels = set(labels)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test no trade",
+                    switched=True,
+                )
+
+        class TwoBarTournament:
+            def __init__(self):
+                self.last_bar = 0
+
+            def run_bar(self, market, *, players, balance_usd):
+                self.last_bar = market.bar
+                return ShadowStepSummary(player_signals=2 if market.bar == 2 else 0, actors=2)
+
+            def last_actor_updates(self):
+                if self.last_bar != 1:
+                    return ()
+                return (
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Alpha",
+                        regime="bullish",
+                        realized_pnl_usd=10.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Beta",
+                        regime="bullish",
+                        realized_pnl_usd=5.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                )
+
+            def last_player_signals(self):
+                if self.last_bar != 2:
+                    return {}
+                return {
+                    "Alpha": (
+                        Signal(
+                            id=1_000_000_001,
+                            bar=2,
+                            sym="BTC",
+                            action=Action.FUT_LONG_FULL,
+                            price=100.0,
+                            regime=Regime.BULLISH,
+                            by_player="Alpha",
+                            by_agent="AlphaAgent",
+                        ),
+                    ),
+                    "Beta": (
+                        Signal(
+                            id=1_000_000_002,
+                            bar=2,
+                            sym="ETH",
+                            action=Action.FUT_LONG_FULL,
+                            price=50.0,
+                            regime=Regime.BULLISH,
+                            by_player="Beta",
+                            by_agent="BetaAgent",
+                        ),
+                    ),
+                }
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {}
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = TwoBarTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bullish",
+        ))
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=2)
+
+        self.assertEqual(steps[1].selected_leader, "NoTrade")
+        self.assertEqual(
+            steps[1].executed_leader,
+            "PanteonSoft:regime_top3_w144_m20_cap45_cash15",
+        )
+        self.assertEqual(steps[1].n_raw_signals, 2)
+        self.assertEqual(steps[1].n_filled, 2)
+        emitted = list(pipeline.event_log.query(event_types=[SignalEmitted]))
+        emitted_by_symbol = {
+            event.signal.sym: event.signal
+            for event in emitted
+            if event.signal is not None and event.signal.bar == 2
+        }
+        self.assertAlmostEqual(emitted_by_symbol["BTC"].risk_mult, 0.45)
+        self.assertAlmostEqual(emitted_by_symbol["ETH"].risk_mult, 0.40)
+        self.assertEqual(
+            steps[1].causal_decision["soft_allocator"]["policy_name"],
+            "regime_top3_w144_m20_cap45_cash15",
+        )
+
+    def test_soft_allocator_execution_prevents_notrade_cash_flat_churn(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+
+        alpha_agent = FakeAgent("AlphaAgent")
+        reg = AgentRegistry()
+        reg.register(alpha_agent)
+
+        class LiveExchange(FakeExchange):
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(
+                        sym="BTC",
+                        side="long",
+                        qty=1.0,
+                        entry=100.0,
+                        unrealized_pnl=-1.0,
+                    ),
+                }
+
+        exchange = LiveExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Alpha",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=10,
+            sym="BTC",
+            side="long",
+            entry_price=100.0,
+            qty=1.0,
+            fee_open=0.0,
+            by_player="Alpha",
+            by_agent="AlphaAgent",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=1,
+            open_action="FUT_LONG_FULL",
+            open_regime="bullish",
+        ))
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="regime_top3_w144_m20_cap45_cash15",
+                top_k=3,
+                cash_reserve_weight=0.15,
+                max_weight_per_leader=0.45,
+                min_closed_trades=20,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=1000.0,
+        )
+        player = EnsemblePlayer(
+            label="Alpha",
+            agents=[alpha_agent],
+            weights={"AlphaAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test no trade",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 99.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "NoTrade")
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertTrue(pipeline.executor._tracker.has("BTC"))
+
+    def test_soft_allocator_soft_only_blocks_selected_leader_without_soft_signal(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+
+        active_agent = FakeAgent("ActiveAgent", {"BTC": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(active_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="ActivePlayer",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution_soft_only = True
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="soft_only_test",
+                top_k=1,
+                cash_reserve_weight=0.0,
+                max_weight_per_leader=1.0,
+                min_closed_trades=20,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=1000.0,
+        )
+        player = EnsemblePlayer(
+            label="ActivePlayer",
+            agents=[active_agent],
+            weights={"ActiveAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=player,
+                    previous=None,
+                    score=1.0,
+                    margin=1.0,
+                    is_urgent=False,
+                    reason="test selected active player",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].selected_leader, "ActivePlayer")
+        self.assertEqual(steps[0].executed_leader, "PanteonSoft:soft_only_test")
+        self.assertEqual(steps[0].n_raw_signals, 0)
+        self.assertEqual(steps[0].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+        self.assertEqual(
+            steps[0].causal_decision["soft_allocator"]["reason"],
+            "soft_only_no_executable_soft_signal",
+        )
+
+    def test_soft_allocator_execution_honors_explicit_allow_labels(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+        from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+        alpha_agent = FakeAgent("AlphaAgent")
+        beta_agent = FakeAgent("BetaAgent")
+        reg = AgentRegistry()
+        reg.register(alpha_agent)
+        reg.register(beta_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Alpha",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+                PlayerProfile(
+                    label="Beta",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution_soft_only = True
+        pipeline.soft_allocator_execution_allow_labels = ("Alpha",)
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="allow_labels_test",
+                top_k=1,
+                cash_reserve_weight=0.0,
+                max_weight_per_leader=1.0,
+                min_closed_trades=1,
+                half_life_bars=1_000_000,
+                drawdown_penalty=0.0,
+                persistent_loss_max_weight=0.0,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=1000.0,
+        )
+        players = {
+            "Alpha": EnsemblePlayer(
+                label="Alpha",
+                agents=[alpha_agent],
+                weights={"AlphaAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            "Beta": EnsemblePlayer(
+                label="Beta",
+                agents=[beta_agent],
+                weights={"BetaAgent": 1.0},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+        }
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return players[profile.label]
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test no trade",
+                    switched=True,
+                )
+
+        class TwoBarTournament:
+            def __init__(self):
+                self.last_bar = 0
+
+            def run_bar(self, market, *, players, balance_usd):
+                self.last_bar = market.bar
+                return ShadowStepSummary(player_signals=1 if market.bar == 2 else 0, actors=2)
+
+            def last_actor_updates(self):
+                if self.last_bar != 1:
+                    return ()
+                return (
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Alpha",
+                        regime="bullish",
+                        realized_pnl_usd=1.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Beta",
+                        regime="bullish",
+                        realized_pnl_usd=10.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                )
+
+            def last_player_signals(self):
+                if self.last_bar != 2:
+                    return {}
+                return {
+                    "Beta": (
+                        Signal(
+                            id=1_000_000_001,
+                            bar=2,
+                            sym="BTC",
+                            action=Action.FUT_LONG_FULL,
+                            price=100.0,
+                            regime=Regime.BULLISH,
+                            by_player="Beta",
+                            by_agent="BetaAgent",
+                        ),
+                    ),
+                }
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {}
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = TwoBarTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=2)
+
+        self.assertEqual(steps[1].executed_leader, "PanteonSoft:allow_labels_test")
+        self.assertEqual(steps[1].n_raw_signals, 0)
+        self.assertEqual(steps[1].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_soft_allocator_realized_gate_blocks_recent_losing_player(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+        from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+        beta_agent = FakeAgent("BetaAgent")
+        reg = AgentRegistry()
+        reg.register(beta_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Beta",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution_soft_only = True
+        pipeline.soft_allocator_realized_gate_enabled = True
+        pipeline.soft_allocator_realized_gate_lookback_bars = 100
+        pipeline.soft_allocator_realized_gate_min_closed_trades = 2
+        pipeline.soft_allocator_realized_gate_max_recent_pnl_usd = -1.0
+        pipeline._soft_allocator_realized_events_by_player = {
+            "Beta": [(1, -5.0, 2, 0)],
+        }
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="realized_gate_test",
+                top_k=1,
+                cash_reserve_weight=0.0,
+                max_weight_per_leader=1.0,
+                min_closed_trades=1,
+                half_life_bars=1_000_000,
+                drawdown_penalty=0.0,
+                persistent_loss_max_weight=0.0,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=1000.0,
+        )
+        beta_player = EnsemblePlayer(
+            label="Beta",
+            agents=[beta_agent],
+            weights={"BetaAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return beta_player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test no trade",
+                    switched=True,
+                )
+
+        class TwoBarTournament:
+            def __init__(self):
+                self.last_bar = 0
+
+            def run_bar(self, market, *, players, balance_usd):
+                self.last_bar = market.bar
+                return ShadowStepSummary(player_signals=1 if market.bar == 2 else 0, actors=1)
+
+            def last_actor_updates(self):
+                if self.last_bar != 1:
+                    return ()
+                return (
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Beta",
+                        regime="bullish",
+                        realized_pnl_usd=10.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                )
+
+            def last_player_signals(self):
+                if self.last_bar != 2:
+                    return {}
+                return {
+                    "Beta": (
+                        Signal(
+                            id=1_000_000_001,
+                            bar=2,
+                            sym="BTC",
+                            action=Action.FUT_LONG_FULL,
+                            price=100.0,
+                            regime=Regime.BULLISH,
+                            by_player="Beta",
+                            by_agent="BetaAgent",
+                        ),
+                    ),
+                }
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {}
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = TwoBarTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=2)
+
+        self.assertEqual(steps[1].executed_leader, "PanteonSoft:realized_gate_test")
+        self.assertEqual(steps[1].n_raw_signals, 0)
+        self.assertEqual(steps[1].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
+
+    def test_soft_allocator_execution_blocks_denied_actor_symbol(self):
+        from panteon_v2.analysis.soft_allocator import OnlineSoftAllocator, SoftAllocatorPolicy
+        from panteon_v2.app.shadow_tournament import ShadowStepSummary
+
+        beta_agent = FakeAgent("BetaAgent")
+        reg = AgentRegistry()
+        reg.register(beta_agent)
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[
+                PlayerProfile(
+                    label="Beta",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution_soft_only = True
+        pipeline.soft_allocator_execution_deny_actor_symbols = ("Beta|BTC",)
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=SoftAllocatorPolicy(
+                name="deny_actor_symbol_test",
+                top_k=1,
+                cash_reserve_weight=0.0,
+                max_weight_per_leader=1.0,
+                min_closed_trades=1,
+                half_life_bars=1_000_000,
+                drawdown_penalty=0.0,
+                persistent_loss_max_weight=0.0,
+                score_scope="regime",
+                rolling_window_bars=144,
+            ),
+            initial_capital=1000.0,
+        )
+        beta_player = EnsemblePlayer(
+            label="Beta",
+            agents=[beta_agent],
+            weights={"BetaAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return beta_player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, current_bar, regime_confidence=1.0):
+                return SwitchDecision(
+                    new_leader=NoTradePlayer(),
+                    previous=None,
+                    score=0.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test no trade",
+                    switched=True,
+                )
+
+        class TwoBarTournament:
+            def __init__(self):
+                self.last_bar = 0
+
+            def run_bar(self, market, *, players, balance_usd):
+                self.last_bar = market.bar
+                return ShadowStepSummary(player_signals=1 if market.bar == 2 else 0, actors=1)
+
+            def last_actor_updates(self):
+                if self.last_bar != 1:
+                    return ()
+                return (
+                    ShadowActorUpdated(
+                        bar=1,
+                        actor_type="player",
+                        actor_label="Beta",
+                        regime="bullish",
+                        realized_pnl_usd=10.0,
+                        closed_trades=1,
+                        winning_trades=1,
+                    ),
+                )
+
+            def last_player_signals(self):
+                if self.last_bar != 2:
+                    return {}
+                return {
+                    "Beta": (
+                        Signal(
+                            id=1_000_000_001,
+                            bar=2,
+                            sym="BTC",
+                            action=Action.FUT_LONG_FULL,
+                            price=100.0,
+                            regime=Regime.BULLISH,
+                            by_player="Beta",
+                            by_agent="BetaAgent",
+                        ),
+                    ),
+                }
+
+            def last_agent_signals(self):
+                return {}
+
+            def last_player_open_positions(self):
+                return {}
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        pipeline.shadow_tournament = TwoBarTournament()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=2)
+
+        self.assertEqual(steps[1].executed_leader, "PanteonSoft:deny_actor_symbol_test")
+        self.assertEqual(steps[1].n_raw_signals, 0)
+        self.assertEqual(steps[1].n_filled, 0)
+        self.assertEqual(len(exchange.orders_log), 0)
 
     def test_selected_leader_replays_fresh_shadow_position_when_real_vote_is_empty(self):
         selected_agent = FakeAgent("SelectedAgent")
@@ -6791,6 +7714,34 @@ class TestOutputWriter(unittest.TestCase):
             self.assertIn("№1", html_text)
             writer.close()
 
+    def test_dashboard_includes_configured_actor_pool_without_memory_activity(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("ResearchValidatorAgent"))
+        reg.register(FakeAgent("LiveAfterShock"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        pipeline.regime_switch_player_sets = (
+            ("Antonius_conservative", {"neutral": "ResearchValidatorAgent"}),
+        )
+        pipeline.rotating_agent_player_sets = (
+            (
+                "Optimal_StaticRotator",
+                {"neutral": ("LiveAfterShock",)},
+                ("ResearchValidatorAgent",),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            with open(os.path.join(writer.output_dir, "dashboard.txt"), "r", encoding="utf-8") as f:
+                dashboard = f.read()
+            writer.close()
+
+        self.assertIn("Configured actor pool", dashboard)
+        self.assertIn("Antonius_conservative", dashboard)
+        self.assertIn("regime_switch", dashboard)
+        self.assertIn("ResearchValidatorAgent", dashboard)
+        self.assertIn("Optimal_StaticRotator", dashboard)
+
     def test_writer_publishes_latest_exchange_dashboards_to_results_root(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("AgentA"))
@@ -6842,7 +7793,7 @@ class TestOutputWriter(unittest.TestCase):
             self.assertIn("# Panteon v2 final session report", markdown)
             self.assertIn("BITGET", markdown)
 
-    def test_writer_disables_latest_dashboard_publish_after_permission_error(self):
+    def test_writer_retries_latest_dashboard_publish_after_permission_error(self):
         from pathlib import Path
 
         from panteon_v2.app.output_writer import OutputWriterConfig
@@ -6863,15 +7814,18 @@ class TestOutputWriter(unittest.TestCase):
 
             with patch(
                 "panteon_v2.app.output_writer.os.replace",
-                side_effect=PermissionError("locked"),
+                side_effect=[PermissionError("locked"), None],
             ) as replace_mock, patch(
+                "panteon_v2.app.output_writer.time.sleep",
+            ) as sleep_mock, patch(
                 "panteon_v2.app.output_writer.log.exception",
             ) as log_mock:
                 writer._publish_latest_visual_dashboards([str(src)])
-                writer._publish_latest_visual_dashboards([str(src)])
 
-        self.assertEqual(replace_mock.call_count, 1)
-        self.assertEqual(log_mock.call_count, 1)
+        self.assertEqual(replace_mock.call_count, 2)
+        sleep_mock.assert_called_once()
+        log_mock.assert_not_called()
+        self.assertFalse(getattr(writer, "_latest_dashboard_publish_disabled", False))
 
     def test_writer_refreshes_dashboard_on_first_live_bar(self):
         reg = AgentRegistry()
@@ -6947,6 +7901,11 @@ class TestOutputWriter(unittest.TestCase):
                 blocked_reasons={
                     "risk_limits: notional $1.74 < min $5.10": 2,
                 },
+                causal_decision={
+                    "regime": "neutral",
+                    "regime_confidence": 0.42,
+                    "funding": {"BTC": 0.001, "ETH": -0.0005},
+                },
             ))
             with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
                 status = json.load(f)
@@ -6955,6 +7914,9 @@ class TestOutputWriter(unittest.TestCase):
             writer.close()
 
         self.assertEqual(status["current_balance"], 120.5)
+        self.assertEqual(status["market"], "neutral")
+        self.assertEqual(status["regime_confidence"], 0.42)
+        self.assertEqual(status["market_view"]["funding_symbols"], 2)
         self.assertEqual(status["futures_equity_usd"], 120.5)
         self.assertEqual(status["available_balance_usd"], 101.25)
         self.assertEqual(status["spot_assets_usd"], 7.5)
@@ -6966,10 +7928,77 @@ class TestOutputWriter(unittest.TestCase):
             {"risk_limits: notional $1.74 < min $5.10": 2},
         )
         self.assertIn("balance=$120.50", trading_log)
+        self.assertIn("market=neutral", trading_log)
+        self.assertIn("market_confidence=0.42", trading_log)
+        self.assertIn("avg_funding=0.0250%", trading_log)
         self.assertIn("positions=2", trading_log)
         self.assertIn("blocked_reasons=", trading_log)
         self.assertIn("notional $1.74 < min $5.10 x2", trading_log)
         self.assertNotIn("assets=", trading_log)
+
+    def test_status_and_dashboard_show_real_actors_separate_from_shadow(self):
+        class LiveExchange(FakeExchange):
+            def get_all_positions(self):
+                return {
+                    "BTC": ExchangePosition(
+                        sym="BTC",
+                        side="long",
+                        qty=0.01,
+                        entry=100.0,
+                        unrealized_pnl=1.25,
+                    ),
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AlphaAgent"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="BITGET"),
+            initial_capital=100.0,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=10,
+            sym="BTC",
+            side="long",
+            entry_price=100.0,
+            qty=0.01,
+            fee_open=0.0,
+            by_player="AlphaPlayer",
+            by_agent="AlphaAgent",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=1,
+            open_action="FUT_LONG_FULL",
+            open_regime="neutral",
+        ))
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=1,
+                regime=Regime.NEUTRAL,
+                leader="Panteon_Flash",
+                leader_changed=False,
+                n_signals=1,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                selected_leader="Panteon_Flash",
+                executed_leader="Panteon_Flash",
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
+                status = json.load(f)
+            with open(os.path.join(writer.output_dir, "dashboard.txt"), "r", encoding="utf-8") as f:
+                dashboard = f.read()
+            writer.close()
+
+        real = status["real_trading_actors"]
+        self.assertTrue(real["shadow_leaderboard_is_virtual"])
+        self.assertEqual(real["open_position_count"], 1)
+        self.assertEqual(real["open_positions"][0]["player"], "AlphaPlayer")
+        self.assertEqual(real["open_positions"][0]["agent"], "AlphaAgent")
+        self.assertIn("Real trading actors", dashboard)
+        self.assertIn("Shadow Leaderboard", dashboard)
+        self.assertIn("AlphaPlayer", dashboard)
 
     def test_status_shadow_counts_include_session_totals_and_last_bar(self):
         reg = AgentRegistry()
@@ -7015,6 +8044,48 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(status["shadow"]["signals_bar"], 0)
         self.assertEqual(status["shadow"]["filled_bar"], 0)
         self.assertEqual(status["decision_debug"]["leader_raw_signals_bar"], 0)
+
+    def test_status_records_price_history_from_causal_decision(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=1,
+                regime=Regime.BULLISH,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                causal_decision={"prices": {"BTC": "100", "ZERO": 0, "BAD": "x"}},
+            ))
+            writer.write(StepResult(
+                bar=2,
+                regime=Regime.NEUTRAL,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                causal_decision={"prices": {"BTC": 101, "ETH": 50}},
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        self.assertEqual(len(status["price_history"]), 2)
+        self.assertEqual(status["price_history"][0]["prices"], {"BTC": 100.0})
+        self.assertEqual(status["price_history"][1]["regime"], "neutral")
+        self.assertEqual(status["current_prices"], {"BTC": 101.0, "ETH": 50.0})
 
     def test_status_and_trading_log_include_selected_executed_fallback_debug(self):
         reg = AgentRegistry()
@@ -7150,6 +8221,65 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(rows[0]["bar"], 7)
         self.assertEqual(rows[0]["selected_leader"], "SelectedLeader")
         self.assertEqual(rows[0]["raw_signals"][0]["sym"], "BTC")
+
+    def test_writer_compacts_causal_entry_flash_candidates_by_default_for_session(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=8,
+                regime=Regime.BULLISH,
+                leader="Panteon_Flash",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                selected_leader="Panteon_Flash",
+                executed_leader="Panteon_Flash",
+                causal_decision={
+                    "bar": 8,
+                    "flash_decisions": [
+                        {
+                            "symbol": "BTC/USDT",
+                            "selected_actor": "NoTrade",
+                            "actor_type": "no_trade",
+                            "score": 0.0,
+                            "action": "HOLD",
+                            "signal": None,
+                            "candidates": [
+                                {
+                                    "label": "Alpha",
+                                    "actor_type": "agent",
+                                    "actor_key": "agent:Alpha",
+                                    "rank": 1,
+                                    "score": 2.5,
+                                    "rejected": True,
+                                    "reason": "score_below_threshold",
+                                    "heavy_debug_payload": "x" * 1000,
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ))
+            path = os.path.join(writer.output_dir, "causal_entry_decisions.jsonl")
+            with open(path, "r", encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            writer.close()
+
+        decision = rows[0]["flash_decisions"][0]
+        self.assertEqual(decision["candidate_count"], 1)
+        self.assertEqual(decision["candidates"], [])
+        self.assertEqual(decision["top_rejected_candidates"], [])
+        self.assertNotIn("heavy_debug_payload", json.dumps(decision))
 
     def test_writer_compacts_causal_entry_flash_candidates_when_requested(self):
         reg = AgentRegistry()
@@ -7682,6 +8812,33 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(
             players["V_Antonius_conservative"]["per_regime"]["neutral"]["closed_trades"],
             7,
+        )
+
+    def test_player_leaderboard_includes_configured_regime_switch_player_without_memory(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("ResearchValidatorAgent"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        pipeline.regime_switch_player_sets = (
+            ("Antonius_conservative", {"neutral": "ResearchValidatorAgent"}),
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "status.json"),
+                      "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        self.assertIn("V_Antonius_conservative", players)
+        self.assertTrue(players["V_Antonius_conservative"]["configured_pool_only"])
+        self.assertEqual(players["V_Antonius_conservative"]["pnl_pct"], 0.0)
+        self.assertIn(
+            "Antonius_conservative",
+            [row["label"] for row in status["configured_actor_pool"]["players"]],
         )
 
     def test_leaderboards_export_memory_activity_counts(self):

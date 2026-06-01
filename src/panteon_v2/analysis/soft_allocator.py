@@ -114,6 +114,66 @@ class _ActorState:
     recent_pnl_prefix: list[float] = field(default_factory=lambda: [0.0])
 
 
+@dataclass
+class OnlineSoftAllocator:
+    """Causal online state for applying a soft allocation policy during replay/live.
+
+    The state is advanced from already-completed shadow actor updates. Call
+    ``weights_for_bar`` before adding updates from that same bar to keep the
+    execution decision causal.
+    """
+
+    policy: SoftAllocatorPolicy
+    initial_capital: float
+    actor_type: str = "player"
+    _states_by_scope: dict[str, dict[str, _ActorState]] = field(default_factory=dict, init=False)
+    _last_bar: int = field(default=0, init=False)
+
+    def weights_for_bar(self, regime: object, current_bar: int) -> dict[str, float]:
+        bar = max(0, int(current_bar or 0))
+        self._advance_to_bar(bar)
+        scope = _scope_for_regime(regime, self.policy)
+        return _weights_for_policy(
+            self._states_by_scope.get(scope, {}),
+            self.policy,
+            current_bar=bar,
+        )
+
+    def update_from_shadow_updates(self, updates: Iterable[object]) -> None:
+        events = shadow_pnl_events_from_shadow_updates(
+            updates,
+            actor_type=str(self.actor_type or "player"),
+        )
+        for event in sorted(events, key=lambda item: (item.bar, item.label)):
+            if not event.label or int(event.bar) <= 0 or not math.isfinite(float(event.pnl_usd)):
+                continue
+            self._advance_to_bar(int(event.bar))
+            scope = _scope_for_event(event, self.policy)
+            states = self._states_by_scope.setdefault(scope, {})
+            state = states.setdefault(
+                event.label,
+                _ActorState(
+                    equity_usd=self.initial_capital,
+                    peak_equity_usd=self.initial_capital,
+                ),
+            )
+            _apply_actor_event(
+                state,
+                event,
+                initial_capital=max(1e-9, float(self.initial_capital or 0.0)),
+            )
+
+    def _advance_to_bar(self, bar: int) -> None:
+        if bar <= 0:
+            return
+        if self._last_bar and bar > self._last_bar:
+            elapsed = bar - self._last_bar
+            for states in self._states_by_scope.values():
+                _decay_states(states.values(), elapsed_bars=elapsed, policy=self.policy)
+        if bar > self._last_bar:
+            self._last_bar = bar
+
+
 def default_soft_allocator_policies() -> tuple[SoftAllocatorPolicy, ...]:
     return (
         SoftAllocatorPolicy(
@@ -612,6 +672,13 @@ def _scope_for_event(event: ShadowPnLEvent, policy: SoftAllocatorPolicy) -> str:
     if str(policy.score_scope or "global").strip().lower() == "regime":
         return str(event.regime or "all").strip().lower() or "all"
     return "all"
+
+
+def _scope_for_regime(regime: object, policy: SoftAllocatorPolicy) -> str:
+    if str(policy.score_scope or "global").strip().lower() != "regime":
+        return "all"
+    raw = getattr(regime, "label", regime)
+    return str(raw or "all").strip().lower() or "all"
 
 
 def _cap_for_state(state: _ActorState, policy: SoftAllocatorPolicy) -> float:

@@ -73,10 +73,10 @@ class StrategistConfig:
     real_min_closed_trades: int = 3
     zero_score_uncertainty_penalty: float = 0.05
     execution_failure_score_penalty: float = 0.02
-    player_session_overlay_weight: float = 0.25
-    player_session_underperformance_weight: float = 0.35
-    player_session_stale_penalty: float = 0.10
-    player_session_pnl_cap_pct: float = 3.0
+    player_session_overlay_weight: float = 1.00
+    player_session_underperformance_weight: float = 0.75
+    player_session_stale_penalty: float = 0.15
+    player_session_pnl_cap_pct: float = 5.0
     player_session_min_activity: int = 1
     candidate_ttl_bars: int = 30
     hard_policy_enabled: bool = True
@@ -115,6 +115,8 @@ class StrategistConfig:
     use_v3_entry_causal_score: bool = False
     use_v3_soft_shadow_score: bool = False
     v3_current_actionable_gate_enabled: bool = False
+    v3_solo_current_actionable_gate_enabled: bool = False
+    v3_candidate_allow_labels: Tuple[str, ...] = ()
     use_v3_shadow_rolling_score: bool = False
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
@@ -1206,6 +1208,9 @@ class Strategist:
         issue = self._validate_current_actionability(player)
         if issue is not None:
             return issue
+        issue = self._validate_candidate_allowlist(player)
+        if issue is not None:
+            return issue
         if cfg.use_v3_rolling_score:
             issue = self._validate_v3_real_loss(
                 player,
@@ -1279,24 +1284,55 @@ class Strategist:
             )
         return None
 
+    def _validate_candidate_allowlist(
+        self,
+        player: Player,
+    ) -> Optional[_DisqualificationReason]:
+        allowed = {
+            str(label).strip()
+            for label in self._config.v3_candidate_allow_labels
+            if str(label).strip()
+        }
+        if not allowed or player.label == self._no_trade.label:
+            return None
+        if player.label in allowed:
+            return None
+        return _DisqualificationReason(
+            label=player.label,
+            reason=f"candidate allowlist: {player.label} is not enabled for real execution",
+        )
+
     def _validate_current_actionability(
         self,
         player: Player,
     ) -> Optional[_DisqualificationReason]:
-        if not self._config.v3_current_actionable_gate_enabled:
-            return None
         if player.label == self._no_trade.label:
             return None
         labels = self._current_actionable_labels
-        if labels is not None and player.label in labels:
-            return None
-        return _DisqualificationReason(
-            label=player.label,
-            reason=(
-                "current actionability gate: no current raw/shadow signal "
-                "or fresh shadow fill"
-            ),
-        )
+        if self._config.v3_current_actionable_gate_enabled:
+            if labels is not None and player.label in labels:
+                return None
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    "current actionability gate: no current raw/shadow signal "
+                    "or fresh shadow fill"
+                ),
+            )
+        if (
+            self._config.v3_solo_current_actionable_gate_enabled
+            and player.label.startswith("Solo_")
+        ):
+            if labels is None or player.label in labels:
+                return None
+            return _DisqualificationReason(
+                label=player.label,
+                reason=(
+                    "solo current actionability gate: no current raw/shadow signal "
+                    "or fresh shadow fill"
+                ),
+            )
+        return None
 
     def _validate_hard_policy(
         self,

@@ -73,6 +73,11 @@ SHADOW_ONLY_V1_AGENT_LABELS: Tuple[str, ...] = (
     "CandlePatternAgent",
 )
 
+FLASH_LEGACY_REAL_AGENT_LABELS: Tuple[str, ...] = (
+    "CarryFlowAgentV2",
+    "CandlePatternAgent",
+)
+
 OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
     ("GeneticsGenomeEnsemble", "agents_v2:GenomeEnsembleAgent"),
     ("GeneticsCore",        "crypto_genetics:GeneticsAgent"),
@@ -552,6 +557,10 @@ def experimental_flash_agent_labels() -> List[str]:
     ]
 
 
+def legacy_flash_real_agent_labels() -> List[str]:
+    return list(FLASH_LEGACY_REAL_AGENT_LABELS)
+
+
 def register_experimental_flash_agents(
     registry: AgentRegistry,
     *,
@@ -601,6 +610,39 @@ def register_experimental_flash_agents(
             ),
             replace=True,
         )
+        registered.append(label)
+    return registered
+
+
+def promote_legacy_flash_real_agents(
+    registry: AgentRegistry,
+    *,
+    labels: Optional[Sequence[str]] = None,
+    skip_missing: bool = True,
+) -> List[str]:
+    if labels is None:
+        selected = FLASH_LEGACY_REAL_AGENT_LABELS
+    else:
+        raw_labels: Sequence[str]
+        raw_labels = (labels,) if isinstance(labels, str) else labels
+        selected = tuple(dict.fromkeys(
+            str(label).strip() for label in raw_labels if str(label).strip()
+        ))
+    registered: List[str] = []
+    for label in selected:
+        agent = registry.get(label)
+        if agent is None:
+            if skip_missing:
+                log.warning(
+                    "Skipping legacy Flash real agent %s: base label missing",
+                    label,
+                )
+                continue
+            raise ValueError(f"legacy Flash real agent {label!r} is not registered")
+        setattr(agent, "shadow_only", False)
+        setattr(agent, "paper_trading_eligible", True)
+        setattr(agent, "live_trading_eligible", True)
+        setattr(agent, "flash_legacy_real_enabled", True)
         registered.append(label)
     return registered
 

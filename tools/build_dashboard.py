@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -42,6 +43,237 @@ def _safe_read(path: Path):
         return None
 
 
+def _clean_price_history(raw, limit=240):
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for idx, item in enumerate(raw[-limit:]):
+        if not isinstance(item, dict):
+            continue
+        prices = item.get("prices")
+        if not isinstance(prices, dict):
+            continue
+        clean_prices = {}
+        for raw_symbol, raw_price in prices.items():
+            try:
+                price = float(raw_price)
+            except (TypeError, ValueError):
+                continue
+            symbol = str(raw_symbol or "").strip().upper()
+            if symbol and price > 0:
+                clean_prices[symbol] = price
+        if not clean_prices:
+            continue
+        out.append({
+            "bar": int(float(item.get("bar", idx) or idx)),
+            "regime": str(item.get("regime", "") or ""),
+            "market": str(item.get("market", "") or ""),
+            "prices": clean_prices,
+        })
+    return out
+
+
+def _session_visuals(exchange: str, session_name: str):
+    prefix = f"{exchange}/{session_name}"
+    return {
+        "dashboard_latest": f"{prefix}/dashboard_latest.png",
+        "shadow": f"{prefix}/shadow_dashboard.png",
+        "regime": f"{prefix}/regime_dashboard.png",
+        "memory": f"{prefix}/memory_dashboard.png",
+    }
+
+
+def _float_value(value, default=0.0):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed == parsed else default
+
+
+def _configured_pool_from_dashboard(path: Path):
+    rows = {"players": [], "agents": []}
+    if not path.exists():
+        return rows
+    mode = ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "Players:":
+            mode = "players"
+            continue
+        if stripped == "Agents:":
+            mode = "agents"
+            continue
+        if stripped.startswith("="):
+            mode = ""
+            continue
+        if not mode or not stripped or stripped.startswith("-"):
+            continue
+        parts = stripped.split()
+        if not parts or parts[0] in {"Label", "Pnl%", "none"}:
+            continue
+        if mode == "players" and len(parts) >= 2:
+            rows["players"].append({
+                "label": parts[0],
+                "kind": parts[1],
+                "scope": parts[2] if len(parts) >= 3 else "",
+                "agents": " ".join(parts[3:]) if len(parts) >= 4 else "",
+            })
+        elif mode == "agents":
+            rows["agents"].append({
+                "label": parts[0],
+                "flags": parts[1] if len(parts) >= 2 else "",
+            })
+    return rows
+
+
+def _configured_leaderboard_row(pool_row: dict, kind: str):
+    return {
+        "pnl_pct": 0.0,
+        "session_pnl_pct": 0.0,
+        "closed_trades": 0,
+        "session_closed_trades": 0,
+        "entries": 0,
+        "session_entries": 0,
+        "signals": 0,
+        "session_signals": 0,
+        "wins": 0,
+        "session_wins": 0,
+        "losses": 0,
+        "session_losses": 0,
+        "win_rate": 0.0,
+        "session_win_rate": 0.0,
+        "sharpe": 0.0,
+        "max_drawdown_pct": 0.0,
+        "configured_pool": True,
+        "configured_pool_only": True,
+        "actor_pool_kind": str(pool_row.get("kind") or kind),
+        "status_reason": "configured actor pool; no leaderboard activity yet",
+        "per_regime": {},
+    }
+
+
+def _merge_configured_pool(status: dict, players: dict, agents: dict, dashboard_path: Path):
+    players = dict(players or {})
+    agents = dict(agents or {})
+    configured = status.get("configured_actor_pool") if isinstance(status, dict) else {}
+    if isinstance(configured, dict):
+        pool_players = list(configured.get("players") or [])
+        pool_agents = list(configured.get("agents") or [])
+    else:
+        pool_players = []
+        pool_agents = []
+    fallback = _configured_pool_from_dashboard(dashboard_path)
+    pool_players.extend(fallback["players"])
+    pool_agents.extend(fallback["agents"])
+    for row in pool_players:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        if label:
+            players.setdefault("V_" + label, _configured_leaderboard_row(row, "player"))
+    for row in pool_agents:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        if label:
+            agents.setdefault("V_" + label, _configured_leaderboard_row(row, "agent"))
+    return players, agents
+
+
+def _actor_asset_value(row: dict, initial: float):
+    for key in ("equity", "asset", "assets", "total_assets_usd"):
+        value = _float_value(row.get(key), 0.0)
+        if value > 0.0:
+            return value
+    pnl = _float_value(row.get("session_pnl_pct", row.get("pnl_pct", 0.0)), 0.0)
+    return max(0.0, initial * (1.0 + pnl / 100.0))
+
+
+def _asset_rows(summary: dict, players: dict, agents: dict):
+    kind_order = {"panteon": 0, "player": 1, "agent": 2}
+    initial = _float_value(summary.get("initial_capital"), 0.0)
+    if initial <= 0.0:
+        initial = _float_value(summary.get("current_balance"), 100.0) or 100.0
+    panteon_asset = _float_value(
+        summary.get(
+            "panteon_equity_usd",
+            summary.get("total_assets_usd", summary.get("current_balance", initial)),
+        ),
+        initial,
+    ) or initial
+    rows = [{"name": "PANTEON", "kind": "panteon", "asset": panteon_asset}]
+    for name, row in (players or {}).items():
+        clean = str(name).replace("V_", "", 1)
+        rows.append({
+            "name": "P:" + clean,
+            "kind": "player",
+            "asset": _actor_asset_value(row if isinstance(row, dict) else {}, initial),
+        })
+    for name, row in (agents or {}).items():
+        clean = str(name).replace("V_", "", 1)
+        rows.append({
+            "name": "A:" + clean,
+            "kind": "agent",
+            "asset": _actor_asset_value(row if isinstance(row, dict) else {}, initial),
+        })
+    return sorted(
+        rows,
+        key=lambda row: (
+            -float(row["asset"]),
+            kind_order.get(str(row["kind"]), 99),
+            str(row["name"]),
+        ),
+    )
+
+
+def _tail_lines(path: Path, max_lines: int = 120, max_bytes: int = 48 * 1024 * 1024):
+    if not path.exists() or max_lines <= 0:
+        return []
+    data = b""
+    chunk = 1024 * 1024
+    read_total = 0
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            pos = fh.tell()
+            while pos > 0 and data.count(b"\n") <= max_lines and read_total < max_bytes:
+                step = min(chunk, pos, max_bytes - read_total)
+                pos -= step
+                fh.seek(pos)
+                data = fh.read(step) + data
+                read_total += step
+    except OSError:
+        return []
+    lines = data.splitlines()
+    return [line.decode("utf-8", errors="replace") for line in lines[-max_lines:]]
+
+
+def _price_history_from_causal_log(path: Path, limit: int = 120):
+    rows = []
+    for line in _tail_lines(path, max_lines=limit):
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict):
+            continue
+        prices = item.get("prices")
+        if not isinstance(prices, dict):
+            continue
+        rows.append({
+            "bar": item.get("bar", len(rows)),
+            "regime": item.get("regime", ""),
+            "market": item.get("market", item.get("regime", "")),
+            "prices": prices,
+        })
+    return _clean_price_history(rows, limit=limit)
+
+
 def _collect_sessions(exchange: str, results_dir: Path = RESULTS, sessions_limit: int = SESSIONS_LIMIT):
     base = Path(results_dir) / exchange
     if not base.exists():
@@ -51,14 +283,25 @@ def _collect_sessions(exchange: str, results_dir: Path = RESULTS, sessions_limit
     )
     sessions = sessions[-sessions_limit:]
     out = []
-    for sdir in reversed(sessions):  # newest first
+    for idx, sdir in enumerate(reversed(sessions)):  # newest first
         status = _safe_read(sdir / "status.json") or {}
         players = _safe_read(sdir / "leaderboard_players.json") or {}
         agents = _safe_read(sdir / "leaderboard_agents.json") or {}
         meta = (players.get("metadata") if isinstance(players, dict) else {}) or {}
-        out.append({
-            "name": sdir.name,
-            "summary": {
+        player_rows = (players.get("players") if isinstance(players, dict) else {}) or {}
+        agent_rows = (agents.get("agents") if isinstance(agents, dict) else {}) or {}
+        player_rows, agent_rows = _merge_configured_pool(
+            status,
+            player_rows,
+            agent_rows,
+            sdir / "dashboard.txt",
+        )
+        price_history = _clean_price_history(status.get("price_history", []))
+        if not price_history and idx == 0:
+            price_history = _price_history_from_causal_log(
+                sdir / "causal_entry_decisions.jsonl",
+            )
+        summary = {
                 "version": status.get("version", "v1"),
                 "uptime": status.get("uptime", ""),
                 "bar_count": status.get("bar_count", 0),
@@ -71,11 +314,26 @@ def _collect_sessions(exchange: str, results_dir: Path = RESULTS, sessions_limit
                 "n_trades": status.get("n_trades", 0),
                 "regime": meta.get("regime", "?"),
                 "real_pnl_pct": meta.get("real_pnl_pct", status.get("pnl_pct", 0)),
-            },
+                "panteon_equity_usd": status.get("panteon_equity_usd", status.get("current_balance", 0)),
+                "panteon_realized_equity_usd": status.get("panteon_realized_equity_usd", status.get("current_balance", 0)),
+                "total_assets_usd": status.get("total_assets_usd", status.get("current_balance", 0)),
+                "market": status.get("market", status.get("regime", "?")),
+                "regime_confidence": status.get("regime_confidence"),
+                "timestamp": status.get("timestamp", ""),
+        }
+        out.append({
+            "name": sdir.name,
+            "summary": summary,
             "open_positions": status.get("open_positions", {}) or {},
-            "players": (players.get("players") if isinstance(players, dict) else {}) or {},
-            "agents": (agents.get("agents") if isinstance(agents, dict) else {}) or {},
+            "players": player_rows,
+            "agents": agent_rows,
             "regime_history": meta.get("regime_history", []) or [],
+            "price_history": price_history,
+            "asset_rows": _asset_rows(summary, player_rows, agent_rows),
+            "assets_curve": status.get("assets_curve", []) or [],
+            "panteon_equity_curve": status.get("panteon_equity_curve", []) or [],
+            "market_view": status.get("market_view", {}) or {},
+            "visuals": _session_visuals(exchange, sdir.name),
         })
     return out
 
@@ -135,6 +393,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .filter-btn.active { background: #2c456b; color: #fff; border-color: #82aaff; }
   .open-positions { margin-top: 12px; }
   .open-positions table { font-size: 12px; }
+  .chart-panel { background: #111821; border: 1px solid #1d2837; border-radius: 10px;
+                 padding: 12px; margin-top: 10px; }
+  .asset-row { display: grid; grid-template-columns: minmax(170px, 260px) 1fr 90px;
+               gap: 10px; align-items: center; margin: 5px 0; }
+  .asset-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d6deeb; }
+  .asset-track { height: 14px; background: #0b1118; border-radius: 4px; overflow: hidden; }
+  .asset-fill { height: 100%; background: #58a6ff; }
+  .asset-row.player .asset-fill { background: #bc8cff; }
+  .asset-row.panteon .asset-fill { background: #f0c040; }
+  .asset-row.panteon .asset-label, .asset-row.panteon .asset-value { font-weight: 800; color: #f0c040; }
+  .asset-value { text-align: right; color: #8c9bb1; font-variant-numeric: tabular-nums; }
+  #price-chart { width: 100%; height: 260px; display: block; }
+  .legend-chip { display: inline-flex; align-items: center; gap: 6px; margin: 4px 12px 0 0;
+                 color: #d6deeb; font-size: 12px; }
+  .legend-swatch { width: 18px; height: 3px; display: inline-block; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
   @media (max-width: 980px) { .grid2 { grid-template-columns: 1fr; } }
   .reason { color: #8c9bb1; font-size: 11px; }
@@ -160,6 +433,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
 <h2>Открытые позиции</h2>
 <div class="open-positions" id="open-positions"></div>
+
+<h2>Assets: Panteon, Players, Agents</h2>
+<div id="assets-chart" class="chart-panel"></div>
+
+<h2>Currency Prices And Current Market Type</h2>
+<div class="chart-panel">
+  <div id="price-market-note" class="muted"></div>
+  <canvas id="price-chart"></canvas>
+  <div id="price-legend"></div>
+</div>
 
 <div class="grid2">
   <div>
@@ -258,6 +541,121 @@ function renderOpenPositions(session) {
       <tfoot><tr><td colspan="4" class="muted">Σ unrealized PnL</td>
         <td class="${pnlCls(total_pnl)}"><b>${fmt(total_pnl, 4)} USDT</b></td><td></td></tr></tfoot>
     </table>`;
+}
+
+function actorAssetValue(row, initial) {
+  const direct = parseFloat(row.equity ?? row.asset ?? row.assets ?? row.total_assets_usd);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const pnl = parseFloat(row.session_pnl_pct ?? row.pnl_pct ?? 0) || 0;
+  return Math.max(0, initial * (1 + pnl / 100));
+}
+
+function renderAssetsChart(session) {
+  const s = session.summary || {};
+  const initial = parseFloat(s.initial_capital || s.current_balance || 100) || 100;
+  const rows = Array.isArray(session.asset_rows) && session.asset_rows.length ? session.asset_rows.slice() : [{
+    name: "PANTEON",
+    kind: "panteon",
+    asset: parseFloat(s.panteon_equity_usd || s.total_assets_usd || s.current_balance || initial) || initial,
+  }];
+  if (!Array.isArray(session.asset_rows) || !session.asset_rows.length) {
+    for (const [name, row] of Object.entries(session.players || {})) {
+      rows.push({name: "P:" + String(name).replace(/^V_/, ""), kind: "player", asset: actorAssetValue(row, initial)});
+    }
+    for (const [name, row] of Object.entries(session.agents || {})) {
+      rows.push({name: "A:" + String(name).replace(/^V_/, ""), kind: "agent", asset: actorAssetValue(row, initial)});
+    }
+  }
+  const kindOrder = row => row.kind === "panteon" ? 0 : row.kind === "player" ? 1 : row.kind === "agent" ? 2 : 99;
+  const ordered = rows.sort((a, b) =>
+    (parseFloat(b.asset || 0) - parseFloat(a.asset || 0)) ||
+    (kindOrder(a) - kindOrder(b)) ||
+    String(a.name).localeCompare(String(b.name))
+  );
+  const maxAsset = Math.max(...ordered.map(r => r.asset), 1);
+  $("#assets-chart").innerHTML = ordered.map(row => {
+    const width = Math.max(1, Math.min(100, row.asset / maxAsset * 100));
+    return `<div class="asset-row ${row.kind}">
+      <div class="asset-label" title="${escape(row.name)}">${escape(row.name)}</div>
+      <div class="asset-track"><div class="asset-fill" style="width:${width.toFixed(2)}%"></div></div>
+      <div class="asset-value">$${fmt(row.asset, 2)}</div>
+    </div>`;
+  }).join("");
+}
+
+function priceSymbols(history, limit=6) {
+  const symbols = new Set();
+  for (const row of history) {
+    for (const sym of Object.keys(row.prices || {})) symbols.add(sym);
+  }
+  const ranked = Array.from(symbols).map(sym => {
+    const values = history.map(row => parseFloat((row.prices || {})[sym])).filter(v => Number.isFinite(v) && v > 0);
+    const first = values[0] || 0, last = values[values.length - 1] || first;
+    const move = first > 0 ? Math.abs(last / first - 1) : 0;
+    return {sym, move};
+  }).sort((a, b) => b.move - a.move || a.sym.localeCompare(b.sym));
+  return ranked.slice(0, limit).map(x => x.sym);
+}
+
+function renderPriceChart(session) {
+  const history = (session.price_history || []).filter(row => row && row.prices);
+  const market = session.summary?.market || session.summary?.regime || "?";
+  const confidence = session.summary?.regime_confidence;
+  $("#price-market-note").textContent =
+    `market=${market}` + (confidence === null || confidence === undefined ? "" : ` confidence=${fmt(confidence, 2)}`);
+  const canvas = $("#price-chart");
+  const legend = $("#price-legend");
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(900, Math.floor(rect.width || 900));
+  canvas.height = 260;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (history.length < 2) {
+    ctx.fillStyle = "#8c9bb1";
+    ctx.font = "14px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    ctx.fillText("Price history will appear after two live bars.", 24, 130);
+    legend.innerHTML = "";
+    return;
+  }
+  const symbols = priceSymbols(history);
+  const colors = ["#58a6ff", "#bc8cff", "#3fb950", "#f0c040", "#ff7b72", "#79c0ff"];
+  const pad = {l: 45, r: 20, t: 18, b: 32};
+  const series = symbols.map((sym, idx) => {
+    const raw = history.map(row => parseFloat((row.prices || {})[sym]));
+    const first = raw.find(v => Number.isFinite(v) && v > 0);
+    const points = raw.map(v => Number.isFinite(v) && v > 0 && first ? v / first * 100 : null);
+    return {sym, color: colors[idx % colors.length], points};
+  });
+  const vals = series.flatMap(s => s.points).filter(v => Number.isFinite(v));
+  const minY = Math.min(...vals, 99), maxY = Math.max(...vals, 101);
+  const spanY = Math.max(1, maxY - minY);
+  const xAt = i => pad.l + (canvas.width - pad.l - pad.r) * (i / Math.max(1, history.length - 1));
+  const yAt = v => pad.t + (canvas.height - pad.t - pad.b) * (1 - (v - minY) / spanY);
+  ctx.strokeStyle = "#30363d";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (canvas.height - pad.t - pad.b) * (i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(canvas.width - pad.r, y); ctx.stroke();
+  }
+  ctx.fillStyle = "#8c9bb1";
+  ctx.font = "11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+  ctx.fillText(minY.toFixed(1), 6, yAt(minY));
+  ctx.fillText(maxY.toFixed(1), 6, yAt(maxY) + 4);
+  for (const s of series) {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let started = false;
+    s.points.forEach((v, i) => {
+      if (!Number.isFinite(v)) return;
+      if (!started) { ctx.moveTo(xAt(i), yAt(v)); started = true; }
+      else ctx.lineTo(xAt(i), yAt(v));
+    });
+    if (started) ctx.stroke();
+  }
+  legend.innerHTML = series.map(s =>
+    `<span class="legend-chip"><span class="legend-swatch" style="background:${s.color}"></span>${escape(s.sym)}</span>`
+  ).join("");
 }
 
 function buildTable(kind, session) {
@@ -393,6 +791,8 @@ function renderAll() {
   }
   renderSummary(session);
   renderOpenPositions(session);
+  renderAssetsChart(session);
+  renderPriceChart(session);
   renderFilters("players", session);
   renderFilters("agents", session);
   buildTable("players", session);
@@ -438,7 +838,14 @@ def build_dashboard(
     out_html.parent.mkdir(parents=True, exist_ok=True)
     tmp_html = out_html.with_name(f".{out_html.name}.tmp")
     tmp_html.write_text(html, encoding="utf-8")
-    os.replace(tmp_html, out_html)
+    try:
+        os.replace(tmp_html, out_html)
+    except PermissionError:
+        shutil.copyfile(tmp_html, out_html)
+        try:
+            tmp_html.unlink()
+        except OSError:
+            pass
     if not quiet:
         print(f"[ok] dashboard written: {out_html}")
         print(f"[ok] sessions: " + ", ".join(f"{ex}={len(sessions)}" for ex, sessions in data.items()))

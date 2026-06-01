@@ -44,7 +44,9 @@ from ..selection.promotion_manifest import (
 )
 from ..shadow.feed import ReplayFeed
 from .soft_allocator import (
+    OnlineSoftAllocator,
     ShadowPnLEvent,
+    SoftAllocatorPolicy,
     shadow_pnl_events_from_shadow_updates,
     simulate_perfect_monthly_panteon,
     simulate_soft_allocator_policies,
@@ -275,6 +277,9 @@ class RetrodateMarketConfig:
     solo_agent_candidate_limit: int = 3
     fixed_agent_players_enabled: bool = False
     fixed_agent_player_sets: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    player_profiles: tuple[Any, ...] = ()
+    regime_switch_player_sets: tuple[Any, ...] = ()
+    rotating_agent_player_sets: tuple[Any, ...] = ()
     flash_enabled: bool = False
     flash_min_score_to_trade: float = 0.0
     flash_actionable_bonus: float = 0.25
@@ -433,6 +438,15 @@ class RetrodateMarketConfig:
     actionable_fallback_enabled: bool = False
     actionable_fallback_min_score: Optional[float] = None
     actionable_fallback_require_has_data: bool = False
+    soft_allocator_execution_enabled: bool = False
+    soft_allocator_execution_soft_only: bool = False
+    soft_allocator_execution_allow_labels: tuple[str, ...] = ()
+    soft_allocator_execution_deny_actor_symbols: tuple[str, ...] = ()
+    soft_allocator_realized_gate_enabled: bool = False
+    soft_allocator_realized_gate_lookback_bars: int = 720
+    soft_allocator_realized_gate_min_closed_trades: int = 12
+    soft_allocator_realized_gate_max_recent_pnl_usd: float = -25.0
+    soft_allocator_execution_policy: Optional[SoftAllocatorPolicy] = None
     current_actionable_candidate_layer_enabled: bool = False
     real_promotion_gate_enabled: bool = False
     real_promotion_min_closed_trades: int = 20
@@ -446,6 +460,7 @@ class RetrodateMarketConfig:
     use_v3_executable_soft_top1_score: bool = False
     use_v3_executable_soft_confirmed_score: bool = False
     use_v3_entry_causal_score: bool = False
+    v3_candidate_allow_labels: tuple[str, ...] = ()
     v3_shadow_position_gate_enabled: bool = True
     v3_shadow_flat_handoff_enabled: bool = False
     v3_shadow_fresh_handoff_enabled: bool = False
@@ -483,6 +498,8 @@ class RetrodateMarketConfig:
     )
     max_new_opens_per_bar: int = 1
     risk_max_open_positions: int = 8
+    risk_max_leverage: int = 5
+    apply_risk_leverage_to_notional: bool = False
     genetics_probation_execution_enabled: bool = False
     genetics_probation_labels: tuple[str, ...] = ("GeneticsResearch",)
     genetics_probation_allowed_regimes: tuple[str, ...] = ("bearish", "crash")
@@ -501,6 +518,7 @@ class RetrodateMarketConfig:
     v3_panteon_equity_guard_floor_pnl_pct: float = 2.0
     v3_panteon_equity_guard_cooldown_bars: int = 720
     hard_policy_deny_labels: tuple[str, ...] = DEFAULT_RETRO_HARD_POLICY_DENY_LABELS
+    hard_policy_enabled: bool = True
 
     def __post_init__(self) -> None:
         if self.stride_minutes <= 0:
@@ -734,6 +752,8 @@ class RetrodateMarketConfig:
             raise ValueError("max_new_opens_per_bar must be >= 0")
         if self.risk_max_open_positions < 0:
             raise ValueError("risk_max_open_positions must be >= 0")
+        if self.risk_max_leverage < 1:
+            raise ValueError("risk_max_leverage must be >= 1")
         if self.flash_degradation_window_closed_trades <= 0:
             raise ValueError("flash_degradation_window_closed_trades must be > 0")
         if self.flash_degradation_actor_scope not in {"actor", "actor_regime"}:
@@ -1157,6 +1177,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         registry=registry,
         exchange=exchange,
         initial_capital=config.initial_capital,
+        profiles=(config.player_profiles or None),
         strategist_config=strategist_config,
         live_execution_config=_build_live_execution_config(config),
         risk_config=_build_risk_config(config),
@@ -1174,10 +1195,48 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     pipeline.actionable_fallback_require_has_data = bool(
         config.actionable_fallback_require_has_data
     )
+    if (
+        config.soft_allocator_execution_enabled
+        and config.soft_allocator_execution_policy is not None
+    ):
+        pipeline.soft_allocator_execution_enabled = True
+        pipeline.soft_allocator_execution_soft_only = bool(
+            config.soft_allocator_execution_soft_only
+        )
+        pipeline.soft_allocator_execution_allow_labels = tuple(
+            str(label or "").strip()
+            for label in config.soft_allocator_execution_allow_labels
+            if str(label or "").strip()
+        )
+        pipeline.soft_allocator_execution_deny_actor_symbols = tuple(
+            str(item or "").strip()
+            for item in config.soft_allocator_execution_deny_actor_symbols
+            if str(item or "").strip()
+        )
+        pipeline.soft_allocator_realized_gate_enabled = bool(
+            config.soft_allocator_realized_gate_enabled
+        )
+        pipeline.soft_allocator_realized_gate_lookback_bars = int(
+            config.soft_allocator_realized_gate_lookback_bars
+        )
+        pipeline.soft_allocator_realized_gate_min_closed_trades = int(
+            config.soft_allocator_realized_gate_min_closed_trades
+        )
+        pipeline.soft_allocator_realized_gate_max_recent_pnl_usd = float(
+            config.soft_allocator_realized_gate_max_recent_pnl_usd
+        )
+        pipeline.soft_allocator_execution = OnlineSoftAllocator(
+            policy=config.soft_allocator_execution_policy,
+            initial_capital=config.initial_capital,
+        )
     pipeline.current_actionable_candidate_layer_enabled = bool(
         config.current_actionable_candidate_layer_enabled
         or config.use_v3_executable_soft_confirmed_score
     )
+    if config.regime_switch_player_sets:
+        pipeline.regime_switch_player_sets = tuple(config.regime_switch_player_sets)
+    if config.rotating_agent_player_sets:
+        pipeline.rotating_agent_player_sets = tuple(config.rotating_agent_player_sets)
     pipeline.flash_stale_position_exit_enabled = bool(
         config.flash_stale_position_exit_enabled
     )
@@ -1446,6 +1505,8 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         stride_minutes=args.stride_minutes,
         initial_capital=args.initial_capital,
         risk_capital_fraction=args.risk_capital_fraction,
+        risk_max_leverage=args.risk_max_leverage,
+        apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
         optional_agent_labels=_parse_optional_agent_labels(args.optional_agent_labels),
         invalid_policy=args.invalid_policy,
@@ -1886,6 +1947,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         hard_policy_deny_labels=_merge_hard_policy_deny_labels(
             args.hard_policy_deny_label
         ),
+        hard_policy_enabled=not args.disable_hard_policy,
         actionable_fallback_enabled=args.enable_actionable_fallback,
         actionable_fallback_min_score=args.actionable_fallback_min_score,
         actionable_fallback_require_has_data=args.actionable_fallback_require_has_data,
@@ -2046,6 +2108,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stride-minutes", type=int, default=60)
     parser.add_argument("--initial-capital", type=float, default=1000.0)
     parser.add_argument("--risk-capital-fraction", type=float, default=0.10)
+    parser.add_argument("--risk-max-leverage", type=int, default=5)
+    parser.add_argument("--apply-risk-leverage-to-notional", action="store_true")
     parser.add_argument("--include-optional-agents", action="store_true")
     parser.add_argument("--optional-agent-labels", default="")
     parser.add_argument("--invalid-policy", choices=("exclude", "fail"), default="exclude")
@@ -2574,6 +2638,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--v3-panteon-equity-guard-max-giveback-pct", type=float, default=1.0)
     parser.add_argument("--v3-panteon-equity-guard-floor-pnl-pct", type=float, default=2.0)
     parser.add_argument("--v3-panteon-equity-guard-cooldown-bars", type=int, default=720)
+    parser.add_argument(
+        "--disable-hard-policy",
+        action="store_true",
+        help="Disable non-Flash strategist hard-policy vetoes for legacy-like runs.",
+    )
     return parser
 
 
@@ -2958,6 +3027,8 @@ def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecution
 def _build_risk_config(config: RetrodateMarketConfig) -> RiskLimitsConfig:
     return RiskLimitsConfig(
         max_open_positions=config.risk_max_open_positions,
+        max_leverage=config.risk_max_leverage,
+        apply_leverage_to_notional=config.apply_risk_leverage_to_notional,
         capital_fraction=config.risk_capital_fraction,
     )
 
@@ -2987,6 +3058,7 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         )
     return StrategistConfig(
         hard_policy_deny_labels=hard_policy_deny_labels,
+        hard_policy_enabled=config.hard_policy_enabled,
         real_promotion_gate_enabled=config.real_promotion_gate_enabled,
         real_promotion_min_closed_trades=config.real_promotion_min_closed_trades,
         real_promotion_min_pnl_pct=config.real_promotion_min_pnl_pct,
@@ -2998,8 +3070,11 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         use_v3_shadow_rolling_score=config.use_v3_shadow_rolling_score,
         use_v3_soft_shadow_score=config.use_v3_soft_shadow_score or executable_soft,
         v3_current_actionable_gate_enabled=(
-            config.current_actionable_candidate_layer_enabled or executable_soft
+            config.current_actionable_candidate_layer_enabled
+            or executable_soft_confirmed
         ),
+        v3_solo_current_actionable_gate_enabled=executable_soft_top1,
+        v3_candidate_allow_labels=config.v3_candidate_allow_labels,
         v3_shadow_position_gate_enabled=config.v3_shadow_position_gate_enabled,
         v3_shadow_flat_handoff_enabled=config.v3_shadow_flat_handoff_enabled,
         v3_shadow_fresh_handoff_enabled=config.v3_shadow_fresh_handoff_enabled,
@@ -3011,6 +3086,8 @@ def _build_strategist_config(config: RetrodateMarketConfig) -> StrategistConfig:
         v3_shadow_rolling_min_closed_trades=min_closed_trades,
         v3_entry_causal_min_filled=config.v3_entry_causal_min_filled,
         v3_entry_causal_actionability_weight=config.v3_entry_causal_actionability_weight,
+        v3_min_score_to_trade=(1e-9 if executable_soft_top1 else 0.0),
+        v3_real_loss_kill_min_closed_trades=(0 if executable_soft_top1 else 3),
         v3_real_loss_rescue_enabled=config.v3_real_loss_rescue_enabled,
         v3_real_loss_rescue_min_virtual_pnl_pct=(
             config.v3_real_loss_rescue_min_virtual_pnl_pct
@@ -5791,6 +5868,8 @@ def _write_run_summary(
         "timeframe": config.timeframe,
         "initial_capital": config.initial_capital,
         "risk_capital_fraction": config.risk_capital_fraction,
+        "risk_max_leverage": config.risk_max_leverage,
+        "apply_risk_leverage_to_notional": config.apply_risk_leverage_to_notional,
         "include_optional_agents": config.include_optional_agents,
         "optional_agent_labels": list(config.optional_agent_labels),
         "flash_audit_events_enabled": bool(config.flash_audit_events_enabled),
@@ -5822,7 +5901,14 @@ def _write_run_summary(
                 else ()
             )
         ],
+        "player_profile_labels": [
+            str(getattr(profile, "label", ""))
+            for profile in config.player_profiles
+        ],
+        "regime_switch_player_count": len(config.regime_switch_player_sets),
+        "rotating_agent_player_count": len(config.rotating_agent_player_sets),
         "flash_enabled": config.flash_enabled,
+        "hard_policy_enabled": config.hard_policy_enabled,
         "flash_min_score_to_trade": config.flash_min_score_to_trade,
         "flash_actionable_bonus": config.flash_actionable_bonus,
         "flash_no_data_score": config.flash_no_data_score,
@@ -6238,6 +6324,31 @@ def _write_run_summary(
         "actionable_fallback_require_has_data": (
             config.actionable_fallback_require_has_data
         ),
+        "soft_allocator_execution_enabled": config.soft_allocator_execution_enabled,
+        "soft_allocator_execution_soft_only": config.soft_allocator_execution_soft_only,
+        "soft_allocator_execution_allow_labels": list(
+            config.soft_allocator_execution_allow_labels
+        ),
+        "soft_allocator_execution_deny_actor_symbols": list(
+            config.soft_allocator_execution_deny_actor_symbols
+        ),
+        "soft_allocator_realized_gate_enabled": (
+            config.soft_allocator_realized_gate_enabled
+        ),
+        "soft_allocator_realized_gate_lookback_bars": (
+            config.soft_allocator_realized_gate_lookback_bars
+        ),
+        "soft_allocator_realized_gate_min_closed_trades": (
+            config.soft_allocator_realized_gate_min_closed_trades
+        ),
+        "soft_allocator_realized_gate_max_recent_pnl_usd": (
+            config.soft_allocator_realized_gate_max_recent_pnl_usd
+        ),
+        "soft_allocator_execution_policy": (
+            getattr(config.soft_allocator_execution_policy, "name", "")
+            if config.soft_allocator_execution_policy is not None
+            else ""
+        ),
         "current_actionable_candidate_layer_enabled": (
             config.current_actionable_candidate_layer_enabled
             or config.use_v3_executable_soft_confirmed_score
@@ -6258,6 +6369,7 @@ def _write_run_summary(
         "use_v3_executable_soft_confirmed_score": (
             config.use_v3_executable_soft_confirmed_score
         ),
+        "v3_candidate_allow_labels": list(config.v3_candidate_allow_labels),
         "v3_shadow_position_gate_enabled": config.v3_shadow_position_gate_enabled,
         "v3_shadow_flat_handoff_enabled": config.v3_shadow_flat_handoff_enabled,
         "v3_shadow_fresh_handoff_enabled": config.v3_shadow_fresh_handoff_enabled,
@@ -6269,6 +6381,9 @@ def _write_run_summary(
         "v3_shadow_rolling_min_closed_trades": config.v3_shadow_rolling_min_closed_trades,
         "effective_v3_current_actionable_gate_enabled": (
             effective_strategist.v3_current_actionable_gate_enabled
+        ),
+        "effective_v3_solo_current_actionable_gate_enabled": (
+            effective_strategist.v3_solo_current_actionable_gate_enabled
         ),
         "effective_v3_shadow_rolling_window_bars": (
             effective_strategist.v3_shadow_rolling_window_bars
@@ -6349,6 +6464,8 @@ def _write_run_summary(
         "hard_policy_deny_labels": list(config.hard_policy_deny_labels),
         "max_new_opens_per_bar": config.max_new_opens_per_bar,
         "risk_max_open_positions": config.risk_max_open_positions,
+        "risk_max_leverage": config.risk_max_leverage,
+        "apply_risk_leverage_to_notional": config.apply_risk_leverage_to_notional,
         "genetics_probation_execution_enabled": (
             config.genetics_probation_execution_enabled
         ),

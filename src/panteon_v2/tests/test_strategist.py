@@ -553,6 +553,119 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         self.assertIn("BetaPlayer", rejections)
         self.assertIn("current actionability gate", rejections["BetaPlayer"])
 
+    def test_v3_solo_actionable_gate_rejects_silent_solo_only(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Solo_AlphaAgent", ["AlphaAgent"]),
+                _make_player("Legend_Beta", ["BetaAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_soft_shadow_score=True,
+                v3_current_actionable_gate_enabled=False,
+                v3_solo_current_actionable_gate_enabled=True,
+                v3_shadow_rolling_min_closed_trades=1,
+                v3_shadow_rolling_window_bars=24,
+                v3_min_score_to_trade=0.000001,
+                v3_real_loss_kill_min_closed_trades=0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_current_actionable_labels(set())
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Solo_AlphaAgent",
+                regime="bullish",
+                realized_pnl_usd=10.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Legend_Beta",
+                regime="bullish",
+                realized_pnl_usd=2.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "Legend_Beta")
+        rejections = {row.label: row.reason for row in decision.candidate_rejections}
+        self.assertIn("Solo_AlphaAgent", rejections)
+        self.assertIn(
+            "solo current actionability gate",
+            rejections["Solo_AlphaAgent"],
+        )
+
+    def test_v3_candidate_allowlist_rejects_non_deployable_soft_winner(self):
+        st = Strategist(
+            PerformanceMemory(trade_fraction=1.0),
+            QuarantineManager(seed=set()),
+            candidates=[
+                _make_player("Legend_CurrentActorPool", ["WeakAgent"]),
+                _make_player("Legend_Defensive", ["DefensiveAgent"]),
+            ],
+            config=StrategistConfig(
+                use_v3_rolling_score=True,
+                use_v3_soft_shadow_score=True,
+                v3_candidate_allow_labels=("Legend_Defensive",),
+                v3_shadow_rolling_min_closed_trades=1,
+                v3_shadow_rolling_window_bars=24,
+                v3_min_score_to_trade=0.000001,
+                v3_real_loss_kill_min_closed_trades=0,
+                cooldown_bars=0,
+                streak_needed=1,
+            ),
+        )
+        st.update_realized_pnl_snapshot(
+            pnl_by_player={},
+            trade_counts_by_player={},
+            win_counts_by_player={},
+            initial_capital=100.0,
+        )
+        st.update_shadow_actor_updates([
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Legend_CurrentActorPool",
+                regime="bullish",
+                realized_pnl_usd=20.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+            ShadowActorUpdated(
+                bar=1,
+                actor_type="player",
+                actor_label="Legend_Defensive",
+                regime="bullish",
+                realized_pnl_usd=2.0,
+                closed_trades=1,
+                winning_trades=1,
+            ),
+        ])
+
+        decision = st.consider_switch(Regime.BULLISH, current_bar=2)
+
+        self.assertEqual(decision.new_leader.label, "Legend_Defensive")
+        rejections = {row.label: row.reason for row in decision.candidate_rejections}
+        self.assertIn("Legend_CurrentActorPool", rejections)
+        self.assertIn("candidate allowlist", rejections["Legend_CurrentActorPool"])
+
     def test_v3_entry_causal_score_prefers_actionable_winner(self):
         st = Strategist(
             PerformanceMemory(trade_fraction=1.0),
@@ -1719,6 +1832,33 @@ class TestStrategistUpdateCandidates(unittest.TestCase):
         by_label = {row.label: row for row in decision.candidate_scores}
         self.assertLess(by_label["DefaultEnsemble"].session_score_delta, 0.0)
         self.assertGreater(by_label["DefaultEnsemble"].session_underperformance_penalty, 0.0)
+
+    def test_default_player_session_overlay_reacts_to_recent_player_swings(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _add_perf(perf, "DefaultEnsemble", Regime.NEUTRAL, 8, 0.50, start_id=1)
+        _add_perf(perf, "TrendResearch", Regime.NEUTRAL, 8, 0.00, start_id=500)
+        qm = QuarantineManager(seed=set())
+        st = Strategist(
+            perf,
+            qm,
+            candidates=[
+                _make_player("DefaultEnsemble", ["A"]),
+                _make_player("TrendResearch", ["B"]),
+            ],
+            config=StrategistConfig(
+                cooldown_bars=0,
+                streak_needed=1,
+                switch_margin=0.0,
+                player_session_stale_penalty=0.0,
+            ),
+        )
+        st.capture_session_baseline()
+        _add_perf(perf, "DefaultEnsemble", Regime.NEUTRAL, 2, -0.30, start_id=1000)
+        _add_perf(perf, "TrendResearch", Regime.NEUTRAL, 2, 1.50, start_id=2000)
+
+        decision = st.consider_switch(Regime.NEUTRAL, current_bar=1)
+
+        self.assertEqual(decision.new_leader.label, "TrendResearch")
 
     def test_switch_gate_diagnostics_explain_small_margin(self):
         perf = PerformanceMemory(trade_fraction=1.0)

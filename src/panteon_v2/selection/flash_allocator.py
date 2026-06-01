@@ -15,6 +15,8 @@ from .player import Player, normalize_vote_result
 
 
 _SHADOW_POSITION_REPLAY_AGENT = "ShadowPositionReplay"
+_QUOTE_ASSET_SUFFIXES = ("USDT", "USDC", "USD")
+_SYMBOL_SEPARATORS = ("/", "-", "_")
 
 
 def _actor_cap_override_map(overrides: Sequence[str]) -> dict[str, int]:
@@ -1166,6 +1168,10 @@ class FlashAllocator:
             shadow_player_labels=shadow_player_signal_map.keys(),
             actionable_labels=actionable,
         )
+        active_solo_wrapper_keys = self._active_solo_wrapper_keys_for_suppression(
+            player_rows,
+            shadow_player_signals=shadow_player_signal_map,
+        )
         base_rows = agent_rows + player_rows
         no_trade_rows = (
             []
@@ -1182,6 +1188,7 @@ class FlashAllocator:
                 shadow_player_signals=shadow_player_signal_map,
                 shadow_agent_signals=shadow_agent_signal_map,
                 suppressed_agent_labels=suppressed_agent_labels,
+                active_solo_wrapper_keys=active_solo_wrapper_keys,
             )
         )
         genetics_confirmation_by_symbol = self._genetics_confirmation_by_symbol(
@@ -1207,6 +1214,7 @@ class FlashAllocator:
                 promoted_signal_keys=promoted,
                 previous_actor_by_symbol=previous_actor_by_symbol or {},
                 suppressed_agent_labels=suppressed_agent_labels,
+                active_solo_wrapper_keys=active_solo_wrapper_keys,
                 open_position_sides_by_symbol=open_position_sides,
                 position_state_available=position_state_available,
                 genetics_confirmation_by_symbol=genetics_confirmation_by_symbol,
@@ -1231,6 +1239,7 @@ class FlashAllocator:
         promoted_signal_keys: set[str],
         previous_actor_by_symbol: Mapping[str, str],
         suppressed_agent_labels: set[str],
+        active_solo_wrapper_keys: set[tuple[str, str]],
         open_position_sides_by_symbol: Mapping[str, str],
         position_state_available: bool,
         genetics_confirmation_by_symbol: Mapping[str, Mapping[str, int]],
@@ -1460,6 +1469,11 @@ class FlashAllocator:
             elif (
                 output.actor_type == "agent"
                 and output.label in suppressed_agent_labels
+                and self._raw_agent_has_active_solo_wrapper(
+                    output.label,
+                    symbol,
+                    active_solo_wrapper_keys,
+                )
             ):
                 rejected = True
                 reason = "raw_suppressed_by_solo"
@@ -1772,6 +1786,35 @@ class FlashAllocator:
                 selected_reasons.append("switch_margin_hold")
 
         signal = signal_by_actor_key.get(selected.actor_key)
+        position_block_reason = self._position_state_block_reason(
+            selected,
+            signal,
+            symbol=symbol,
+            open_position_sides_by_symbol=open_position_sides_by_symbol,
+            position_state_available=position_state_available,
+        )
+        if position_block_reason:
+            replacement = next(
+                (
+                    row
+                    for row in ranked
+                    if not row.rejected
+                    and row.actor_key != selected.actor_key
+                    and (row.action.is_open or row.action.is_close)
+                    and not self._position_state_block_reason(
+                        row,
+                        signal_by_actor_key.get(row.actor_key),
+                        symbol=symbol,
+                        open_position_sides_by_symbol=open_position_sides_by_symbol,
+                        position_state_available=position_state_available,
+                    )
+                ),
+                None,
+            )
+            if replacement is not None:
+                selected = replacement
+                signal = signal_by_actor_key.get(selected.actor_key)
+                selected_reasons.append("position_state_fallback")
         if signal is not None:
             if (
                 position_state_available
@@ -1864,6 +1907,24 @@ class FlashAllocator:
             original_actor_type=original_selected.actor_type,
             selected_reasons=tuple(selected_reasons),
         )
+
+    def _position_state_block_reason(
+        self,
+        row: FlashCandidateAudit,
+        signal: Optional[Signal],
+        *,
+        symbol: str,
+        open_position_sides_by_symbol: Mapping[str, str],
+        position_state_available: bool,
+    ) -> str:
+        if signal is None or not position_state_available:
+            return ""
+        if signal.action.is_close and symbol not in open_position_sides_by_symbol:
+            return "stale_close_position"
+        existing_side = open_position_sides_by_symbol.get(symbol, "")
+        if signal.action.is_open and existing_side and signal.action.side == existing_side:
+            return "duplicate_open_position"
+        return ""
 
     def _score_actor(
         self,
@@ -2457,12 +2518,58 @@ class FlashAllocator:
                 labels.add(raw_label)
         return labels
 
+    def _active_solo_wrapper_keys_for_suppression(
+        self,
+        player_rows: Sequence[_ActorSignal],
+        *,
+        shadow_player_signals: Mapping[str, Sequence[Signal]],
+    ) -> set[tuple[str, str]]:
+        """Return raw-agent/symbol pairs where an active Solo wrapper competes."""
+        keys: set[tuple[str, str]] = set()
+
+        def add_if_active(label: str, symbol: str, action: Action) -> None:
+            raw_label = _raw_agent_label_from_solo(label)
+            clean_symbol = str(symbol or "").strip().upper()
+            if not raw_label or not clean_symbol or action.is_hold:
+                return
+            keys.add((raw_label, clean_symbol))
+
+        for row in player_rows:
+            if row.actor_type != "ensemble":
+                continue
+            add_if_active(row.label, row.symbol, row.action)
+
+        for label, signals in shadow_player_signals.items():
+            clean_label = str(label or "").strip()
+            if not clean_label:
+                continue
+            for signal in signals or ():
+                try:
+                    action = _coerce_action(getattr(signal, "action", Action.HOLD))
+                except (TypeError, ValueError):
+                    continue
+                add_if_active(clean_label, getattr(signal, "sym", ""), action)
+        return keys
+
+    @staticmethod
+    def _raw_agent_has_active_solo_wrapper(
+        raw_label: str,
+        symbol: str,
+        active_solo_wrapper_keys: set[tuple[str, str]],
+    ) -> bool:
+        clean_label = str(raw_label or "").strip()
+        clean_symbol = str(symbol or "").strip().upper()
+        return bool(clean_label and clean_symbol) and (
+            clean_label,
+            clean_symbol,
+        ) in active_solo_wrapper_keys
+
     def _solo_wrapper_has_trade_evidence(
         self,
         solo_label: str,
         regime: Regime,
     ) -> bool:
-        metrics = self._metrics_for_label(solo_label, regime)
+        metrics = self._direct_metrics_for_label(solo_label, regime)
         return bool(metrics.has_data)
 
     def _solo_wrapper_outscores_raw(
@@ -2472,7 +2579,7 @@ class FlashAllocator:
         *,
         regime: Regime,
     ) -> bool:
-        solo_metrics = self._metrics_for_label(solo_label, regime)
+        solo_metrics = self._direct_metrics_for_label(solo_label, regime)
         if not solo_metrics.has_data:
             return False
         if solo_metrics.closed_trades < self._config.min_closed_trades_to_trade:
@@ -2950,20 +3057,36 @@ class FlashAllocator:
         action: Action = Action.HOLD,
         require_symbol: bool = False,
     ) -> _ShadowConfirmation:
-        raw = _shadow_confirmation_raw(
-            label,
-            shadow_confirmation,
-            symbol=symbol,
-            action=action,
-            require_symbol=require_symbol,
-        )
-        return _shadow_confirmation_from_raw(raw)
+        for lookup_label in _solo_label_lookup_sequence(label):
+            raw = _shadow_confirmation_raw(
+                lookup_label,
+                shadow_confirmation,
+                symbol=symbol,
+                action=action,
+                require_symbol=require_symbol,
+            )
+            if raw is not None:
+                return _shadow_confirmation_from_raw(raw)
+        return _ShadowConfirmation()
 
     def _metrics_for_label(self, label: str, regime: Regime) -> Metrics:
-        metrics = self._perf.get(label, regime=regime)
+        lookup_labels = _solo_label_lookup_sequence(label)
+        for lookup_label in lookup_labels:
+            metrics = self._perf.get(lookup_label, regime=regime)
+            if metrics.has_data:
+                return metrics
+        for lookup_label in lookup_labels:
+            metrics = self._perf.get(lookup_label)
+            if metrics.has_data:
+                return metrics
+        return self._perf.get(str(label or "").strip())
+
+    def _direct_metrics_for_label(self, label: str, regime: Regime) -> Metrics:
+        clean_label = str(label or "").strip()
+        metrics = self._perf.get(clean_label, regime=regime)
         if metrics.has_data:
             return metrics
-        return self._perf.get(label)
+        return self._perf.get(clean_label)
 
     @staticmethod
     def _agent_outputs(market: MarketSnapshot, agents: Sequence[Agent]) -> List[_ActorSignal]:
@@ -3063,6 +3186,7 @@ class FlashAllocator:
         shadow_player_signals: Mapping[str, Sequence[Signal]],
         shadow_agent_signals: Mapping[str, Sequence[Signal]],
         suppressed_agent_labels: set[str],
+        active_solo_wrapper_keys: set[tuple[str, str]],
     ) -> List[_ActorSignal]:
         if not self._config.shadow_signal_handoff_enabled:
             return []
@@ -3115,12 +3239,20 @@ class FlashAllocator:
             clean_label = str(label or "").strip()
             if not clean_label:
                 continue
-            if clean_label in suppressed_agent_labels:
-                continue
             actor_key = _actor_key("agent", clean_label)
             if actor_key not in known_actor_keys:
                 continue
             for signal in signals or ():
+                if (
+                    clean_label in suppressed_agent_labels
+                    and self._raw_agent_has_active_solo_wrapper(
+                        clean_label,
+                        _market_symbol_for_signal(market, getattr(signal, "sym", ""))
+                        or getattr(signal, "sym", ""),
+                        active_solo_wrapper_keys,
+                    )
+                ):
+                    continue
                 row = _shadow_signal_output(
                     market,
                     clean_label,
@@ -3181,8 +3313,11 @@ def _shadow_signal_output(
     by_player: str,
     by_agent: str,
 ) -> Optional[_ActorSignal]:
-    symbol = str(getattr(signal, "sym", "") or "").upper()
-    if not symbol or _market_price_for_symbol(market, symbol) is None:
+    symbol = _market_symbol_for_signal(market, getattr(signal, "sym", ""))
+    if not symbol:
+        return None
+    price = _market_price_for_symbol(market, symbol)
+    if price is None:
         return None
     action = _coerce_action(getattr(signal, "action", Action.HOLD))
     if action.is_hold:
@@ -3192,6 +3327,7 @@ def _shadow_signal_output(
         id=0,
         sym=symbol,
         action=action,
+        price=price,
         by_player=by_player,
         by_agent=by_agent,
     )
@@ -3240,6 +3376,16 @@ def _raw_agent_label_from_solo(label: str) -> str:
     if not clean.startswith("Solo_"):
         return ""
     return clean[len("Solo_") :].strip()
+
+
+def _solo_label_lookup_sequence(label: str) -> Tuple[str, ...]:
+    clean = str(label or "").strip()
+    if not clean:
+        return tuple()
+    raw_label = _raw_agent_label_from_solo(clean)
+    if raw_label:
+        return (clean, raw_label)
+    return (clean,)
 
 
 def _previous_actor_key_for_symbol(mapping: Mapping[str, str], symbol: str) -> str:
@@ -3422,6 +3568,51 @@ def _market_price_for_symbol(market: MarketSnapshot, symbol: str) -> Optional[fl
         except (TypeError, ValueError):
                 return None
     return None
+
+
+def _market_symbol_for_signal(market: MarketSnapshot, symbol: object) -> str:
+    clean_symbol = str(symbol or "").strip().upper()
+    if not clean_symbol:
+        return ""
+    prices = getattr(market, "prices", {}) or {}
+    for raw_symbol in prices:
+        market_symbol = str(raw_symbol or "").strip().upper()
+        if market_symbol == clean_symbol:
+            return market_symbol
+    for raw_symbol in prices:
+        market_symbol = str(raw_symbol or "").strip().upper()
+        if _symbols_equivalent_for_market(clean_symbol, market_symbol):
+            return market_symbol
+    return ""
+
+
+def _symbols_equivalent_for_market(left: str, right: str) -> bool:
+    left_base, left_quote = _symbol_base_quote(left)
+    right_base, right_quote = _symbol_base_quote(right)
+    if not left_base or not right_base or left_base != right_base:
+        return False
+    return left_quote == right_quote or not left_quote or not right_quote
+
+
+def _symbol_base_quote(symbol: object) -> tuple[str, str]:
+    clean = str(symbol or "").strip().upper()
+    if not clean:
+        return "", ""
+    for separator in _SYMBOL_SEPARATORS:
+        if separator not in clean:
+            continue
+        base, quote = clean.rsplit(separator, 1)
+        base = base.strip()
+        quote = quote.strip()
+        if base and quote in _QUOTE_ASSET_SUFFIXES:
+            return base, quote
+    compact = clean
+    for separator in _SYMBOL_SEPARATORS:
+        compact = compact.replace(separator, "")
+    for quote in _QUOTE_ASSET_SUFFIXES:
+        if compact.endswith(quote) and len(compact) > len(quote):
+            return compact[: -len(quote)], quote
+    return compact, ""
 
 
 def _market_funding_for_symbol(market: MarketSnapshot, symbol: str) -> float:

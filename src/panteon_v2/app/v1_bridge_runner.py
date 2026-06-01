@@ -253,11 +253,13 @@ class V1BridgeFeed:
         # Regime is owned by the v2 price detector, not by agent internals.
         regime = self._regime_detector.update(prices)
         technicals_by_symbol = self._update_technicals_from_prices(prices)
+        funding = _funding_rates_from_bridge(self._bridge, prices.keys())
 
         return make_market_snapshot(
             bar=bar,
             prices=prices,
             volumes=volumes,
+            funding=funding,
             regime=regime.label,
             regime_confidence=self._regime_detector.confidence,
             technicals_by_symbol=technicals_by_symbol,
@@ -350,6 +352,38 @@ class V1BridgeFeed:
                     exc_info=True,
                 )
         return technicals
+
+
+def _funding_rates_from_bridge(bridge: Any, symbols) -> Dict[str, float]:
+    fetcher = getattr(bridge, "funding", None)
+    if fetcher is None:
+        return {}
+
+    out: Dict[str, float] = {}
+    for raw_symbol in symbols or ():
+        symbol = str(raw_symbol).upper()
+        value = None
+        getter = getattr(fetcher, "funding_rate", None)
+        if callable(getter):
+            try:
+                value = getter(symbol)
+            except Exception:
+                value = None
+        if value is None:
+            data_getter = getattr(fetcher, "get", None)
+            if callable(data_getter):
+                try:
+                    data = data_getter(symbol)
+                except Exception:
+                    data = {}
+                if isinstance(data, dict) and "funding_rate" in data:
+                    value = data.get("funding_rate")
+        try:
+            if value is not None:
+                out[symbol] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _history_rows(history: Any) -> List[Dict[str, float]]:
@@ -583,6 +617,24 @@ def _warmup_v2_agents_from_bridge(
     agents = list(registry.all_agents()) if callable(getattr(registry, "all_agents", None)) else []
     if not agents:
         return 0
+    warmup_agents = [
+        agent for agent in agents
+        if not _is_heavy_optional_warmup_agent(agent)
+    ]
+    skipped_agents = len(agents) - len(warmup_agents)
+    if skipped_agents:
+        log.info(
+            "[%s] v2-agent warmup skips %d heavy optional agent(s); "
+            "they will warm up on live bars",
+            exchange_name,
+            skipped_agents,
+        )
+    if not warmup_agents:
+        try:
+            setattr(bridge, "_panteon_v2_agent_warmup_done", True)
+        except Exception:
+            pass
+        return 0
 
     price_rows = _history_rows(getattr(bridge, "_price_hist", None))
     volume_rows = _history_rows(getattr(bridge, "_volume_hist", None))
@@ -607,7 +659,7 @@ def _warmup_v2_agents_from_bridge(
             regime=regime.label,
             regime_confidence=detector.confidence,
         )
-        for agent in agents:
+        for agent in warmup_agents:
             try:
                 agent.act(market)
             except Exception:
@@ -621,8 +673,13 @@ def _warmup_v2_agents_from_bridge(
     except Exception:
         pass
     log.info("[%s] v2-agent warmup completed: bars=%d agents=%d",
-             exchange_name, warmed, len(agents))
+             exchange_name, warmed, len(warmup_agents))
     return warmed
+
+
+def _is_heavy_optional_warmup_agent(agent: Any) -> bool:
+    label = str(getattr(agent, "label", "") or "")
+    return label.startswith("Genetics")
 
 
 def _prepare_v2_agents_for_live_after_warmup(

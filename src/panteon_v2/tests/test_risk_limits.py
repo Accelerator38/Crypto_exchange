@@ -45,6 +45,22 @@ class TestRiskLimits(unittest.TestCase):
         half = self.rl.evaluate(sig_half, balance_usd=1000.0, open_positions={})
         self.assertAlmostEqual(half.qty, full.qty * 0.5, places=5)
 
+    def test_leverage_multiplier_is_opt_in(self):
+        sig = _make_signal()
+        default = RiskLimits(config=RiskLimitsConfig(max_leverage=3))
+        leveraged = RiskLimits(
+            config=RiskLimitsConfig(
+                max_leverage=3,
+                apply_leverage_to_notional=True,
+            )
+        )
+
+        default_result = default.evaluate(sig, balance_usd=1000.0, open_positions={})
+        leveraged_result = leveraged.evaluate(sig, balance_usd=1000.0, open_positions={})
+
+        self.assertAlmostEqual(default_result.notional, 100.0, places=5)
+        self.assertAlmostEqual(leveraged_result.notional, 300.0, places=5)
+
     def test_max_open_positions(self):
         cfg = RiskLimitsConfig(max_open_positions=2)
         rl = RiskLimits(config=cfg)

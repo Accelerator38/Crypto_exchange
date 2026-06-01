@@ -129,6 +129,34 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(bridge._price_hist[-1], {"BTC": 100.0})
         self.assertEqual(bridge._volume_hist[-1], {"BTC": 42.0})
 
+    def test_bridge_feed_passes_funding_rates_into_market_snapshot(self):
+        from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
+
+        class FundingBridge(FakeBridge):
+            def __init__(self):
+                super().__init__()
+                self.funding = type(
+                    "Funding",
+                    (),
+                    {
+                        "funding_rate": lambda self, symbol: {
+                            "BTC": 0.001,
+                            "ETH": -0.0005,
+                        }.get(symbol, 0.0)
+                    },
+                )()
+
+            def _fetch_market(self):
+                self.fetch_calls += 1
+                return {"BTC": 100.0, "ETH": 50.0}, {"BTC": 42.0, "ETH": 21.0}
+
+        bridge = FundingBridge()
+        feed = V1BridgeFeed(bridge, exchange_name="MEXC")
+
+        snap = feed.next_bar()
+
+        self.assertEqual(snap.funding, {"BTC": 0.001, "ETH": -0.0005})
+
     def test_bridge_feed_detects_regime_from_market_history_without_bridge_agents(self):
         from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
 
@@ -273,6 +301,40 @@ class V1BridgeRunnerTests(unittest.TestCase):
                 (3, {"BTC": 102.0}, {"BTC": 12.0}, Regime.BULLISH),
             ],
         )
+
+    def test_warmup_skips_heavy_optional_genetics_agents(self):
+        from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
+        from panteon_v2.selection import AgentRegistry
+
+        class RecordingAgent:
+            def __init__(self, label):
+                self.label = label
+                self.calls = 0
+
+            def act(self, market):
+                self.calls += 1
+                return {}
+
+        bridge = FakeBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 101.0},
+        ]
+        registry = AgentRegistry()
+        normal = RecordingAgent("LiveTrendFollow")
+        genetics = RecordingAgent("GeneticsCore")
+        registry.register(normal)
+        registry.register(genetics)
+
+        warmed = _warmup_v2_agents_from_bridge(
+            bridge,
+            registry,
+            exchange_name="MEXC",
+        )
+
+        self.assertEqual(warmed, 2)
+        self.assertEqual(normal.calls, 2)
+        self.assertEqual(genetics.calls, 0)
 
     def test_prepare_live_agents_clears_warmup_positions_and_injects_real_positions(self):
         from panteon_v2.app.v1_bridge_runner import (

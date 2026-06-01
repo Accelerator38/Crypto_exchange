@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from panteon_v2.domain.types import Action, Regime
+from panteon_v2.domain.types import Action, Metrics, Regime
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import (
     PROFILE_DEFAULT_ENSEMBLE,
@@ -12,6 +12,7 @@ from panteon_v2.selection import (
     PROFILE_TREND_RESEARCH,
     AgentRegistry,
     AgentSelector,
+    ScoredAgent,
     PlayerComposer,
     PlayerProfile,
     WeightedConsensus,
@@ -19,6 +20,18 @@ from panteon_v2.selection import (
 )
 from panteon_v2.tests._helpers import FakeAgent
 from panteon_v2.tests.test_selector import _add_perf
+
+
+class _FixedScoreSelector:
+    def __init__(self, normal=(), fallback=()):
+        self._normal = tuple(normal)
+        self._fallback = tuple(fallback)
+
+    def select(self, regime, k, *args, **kwargs):
+        return list(self._normal[:k])
+
+    def select_with_fallback(self, regime, k, *args, **kwargs):
+        return list(self._fallback[:k])
 
 
 class TestPlayerProfile(unittest.TestCase):
@@ -133,6 +146,43 @@ class TestPlayerComposer(unittest.TestCase):
         # LiveTrendFollow должен быть с самым большим весом
         weights_sorted = sorted(player.weights.items(), key=lambda kv: -kv[1])
         self.assertEqual(weights_sorted[0][0], "LiveTrendFollow")
+
+    def test_positive_score_weights_are_convex_to_promote_good_agents_faster(self):
+        good = ScoredAgent(FakeAgent("Good"), score=4.0, metrics=Metrics.empty())
+        okay = ScoredAgent(FakeAgent("Okay"), score=1.0, metrics=Metrics.empty())
+        composer = PlayerComposer(_FixedScoreSelector(normal=(good, okay)))
+        profile = PlayerProfile(
+            label="DynamicWeights",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=2,
+            min_agents=2,
+        )
+
+        player = composer.compose_from_profile(profile, Regime.NEUTRAL)
+
+        self.assertIsNotNone(player)
+        self.assertGreater(
+            player.weights["Good"] / player.weights["Okay"],
+            good.score / okay.score,
+        )
+
+    def test_negative_fallback_weights_decay_by_score_severity(self):
+        mild = ScoredAgent(FakeAgent("MildLoser"), score=-0.10, metrics=Metrics.empty())
+        bad = ScoredAgent(FakeAgent("BadLoser"), score=-2.00, metrics=Metrics.empty())
+        composer = PlayerComposer(_FixedScoreSelector(fallback=(mild, bad)))
+        profile = PlayerProfile(
+            label="DynamicFallbackWeights",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=2,
+            min_agents=2,
+        )
+
+        player = composer.compose_from_profile_with_fallback(profile, Regime.NEUTRAL)
+
+        self.assertIsNotNone(player)
+        self.assertGreater(player.weights["MildLoser"], player.weights["BadLoser"] * 2.0)
 
     def test_compose_with_fallback(self):
         # Если нет agents с positive scores, нормальный compose даст None,
