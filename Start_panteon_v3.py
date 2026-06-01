@@ -171,13 +171,15 @@ def _spawn_child_windows(
     out_path: Path,
     err_path: Path,
 ) -> int:
+    try:
+        err_path.touch(exist_ok=True)
+    except OSError:
+        pass
     command = (
         "$p = Start-Process "
         f"-FilePath {_ps_quote(python_executable)} "
         f"-ArgumentList {_ps_quote(str(script.relative_to(PROJECT_ROOT)))} "
         f"-WorkingDirectory {_ps_quote(str(PROJECT_ROOT))} "
-        f"-RedirectStandardOutput {_ps_quote(str(out_path))} "
-        f"-RedirectStandardError {_ps_quote(str(err_path))} "
         "-WindowStyle Hidden -PassThru; "
         "Write-Output $p.Id"
     )
