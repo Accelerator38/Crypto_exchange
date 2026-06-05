@@ -44,6 +44,30 @@ def test_genetics_agent_applies_regime_adaptive_open_bias_before_argmax(monkeypa
     }
 
 
+def test_genetics_agent_negative_regime_bias_boosts_open_logits(monkeypatch):
+    cg = _load_crypto_genetics()
+    agent = cg.GeneticsAgent(genome=np.zeros(cg.GENOME_SIZE, dtype=np.float32))
+    agent.configure_regime_adaptive_output_bias(
+        {"neutral": -0.25},
+        enabled=True,
+    )
+
+    def fake_fwd_np(x, *_weights):
+        logits = np.zeros((x.shape[0], cg.N_ACTIONS), dtype=np.float32)
+        logits[:, 0] = 0.50
+        logits[:, 1] = 0.40
+        return logits
+
+    monkeypatch.setattr(cg, "_fwd_np", fake_fwd_np)
+
+    action = {}
+    for idx in range(25):
+        action = agent.act({"BTC": 100.0 + idx * 0.01}, {"BTC": 1000.0}, month=4)
+
+    assert action == {"BTC": 1}
+    assert agent.last_regime_adaptive_output_bias["open_output_bias"] == -0.25
+
+
 def test_genetics_v2_adapter_exposes_runtime_bias_trace():
     from panteon_v2.shadow import make_market_snapshot
     from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter
@@ -141,6 +165,62 @@ def test_genetics_v2_adapter_uses_symbol_local_regime_for_adaptive_bias():
     trace = wrapped.last_regime_adaptive_output_bias
     assert trace["by_symbol"]["BTC"]["raw_regime"] == "bearish"
     assert trace["by_symbol"]["ETH"]["raw_regime"] == "range_low_vol"
+
+
+def test_genetics_v2_adapter_symbol_local_clone_preserves_warm_runtime_state():
+    import numpy as np
+
+    from panteon_v2.domain.types import Regime
+    from panteon_v2.shadow import make_market_snapshot
+    from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter
+
+    class WarmupSensitiveAdaptiveAgent:
+        def __init__(self, genome=None):
+            self.genome = np.array(genome if genome is not None else [1.0])
+            self.t = 0
+            self.ph = {"BTC": [99.0, 100.0]}
+            self.vh = {"BTC": [1000.0, 1000.0]}
+            self._regime_adaptive_output_bias_enabled = True
+            self._regime_adaptive_output_bias_map = {"bearish": 0.90}
+            self.last_regime_adaptive_output_bias = {}
+
+        def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+            self.t += 1
+            raw_regime = str(
+                getattr(self, "_regime_adaptive_output_bias_regime_override", "")
+                or "mixed_rotational"
+            )
+            bias = float(self._regime_adaptive_output_bias_map.get(raw_regime, 0.0))
+            self.last_regime_adaptive_output_bias = {
+                "enabled": True,
+                "regime": raw_regime,
+                "raw_regime": raw_regime,
+                "open_output_bias": bias,
+            }
+            if self.t < 11:
+                return {"BTC": 0}
+            return {"BTC": 4 if raw_regime == "bearish" else 0}
+
+    legacy = WarmupSensitiveAdaptiveAgent()
+    legacy.t = 10
+    wrapped = GeneticsV2AgentAdapter("GeneticsRegimeAdaptiveBias", legacy)
+    market = make_market_snapshot(
+        bar=1,
+        prices={"BTC": 100.0},
+        regime="mixed_rotational",
+        regimes_by_symbol={"BTC": Regime.BEARISH},
+    )
+
+    actions = wrapped.act(market)
+
+    assert actions["BTC"].is_open
+    assert legacy.t == 11
+    assert wrapped.last_regime_adaptive_output_bias["by_symbol"]["BTC"] == {
+        "enabled": True,
+        "regime": "bearish",
+        "raw_regime": "bearish",
+        "open_output_bias": 0.90,
+    }
 
 
 def test_shadow_agent_signal_records_regime_adaptive_bias_trace():

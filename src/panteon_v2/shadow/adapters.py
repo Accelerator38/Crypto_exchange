@@ -133,6 +133,18 @@ def _clone_genetics_runtime_agent(agent: Any) -> Any:
                 "_regime_adaptive_output_bias_enabled",
                 "_regime_adaptive_output_bias_map",
                 "last_regime_adaptive_output_bias",
+                "ph",
+                "vh",
+                "spot_qty",
+                "spot_entry",
+                "fut_qty",
+                "fut_entry",
+                "pos",
+                "t",
+                "_regime",
+                "_breadth",
+                "_regime_conf",
+                "_ema_breadth",
             ):
                 if hasattr(agent, attr):
                     try:
