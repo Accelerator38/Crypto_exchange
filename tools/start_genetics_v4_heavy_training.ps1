@@ -3,6 +3,8 @@ param(
     [string]$TrainStartDate = "2022-01-01",
     [string]$TrainEndDate = "2023-12-31",
     [string]$Python = ".\.venv\Scripts\python.exe",
+    [string]$Exchange = $env:CRYPTO_EXCHANGE,
+    [string]$DataDir = "Retrodate",
     [int]$Population = 900,
     [int]$Generations = 100,
     [switch]$PositionStateFeatures,
@@ -13,9 +15,14 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+if ([string]::IsNullOrWhiteSpace($Exchange)) {
+    throw "Exchange is required for genetics heavy training; pass -Exchange MEXC or -Exchange BITGET"
+}
+$Exchange = $Exchange.ToUpperInvariant()
+
 if ([string]::IsNullOrWhiteSpace($RunDir)) {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $RunDir = Join-Path $Root "Results\neiro_genetics\heavy_evolution_v4_$stamp"
+    $RunDir = Join-Path $Root ("Results\neiro_genetics\" + $Exchange.ToUpperInvariant() + "\heavy_evolution_v4_$stamp")
 }
 if (-not [System.IO.Path]::IsPathRooted($RunDir)) {
     $RunDir = Join-Path $Root $RunDir
@@ -24,6 +31,9 @@ New-Item -ItemType Directory -Path $RunDir -Force | Out-Null
 
 if (-not [System.IO.Path]::IsPathRooted($Python)) {
     $Python = Join-Path $Root $Python
+}
+if (-not [System.IO.Path]::IsPathRooted($DataDir)) {
+    $DataDir = Join-Path $Root $DataDir
 }
 
 $AgentsDir = Join-Path $RunDir "agents"
@@ -64,6 +74,8 @@ if (Test-Path -LiteralPath $baselineSource) {
 @{
     run_dir = $RunDir
     agents_dir = $AgentsDir
+    exchange = $Exchange
+    data_dir = $DataDir
     train_start_date = $TrainStartDate
     train_end_date = $TrainEndDate
     population = $Population
@@ -113,6 +125,8 @@ $trainEnv = @{
     GENETICS_TRAIN_START_DATE = $TrainStartDate
     GENETICS_TRAIN_END_DATE = $TrainEndDate
     GENETICS_AGENTS_DIR = $AgentsDir
+    GENETICS_DATA_DIR = $DataDir
+    CRYPTO_EXCHANGE = $Exchange
     GENETICS_FORCE_FLUSH = "1"
     PYTHONUNBUFFERED = "1"
     PYTHONUTF8 = "1"
@@ -137,7 +151,9 @@ if (-not $NoPostTraining) {
         "-File", "tools\run_genetics_v4_post_training.ps1",
         "-WaitPid", [string]$trainProc.Id,
         "-RunDir", $RunDir,
-        "-AgentsDir", $AgentsDir
+        "-AgentsDir", $AgentsDir,
+        "-Exchange", $Exchange,
+        "-DataDir", $DataDir
     )
     if (Test-Path -LiteralPath $baselineCopy) {
         $postArgs += @("-BaselineGenome", $baselineCopy)

@@ -432,6 +432,100 @@ def _filter_precomp_by_regime(precomp: list, regime_filter: str) -> list:
     ]
 
 
+def _normalize_symbol_base(value) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    if "/" in text:
+        text = text.split("/", 1)[0]
+    elif "_" in text:
+        text = text.split("_", 1)[0]
+    elif text.endswith("USDT") and len(text) > 4:
+        text = text[:-4]
+    return text.strip()
+
+
+def _parse_symbol_filter(raw_specs) -> tuple[str, ...]:
+    if not raw_specs:
+        return ()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for raw_spec in raw_specs:
+        for raw_item in str(raw_spec).replace(";", ",").split(","):
+            symbol = _normalize_symbol_base(raw_item)
+            if not symbol or symbol.lower() == "all" or symbol in seen:
+                continue
+            seen.add(symbol)
+            symbols.append(symbol)
+    return tuple(symbols)
+
+
+def _filter_array_symbol_axis(value, indices: np.ndarray, symbol_count: int):
+    arr = np.asarray(value)
+    if arr.ndim >= 2 and arr.shape[1] == symbol_count:
+        return arr[:, indices, ...]
+    if arr.ndim >= 1 and arr.shape[0] == symbol_count:
+        return arr[indices, ...]
+    return value
+
+
+def _filter_precomp_symbols(precomp: list, allowed_symbols: tuple[str, ...]) -> tuple[list, dict]:
+    allowed = {_normalize_symbol_base(symbol) for symbol in allowed_symbols if _normalize_symbol_base(symbol)}
+    summary = {
+        "requested_symbols": sorted(allowed),
+        "periods_before": int(len(precomp)),
+        "periods_after": 0,
+        "periods_dropped": 0,
+        "periods": [],
+    }
+    if not allowed:
+        summary["periods_after"] = int(len(precomp))
+        return precomp, summary
+
+    filtered_precomp: list = []
+    for entry in precomp:
+        if len(entry) < 3:
+            continue
+        feat, prices, syms = entry[:3]
+        symbol_names = list(syms) if syms is not None else []
+        indices = [
+            idx
+            for idx, symbol in enumerate(symbol_names)
+            if _normalize_symbol_base(symbol) in allowed
+        ]
+        period = str(entry[4]) if len(entry) > 4 else ""
+        if not indices:
+            summary["periods"].append({
+                "period": period,
+                "symbols_before": int(len(symbol_names)),
+                "symbols_after": 0,
+                "kept_symbols": [],
+                "dropped": True,
+            })
+            continue
+
+        index_arr = np.asarray(indices, dtype=np.int64)
+        filtered_symbols = [symbol_names[idx] for idx in indices]
+        filtered_entry = (
+            _filter_array_symbol_axis(feat, index_arr, len(symbol_names)),
+            _filter_array_symbol_axis(prices, index_arr, len(symbol_names)),
+            filtered_symbols,
+            *entry[3:],
+        )
+        filtered_precomp.append(filtered_entry)
+        summary["periods"].append({
+            "period": period,
+            "symbols_before": int(len(symbol_names)),
+            "symbols_after": int(len(filtered_symbols)),
+            "kept_symbols": [str(symbol) for symbol in filtered_symbols],
+            "dropped": False,
+        })
+
+    summary["periods_after"] = int(len(filtered_precomp))
+    summary["periods_dropped"] = int(len(precomp) - len(filtered_precomp))
+    return filtered_precomp, summary
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a small isolated genetics training smoke test.")
     parser.add_argument("--population", type=int, default=18)
@@ -518,6 +612,14 @@ def main() -> int:
         choices=("all", "bearish", "neutral", "bullish"),
         default="all",
         help="Train only on periods mapped to this market regime.",
+    )
+    parser.add_argument(
+        "--symbol",
+        "--symbols",
+        dest="symbol_filter",
+        action="append",
+        default=None,
+        help="Restrict training precomputed periods to these base symbols.",
     )
     parser.add_argument(
         "--source-genome-mismatch",
@@ -652,6 +754,24 @@ def main() -> int:
         if not precomp:
             raise RuntimeError("No periods loaded")
         loaded_periods = len(precomp)
+        symbol_filter = _parse_symbol_filter(args.symbol_filter)
+        symbol_filter_summary = {
+            "requested_symbols": [],
+            "periods_before": int(len(precomp)),
+            "periods_after": int(len(precomp)),
+            "periods_dropped": 0,
+            "periods": [],
+        }
+        if symbol_filter:
+            periods_before_symbols = len(precomp)
+            precomp, symbol_filter_summary = _filter_precomp_symbols(precomp, symbol_filter)
+            print(
+                "[smoke] symbol_filter="
+                + ",".join(symbol_filter)
+                + f" periods={len(precomp)}/{periods_before_symbols}"
+            )
+            if not precomp:
+                raise RuntimeError("No periods left after symbol filter")
         precomp = _filter_precomp_by_regime(precomp, args.regime_filter)
         if not precomp:
             raise RuntimeError(f"No periods left after regime filter: {args.regime_filter}")
@@ -744,6 +864,8 @@ def main() -> int:
             "generations": cg.N_GENERATIONS,
             "start_date": args.start_date,
             "end_date": args.end_date,
+            "symbol_filter": list(symbol_filter),
+            "symbol_filter_summary": symbol_filter_summary,
             "regime_filter": args.regime_filter,
             "loaded_periods": loaded_periods,
             "periods": len(precomp),

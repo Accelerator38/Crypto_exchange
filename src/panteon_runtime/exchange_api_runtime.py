@@ -14,6 +14,7 @@ import threading
 from datetime import datetime, timezone
 from collections import OrderedDict, deque
 from typing import Callable, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import requests
 
@@ -23,6 +24,17 @@ MEXC_DIRECT_HTTP.trust_env = False
 
 def _mexc_direct_get(url: str, **kwargs):
     return MEXC_DIRECT_HTTP.get(url, **kwargs)
+
+
+def _mexc_contract_query_string(params: dict) -> str:
+    if not params:
+        return ""
+    parts = []
+    for key, value in sorted(params.items()):
+        if value is None:
+            continue
+        parts.append(f"{key}={quote(str(value), safe='')}")
+    return "&".join(parts)
 
 
 from project_paths import PROJECT_ROOT, RUNTIME_DIR, add_runtime_paths
@@ -40,6 +52,14 @@ _bootstrap_project_paths()
 
 API_KEY = os.getenv("MEXC_API_KEY", "")
 API_SECRET = os.getenv("MEXC_SECRET_KEY", "")
+
+
+def _mexc_futures_base_url() -> str:
+    raw = str(os.getenv("MEXC_FUTURES_BASE_URL", "") or "").strip()
+    return (raw or "https://api.mexc.com").rstrip("/")
+
+
+MEXC_FUTURES_BASE_URL = _mexc_futures_base_url()
 
 
 def _repair_curve_spikes(values: List[float], floor: float = 0.0) -> List[float]:
@@ -854,7 +874,7 @@ class MexcDirectClient:
     """
 
     SPOT_BASE     = "https://api.mexc.com"
-    FUTURES_BASE  = "https://contract.mexc.com"
+    FUTURES_BASE  = MEXC_FUTURES_BASE_URL
 
     def __init__(self, api_key: str, api_secret: str):
         self.api_key    = api_key
@@ -865,6 +885,11 @@ class MexcDirectClient:
         self._last_good_futures_snapshot: Optional[dict] = None
         self._last_good_futures_snapshot_at = 0.0
         self._contract_meta_cache: Dict[str, dict] = {}
+        self._last_data_error_at = 0.0
+        self._last_data_error_reason = ""
+        self._futures_time_offset_ms = 0
+        self._futures_time_synced_at = 0.0
+        self._futures_recv_window_ms = 60000
 
     # ── Подпись ───────────────────────────────────────────────────────────────
     def _sign(self, params: dict) -> str:
@@ -965,53 +990,87 @@ class MexcDirectClient:
            "AppleWebKit/537.36 (KHTML, like Gecko) "
            "Chrome/124.0.0.0 Safari/537.36")
 
-    def _futures_sign(self, params: dict, ts: int) -> str:
+    def _sync_futures_time(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and (now - self._futures_time_synced_at) < 300:
+            return
+        try:
+            before = int(time.time() * 1000)
+            r = _mexc_direct_get(
+                f"{self.FUTURES_BASE}/api/v1/contract/ping",
+                headers={"User-Agent": self._UA},
+                timeout=5,
+            )
+            after = int(time.time() * 1000)
+            if r.status_code != 200:
+                return
+            payload = r.json()
+            server_ms = int(payload.get("data"))
+            self._futures_time_offset_ms = server_ms - ((before + after) // 2)
+            self._futures_time_synced_at = now
+        except Exception as exc:
+            log.debug("MEXC futures time sync failed: %s", exc)
+
+    def _futures_ts(self) -> int:
+        self._sync_futures_time()
+        return int(time.time() * 1000) + int(self._futures_time_offset_ms)
+
+    def _futures_sign(self, params: dict, ts: int, method: str = "GET") -> str:
         """Подпись для фьючерсного API MEXC."""
-        body = json.dumps(params, separators=(",", ":")) if params else ""
-        msg  = self.api_key + str(ts) + body
+        if str(method or "GET").upper() == "POST":
+            payload = json.dumps(params, separators=(",", ":")) if params else ""
+        else:
+            payload = _mexc_contract_query_string(params or {})
+        msg  = self.api_key + str(ts) + payload
         return hmac.new(
             self.api_secret.encode(),
             msg.encode(),
             hashlib.sha256,
         ).hexdigest()
 
+    def _futures_auth_headers(self, params: Optional[dict] = None, method: str = "GET") -> dict:
+        ts = self._futures_ts()
+        sig = self._futures_sign(params or {}, ts, method=method)
+        return {
+            "ApiKey": self.api_key,
+            "Request-Time": str(ts),
+            "Signature": sig,
+            "Content-Type": "application/json",
+            "User-Agent": self._UA,
+            "recv-window": str(self._futures_recv_window_ms),
+        }
+
     def get_futures_positions(self) -> List[dict]:
         """Открытые фьючерсные позиции."""
-        ts  = self._ts()
-        sig = self._futures_sign({}, ts)
         try:
             r = _mexc_direct_get(
                 f"{self.FUTURES_BASE}/api/v1/private/position/open_positions",
-                headers={
-                    "ApiKey": self.api_key,
-                    "Request-Time": str(ts),
-                    "Signature": sig,
-                    "Content-Type": "application/json",
-                    "User-Agent": self._UA,
-                },
+                headers=self._futures_auth_headers({}),
                 timeout=10,
             )
             if r.status_code == 200:
                 d = r.json()
-                return d.get("data", []) if isinstance(d, dict) else []
+                if isinstance(d, dict):
+                    code = d.get("code")
+                    if code not in (None, 0, 200):
+                        self._mark_data_error(f"futures_positions_code_{code}")
+                        return []
+                    data = d.get("data", [])
+                    return data if isinstance(data, list) else []
+                self._mark_data_error("futures_positions_invalid_payload")
+                return []
+            self._mark_data_error(f"futures_positions_http_{r.status_code}")
         except Exception:
+            self._mark_data_error("futures_positions_exception")
             pass
         return []
 
     def get_futures_account(self) -> dict:
         """Аккаунт фьючерсов (баланс маржи, PnL)."""
-        ts  = self._ts()
-        sig = self._futures_sign({}, ts)
         try:
             r = _mexc_direct_get(
                 f"{self.FUTURES_BASE}/api/v1/private/account/assets",
-                headers={
-                    "ApiKey": self.api_key,
-                    "Request-Time": str(ts),
-                    "Signature": sig,
-                    "Content-Type": "application/json",
-                    "User-Agent": self._UA,
-                },
+                headers=self._futures_auth_headers({}),
                 timeout=10,
             )
             if r.status_code == 200:
@@ -1082,6 +1141,17 @@ class MexcDirectClient:
         self._contract_meta_cache[base] = meta
         return meta
 
+    def _mark_data_error(self, reason: str) -> None:
+        self._last_data_error_at = time.time()
+        self._last_data_error_reason = str(reason or "data_error")
+
+    def recent_data_error(self, max_age_sec: float = 120.0) -> str:
+        if self._last_data_error_at <= 0:
+            return ""
+        if time.time() - float(self._last_data_error_at) <= float(max_age_sec or 120.0):
+            return self._last_data_error_reason or "data_error"
+        return ""
+
     def get_full_snapshot(self) -> dict:
         """
         Единый срез реального аккаунта: фьючерсы + спот.
@@ -1118,13 +1188,9 @@ class MexcDirectClient:
             items = []
             last_status = None
             for attempt in range(2):
-                ts = self._ts()
-                sig = self._futures_sign({}, ts)
                 r = _mexc_direct_get(
                     f"{self.FUTURES_BASE}/api/v1/private/account/assets",
-                    headers={"ApiKey": self.api_key, "Request-Time": str(ts),
-                             "Signature": sig, "Content-Type": "application/json",
-                             "User-Agent": self._UA},
+                    headers=self._futures_auth_headers({}),
                     timeout=10,
                 )
                 last_status = r.status_code
@@ -1137,6 +1203,8 @@ class MexcDirectClient:
                 items = resp_json.get("data", [])
                 if items:
                     break
+                if resp_json.get("code") == 513:
+                    self._sync_futures_time(force=True)
                 if attempt == 0:
                     time.sleep(0.35)
 
@@ -1150,24 +1218,41 @@ class MexcDirectClient:
             elif self._last_good_futures_snapshot and (
                 time.time() - self._last_good_futures_snapshot_at
             ) <= 300:
+                cache_age = time.time() - self._last_good_futures_snapshot_at
+                code = resp_json.get("code")
+                message = resp_json.get("message") or resp_json.get("msg") or last_status
+                self._mark_data_error(f"cached_futures_assets:{code or message}")
                 snap['futures'].update(dict(self._last_good_futures_snapshot))
                 log.warning(
                     "get_full_snapshot: futures assets empty/invalid -> reuse cached snapshot "
                     "(age=%.1fs, code=%s, msg=%s)",
-                    time.time() - self._last_good_futures_snapshot_at,
-                    resp_json.get("code"),
-                    resp_json.get("message") or resp_json.get("msg") or last_status,
+                    cache_age,
+                    code,
+                    message,
                 )
+                snap["data_health"] = {
+                    "uses_cached_balance": True,
+                    "cache_age_sec": round(cache_age, 1),
+                    "last_data_error_reason": "cached_futures_assets",
+                    "futures_assets_code": code,
+                    "futures_assets_message": str(message or ""),
+                    "snapshot_healthy": False,
+                }
             elif last_status is not None and last_status != 200:
+                self._mark_data_error(f"futures_assets_http_{last_status}")
                 log.warning("get_full_snapshot: HTTP %s от futures assets", last_status)
             else:
+                self._mark_data_error(
+                    f"futures_assets_empty:{resp_json.get('code') or resp_json.get('message') or resp_json.get('msg')}"
+                )
                 log.warning(
                     "get_full_snapshot: фьючерсный аккаунт вернул пустой data=[]. "
-                    "code=%s msg=%s. Возможно: субаккаунт, неверная подпись или "
-                    "аккаунт не активирован для фьючерсов.",
+                    "code=%s msg=%s. Возможны: time-window/signature, нет read-permission "
+                    "или аккаунт не активирован для фьючерсов.",
                     resp_json.get("code"), resp_json.get("message") or resp_json.get("msg")
                 )
         except Exception as e:
+            self._mark_data_error(f"futures_assets_exception:{type(e).__name__}")
             log.debug("get_full_snapshot futures assets: %s", e)
 
         # Открытые фьючерсные позиции
@@ -1317,7 +1402,7 @@ class MexcDirectClient:
 
         # Фьючерсы
         fut = snap['futures']
-        log.info("│  ─── ФЬЮЧЕРСНЫЙ СЧЁТ (contract.mexc.com) ───            │")
+        log.info("│  ─── ФЬЮЧЕРСНЫЙ СЧЁТ (%s) ───            │", self.FUTURES_BASE)
         log.info("│    Equity (доступно + unrealPnL): $%10.4f             │", fut['equity'])
         log.info("│    Свободная маржа:               $%10.4f             │", fut['available'])
         if fut['unrealized'] != 0:
@@ -2963,19 +3048,43 @@ def _check_futures_api_permission(direct_client: 'MexcDirectClient') -> bool:
         q   = ""  # GET без параметров
         msg = f"{api_key}{ts}{q}"
         sig = _hm.new(api_secret.encode(), msg.encode(), _hs.sha256).hexdigest()
+        recv_window = "60000"
+        if hasattr(direct_client, "_futures_auth_headers"):
+            auth_headers = direct_client._futures_auth_headers({})
+            ts = auth_headers.get("Request-Time", ts)
+            sig = auth_headers.get("Signature", sig)
+            recv_window = auth_headers.get("recv-window", recv_window)
+        base = str(
+            getattr(direct_client, "FUTURES_BASE", None) or _mexc_futures_base_url()
+        ).rstrip("/")
         r = _req.get(
-            "https://contract.mexc.com/api/v1/private/position/open_positions",
+            f"{base}/api/v1/private/position/open_positions",
             headers={"ApiKey": api_key, "Request-Time": ts,
                      "Signature": sig, "Content-Type": "application/json",
                      "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                     "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                    "Chrome/124.0.0.0 Safari/537.36")},
+                                     "Chrome/124.0.0.0 Safari/537.36"),
+                     "recv-window": recv_window},
             timeout=8,
         )
         # 200 = аутентификация прошла, права есть
         # 401/403 = ключ неверный или нет прав
         if r.status_code == 200:
-            return True
+            try:
+                payload = r.json()
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                return False
+            code = payload.get("code")
+            if code in (None, 0, 200) and payload.get("success") is not False:
+                return True
+            log.warning(
+                "MEXC futures permission check: API code=%s msg=%s",
+                code,
+                payload.get("message") or payload.get("msg"),
+            )
+            return False
         body_preview = (r.text or "")[:240].replace("\n", " ")
         log.warning(
             "MEXC futures permission check: HTTP %s, body=%s",

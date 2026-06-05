@@ -73,6 +73,39 @@ class TestEnsemblePlayerConstruction(unittest.TestCase):
 
 
 class TestEnsemblePlayerVote(unittest.TestCase):
+    def test_agents_receive_symbol_local_regime(self):
+        class RegimeAwareAgent:
+            label = "Local"
+
+            def act(self, market):
+                if market.regime == Regime.BULLISH:
+                    return {sym: Action.FUT_LONG_FULL for sym in market.prices}
+                if market.regime == Regime.BEARISH:
+                    return {sym: Action.FUT_SHORT_FULL for sym in market.prices}
+                return {sym: Action.HOLD for sym in market.prices}
+
+        p = EnsemblePlayer(
+            label="LocalTeam",
+            agents=[RegimeAwareAgent()],
+            weights={"Local": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        market = make_market(
+            regime=Regime.NEUTRAL,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regimes_by_symbol={"BTC": Regime.BULLISH, "ETH": Regime.BEARISH},
+        )
+
+        signals, errors = p.vote(market, signal_id_start=10)
+        by_symbol = {signal.sym: signal for signal in signals}
+
+        self.assertEqual(errors, [])
+        self.assertEqual(by_symbol["BTC"].action, Action.FUT_LONG_FULL)
+        self.assertEqual(by_symbol["BTC"].regime, Regime.BULLISH)
+        self.assertEqual(by_symbol["ETH"].action, Action.FUT_SHORT_FULL)
+        self.assertEqual(by_symbol["ETH"].regime, Regime.BEARISH)
+
     def test_simple_long_signal(self):
         a1 = FakeAgent("A", {"BTC": Action.FUT_LONG_FULL})
         a2 = FakeAgent("B", {"BTC": Action.FUT_LONG_FULL})

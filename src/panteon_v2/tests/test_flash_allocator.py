@@ -30,14 +30,16 @@ def _record_one_trade(
     *,
     entry: float,
     exit: float,
+    symbol: str = "",
     funding_open: float = 0.0,
     funding_close: float = 0.0,
     start_id: int = 1,
 ) -> None:
+    sym = str(symbol or f"{label[:3].upper()}USDT").upper()
     open_signal = Signal(
         id=start_id,
         bar=start_id,
-        sym=f"{label[:3].upper()}USDT",
+        sym=sym,
         action=Action.FUT_LONG_FULL,
         price=entry,
         regime=Regime.BULLISH,
@@ -80,6 +82,318 @@ def _record_one_trade(
 
 
 class TestFlashAllocator(unittest.TestCase):
+    def test_raw_agent_receives_symbol_local_regime_in_flash(self):
+        class RegimeAwareAgent:
+            label = "LocalAgent"
+
+            def act(self, market):
+                if market.regime == Regime.BULLISH:
+                    return {sym: Action.FUT_LONG_FULL for sym in market.prices}
+                if market.regime == Regime.BEARISH:
+                    return {sym: Action.FUT_SHORT_FULL for sym in market.prices}
+                return {sym: Action.HOLD for sym in market.prices}
+
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LocalAgent", Regime.BULLISH, 10, 2.0, start_id=1)
+        _add_perf(perf, "LocalAgent", Regime.BEARISH, 10, 2.0, start_id=1000)
+        allocator = FlashAllocator(perf=perf, qm=qm)
+
+        decisions = allocator.decide(
+            make_market(
+                regime=Regime.NEUTRAL,
+                prices={"BTC": 100.0, "ETH": 50.0},
+                regimes_by_symbol={"BTC": Regime.BULLISH, "ETH": Regime.BEARISH},
+            ),
+            agents=[RegimeAwareAgent()],
+            players=[],
+            signal_id_start=1,
+        )
+        by_symbol = {decision.symbol: decision for decision in decisions}
+
+        self.assertEqual(by_symbol["BTC"].selected_actor, "LocalAgent")
+        self.assertEqual(by_symbol["BTC"].signal.action, Action.FUT_LONG_FULL)
+        self.assertEqual(by_symbol["BTC"].signal.regime, Regime.BULLISH)
+        self.assertEqual(by_symbol["ETH"].selected_actor, "LocalAgent")
+        self.assertEqual(by_symbol["ETH"].signal.action, Action.FUT_SHORT_FULL)
+        self.assertEqual(by_symbol["ETH"].signal.regime, Regime.BEARISH)
+
+    def test_mixed_rotational_caps_directional_exposure_but_keeps_confident_symbol_trade(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "BtcBull", Regime.BULLISH, 10, 2.0, start_id=1)
+        _add_perf(perf, "EthBull", Regime.BULLISH, 10, 1.8, start_id=1000)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                mixed_rotational_exposure_cap_enabled=True,
+                mixed_rotational_max_directional_opens=1,
+            ),
+        )
+        market = replace(
+            make_market(
+                regime=Regime.MIXED_ROTATIONAL,
+                prices={"BTC": 100.0, "ETH": 50.0},
+                regimes_by_symbol={"BTC": Regime.BULLISH, "ETH": Regime.BULLISH},
+            ),
+            regime_features_by_symbol={
+                "BTC": {"regime_confidence": 0.90},
+                "ETH": {"regime_confidence": 0.85},
+            },
+        )
+
+        decisions = allocator.decide(
+            market,
+            agents=[
+                FakeAgent("BtcBull", {"BTC": Action.FUT_LONG_FULL}),
+                FakeAgent("EthBull", {"ETH": Action.FUT_LONG_FULL}),
+            ],
+            players=[],
+            signal_id_start=1,
+        )
+
+        opened = [decision for decision in decisions if decision.signal is not None]
+        blocked = [
+            decision
+            for decision in decisions
+            if decision.reason == "mixed_rotational_exposure_cap"
+        ]
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(len(blocked), 1)
+
+    def test_mixed_rotational_symbol_local_shadow_gate_allows_strong_range_short(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RangeShort", Regime.RANGE_LOW_VOL, 10, 2.0, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=5,
+                mixed_rotational_exposure_cap_enabled=True,
+                mixed_rotational_symbol_local_shadow_gate_enabled=True,
+                mixed_rotational_symbol_local_shadow_min_score=4.0,
+                mixed_rotational_symbol_local_shadow_min_closed_trades=5,
+            ),
+        )
+        market = replace(
+            make_market(
+                regime=Regime.MIXED_ROTATIONAL,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.RANGE_LOW_VOL},
+            ),
+            regime_features_by_symbol={
+                "BTC": {"regime": "range_low_vol", "regime_confidence": 0.90},
+            },
+        )
+
+        decision = allocator.decide(
+            market,
+            agents=[FakeAgent("RangeShort", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=1,
+            shadow_confirmation={
+                ("RangeShort", "BTC", "FUT_SHORT_FULL"): (5.0, 8),
+            },
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "RangeShort")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertNotEqual(decision.reason, "mixed_rotational_symbol_not_directional")
+
+    def test_flash_scores_with_symbol_regime_confidence_when_global_market_is_mixed(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "StrongBtcBear", Regime.BEARISH, 10, 4.0, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_score_to_trade=4.0,
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_base_fallback_confirmation_enabled=True,
+                shadow_base_fallback_actor_keys=("agent:StrongBtcBear",),
+                shadow_actor_fallback_min_base_score=3.0,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=20,
+            ),
+        )
+        market = replace(
+            make_market(
+                regime=Regime.MIXED_ROTATIONAL,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.BEARISH},
+            ),
+            regime_confidence=0.1,
+            regime_features_by_symbol={
+                "BTC": {"regime": "bearish", "regime_confidence": 0.9},
+            },
+        )
+
+        decision = allocator.decide(
+            market,
+            agents=[FakeAgent("StrongBtcBear", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=1,
+            shadow_confirmation={("StrongBtcBear", "BTC", "FUT_SHORT_FULL"): (0.0, 0)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "StrongBtcBear")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertGreaterEqual(decision.score, 4.0)
+
+    def test_micro_macro_gate_blocks_conflict_without_countertrend_edge(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "WeakTrend", Regime.BULLISH, 5, 0.2, start_id=1)
+        _add_perf(perf, "CounterEdge", Regime.BULLISH, 5, 2.0, start_id=1000)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                trend_alignment_gate_enabled=True,
+                counter_trend_min_closed_trades=3,
+                counter_trend_min_pnl_pct=1.0,
+                min_closed_trades_to_trade=1,
+            ),
+        )
+        market = replace(
+            make_market(
+                regime=Regime.BULLISH,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.BULLISH},
+            ),
+            regime_features_by_symbol={
+                "BTC": {
+                    "micro_direction": "down",
+                    "macro_direction": "up",
+                    "micro_macro_alignment": "conflict",
+                }
+            },
+        )
+
+        decision = allocator.decide(
+            market,
+            agents=[
+                FakeAgent("WeakTrend", {"BTC": Action.FUT_LONG_FULL}),
+                FakeAgent("CounterEdge", {"BTC": Action.FUT_LONG_FULL}),
+            ],
+            players=[],
+            signal_id_start=1,
+        )[0]
+        rows = {row.label: row for row in decision.candidates}
+
+        self.assertEqual(decision.selected_actor, "CounterEdge")
+        self.assertEqual(rows["WeakTrend"].reason, "micro_macro_conflict")
+        self.assertFalse(rows["CounterEdge"].rejected)
+
+    def test_regime_feature_risk_pressure_reduces_choppy_down_short_size(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "ShortCarryAware", Regime.CHOPPY_DOWN, 5, 2.0, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                regime_feature_risk_sizing_enabled=True,
+                regime_feature_risk_min_mult=0.40,
+                min_closed_trades_to_trade=1,
+            ),
+        )
+        market = replace(
+            make_market(
+                regime=Regime.CHOPPY_DOWN,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.CHOPPY_DOWN},
+            ),
+            funding={"BTC": -0.04},
+            regime_features_by_symbol={
+                "BTC": {
+                    "carry_risk": "short_pays_funding",
+                    "risk_pressure": 1.80,
+                    "volatility_percentile": 0.95,
+                    "liquidity_percentile": 0.10,
+                }
+            },
+        )
+
+        decision = allocator.decide(
+            market,
+            agents=[FakeAgent("ShortCarryAware", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=1,
+        )[0]
+        row = next(item for item in decision.candidates if item.label == "ShortCarryAware")
+
+        self.assertIsNotNone(decision.signal)
+        self.assertLess(decision.signal.risk_mult, 1.0)
+        self.assertAlmostEqual(row.regime_feature_risk_mult, decision.signal.risk_mult)
+
+    def test_raw_agent_signal_is_standalone_player_not_agent_attribution(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "GeneticsCore", Regime.NEUTRAL, 10, 2.0, start_id=1)
+        allocator = FlashAllocator(perf=perf, qm=qm)
+
+        decision = allocator.decide(
+            make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+            agents=[FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=1,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.by_player, "GeneticsCore")
+        self.assertEqual(decision.signal.by_agent, "")
+
+    def test_flash_uses_symbol_context_after_legacy_memory_transfer(self):
+        legacy = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(legacy, "Alpha", Regime.BULLISH, 10, 2.0, start_id=1)
+        _add_perf(legacy, "Beta", Regime.BULLISH, 10, 1.0, start_id=1000)
+        snapshot = legacy.snapshot()
+        snapshot.pop("context_state", None)
+        snapshot.pop("exchange_scope", None)
+
+        perf = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+        perf.restore(snapshot)
+        allocator = FlashAllocator(perf=perf, qm=qm)
+        alpha = FakeAgent("Alpha", {"BTC": Action.FUT_LONG_FULL, "ETH": Action.FUT_LONG_FULL})
+        beta = FakeAgent("Beta", {"BTC": Action.FUT_LONG_FULL, "ETH": Action.FUT_LONG_FULL})
+
+        first = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            agents=[alpha, beta],
+            players=[],
+            signal_id_start=1,
+        )[0]
+        self.assertEqual(first.selected_actor, "Alpha")
+
+        _record_one_trade(
+            perf,
+            "Alpha",
+            symbol="BTC",
+            entry=100.0,
+            exit=70.0,
+            start_id=5000,
+        )
+        decisions = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0, "ETH": 50.0}),
+            agents=[alpha, beta],
+            players=[],
+            signal_id_start=10,
+        )
+        by_symbol = {decision.symbol: decision for decision in decisions}
+
+        self.assertEqual(by_symbol["BTC"].selected_actor, "Beta")
+        self.assertEqual(by_symbol["ETH"].selected_actor, "Alpha")
+
     def test_technical_overlay_emits_candidate_audit_fields(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -210,10 +524,12 @@ class TestFlashAllocator(unittest.TestCase):
         by_symbol = {decision.symbol: decision for decision in decisions}
         self.assertEqual(by_symbol["BTC"].selected_actor, "BtcAgent")
         self.assertEqual(by_symbol["BTC"].actor_type, "agent")
-        self.assertEqual(by_symbol["BTC"].signal.by_agent, "BtcAgent")
+        self.assertEqual(by_symbol["BTC"].signal.by_player, "BtcAgent")
+        self.assertEqual(by_symbol["BTC"].signal.by_agent, "")
         self.assertEqual(by_symbol["ETH"].selected_actor, "EthAgent")
         self.assertEqual(by_symbol["ETH"].actor_type, "agent")
-        self.assertEqual(by_symbol["ETH"].signal.by_agent, "EthAgent")
+        self.assertEqual(by_symbol["ETH"].signal.by_player, "EthAgent")
+        self.assertEqual(by_symbol["ETH"].signal.by_agent, "")
         self.assertNotEqual(by_symbol["BTC"].selected_actor, by_symbol["ETH"].selected_actor)
 
     def test_denied_open_regime_blocks_opens_but_allows_closes(self):
@@ -250,6 +566,41 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(open_row.reason, "denied_open_regime")
         self.assertEqual(close_decision.selected_actor, "NeutralCloseAgent")
         self.assertEqual(close_decision.signal.action, Action.FUT_CLOSE_ALL)
+
+    def test_no_trade_fallback_preserves_top_rejected_actor_reason(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("ShadowLeader", {"BTC": Action.FUT_LONG_FULL})
+        _add_perf(perf, "ShadowLeader", Regime.NEUTRAL, 10, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                denied_open_symbols=("BTC",),
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_closed_trades=3,
+                shadow_confirmation_min_score=0.0,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=1,
+            shadow_confirmation={
+                ("ShadowLeader", "BTC", "FUT_LONG_FULL"): {
+                    "score": 7.0,
+                    "closed_trades": 12,
+                },
+            },
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(decision.reason, "no_real_admission:denied_open_symbol")
+        self.assertEqual(decision.original_selected_actor, "ShadowLeader")
+        self.assertIn("denied_open_symbol", decision.selected_reasons)
 
     def test_selected_subset_context_score_boost_applies_only_matching_regime(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -460,6 +811,30 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(decision.reason, "position_state_fallback")
         self.assertEqual(decision.original_selected_actor, "CloseAgent")
         self.assertIsNotNone(decision.signal)
+
+    def test_foreign_close_is_rejected_when_position_owner_is_known(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        foreign_close = FakeAgent("NeutralRangeScalper", {"ETH": Action.FUT_CLOSE_ALL})
+        owner_close = FakeAgent("GeneticsCore", {"ETH": Action.FUT_CLOSE_ALL})
+        _add_perf(perf, "NeutralRangeScalper", Regime.BULLISH, 5, 10.0, start_id=1)
+        _add_perf(perf, "GeneticsCore", Regime.BULLISH, 5, 2.0, start_id=100)
+
+        allocator = FlashAllocator(perf=perf, qm=qm)
+        decision = allocator.decide(
+            make_market(prices={"ETH": 50.0}),
+            agents=[foreign_close, owner_close],
+            players=[],
+            signal_id_start=10,
+            open_position_sides_by_symbol={"ETH": "short"},
+            open_position_actor_keys_by_symbol={"ETH": ("agent:GeneticsCore",)},
+        )[0]
+
+        rows = {row.label: row for row in decision.candidates}
+        self.assertEqual(rows["NeutralRangeScalper"].reason, "foreign_position_owner")
+        self.assertTrue(rows["NeutralRangeScalper"].rejected)
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.action, Action.FUT_CLOSE_ALL)
 
     def test_quarantine_rejects_actor_before_scoring(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -835,6 +1210,41 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertIn("MomentumScalper", rows)
         self.assertTrue(rows["MomentumScalper"].rejected)
         self.assertEqual(rows["MomentumScalper"].reason, "raw_suppressed_by_solo")
+
+    def test_prefer_solo_player_wrappers_keeps_raw_when_solo_lacks_real_evidence(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"NEAR": Action.FUT_SHORT_FULL})
+        solo_player = EnsemblePlayer(
+            label="Solo_GeneticsCore",
+            agents=[agent],
+            weights={"GeneticsCore": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        _add_perf(perf, "GeneticsCore", Regime.BULLISH, 10, 6.0, start_id=1)
+        _add_perf(perf, "Solo_GeneticsCore", Regime.BULLISH, 2, 1.0, start_id=100)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                prefer_solo_player_wrappers_enabled=True,
+                min_closed_trades_to_trade=3,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(prices={"NEAR": 2.0}),
+            agents=[agent],
+            players=[solo_player],
+            signal_id_start=1,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        rows = {row.label: row for row in decision.candidates}
+        self.assertFalse(rows["GeneticsCore"].rejected)
+        self.assertTrue(rows["Solo_GeneticsCore"].rejected)
+        self.assertEqual(rows["Solo_GeneticsCore"].reason, "insufficient_closed_trades")
 
     def test_solo_shadow_player_replay_uses_raw_agent_memory(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -2409,7 +2819,7 @@ class TestFlashAllocator(unittest.TestCase):
         rejected = {row.label: row for row in decision.candidates if row.rejected}
         self.assertEqual(rejected["WeakAgent"].reason, "pnl_below_threshold")
 
-    def test_portfolio_actor_uses_aggregate_metrics_over_bad_regime_slice(self):
+    def test_portfolio_actor_uses_symbol_regime_metrics_over_aggregate(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
         portfolio = FakeAgent("PortfolioAgent", {"BTC": Action.FUT_LONG_FULL})
@@ -2432,10 +2842,10 @@ class TestFlashAllocator(unittest.TestCase):
             signal_id_start=1,
         )[0]
 
-        self.assertEqual(decision.selected_actor, "PortfolioAgent")
+        self.assertEqual(decision.selected_actor, "NoTrade")
         row = {row.label: row for row in decision.candidates}["PortfolioAgent"]
-        self.assertGreater(row.pnl_net_pct, 0.0)
-        self.assertEqual(row.reason, "eligible")
+        self.assertLess(row.pnl_net_pct, 0.0)
+        self.assertEqual(row.reason, "pnl_below_threshold")
 
     def test_portfolio_actor_can_bootstrap_min_closed_from_confirmed_shadow(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -2713,6 +3123,69 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(decision.signal.by_player, "Solo_ShadowAgent")
         self.assertEqual(decision.signal.by_agent, "ShadowAgent")
 
+    def test_session_recovered_shadow_actor_can_trade_despite_old_negative_memory(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        qm.force_quarantine(
+            "RecoveredAgent",
+            reason="hopeless_in_all_regimes",
+            bar=1,
+        )
+        qm.force_release_override(
+            "RecoveredAgent",
+            reason="session_recovery:pnl_pct=0.50;closed=8",
+            bar=2,
+        )
+        agent = FakeAgent("RecoveredAgent", {"BTC": Action.HOLD})
+        player = EnsemblePlayer(
+            label="Solo_RecoveredAgent",
+            agents=[agent],
+            weights={"RecoveredAgent": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        _add_perf(perf, "RecoveredAgent", Regime.BULLISH, 12, -4.0, start_id=1)
+        shadow_signal = Signal(
+            id=91,
+            bar=3,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="Solo_RecoveredAgent",
+            by_agent="RecoveredAgent",
+        )
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_score_to_trade=0.10,
+                min_pnl_pct_to_trade=0.0,
+                shadow_signal_handoff_enabled=True,
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_actor_fallback_confirmation_enabled=True,
+                shadow_actor_fallback_min_base_score=3.0,
+                shadow_confirmation_min_score=0.0,
+                shadow_confirmation_min_closed_trades=5,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            agents=[],
+            players=[player],
+            signal_id_start=7,
+            actionable_labels={"Solo_RecoveredAgent"},
+            shadow_player_signals={"Solo_RecoveredAgent": (shadow_signal,)},
+            shadow_confirmation={"RecoveredAgent": (2.0, 8)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "Solo_RecoveredAgent")
+        self.assertEqual(decision.signal.id, 7)
+        self.assertEqual(decision.signal.action, Action.FUT_LONG_FULL)
+        self.assertEqual(decision.candidates[0].shadow_source, "actor_fallback")
+
     def test_shadow_signal_handoff_rejects_unknown_shadow_player_by_default(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -2783,6 +3256,155 @@ class TestFlashAllocator(unittest.TestCase):
 
         self.assertEqual(decision.selected_actor, "Solo_ShadowAgent")
         self.assertEqual(decision.signal.id, 7)
+
+    def test_probation_signal_key_allows_genetics_through_flash_shadow_gate(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.NEUTRAL, 42, 0.50, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_score_to_trade=4.0,
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=20,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=("agent:GeneticsCore|BTC|FUT_SHORT_FULL",),
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.id, 7)
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        row = next(item for item in decision.candidates if item.label == "GeneticsCore")
+        self.assertFalse(row.rejected)
+        self.assertEqual(row.reason, "genetics_probation_admission")
+        self.assertEqual(row.shadow_source, "genetics_probation")
+
+    def test_probation_min_closed_bypass_requires_explicit_flag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.NEUTRAL, 1, 0.50, start_id=1)
+        market = make_market(regime=Regime.NEUTRAL, prices={"BTC": 100.0})
+        key = "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+
+        strict = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(min_closed_trades_to_trade=3),
+        )
+        strict_decision = strict.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        strict_row = next(
+            item for item in strict_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(strict_decision.selected_actor, "NoTrade")
+        self.assertEqual(strict_row.reason, "insufficient_closed_trades")
+
+        probation = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=3,
+                genetics_probation_bypass_min_closed_enabled=True,
+            ),
+        )
+        probation_decision = probation.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        probation_row = next(
+            item for item in probation_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
+        self.assertEqual(probation_row.reason, "genetics_probation_admission")
+
+    def test_probation_trend_gate_bypass_requires_explicit_flag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.BULLISH, 5, 0.50, start_id=1)
+        market = replace(
+            make_market(
+                regime=Regime.BULLISH,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.BULLISH},
+            ),
+            regime_features_by_symbol={
+                "BTC": {
+                    "micro_direction": "flat",
+                    "macro_direction": "up",
+                    "micro_macro_alignment": "macro_only",
+                }
+            },
+        )
+        key = "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+
+        strict = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                trend_alignment_gate_enabled=True,
+                min_closed_trades_to_trade=1,
+            ),
+        )
+        strict_decision = strict.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        strict_row = next(
+            item for item in strict_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(strict_decision.selected_actor, "NoTrade")
+        self.assertEqual(strict_row.reason, "trend_contra_unsupported")
+
+        probation = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                trend_alignment_gate_enabled=True,
+                min_closed_trades_to_trade=1,
+                genetics_probation_bypass_trend_gate_enabled=True,
+            ),
+        )
+        probation_decision = probation.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        probation_row = next(
+            item for item in probation_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
+        self.assertEqual(probation_row.reason, "genetics_probation_admission")
 
     def test_shadow_signal_handoff_is_disabled_by_default(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -4022,6 +4644,39 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(decision.selected_actor, "StrongActor")
         self.assertGreaterEqual(decision.score, 1.0)
         self.assertEqual(decision.candidates[0].shadow_source, "base_fallback")
+
+    def test_base_fallback_bypasses_shadow_score_floor_for_allowed_actor(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        active = FakeAgent("FallbackActor", {"BTC": Action.FUT_LONG_FULL})
+        _add_perf(perf, "FallbackActor", Regime.BULLISH, 10, 0.5, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                shadow_confirmation_enabled=True,
+                shadow_symbol_confirmation_enabled=True,
+                shadow_base_fallback_confirmation_enabled=True,
+                shadow_base_fallback_actor_keys=("agent:FallbackActor",),
+                shadow_actor_fallback_min_base_score=0.05,
+                shadow_confirmation_min_score=100.0,
+                shadow_confirmation_min_closed_trades=50,
+            ),
+        )
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[active],
+            players=[],
+            signal_id_start=1,
+            shadow_confirmation={
+                ("FallbackActor", "BTC", "FUT_LONG_FULL"): (0.0, 0),
+            },
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "FallbackActor")
+        self.assertEqual(decision.candidates[0].shadow_source, "base_fallback")
+        self.assertNotEqual(decision.candidates[0].reason, "shadow_score_below_threshold")
 
     def test_base_score_floor_can_confirm_without_actor_fallback_enabled(self):
         perf = PerformanceMemory(trade_fraction=1.0)

@@ -8,6 +8,23 @@ from unittest.mock import patch
 
 
 class TestPngRenderer(unittest.TestCase):
+    def test_operator_dashboard_title_uses_global_version_and_build(self):
+        from panteon_v2.dashboards import png_renderer
+
+        with patch.object(png_renderer, "_git_build_id", return_value="6ea1c25b"):
+            self.assertEqual(
+                png_renderer._operator_dashboard_title({}),
+                "Panteon v3 - сборка 6ea1c25b",
+            )
+
+        self.assertEqual(
+            png_renderer._operator_dashboard_title({
+                "global_version": "Panteon v3",
+                "build_id": "1234567890abcdef",
+            }),
+            "Panteon v3 - сборка 12345678",
+        )
+
     def test_status_panel_shows_real_trade_outcomes(self):
         from panteon_v2.dashboards import png_renderer
 
@@ -311,6 +328,59 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(captured["agents"][0][0], "LongMemoryAgent")
         self.assertEqual(captured["agents"][0][1]["display_pnl_pct"], 12.0)
 
+    def test_visual_dashboards_use_strategy_players_as_agent_fallback(self):
+        from panteon_v2.dashboards import png_renderer
+
+        captured = {}
+
+        def fake_operator(path, status, agents, players, *, panteon_pnl_pct):
+            captured["operator_agents"] = agents
+            captured["operator_players"] = players
+
+        def fake_shadow(path, agents, players, *, panteon_pnl_pct):
+            captured["shadow_agents"] = agents
+            captured["shadow_players"] = players
+
+        def fake_regime(path, agents, players, **kwargs):
+            captured["regime_agents"] = agents
+            captured["regime_players"] = players
+
+        def fake_memory(path, agents, players):
+            captured["memory_agents"] = agents
+            captured["memory_players"] = players
+
+        with tempfile.TemporaryDirectory() as td, \
+                patch.object(png_renderer, "_render_operator_dashboard",
+                             side_effect=fake_operator), \
+                patch.object(png_renderer, "_render_combined_shadow_dashboard",
+                             side_effect=fake_shadow), \
+                patch.object(png_renderer, "_render_combined_regime_dashboard",
+                             side_effect=fake_regime), \
+                patch.object(png_renderer, "_render_memory_dashboard",
+                             side_effect=fake_memory):
+            png_renderer.write_operator_pngs(
+                td,
+                status={"pnl_pct": 0.0},
+                agents_payload={"agents": {}},
+                players_payload={
+                    "players": {
+                        "V_DefaultEnsemble": {
+                            "pnl_pct": 1.0,
+                            "actor_pool_kind": "profile",
+                        },
+                        "V_LiveAfterShock": {
+                            "pnl_pct": 2.0,
+                            "actor_pool_kind": "strategy",
+                        },
+                    },
+                },
+            )
+
+        self.assertEqual([name for name, _ in captured["shadow_agents"]], ["LiveAfterShock"])
+        self.assertEqual([name for name, _ in captured["shadow_players"]], ["DefaultEnsemble"])
+        self.assertTrue(captured["shadow_agents"][0][1]["visual_agent_fallback"])
+        self.assertEqual([name for name, _ in captured["memory_agents"]], ["LiveAfterShock"])
+
     def test_memory_regime_rows_keep_individual_player_and_agent_labels(self):
         from panteon_v2.dashboards import png_renderer
 
@@ -343,6 +413,39 @@ class TestPngRenderer(unittest.TestCase):
         self.assertIn("A:AgentA", labels)
         self.assertNotEqual(labels, ["Players", "Agents"])
 
+    def test_regime_dashboards_use_all_canonical_regimes(self):
+        from panteon_v2.dashboards import png_renderer
+        from panteon_v2.domain.types import Regime
+
+        self.assertEqual(
+            png_renderer._regime_labels(),
+            [regime.label for regime in Regime],
+        )
+
+    def test_memory_regime_rows_include_extended_regimes(self):
+        from panteon_v2.dashboards import png_renderer
+        from panteon_v2.domain.types import Regime
+
+        rows = png_renderer._memory_regime_rows(
+            players=[
+                ("PlayerA", {
+                    "per_regime": {
+                        "range_low_vol": {"pnl_pct": 0.4, "closed_trades": 1},
+                        "choppy_down": {"pnl_pct": -0.9, "closed_trades": 2},
+                        "mixed_rotational": {"pnl_pct": 1.2, "closed_trades": 3},
+                    },
+                }),
+            ],
+            agents=[],
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows[0][1]), len(Regime))
+        values = dict(zip(png_renderer._regime_labels(), rows[0][1]))
+        self.assertEqual(values["range_low_vol"], 0.4)
+        self.assertEqual(values["choppy_down"], -0.9)
+        self.assertEqual(values["mixed_rotational"], 1.2)
+
     def test_bar_rows_gray_inactive_statuses_and_split_virtual_panteon(self):
         from panteon_v2.dashboards import png_renderer
 
@@ -358,6 +461,25 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual([name for name, _ in bar_rows], ["GoodAgent", "BadAgent"])
         self.assertEqual(virtual_panteon, 0.8)
         self.assertEqual(colors, [png_renderer.GREEN, png_renderer.MUTED])
+
+    def test_bar_rows_gray_quarantine_flags_without_status(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = [
+            ("QuarantinedWinner", {"display_pnl_pct": 2.4, "quarantined": True}),
+            ("QuarantinedLoser", {"display_pnl_pct": -1.1, "is_quarantined": True}),
+            ("LiveLoser", {"display_pnl_pct": -0.7, "quarantined": False}),
+        ]
+
+        colors = png_renderer._bar_colors_for_rows(
+            rows,
+            fallback_color=png_renderer.BLUE,
+        )
+
+        self.assertEqual(
+            colors,
+            [png_renderer.MUTED, png_renderer.MUTED, png_renderer.RED],
+        )
 
     def test_panteon_benchmark_draws_virtual_panteon_gray_dashed(self):
         from panteon_v2.dashboards import png_renderer
@@ -467,6 +589,31 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(rows[0]["bar"], 1)
         self.assertEqual(rows[0]["prices"], {"BTC": 100.0})
         self.assertEqual(rows[1]["prices"], {"BTC": 101.0, "ETH": 50.0})
+
+    def test_price_history_rows_add_time_axis_from_status_timestamp(self):
+        from panteon_v2.dashboards import png_renderer
+
+        rows = png_renderer._price_history_rows({
+            "timestamp": "2026-06-03T19:00:10+00:00",
+            "timeframe": "bridge_poll",
+            "bar_count": 12,
+            "price_history": [
+                {"bar": 10, "regime": "neutral", "prices": {"BTC": 100}},
+                {"bar": 12, "regime": "neutral", "prices": {"BTC": 101}},
+            ],
+        })
+
+        self.assertEqual(rows[0]["timestamp"].isoformat(), "2026-06-03T19:00:00+00:00")
+        self.assertEqual(rows[1]["timestamp"].isoformat(), "2026-06-03T19:00:10+00:00")
+
+    def test_equity_curve_does_not_fabricate_linear_history(self):
+        from panteon_v2.dashboards import png_renderer
+
+        self.assertEqual(png_renderer._equity_curve({"pnl_pct": 10.0}), [])
+        self.assertEqual(
+            png_renderer._equity_curve({"equity_curve": [100.0, 98.0, 101.0]}),
+            [100.0, 98.0, 101.0],
+        )
 
 
 if __name__ == "__main__":

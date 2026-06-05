@@ -104,6 +104,21 @@ class TestRecompute(unittest.TestCase):
         self.assertTrue(qm.is_quarantined("BadAgent"))
         self.assertIn("BadAgent", result.added)
 
+    def test_new_agent_added_when_one_regime_dominates_catastrophic_loss(self):
+        qm = QuarantineManager(seed=set())
+        perf = PerformanceMemory(trade_fraction=1.0)
+        _seal_trade_for_label(perf, "LiveMeanRev", Regime.NEUTRAL,
+                              pnl_pct=-100.0, closed_trades=80, start_id=1)
+        _seal_trade_for_label(perf, "LiveMeanRev", Regime.BULLISH,
+                              pnl_pct=0.02, closed_trades=8, start_id=1000)
+        _seal_trade_for_label(perf, "LiveMeanRev", Regime.CRASH,
+                              pnl_pct=0.12, closed_trades=4, start_id=2000)
+
+        result = qm.recompute(perf)
+
+        self.assertTrue(qm.is_quarantined("LiveMeanRev"))
+        self.assertIn("LiveMeanRev", result.added)
+
     def test_idempotent(self):
         """Повторный recompute без изменений perf → no_op."""
         qm = QuarantineManager(seed={"FundingArb"})

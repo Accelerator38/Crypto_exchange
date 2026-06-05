@@ -68,6 +68,19 @@ def _bitget_setting_symbols(name: str) -> set[str]:
     return {s.strip().upper() for s in str(raw).split(",") if s.strip()}
 
 
+def _bitget_setting_symbol_list(name: str) -> List[str]:
+    raw = _BITGET_SETTINGS_RAW.get(f"bitget_{name}") or _BITGET_SETTINGS_RAW.get(f"{name}_bitget") or ""
+    symbols: List[str] = []
+    seen: set[str] = set()
+    for item in str(raw or "").split(","):
+        sym = item.strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        symbols.append(sym)
+    return symbols
+
+
 BITGET_SYMBOL_BLOCKLIST = frozenset(_bitget_setting_symbols("symbol_blocklist"))
 BITGET_MAX_LIVE_POSITIONS_NEGATIVE_PNL = _bitget_setting_int("max_live_positions_negative_pnl", 3)
 
@@ -231,6 +244,8 @@ def fetch_top_symbols(n: int = TOP_N_SYMBOLS) -> List[str]:
         base = str(market.get("base") or "").upper()
         if not base or base in stables or any(base.endswith(sfx) for sfx in exclude_suffixes):
             continue
+        if base in BITGET_SYMBOL_BLOCKLIST:
+            continue
         ticker = tickers.get(symbol, {}) or {}
         quote_vol = float(
             ticker.get("quoteVolume")
@@ -298,7 +313,7 @@ class BitgetFuturesClient:
         # Runtime-блэклист: символы которые вернули BadSymbol/NotFound.
         # Попавший сюда символ исключается из всех последующих запросов
         # до рестарта бота. Это защищает от делистнутых контрактов.
-        self._bad_symbols: set[str] = set()
+        self._bad_symbols: set[str] = set(self._FUTURES_BLACKLIST)
 
     def _mark_data_error(self, reason: str) -> None:
         self._last_data_error_at = time.time()
@@ -835,8 +850,9 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         self.funding = None
         self.max_live_positions_negative_pnl = BITGET_MAX_LIVE_POSITIONS_NEGATIVE_PNL
 
-        if cfg["symbols"]:
-            self.symbols = cfg["symbols"]
+        configured_symbols = cfg.get("symbols") or _bitget_setting_symbol_list("symbols")
+        if configured_symbols:
+            self.symbols = list(configured_symbols)
         else:
             self.symbols = fetch_top_symbols(TOP_N_SYMBOLS)
 

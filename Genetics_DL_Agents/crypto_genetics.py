@@ -329,10 +329,20 @@ FITNESS_ETA             = _gscfg_f(_GS, 'fitness_eta',              0.08)
 FITNESS_THETA           = _gscfg_f(_GS, 'fitness_theta',            0.18)
 TRADE_REWARD_W          = _gscfg_f(_GS, 'trade_reward_w',           0.30)
 TRADE_REWARD_REF        = _gscfg_f(_GS, 'trade_reward_ref',         0.01)
+TRADE_FLOOR_TARGET_RATE = _gscfg_f(_GS, 'trade_floor_target_rate',  0.000001)
+TRADE_FLOOR_PENALTY_W   = _gscfg_f(_GS, 'trade_floor_penalty_w',    60.00)
+ACTIVE_ELITE_ENABLED    = _gscfg_b(_GS, 'active_elite_enabled',     True)
+ACTIVE_ELITE_MIN_TRADE_RATE = _gscfg_f(_GS, 'active_elite_min_trade_rate', 0.000001)
+ACTIVE_ELITE_DEMOTE     = _gscfg_f(_GS, 'active_elite_demote',      25.00)
 TURNOVER_TARGET_RATE    = _gscfg_f(_GS, 'turnover_target_rate',     0.10)
 TURNOVER_PENALTY_W      = _gscfg_f(_GS, 'turnover_penalty_w',       3.00)
 MAX_POSITION_SATURATION_PENALTY_W = _gscfg_f(_GS, 'max_position_saturation_penalty_w', 8.00)
 MAX_POSITION_SATURATION_MAX_PENALTY_W = _gscfg_f(_GS, 'max_position_saturation_max_penalty_w', 0.00)
+CAPACITY_BAR_TARGET = _gscfg_f(_GS, 'capacity_bar_target', 0.20)
+CAPACITY_BAR_PENALTY_W = _gscfg_f(_GS, 'capacity_bar_penalty_w', 8.00)
+CAPACITY_BAR_MAX_PENALTY_W = _gscfg_f(_GS, 'capacity_bar_max_penalty_w', 6.00)
+SAME_SIDE_OPEN_TARGET = _gscfg_f(_GS, 'same_side_open_target', 0.01)
+SAME_SIDE_OPEN_PENALTY_W = _gscfg_f(_GS, 'same_side_open_penalty_w', 20.00)
 INVALID_OPEN_LOGIT_MARGIN = _gscfg_f(_GS, 'invalid_open_logit_margin', 0.25)
 INVALID_OPEN_LOGIT_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_penalty_w', 2.00)
 INVALID_OPEN_LOGIT_MAX_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_max_penalty_w', 0.00)
@@ -355,6 +365,8 @@ FITNESS_OUTLIER_CONC_MAX_PCT = _gscfg_f(_GS, 'fitness_outlier_concentration_max_
 FITNESS_OUTLIER_CONC_PENALTY_W = _gscfg_f(_GS, 'fitness_outlier_concentration_penalty_w', 0.35)
 FITNESS_MIN_CORE_MEAN_RET = _gscfg_f(_GS, 'fitness_min_core_mean_ret', 0.20)
 FITNESS_MEAN_RET_FLOOR_PENALTY_W = _gscfg_f(_GS, 'fitness_mean_ret_floor_penalty_w', 20.0)
+FITNESS_WORST_PERIOD_RET_FLOOR = _gscfg_f(_GS, 'fitness_worst_period_ret_floor', 0.0)
+FITNESS_WORST_PERIOD_FLOOR_PENALTY_W = _gscfg_f(_GS, 'fitness_worst_period_floor_penalty_w', 80.0)
 FITNESS_NEGATIVE_PERIOD_TARGET = _gscfg_f(_GS, 'fitness_negative_period_target', 0.0)
 FITNESS_NEGATIVE_PERIOD_PENALTY_W = _gscfg_f(_GS, 'fitness_negative_period_penalty_w', 6.0)
 REGIME_GENOME_MIN_FITNESS = _gscfg_f(_GS, 'regime_genome_min_fitness', 0.0)
@@ -864,11 +876,81 @@ def _fallback_detect_regime_live(price_history, current_month=None):
     return "neutral"
 
 
-def _fallback_load_data(*args, **kwargs):
-    raise RuntimeError(
-        "crypto_exchange.load_data is unavailable; genetics training needs "
-        "Retrodate_cryptotrade/crypto_exchange.py"
+def _fallback_load_data(fpath, start_date=None, end_date=None, *args, **kwargs):
+    """Read Retrodate OHLCV CSVs when the legacy crypto_exchange module is absent."""
+    import pandas as pd
+    from pathlib import Path
+
+    def _candidate_paths(value) -> list[Path]:
+        path = Path(str(value))
+        if path.is_absolute():
+            return [path]
+        candidates: list[Path] = []
+        try:
+            candidates.append(Path(_resolve_data_dir()) / path)
+        except Exception:
+            pass
+        candidates.append(Path.cwd() / path)
+        candidates.append(Path(os.path.dirname(_here)) / path)
+        return candidates
+
+    csv_path = next((path for path in _candidate_paths(fpath) if path.exists()), None)
+    if csv_path is None:
+        checked = ", ".join(str(path) for path in _candidate_paths(fpath))
+        raise FileNotFoundError(f"Retrodate CSV not found: {fpath}; checked: {checked}")
+
+    df = pd.read_csv(csv_path)
+    required = {"close", "volume", "symbol"}
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"{csv_path.name}: missing required columns: {', '.join(missing)}")
+
+    if "datetime" in df.columns:
+        dt = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
+    else:
+        dt = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns, UTC]")
+    if "timestamp" in df.columns:
+        ts_dt = pd.to_datetime(df["timestamp"], unit="ms", utc=True, errors="coerce")
+        dt = dt.where(dt.notna(), ts_dt)
+    df = df.assign(_dt=dt).dropna(subset=["_dt", "symbol"])
+
+    def _bound(value, *, end: bool = False):
+        if value is None:
+            return None
+        text = str(value)
+        stamp = pd.Timestamp(text)
+        if stamp.tzinfo is None:
+            stamp = stamp.tz_localize("UTC")
+        else:
+            stamp = stamp.tz_convert("UTC")
+        if end and len(text) <= 10:
+            stamp = stamp + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        return stamp
+
+    start = _bound(start_date)
+    end = _bound(end_date, end=True)
+    if start is not None:
+        df = df[df["_dt"] >= start]
+    if end is not None:
+        df = df[df["_dt"] <= end]
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    df["symbol"] = df["symbol"].astype(str)
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
+    df = df.dropna(subset=["close", "volume"])
+    prices = (
+        df.pivot_table(index="_dt", columns="symbol", values="close", aggfunc="last")
+        .sort_index()
     )
+    volumes = (
+        df.pivot_table(index="_dt", columns="symbol", values="volume", aggfunc="last")
+        .sort_index()
+    )
+    prices.columns.name = None
+    volumes.columns.name = None
+    return prices, volumes
 
 
 class _FallbackCryptoExchange:
@@ -1538,6 +1620,9 @@ def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
     denom = max(T * NC, 1)
     turnover = np.zeros(G, dtype=np.float64)
     saturated = np.zeros(G, dtype=np.float64)
+    same_side_open = np.zeros(G, dtype=np.float64)
+    capacity_usage = np.zeros(G, dtype=np.float64)
+    capacity_bars = np.zeros(G, dtype=np.float64)
     spot_open = np.zeros((G, NC), dtype=bool)
     fut_side = np.zeros((G, NC), dtype=np.int8)
     occupied = np.zeros((G, NC), dtype=bool)
@@ -1550,6 +1635,12 @@ def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
                 action = int(actions[g, t, c])
                 if action in (1, 2, 4, 5, 6, 7, 9):
                     turnover[g] += 1.0
+                    if (
+                        (action in (1, 2, 9) and spot_open[g, c])
+                        or (action in (4, 5) and fut_side[g, c] > 0)
+                        or (action in (6, 7) and fut_side[g, c] < 0)
+                    ):
+                        same_side_open[g] += 1.0
                     if occupied[g, c] or n_pos[g] >= max_positions:
                         saturated[g] += 1.0
                         continue
@@ -1571,10 +1662,17 @@ def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
                     if not spot_open[g, c]:
                         occupied[g, c] = False
                         n_pos[g] = max(0, n_pos[g] - 1)
+            if max_positions > 0:
+                capacity_usage[g] += min(1.0, max(0.0, n_pos[g] / float(max_positions)))
+                if n_pos[g] >= max_positions:
+                    capacity_bars[g] += 1.0
 
     return {
         "turnover_rates": turnover / denom,
         "saturation_rates": saturated / denom,
+        "same_side_open_rates": same_side_open / denom,
+        "capacity_usage_rates": capacity_usage / max(T, 1),
+        "capacity_bar_rates": capacity_bars / max(T, 1),
     }
 
 
@@ -1824,7 +1922,11 @@ def _batch_forward_position_aware_numpy(
     n_pos = np.zeros(G, dtype=np.int32)
     suppressed_saturation = np.zeros(G, dtype=np.float64)
     invalid_open_logit_pressure = np.zeros(G, dtype=np.float64)
+    same_side_open_attempts = np.zeros(G, dtype=np.float64)
+    capacity_usage = np.zeros(G, dtype=np.float64)
+    capacity_bars = np.zeros(G, dtype=np.float64)
     open_logits = [code for code in _OPEN_ACTION_CODES if code < N_ACTIONS]
+    max_positions = max(0, int(TRAIN_MAX_POS))
 
     for t in range(T):
         x = np.broadcast_to(base_feat[t], (G, NC, NF)).astype(np.float32, copy=True)
@@ -1839,7 +1941,13 @@ def _batch_forward_position_aware_numpy(
         )
         logits = _forward_logits_population_numpy(x, weights)
         raw_selected = logits.argmax(axis=-1).astype(np.int8)
-        invalid_before_mask = (spot_open | (fut_side != 0)) | (n_pos[:, None] >= max(0, int(TRAIN_MAX_POS)))
+        same_side_open_mask = (
+            (np.isin(raw_selected, (1, 2, 9)) & spot_open)
+            | (np.isin(raw_selected, (4, 5)) & (fut_side > 0))
+            | (np.isin(raw_selected, (6, 7)) & (fut_side < 0))
+        )
+        same_side_open_attempts += same_side_open_mask.sum(axis=1).astype(np.float64)
+        invalid_before_mask = (spot_open | (fut_side != 0)) | (n_pos[:, None] >= max_positions)
         if open_logits:
             open_logit_max = logits[:, :, open_logits].max(axis=-1)
             valid_logits = logits.copy()
@@ -1889,12 +1997,18 @@ def _batch_forward_position_aware_numpy(
                 same_bar_pressure * same_bar_suppressed_open.astype(np.float64)
             ).sum(axis=1)
         actions[:, t, :] = adjusted
+        if max_positions > 0:
+            capacity_usage += np.clip(n_pos.astype(np.float64) / float(max_positions), 0.0, 1.0)
+            capacity_bars += (n_pos >= max_positions).astype(np.float64)
 
     if return_suppression_metrics:
         denom = max(T * NC, 1)
         return actions, {
             "saturation_rates": suppressed_saturation / denom,
             "invalid_open_logit_pressures": invalid_open_logit_pressure / denom,
+            "same_side_open_rates": same_side_open_attempts / denom,
+            "capacity_usage_rates": capacity_usage / max(T, 1),
+            "capacity_bar_rates": capacity_bars / max(T, 1),
         }
     return actions
 
@@ -2309,7 +2423,9 @@ def _compute_fitness(period_rets: np.ndarray,
                      period_daily_pvs: Optional[List[np.ndarray]] = None,
                      period_regime_weights: Optional[np.ndarray] = None,
                      period_saturation_rates: Optional[np.ndarray] = None,
-                     period_invalid_open_logit_pressures: Optional[np.ndarray] = None
+                     period_invalid_open_logit_pressures: Optional[np.ndarray] = None,
+                     period_capacity_bar_rates: Optional[np.ndarray] = None,
+                     period_same_side_open_rates: Optional[np.ndarray] = None
                      ) -> np.ndarray:
     """
     3-фазный адаптивный фитнес v8.
@@ -2365,6 +2481,12 @@ def _compute_fitness(period_rets: np.ndarray,
         (INACTIVITY_THRESH - mean_trade_rate) / INACTIVITY_THRESH * 5.0,
         0.0
     )
+    trade_floor_target = max(float(TRADE_FLOOR_TARGET_RATE), 1e-9)
+    trade_floor_pen = (
+        np.maximum(0.0, trade_floor_target - mean_trade_rate)
+        / trade_floor_target
+        * float(TRADE_FLOOR_PENALTY_W)
+    )
     turnover_excess = np.maximum(0.0, mean_trade_rate - TURNOVER_TARGET_RATE)
     turnover_pen = (
         turnover_excess
@@ -2418,6 +2540,49 @@ def _compute_fitness(period_rets: np.ndarray,
     action_feasibility_pen = (
         feasibility_sat_excess + feasibility_invalid_excess
     ) * float(ACTION_FEASIBILITY_PENALTY_W)
+    if period_capacity_bar_rates is not None:
+        capacity_arr = np.asarray(period_capacity_bar_rates, dtype=np.float64)
+        if capacity_arr.shape == period_rets.shape:
+            mean_capacity_bar_rate = capacity_arr.mean(axis=1)
+            max_capacity_bar_rate = capacity_arr.max(axis=1)
+        elif capacity_arr.shape == (G,):
+            mean_capacity_bar_rate = capacity_arr
+            max_capacity_bar_rate = capacity_arr
+        else:
+            mean_capacity_bar_rate = np.zeros(G, dtype=np.float64)
+            max_capacity_bar_rate = np.zeros(G, dtype=np.float64)
+    else:
+        mean_capacity_bar_rate = np.zeros(G, dtype=np.float64)
+        max_capacity_bar_rate = np.zeros(G, dtype=np.float64)
+    capacity_bar_pen = (
+        np.maximum(0.0, mean_capacity_bar_rate - float(CAPACITY_BAR_TARGET))
+        * float(CAPACITY_BAR_PENALTY_W)
+    )
+    capacity_bar_max_pen = (
+        np.maximum(0.0, max_capacity_bar_rate - float(CAPACITY_BAR_TARGET))
+        * float(CAPACITY_BAR_MAX_PENALTY_W)
+    )
+    if period_same_side_open_rates is not None:
+        same_side_arr = np.asarray(period_same_side_open_rates, dtype=np.float64)
+        if same_side_arr.shape == period_rets.shape:
+            mean_same_side_open_rate = same_side_arr.mean(axis=1)
+            max_same_side_open_rate = same_side_arr.max(axis=1)
+        elif same_side_arr.shape == (G,):
+            mean_same_side_open_rate = same_side_arr
+            max_same_side_open_rate = same_side_arr
+        else:
+            mean_same_side_open_rate = np.zeros(G, dtype=np.float64)
+            max_same_side_open_rate = np.zeros(G, dtype=np.float64)
+    else:
+        mean_same_side_open_rate = np.zeros(G, dtype=np.float64)
+        max_same_side_open_rate = np.zeros(G, dtype=np.float64)
+    same_side_open_pen = (
+        (
+            np.maximum(0.0, mean_same_side_open_rate - float(SAME_SIDE_OPEN_TARGET))
+            + np.maximum(0.0, max_same_side_open_rate - float(SAME_SIDE_OPEN_TARGET))
+        )
+        * float(SAME_SIDE_OPEN_PENALTY_W)
+    )
 
     # ── Daily snapshot metrics ────────────────────────────────────────────────
     daily_sharpe_scores = np.zeros(G, dtype=np.float64)
@@ -2551,6 +2716,10 @@ def _compute_fitness(period_rets: np.ndarray,
         np.maximum(0.0, float(FITNESS_MIN_CORE_MEAN_RET) - core_mean_r)
         * float(FITNESS_MEAN_RET_FLOOR_PENALTY_W)
     )
+    worst_period_floor_pen = (
+        np.maximum(0.0, float(FITNESS_WORST_PERIOD_RET_FLOOR) - worst_ret)
+        * float(FITNESS_WORST_PERIOD_FLOOR_PENALTY_W)
+    )
     negative_period_rate = (period_rets < 0.0).mean(axis=1)
     negative_period_pen = (
         np.maximum(0.0, negative_period_rate - float(FITNESS_NEGATIVE_PERIOD_TARGET))
@@ -2583,6 +2752,7 @@ def _compute_fitness(period_rets: np.ndarray,
           + bonus_20pct_bonus                             # ≥20% бонус
           + TRADE_REWARD_W * np.tanh(mean_trade_rate / (TRADE_REWARD_REF + 1e-9))
           + progressive_return_bonus                      # бонус за высокую доходность
+          - trade_floor_pen                               # penalty for no-trade collapse
           - FITNESS_ALPHA * 0.5  * down_std               # штраф за downside volatility
           - FITNESS_BETA  * 0.5  * mean_dd                # штраф за просадку
           - FITNESS_GAMMA * 0.4  * zero_p                 # штраф за пассивность
@@ -2595,10 +2765,14 @@ def _compute_fitness(period_rets: np.ndarray,
           - invalid_open_logit_pen                        # penalty for preferring impossible opens
           - invalid_open_logit_max_pen                    # penalty for concentrated invalid-open pressure
           - action_feasibility_pen                        # feasibility-first action contract gate
+          - capacity_bar_pen                              # penalty for staying at full position capacity
+          - capacity_bar_max_pen                          # penalty for capacity concentrated in one period
+          - same_side_open_pen                            # penalty for repeated same-direction open attempts
           - 0.20            * stop_pen                    # штраф за частые стопы
           - neg_streak_pen                                # FIX 4: штраф за серию убытков
           - outlier_concentration_pen                     # core anti-overfit guard
           - mean_return_floor_pen                         # do not reward low-return safety
+          - worst_period_floor_pen                        # do not hide a bad month behind outlier gains
           - negative_period_pen)                          # do not hide losing months behind low turnover
 
     if ROBUST_FITNESS_ENABLED:
@@ -2698,7 +2872,7 @@ class GPUEvaluator:
 
     def evaluate(self, population, precomp, rw_override: Optional[Dict[str, float]] = None):
         G = len(population)
-        rl, dl, trl, satl, pressurel = [], [], [], [], []
+        rl, dl, trl, satl, pressurel, capl, same_side_l = [], [], [], [], [], [], []
         daily_pvs: List[Optional[np.ndarray]] = []
         regime_weights = []
 
@@ -2736,6 +2910,16 @@ class GPUEvaluator:
                 if suppression_metrics is not None
                 else np.zeros(G, dtype=np.float64)
             )
+            capl.append(
+                suppression_metrics["capacity_bar_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["capacity_bar_rates"]
+            )
+            same_side_l.append(
+                suppression_metrics["same_side_open_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["same_side_open_rates"]
+            )
             daily_pvs.append(dpv)
 
         ret_mat = np.column_stack(rl)
@@ -2743,8 +2927,20 @@ class GPUEvaluator:
         tr_mat  = np.column_stack(trl)
         sat_mat = np.column_stack(satl)
         pressure_mat = np.column_stack(pressurel)
+        cap_mat = np.column_stack(capl)
+        same_side_mat = np.column_stack(same_side_l)
         rw_arr  = np.array(regime_weights, dtype=np.float64)
-        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, daily_pvs, rw_arr, sat_mat, pressure_mat)
+        fits    = _compute_fitness(
+            ret_mat,
+            dd_mat,
+            tr_mat,
+            daily_pvs,
+            rw_arr,
+            sat_mat,
+            pressure_mat,
+            cap_mat,
+            same_side_mat,
+        )
 
         # ── Pareto-ranking бонус по режимам ────────────────────────────────────
         if PARETO_REGIME_RANKING:
@@ -2892,7 +3088,7 @@ def _worker_task(gbytes: bytes):
     W1, b1, W2, b2, W3, b3, W4, b4 = _unpack(genome)
     IC = _W_IC or 100_000.0
     snap_every = _get_snap_every()
-    rl, dl, trl, satl, pressurel = [], [], [], [], []
+    rl, dl, trl, satl, pressurel, capl, same_side_l = [], [], [], [], [], [], []
     dpv_list = []
     rw_list  = []
     for entry in _W_PRECOMP:
@@ -2930,6 +3126,16 @@ def _worker_task(gbytes: bytes):
             if suppression_metrics is not None
             else 0.0
         ))
+        capl.append(float(
+            suppression_metrics["capacity_bar_rates"][0]
+            if suppression_metrics is not None
+            else contract_metrics["capacity_bar_rates"][0]
+        ))
+        same_side_l.append(float(
+            suppression_metrics["same_side_open_rates"][0]
+            if suppression_metrics is not None
+            else contract_metrics["same_side_open_rates"][0]
+        ))
         dpv_list.append(dpv)
     if not rl:
         return -100.0, []
@@ -2938,8 +3144,20 @@ def _worker_task(gbytes: bytes):
     tr_arr = np.array(trl, dtype=np.float64)[None]
     sat_arr = np.array(satl, dtype=np.float64)[None]
     pressure_arr = np.array(pressurel, dtype=np.float64)[None]
+    cap_arr = np.array(capl, dtype=np.float64)[None]
+    same_side_arr = np.array(same_side_l, dtype=np.float64)[None]
     rw_arr = np.array(rw_list, dtype=np.float64)
-    return float(_compute_fitness(r_arr, d_arr, tr_arr, dpv_list, rw_arr, sat_arr, pressure_arr)[0]), rl
+    return float(_compute_fitness(
+        r_arr,
+        d_arr,
+        tr_arr,
+        dpv_list,
+        rw_arr,
+        sat_arr,
+        pressure_arr,
+        cap_arr,
+        same_side_arr,
+    )[0]), rl
 
 
 def _worker_ping(_: int):
@@ -4178,7 +4396,7 @@ class GeneticTrainer:
             return self.ev.evaluate(island_pop, island_precomp, rw_override=rw_override)
 
         # ── CPU path: батчевый numpy forward ──────────────────────────────
-        rl_all, dl_all, trl_all, sat_all, pressure_all = [], [], [], [], []
+        rl_all, dl_all, trl_all, sat_all, pressure_all, cap_all, same_side_all = [], [], [], [], [], [], []
         dpv_all: List[Optional[np.ndarray]] = []
         rw_list: List[float] = []
 
@@ -4220,6 +4438,16 @@ class GeneticTrainer:
                 if suppression_metrics is not None
                 else np.zeros(G, dtype=np.float64)
             )
+            cap_all.append(
+                suppression_metrics["capacity_bar_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["capacity_bar_rates"]
+            )
+            same_side_all.append(
+                suppression_metrics["same_side_open_rates"]
+                if suppression_metrics is not None
+                else contract_metrics["same_side_open_rates"]
+            )
             dpv_all.append(dpv_g)
 
         if not rl_all:
@@ -4228,10 +4456,23 @@ class GeneticTrainer:
         ret_mat = np.column_stack(rl_all)   # (G, P)
         dd_mat  = np.column_stack(dl_all)
         tr_mat  = np.column_stack(trl_all)
+        self._last_eval_trade_rates = tr_mat
         sat_mat = np.column_stack(sat_all)
         pressure_mat = np.column_stack(pressure_all)
+        cap_mat = np.column_stack(cap_all)
+        same_side_mat = np.column_stack(same_side_all)
         rw_arr  = np.array(rw_list, dtype=np.float64)
-        fits    = _compute_fitness(ret_mat, dd_mat, tr_mat, dpv_all, rw_arr, sat_mat, pressure_mat)
+        fits    = _compute_fitness(
+            ret_mat,
+            dd_mat,
+            tr_mat,
+            dpv_all,
+            rw_arr,
+            sat_mat,
+            pressure_mat,
+            cap_mat,
+            same_side_mat,
+        )
         rets_list = [ret_mat[g].tolist() for g in range(G)]
         return fits, rets_list
 
@@ -4552,6 +4793,54 @@ class GeneticTrainer:
         else:
             c = self.rng.integers(0, POP_SIZE, self.tournament_k)
         return int(c[np.argmax(fits[c])])
+
+    def _activation_selection_fits(
+        self,
+        fits: np.ndarray,
+        trade_rates: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        adjusted = np.asarray(fits, dtype=np.float64).copy()
+        self._activation_selection_stats = {
+            "enabled": bool(ACTIVE_ELITE_ENABLED),
+            "active": 0,
+            "inactive": 0,
+            "demoted": 0,
+        }
+        if not ACTIVE_ELITE_ENABLED:
+            return adjusted
+
+        rate_src = trade_rates
+        if rate_src is None:
+            rate_src = getattr(self, "_last_eval_trade_rates", None)
+        if rate_src is None:
+            return adjusted
+
+        rates_arr = np.asarray(rate_src, dtype=np.float64)
+        if rates_arr.ndim == 2:
+            mean_rates = rates_arr.mean(axis=1)
+        elif rates_arr.ndim == 1:
+            mean_rates = rates_arr
+        else:
+            return adjusted
+        if mean_rates.shape != adjusted.shape:
+            return adjusted
+
+        active = mean_rates >= float(ACTIVE_ELITE_MIN_TRADE_RATE)
+        active_finite = active & np.isfinite(adjusted)
+        inactive = ~active
+        self._activation_selection_stats = {
+            "enabled": True,
+            "active": int(active.sum()),
+            "inactive": int(inactive.sum()),
+            "demoted": 0,
+        }
+        if not np.any(active_finite) or not np.any(inactive):
+            return adjusted
+
+        inactive_cap = float(np.min(adjusted[active_finite]) - abs(float(ACTIVE_ELITE_DEMOTE)))
+        adjusted[inactive] = np.minimum(adjusted[inactive], inactive_cap)
+        self._activation_selection_stats["demoted"] = int(inactive.sum())
+        return adjusted
 
     # ── Обновление архива ─────────────────────────────────────────────────────
     def _update_archive(self, fits: np.ndarray):
@@ -5339,6 +5628,7 @@ class GeneticTrainer:
                     else:
                         fits, rets = self.ev.evaluate(self.pop)
 
+                fits = self._activation_selection_fits(fits)
                 v   = fits[np.isfinite(fits)]
                 bi  = int(np.argmax(fits))
                 bf  = float(fits[bi]); br = rets[bi]
@@ -6359,6 +6649,14 @@ class GeneticsAgent:
         self.pos: Dict[str, Optional[str]] = {}
         self.t = 0; self._regime = 'unknown'; self._breadth = 0.5; self._regime_conf = 0.0
         self._position_state_features_enabled = bool(POSITION_STATE_FEATURES_LIVE_DEFAULT)
+        self._regime_adaptive_output_bias_enabled = False
+        self._regime_adaptive_output_bias_map: Dict[str, float] = {}
+        self.last_regime_adaptive_output_bias: Dict[str, object] = {
+            "enabled": False,
+            "regime": "neutral",
+            "raw_regime": "unknown",
+            "open_output_bias": 0.0,
+        }
         self._ema_breadth = 0.5   # EMA-сглаженный брэдт (feat 17), как в precompute_features
 
         # Метаданные печатаем только один раз во всём процессе (не 4x при создании игроков)
@@ -6461,6 +6759,67 @@ class GeneticsAgent:
         thresholds = np.array([-0.14, -0.07, -0.025, -0.008, 0.015, 0.07])
         conf   = float(np.min(np.abs(signal - thresholds))) / 0.05
         return float(np.clip(conf, 0.0, 1.0))
+
+    def configure_regime_adaptive_output_bias(self, regime_open_bias=None, *, enabled=True):
+        mapping: Dict[str, float] = {}
+        for key, value in dict(regime_open_bias or {}).items():
+            regime = str(key).strip().lower()
+            if not regime:
+                continue
+            mapping[regime] = float(value)
+        self._regime_adaptive_output_bias_map = mapping
+        self._regime_adaptive_output_bias_enabled = bool(enabled) and bool(mapping)
+        self._record_regime_adaptive_output_bias_trace(
+            raw_regime=getattr(self, "_regime", "unknown"),
+            open_output_bias=0.0,
+        )
+        return self
+
+    def _resolve_regime_adaptive_open_output_bias(self, raw_regime) -> tuple[str, float]:
+        raw = str(raw_regime or "unknown").strip().lower()
+        regime = map_regime_3(raw)
+        bias = 0.0
+        if self._regime_adaptive_output_bias_enabled:
+            candidates = [raw]
+            if raw in ("strong_crash", "crash"):
+                candidates.append("crash")
+            candidates.append(regime)
+            candidates.append("default")
+            seen = set()
+            for key in candidates:
+                if key in seen:
+                    continue
+                seen.add(key)
+                if key in self._regime_adaptive_output_bias_map:
+                    bias = float(self._regime_adaptive_output_bias_map[key])
+                    break
+        return regime, bias
+
+    def _record_regime_adaptive_output_bias_trace(self, *, raw_regime, open_output_bias: float) -> None:
+        raw = str(raw_regime or "unknown").strip().lower()
+        regime = map_regime_3(raw)
+        self.last_regime_adaptive_output_bias = {
+            "enabled": bool(self._regime_adaptive_output_bias_enabled),
+            "regime": str(regime),
+            "raw_regime": str(raw),
+            "open_output_bias": float(open_output_bias),
+        }
+
+    def _apply_regime_adaptive_output_bias_to_logits(self, logits: np.ndarray) -> np.ndarray:
+        raw_regime = getattr(self, "_regime", "unknown")
+        _regime, open_output_bias = self._resolve_regime_adaptive_open_output_bias(raw_regime)
+        self._record_regime_adaptive_output_bias_trace(
+            raw_regime=raw_regime,
+            open_output_bias=open_output_bias,
+        )
+        if open_output_bias == 0.0:
+            return logits
+        open_logits = [int(code) for code in _OPEN_ACTION_CODES if 0 <= int(code) < N_ACTIONS]
+        if not open_logits:
+            return logits
+        adjusted = np.array(logits, dtype=np.float32, copy=True)
+        adjusted[:, open_logits] -= np.float32(open_output_bias)
+        return adjusted
 
     def act(self, prices, volumes, month=1, portfolio_value=None):
         BAR = _cx.BAR
@@ -6639,7 +6998,9 @@ class GeneticsAgent:
             x[:, 15] = np.float32(np.clip(current_n / max(1, self.MAX_POS), 0.0, 1.0))
 
         W1,b1,W2,b2,W3,b3,W4,b4 = self._w
-        raw  = _fwd_np(x, W1, b1, W2, b2, W3, b3, W4, b4).argmax(axis=1)
+        logits = _fwd_np(x, W1, b1, W2, b2, W3, b3, W4, b4)
+        logits = self._apply_regime_adaptive_output_bias_to_logits(logits)
+        raw  = logits.argmax(axis=1)
         acts = {s: 0 for s in prices}
 
         # ── Выбор оптимальных валют (live-режим) ─────────────────────────────
@@ -6960,6 +7321,17 @@ def make_regime_agents() -> Dict[str, 'GeneticsAgent']:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _resolve_data_dir() -> str:
+    env_data_dir = os.environ.get("GENETICS_DATA_DIR")
+    if env_data_dir:
+        if os.path.isabs(env_data_dir) and os.path.isdir(env_data_dir):
+            return env_data_dir
+        project_root = os.path.dirname(_here)
+        resolved_env = os.path.join(project_root, env_data_dir)
+        if os.path.isdir(resolved_env):
+            return resolved_env
+        if os.path.isdir(env_data_dir):
+            return env_data_dir
+        return resolved_env
     data_dir = _cx.DATA_DIR
     if os.path.isabs(data_dir) and os.path.isdir(data_dir):
         return data_dir

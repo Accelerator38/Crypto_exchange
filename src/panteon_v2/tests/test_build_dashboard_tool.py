@@ -101,7 +101,7 @@ class TestBuildDashboardTool(unittest.TestCase):
                 "\n".join([
                     "Configured actor pool",
                     "  Players:",
-                    "    Antonius_conservative            regime_switch  neutral                  neutral:ResearchValidatorAgent",
+                    "    Antonius_conservative            regime_switch  neutral                  neutral:GeneticsCore",
                     "  Agents:",
                 ]),
                 encoding="utf-8",
@@ -124,6 +124,50 @@ class TestBuildDashboardTool(unittest.TestCase):
         )
         self.assertIn("V_Antonius_conservative", sessions[0]["players"])
         self.assertTrue(sessions[0]["players"]["V_Antonius_conservative"]["configured_pool_only"])
+
+    def test_collect_sessions_uses_strategy_players_as_visual_agents_when_agents_empty(self):
+        build_dashboard = _load_build_dashboard_module()
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            sdir = root / "MEXC" / "2026-05-02_00-00-00_v2"
+            sdir.mkdir(parents=True)
+            (sdir / "status.json").write_text(
+                json.dumps({
+                    "initial_capital": 100.0,
+                    "current_balance": 100.0,
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (sdir / "leaderboard_players.json").write_text(
+                json.dumps({
+                    "players": {
+                        "V_DefaultEnsemble": {
+                            "session_pnl_pct": 1.0,
+                            "actor_pool_kind": "profile",
+                        },
+                        "V_LiveAfterShock": {
+                            "session_pnl_pct": 2.0,
+                            "actor_pool_kind": "strategy",
+                        },
+                    },
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (sdir / "leaderboard_agents.json").write_text(
+                json.dumps({"agents": {}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            sessions = build_dashboard._collect_sessions(
+                "MEXC",
+                results_dir=root,
+                sessions_limit=10,
+            )
+
+        self.assertIn("V_LiveAfterShock", sessions[0]["agents"])
+        self.assertNotIn("V_LiveAfterShock", sessions[0]["players"])
+        self.assertTrue(sessions[0]["agents"]["V_LiveAfterShock"]["visual_agent_fallback"])
 
 
 if __name__ == "__main__":

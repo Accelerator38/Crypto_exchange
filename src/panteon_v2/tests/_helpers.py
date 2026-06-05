@@ -25,6 +25,7 @@ def make_market(
     bar: int = 1,
     regime: Regime = Regime.BULLISH,
     prices: Dict[str, float] = None,
+    regimes_by_symbol: Dict[str, Regime] = None,
 ) -> MarketSnapshot:
     return MarketSnapshot(
         bar=bar,
@@ -32,4 +33,5 @@ def make_market(
         regime=regime,
         prices=prices or {"BTC": 100.0, "ETH": 50.0},
         volumes={s: 1000.0 for s in (prices or {"BTC": 100.0, "ETH": 50.0})},
+        regimes_by_symbol=regimes_by_symbol or {},
     )

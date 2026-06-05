@@ -5,6 +5,7 @@ from __future__ import annotations
 import os, sys, time, hmac, hashlib, logging, json, threading, math
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
+from urllib.parse import quote
 
 import numpy as np
 import requests
@@ -76,14 +77,21 @@ def _parse_settings(cfg: dict) -> dict:
     act_every = max(1, gi("act_every", 1))
     poll *= act_every
 
-    sym_raw = g("symbols", "all")
+    exchange_id = str(os.getenv("CRYPTO_EXCHANGE", "") or "").strip().lower()
+    sym_raw = None
+    if exchange_id:
+        for key in (f"{exchange_id}_symbols", f"symbols_{exchange_id}"):
+            if g(key, None) is not None:
+                sym_raw = g(key)
+                break
+    if sym_raw is None:
+        sym_raw = g("symbols", "all")
     symbols = None if (not sym_raw or sym_raw.lower() == "all") else \
               [s.strip().upper() for s in sym_raw.split(",") if s.strip()]
 
     def gb(k, d):
         v = g(k, str(d)).lower().strip()
         return v in ("on","true","yes","1")
-    exchange_id = str(os.getenv("CRYPTO_EXCHANGE", "") or "").strip().lower()
     def gf_exchange(k, d):
         if exchange_id:
             for key in (f"{exchange_id}_{k}", f"{k}_{exchange_id}"):
@@ -177,12 +185,28 @@ PROFIT_LOCK_MAX      = 0.70
 # MEXC klines отдаёт max 1000 баров за запрос → 6 запросов на символ.
 WARMUP_BARS = 5760   # 96 часов × 60 минут/час
 
+def _mexc_futures_live_base_url() -> str:
+    raw = str(os.getenv("MEXC_FUTURES_BASE_URL", "") or "").strip()
+    return (raw or "https://api.mexc.com").rstrip("/")
+
+
 SPOT_BASE_URL         = "https://api.mexc.com"
-FUTURES_LIVE_BASE_URL = "https://contract.mexc.com"
+FUTURES_LIVE_BASE_URL = _mexc_futures_live_base_url()
 FUTURES_TEST_BASE_URL = "https://futures.testnet.mexc.com"
 
 MEXC_CONNECTOR_HTTP = requests.Session()
 MEXC_CONNECTOR_HTTP.trust_env = False
+
+
+def _mexc_contract_query_string(params: dict) -> str:
+    if not params:
+        return ""
+    parts = []
+    for key, value in sorted(params.items()):
+        if value is None:
+            continue
+        parts.append(f"{key}={quote(str(value), safe='')}")
+    return "&".join(parts)
 
 
 def _mexc_get(url: str, **kwargs):
@@ -732,10 +756,13 @@ class MexcFuturesClient:
         self._bad_symbols: set = set()
         self._contract_meta_cache: dict = {}
         self._insufficient_symbol_until: dict = {}
+        self._futures_time_offset_ms = 0
+        self._futures_time_synced_at = 0.0
+        self._futures_recv_window_ms = 60000
 
     def _sign_get(self, params: dict, ts: str) -> str:
         """Подпись для GET: apiKey + timestamp + queryString."""
-        q = "&".join(f"{k}={v}" for k, v in sorted(params.items())) if params else ""
+        q = _mexc_contract_query_string(params or {})
         return hmac.new(
             self.api_secret.encode(),
             f"{self.api_key}{ts}{q}".encode(),
@@ -752,6 +779,37 @@ class MexcFuturesClient:
             hashlib.sha256,
         ).hexdigest()
 
+    @staticmethod
+    def _ua() -> str:
+        return ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36")
+
+    def _sync_futures_time(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and (now - self._futures_time_synced_at) < 300:
+            return
+        try:
+            before = int(time.time() * 1000)
+            r = self.s.get(
+                self.base + "/api/v1/contract/ping",
+                headers={"User-Agent": self._ua()},
+                timeout=5,
+            )
+            after = int(time.time() * 1000)
+            if r.status_code != 200:
+                return
+            payload = r.json()
+            server_ms = int(payload.get("data"))
+            self._futures_time_offset_ms = server_ms - ((before + after) // 2)
+            self._futures_time_synced_at = now
+        except Exception as exc:
+            log.debug("MEXC futures time sync failed: %s", exc)
+
+    def _futures_ts(self) -> str:
+        self._sync_futures_time()
+        return str(int(time.time() * 1000) + int(self._futures_time_offset_ms))
+
     def _req(self, method: str, path: str, params: dict = None):
         # FIX v6: глобальный rate limiter — не более 2 запросов в секунду
         # MEXC возвращает code=510 при превышении. Задержка ПЕРЕД запросом
@@ -764,25 +822,23 @@ class MexcFuturesClient:
         self._last_req_time = time.time()
 
         p = params or {}
-        ts = str(int(time.time() * 1000))
+        ts = self._futures_ts()
 
         # User-Agent обязателен — без него Cloudflare WAF блокирует POST с 403
-        UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-              "AppleWebKit/537.36 (KHTML, like Gecko) "
-              "Chrome/124.0.0.0 Safari/537.36")
+        UA = self._ua()
 
         if method == "POST":
             sig = self._sign_post(p, ts)
             h = {"ApiKey": self.api_key, "Request-Time": ts,
                  "Signature": sig, "Content-Type": "application/json",
-                 "User-Agent": UA}
+                 "User-Agent": UA, "recv-window": str(self._futures_recv_window_ms)}
             body_str = json.dumps(p, separators=(",", ":")) if p else ""
             r = self.s.request(method, self.base + path, data=body_str, headers=h, timeout=10)
         else:
             sig = self._sign_get(p, ts)
             h = {"ApiKey": self.api_key, "Request-Time": ts,
                  "Signature": sig, "Content-Type": "application/json",
-                 "User-Agent": UA}
+                 "User-Agent": UA, "recv-window": str(self._futures_recv_window_ms)}
             r = self.s.request(method, self.base + path, params=p, headers=h, timeout=10)
 
         # Логируем тело ответа при ошибке ПЕРЕД raise_for_status
@@ -991,7 +1047,7 @@ class MexcFuturesClient:
             if _sess is None:
                 raise RuntimeError("pymexc session not found")
 
-            _ts   = str(int(time.time() * 1000))
+            _ts   = self._futures_ts()
             _body = {"symbol": contract, "side": side, "vol": vol,
                      "type": 5, "openType": 1,
                      "leverage": max(1, int(leverage)) if leverage else 20}
@@ -1002,7 +1058,8 @@ class MexcFuturesClient:
                   "Content-Type": "application/json",
                   "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                 "Chrome/124.0.0.0 Safari/537.36")}
+                                 "Chrome/124.0.0.0 Safari/537.36"),
+                  "recv-window": str(self._futures_recv_window_ms)}
             # FIX v6: rate limiter для pymexc path (обходит _req)
             now = time.time()
             if hasattr(self, '_last_req_time'):
@@ -1011,7 +1068,7 @@ class MexcFuturesClient:
                     time.sleep(0.6 - elapsed)
             self._last_req_time = time.time()
 
-            _r   = _sess.post(f"{FUTURES_LIVE_BASE_URL}/api/v1/private/order/submit",
+            _r   = _sess.post(f"{self.base}/api/v1/private/order/submit",
                               data=_bstr, headers=_h, timeout=10)
             _r.raise_for_status()
             res  = _r.json()
@@ -2305,7 +2362,7 @@ class AgentMexcBridge:
             self.spot = None
             self.futures_client = MexcFuturesClient(api_key, api_secret, testnet=False)
             log.warning("🔴 LIVE FUTURES — торговля фьючерсами на РЕАЛЬНЫЕ деньги! "
-                        "Используется НАСТОЯЩИЙ аккаунт contract.mexc.com")
+                        "Используется НАСТОЯЩИЙ аккаунт %s", FUTURES_LIVE_BASE_URL)
         else:
             raise ValueError(f"Неизвестный режим: {mode!r}")
 

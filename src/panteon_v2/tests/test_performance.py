@@ -115,6 +115,41 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
         self.assertAlmostEqual(m.pnl_pct, 10.0, places=5)
         self.assertEqual(m.win_rate, 100.0)
 
+    def test_equity_curve_records_real_closed_trade_path(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        os2 = _open_signal(3, "BTC", Regime.BEARISH, price=100.0, bar=3)
+        cs2 = _close_signal(4, "BTC", Regime.BEARISH, price=95.0, bar=4)
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 110.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 95.0), cs2)
+
+        self.assertEqual(perf.equity_curve("AgentA"), [100.0, 110.0, 104.5])
+        self.assertEqual(perf.equity_curve("AgentA", Regime.BULLISH), [100.0, 110.0])
+        restored = PerformanceMemory(trade_fraction=1.0)
+        restored.restore(perf.snapshot())
+        self.assertEqual(restored.equity_curve("AgentA"), [100.0, 110.0, 104.5])
+
+    def test_new_regimes_seed_scoring_from_neutral_memory(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        os1 = _open_signal(1, "BTC", Regime.NEUTRAL, price=100.0)
+        cs1 = _close_signal(2, "BTC", Regime.NEUTRAL, price=105.0, bar=2)
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 105.0), cs1)
+
+        seeded = perf.get("AgentA", Regime.RANGE_LOW_VOL)
+        self.assertEqual(seeded.closed_trades, 1)
+        self.assertAlmostEqual(seeded.pnl_pct, 5.0)
+        top = perf.top_k_for_regime(
+            Regime.CHOPPY_DOWN,
+            k=1,
+            scorer=regime_score,
+        )
+        self.assertEqual(top[0][0], "AgentA")
+
     def test_partial_close_keeps_open_lot_for_later_realized_pnl(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         os = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
@@ -477,6 +512,91 @@ class TestPerRegimeIsolation(unittest.TestCase):
 
         self.assertAlmostEqual(perf.get("AgentA").pnl_pct, -5.0, places=5)
         self.assertEqual(calls, 2)
+
+
+class TestContextScopedMemory(unittest.TestCase):
+    def test_symbol_regime_and_exchange_scopes_are_isolated(self):
+        perf = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+        btc_open = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        btc_close = _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2)
+        eth_open = _open_signal(3, "ETH", Regime.BULLISH, price=100.0, bar=3)
+        eth_close = _close_signal(4, "ETH", Regime.BULLISH, price=95.0, bar=4)
+        neutral_open = _open_signal(5, "BTC", Regime.NEUTRAL, price=100.0, bar=5)
+        neutral_close = _close_signal(6, "BTC", Regime.NEUTRAL, price=102.0, bar=6)
+
+        perf.update_from_trade(_open_trade(btc_open), btc_open)
+        perf.update_from_trade(_close_trade(btc_open, btc_close, 110.0), btc_close)
+        perf.update_from_trade(_open_trade(eth_open), eth_open)
+        perf.update_from_trade(_close_trade(eth_open, eth_close, 95.0), eth_close)
+        perf.update_from_trade(_open_trade(neutral_open), neutral_open)
+        perf.update_from_trade(_close_trade(neutral_open, neutral_close, 102.0), neutral_close)
+
+        self.assertAlmostEqual(
+            perf.get("AgentA", Regime.BULLISH, symbol="BTC").pnl_pct,
+            10.0,
+            places=5,
+        )
+        self.assertAlmostEqual(
+            perf.get("AgentA", Regime.BULLISH, symbol="ETH").pnl_pct,
+            -5.0,
+            places=5,
+        )
+        self.assertAlmostEqual(
+            perf.get("AgentA", Regime.NEUTRAL, symbol="BTC").pnl_pct,
+            2.0,
+            places=5,
+        )
+        self.assertFalse(
+            perf.get("AgentA", Regime.BULLISH, exchange="BITGET", symbol="BTC").has_data
+        )
+
+    def test_legacy_regime_memory_transfers_once_as_symbol_initial_state(self):
+        legacy = PerformanceMemory(trade_fraction=1.0)
+        os = _open_signal(1, "OLD", Regime.BULLISH, price=100.0)
+        cs = _close_signal(2, "OLD", Regime.BULLISH, price=110.0, bar=2)
+        legacy.update_from_trade(_open_trade(os), os)
+        legacy.update_from_trade(_close_trade(os, cs, 110.0), cs)
+        snapshot = legacy.snapshot()
+        snapshot.pop("context_state", None)
+
+        perf = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+        perf.restore(snapshot)
+        btc_initial = perf.get("AgentA", Regime.BULLISH, symbol="BTC")
+        eth_initial = perf.get("AgentA", Regime.BULLISH, symbol="ETH")
+        self.assertAlmostEqual(btc_initial.pnl_pct, 10.0, places=5)
+        self.assertAlmostEqual(eth_initial.pnl_pct, 10.0, places=5)
+
+        btc_open = _open_signal(3, "BTC", Regime.BULLISH, price=100.0, bar=3)
+        btc_close = _close_signal(4, "BTC", Regime.BULLISH, price=90.0, bar=4)
+        perf.update_from_trade(_open_trade(btc_open), btc_open)
+        perf.update_from_trade(_close_trade(btc_open, btc_close, 90.0), btc_close)
+
+        self.assertAlmostEqual(
+            perf.get("AgentA", Regime.BULLISH, symbol="BTC").pnl_pct,
+            0.0,
+            places=5,
+        )
+        self.assertAlmostEqual(
+            perf.get("AgentA", Regime.BULLISH, symbol="ETH").pnl_pct,
+            10.0,
+            places=5,
+        )
+
+    def test_context_state_roundtrip(self):
+        perf1 = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+        os = _open_signal(1, "BTC", Regime.BEARISH, price=100.0)
+        cs = _close_signal(2, "BTC", Regime.BEARISH, price=90.0, bar=2)
+        perf1.update_from_trade(_open_trade(os), os)
+        perf1.update_from_trade(_close_trade(os, cs, 90.0), cs)
+
+        perf2 = PerformanceMemory()
+        perf2.restore(perf1.snapshot())
+
+        self.assertAlmostEqual(
+            perf2.get("AgentA", Regime.BEARISH, exchange="MEXC", symbol="BTC").pnl_pct,
+            -10.0,
+            places=5,
+        )
 
 
 class TestPlayerAndAgentSeparately(unittest.TestCase):

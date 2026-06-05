@@ -46,8 +46,10 @@ from panteon_v2.app.main_loop import _flash_real_agents
 from panteon_v2.app.main_loop import _flash_shadow_confirmation_scores
 from panteon_v2.app.main_loop import _flash_shadow_player_signals_with_position_replay
 from panteon_v2.app.main_loop import _genetics_probation_regime_exit_close_signals
+from panteon_v2.app.main_loop import _genetics_probation_preselection_admission_signal_keys
 from panteon_v2.app.main_loop import _flash_stale_position_close_signals
 from panteon_v2.app.main_loop import _flash_update_degradation_state_from_events
+from panteon_v2.app.main_loop import _shadow_confirms_signal
 from panteon_v2.attribution import (
     CandidateScored,
     CandidateRejected,
@@ -61,6 +63,7 @@ from panteon_v2.attribution import (
     PositionOpened,
     ShadowActorUpdated,
     SignalEmitted,
+    AttributionLedger,
 )
 from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.app.live_state import RealSignalGuardResult
@@ -215,6 +218,52 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertEqual(rejected[0].player_label, "WeakAgent")
         self.assertEqual(rejected[0].reason, "flash:score_below_threshold")
+
+    def test_flash_audit_uses_symbol_local_regime_memory_keys(self):
+        from panteon_v2.app.audit_emission import emit_flash_audit_events
+
+        event_log = EventLog()
+        pipeline = type("Pipeline", (), {"event_log": event_log})()
+        decision = FlashDecision(
+            symbol="BTC",
+            selected_actor="BearAgent",
+            actor_type="agent",
+            score=1.0,
+            action=Action.FUT_SHORT_FULL,
+            reason="selected",
+            signal=None,
+            candidates=(
+                FlashCandidateAudit(
+                    symbol="BTC",
+                    label="BearAgent",
+                    actor_type="agent",
+                    actor_key="agent:BearAgent",
+                    score=1.0,
+                    action=Action.FUT_SHORT_FULL,
+                    rejected=False,
+                    reason="eligible",
+                    has_data=True,
+                    closed_trades=10,
+                    agent_labels=("BearCore",),
+                ),
+            ),
+        )
+
+        emit_flash_audit_events(
+            pipeline,
+            make_market(
+                regime=Regime.MIXED_ROTATIONAL,
+                prices={"BTC": 100.0},
+                regimes_by_symbol={"BTC": Regime.BEARISH},
+            ),
+            (decision,),
+            decision_id="decision-local-regime",
+            trace_id="trace-local-regime",
+            context={"exchange": "TEST", "symbol": "ALL"},
+        )
+
+        scored = list(event_log.query(event_types=[CandidateScored]))
+        self.assertEqual(scored[0].memory_keys_read, ("BearAgent|bearish", "BearCore|bearish"))
 
     def test_flash_audit_callback_can_be_disabled_for_long_retro_runs(self):
         from panteon_v2.app.main_loop import _emit_flash_audit_events
@@ -1024,7 +1073,7 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(stale_exit["max_age_bars"], 168)
         self.assertTrue(stale_exit["require_nonpositive_unrealized"])
 
-    def test_leaderboard_agents_include_configured_pool_without_activity(self):
+    def test_leaderboard_players_include_standalone_strategy_pool_without_activity(self):
         from panteon_v2.app.output_writer import OutputWriterConfig
 
         registry = AgentRegistry()
@@ -1042,14 +1091,17 @@ class TestBootstrap(unittest.TestCase):
                 config=OutputWriterConfig(output_dir=td),
             )
             writer._write_leaderboards()
-            with open(os.path.join(td, "leaderboard_agents.json"), encoding="utf-8") as fh:
+            with open(os.path.join(td, "leaderboard_players.json"), encoding="utf-8") as fh:
                 payload = json.load(fh)
+            with open(os.path.join(td, "leaderboard_agents.json"), encoding="utf-8") as fh:
+                agents_payload = json.load(fh)
 
-        row = payload["agents"]["V_NoDataAgent"]
+        row = payload["players"]["V_NoDataAgent"]
         self.assertTrue(row["configured_pool"])
         self.assertTrue(row["configured_pool_only"])
         self.assertEqual(row["session_signals"], 0)
         self.assertEqual(row["closed_trades"], 0)
+        self.assertNotIn("V_NoDataAgent", agents_payload["agents"])
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1759,6 +1811,42 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(
             [row["symbol"] for row in steps[0].causal_decision["flash_decisions"]],
             ["BTC", "ETH"],
+        )
+
+    def test_flash_mode_uses_per_symbol_regime_for_signals_and_payload(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("BtcBull", {"BTC": Action.FUT_LONG_FULL}))
+        reg.register(FakeAgent("EthBear", {"ETH": Action.FUT_SHORT_FULL}))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            profiles=[],
+            live_execution_config=LiveExecutionConfig(max_new_opens_per_bar=2),
+            flash_enabled=True,
+        )
+        _add_perf(pipeline.perf, "BtcBull", Regime.BULLISH, 5, 1.0, start_id=100)
+        _add_perf(pipeline.perf, "EthBear", Regime.BEARISH, 5, 1.0, start_id=200)
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="neutral",
+            regimes_by_symbol={"BTC": "bullish", "ETH": "bearish"},
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        signals = {
+            row["sym"]: row
+            for row in steps[0].causal_decision["raw_signals"]
+        }
+        self.assertEqual(signals["BTC"]["regime"], "bullish")
+        self.assertEqual(signals["ETH"]["regime"], "bearish")
+        self.assertEqual(
+            steps[0].causal_decision["regimes_by_symbol"],
+            {"BTC": "bullish", "ETH": "bearish"},
         )
 
     def test_flash_genetics_no_backfill_veto_consumes_new_open_slot(self):
@@ -2918,6 +3006,91 @@ class TestMainLoop(unittest.TestCase):
         self.assertEqual(len(emitted), 1)
         self.assertAlmostEqual(emitted[0].signal.risk_mult, 0.25)
 
+    def test_genetics_probation_sizing_reaches_bitget_min_notional_floor(self):
+        genetics_agent = FakeAgent("GeneticsGenomeEnsemble", {"H": Action.FUT_LONG_FULL})
+        reg = AgentRegistry()
+        reg.register(genetics_agent)
+        exchange = FakeExchange(name="REAL")
+        exchange.set_min_notional("H", 5.10)
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=42.27674878,
+            risk_config=RiskLimitsConfig(
+                capital_fraction=0.12,
+                min_notional_usd=0.0,
+                floor_to_exchange_min_notional=True,
+                max_min_notional_upscale=4.0,
+            ),
+            profiles=[
+                PlayerProfile(
+                    label="GeneticsResearch",
+                    voting=WeightedConsensus(),
+                    thresholds=ThresholdProfile(),
+                    max_agents=1,
+                    min_agents=1,
+                ),
+            ],
+        )
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_execution_enabled",
+            True,
+        )
+        object.__setattr__(pipeline.live_execution, "genetics_probation_risk_mult", 0.20)
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_require_shadow_confirmation",
+            False,
+        )
+        player = EnsemblePlayer(
+            label="GeneticsResearch",
+            agents=[genetics_agent],
+            weights={"GeneticsGenomeEnsemble": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+
+        class FixedComposer:
+            def compose_from_profile_with_fallback(self, profile, regime):
+                return player
+
+        class FixedStrategist:
+            def update_candidates(self, candidates):
+                self.candidates = list(candidates)
+
+            def consider_switch(self, regime, **kwargs):
+                return SwitchDecision(
+                    new_leader=player,
+                    previous=None,
+                    score=1.0,
+                    margin=0.0,
+                    is_urgent=False,
+                    reason="test selected",
+                    switched=True,
+                )
+
+        pipeline.composer = FixedComposer()
+        pipeline.strategist = FixedStrategist()
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=1,
+            prices={"H": 100.0},
+            regime="bearish",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].n_blocked, 0)
+        self.assertEqual(steps[0].n_filled, 1)
+        filled_trade = exchange.orders_log[0].trade
+        self.assertIsNotNone(filled_trade)
+        self.assertAlmostEqual(filled_trade.qty, 5.10 / 100.0)
+        emitted = list(pipeline.event_log.query(event_types=[SignalEmitted]))
+        self.assertEqual(len(emitted), 1)
+        self.assertGreater(emitted[0].signal.risk_mult, 0.25)
+        self.assertLess(emitted[0].signal.risk_mult, 0.26)
+
     def test_genetics_probation_execution_requires_current_shadow_confirmation(self):
         genetics_agent = FakeAgent("GeneticsGenomeEnsemble", {"BTC": Action.FUT_LONG_FULL})
         reg = AgentRegistry()
@@ -2997,6 +3170,412 @@ class TestMainLoop(unittest.TestCase):
             "genetics_shadow_unconfirmed:BTC:GeneticsGenomeEnsemble",
             steps[0].signal_filter_details,
         )
+
+    def test_genetics_probation_overlay_blocks_after_daily_trade_limit(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+                genetics_probation_max_daily_trades=1,
+            ),
+            "event_log": EventLog(),
+        })()
+        existing = Signal(
+            id=100,
+            bar=1,
+            sym="ETH",
+            action=Action.FUT_SHORT_FULL,
+            price=2000.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+        )
+        pipeline.event_log.emit(SignalEmitted(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal=existing,
+        ))
+        pipeline.event_log.emit(PositionOpened(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal_id=100,
+            sym="ETH",
+            side="short",
+            entry=2000.0,
+            qty=0.01,
+        ))
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(guard.signals, [])
+        self.assertEqual(guard.filtered, 1)
+        self.assertIn(
+            "genetics_daily_trade_limit:BTC:GeneticsCore:1",
+            guard.details,
+        )
+
+    def test_genetics_probation_overlay_ignores_unfilled_daily_signal(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+                genetics_probation_max_daily_trades=1,
+            ),
+            "event_log": EventLog(),
+        })()
+        existing = Signal(
+            id=100,
+            bar=1,
+            sym="ETH",
+            action=Action.FUT_SHORT_FULL,
+            price=2000.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+        )
+        pipeline.event_log.emit(SignalEmitted(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal=existing,
+        ))
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(len(guard.signals), 1)
+        self.assertEqual(guard.filtered, 0)
+        self.assertNotIn(
+            "genetics_daily_trade_limit:BTC:GeneticsCore:1",
+            guard.details,
+        )
+
+    def test_genetics_probation_real_limit_ignores_real_perf_entries_without_exchange_trades(self):
+        class EmptyTracker:
+            def all_open(self):
+                return {}
+
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+                genetics_probation_max_real_trades=1,
+            ),
+            "event_log": EventLog(),
+            "ledger": AttributionLedger(),
+            "executor": type("Executor", (), {"_tracker": EmptyTracker()})(),
+            "real_perf": PerformanceMemory(),
+        })()
+        stale_signal = Signal(
+            id=100,
+            bar=1,
+            sym="ETH",
+            action=Action.FUT_SHORT_FULL,
+            price=2000.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+        )
+        pipeline.real_perf.record_signal(stale_signal)
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=0.10,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(guard.signals, [signal])
+        self.assertNotIn(
+            "genetics_max_real_trades:BTC:GeneticsCore:1",
+            guard.details,
+        )
+
+    def test_genetics_probation_real_limit_counts_ledger_closed_trades(self):
+        class EmptyTracker:
+            def all_open(self):
+                return {}
+
+        event_log = EventLog()
+        event_log.emit(PositionClosed(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            open_signal_id=10,
+            close_signal_id=11,
+            sym="ETH",
+            side="short",
+            entry=2000.0,
+            exit=1990.0,
+            qty=1.0,
+            realized_pnl=10.0,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+        ))
+        ledger = AttributionLedger()
+        ledger.replay_from_event_log(event_log)
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+                genetics_probation_max_real_trades=1,
+            ),
+            "event_log": event_log,
+            "ledger": ledger,
+            "executor": type("Executor", (), {"_tracker": EmptyTracker()})(),
+            "real_perf": PerformanceMemory(),
+        })()
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=0.10,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(guard.signals, [])
+        self.assertIn(
+            "genetics_max_real_trades:BTC:GeneticsCore:1",
+            guard.details,
+        )
+
+    def test_genetics_probation_overlay_uses_symbol_regime_alias(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+            ),
+            "event_log": EventLog(),
+        })()
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="bearish",
+            regimes_by_symbol={"BTC": "range_low_vol"},
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.RANGE_LOW_VOL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(len(guard.signals), 1)
+        self.assertEqual(guard.filtered, 0)
+        self.assertAlmostEqual(guard.signals[0].risk_mult, 0.20)
+
+    def test_flash_degraded_open_symbols_blocks_coarse_contract_before_selection(self):
+        class CoarseContractExchange(FakeExchange):
+            def quantize_order_qty(self, signal, qty):
+                if str(signal.sym).upper() == "EDGE":
+                    return 1.0
+                return float(qty or 0.0)
+
+        exchange = CoarseContractExchange()
+        reg = AgentRegistry()
+        reg.register(FakeAgent("LiveAgent"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=42.0,
+            risk_config=RiskLimitsConfig(
+                capital_fraction=0.12,
+                min_notional_usd=0.0,
+                max_notional_usd=1000.0,
+                floor_to_exchange_min_notional=True,
+                max_min_notional_upscale=4.0,
+            ),
+            live_execution_config=LiveExecutionConfig(
+                max_real_symbol_min_executable_notional_usd=40.0,
+            ),
+        )
+        market = make_market_snapshot(
+            bar=1,
+            prices={"EDGE": 45.0, "BTC": 100.0},
+            regime="neutral",
+        )
+
+        blocked = _flash_degraded_open_symbols(pipeline, market)
+
+        self.assertIn("EDGE", blocked)
+        self.assertNotIn("BTC", blocked)
+        reasons = getattr(pipeline, "_real_universe_symbol_reject_reasons", {})
+        self.assertIn("min_executable_notional", reasons["EDGE"])
+
+    def test_kill_switch_enters_manage_only_and_flattens_owned_positions(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("OpeningAgent", {"BTC": Action.FUT_LONG_FULL}))
+        exchange = FakeExchange(name="REAL")
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=exchange,
+            initial_capital=1000.0,
+            risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+            profiles=[],
+        )
+        open_signal = Signal(
+            id=1,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="LiveAgent",
+            by_agent="LiveAgent",
+        )
+        pipeline.executor.execute(open_signal, balance_usd=1000.0)
+        pipeline.kill_switch.disabled_reason = "test kill switch"
+        feed = ReplayFeed()
+        feed.append(make_market_snapshot(
+            bar=2,
+            prices={"BTC": 101.0},
+            regime="neutral",
+        ))
+
+        steps = main_loop(pipeline, feed, max_bars=1)
+
+        self.assertEqual(steps[0].n_signals, 1)
+        self.assertEqual(steps[0].n_filled, 1)
+        self.assertEqual(steps[0].selected_leader, "ManageOnly")
+        self.assertIn("manage-only", steps[0].fallback_reason)
+        self.assertIsNone(pipeline.executor._tracker.get("BTC"))
+        self.assertTrue(exchange.orders_log[-1].trade is not None)
+        self.assertEqual(exchange.orders_log[-1].trade.side, "long")
 
     def test_genetics_probation_overlay_caps_flash_origin_genetics_signal(self):
         pipeline = type("Pipeline", (), {
@@ -3175,6 +3754,57 @@ class TestMainLoop(unittest.TestCase):
             guard.details,
         )
 
+    def test_genetics_probation_overlay_does_not_block_default_ensemble_wrapper(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("bearish",),
+                genetics_probation_allowed_signal_keys=(
+                    "agent:GeneticsCore|ETH|FUT_SHORT_FULL",
+                ),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+            ),
+        })()
+        market = make_market_snapshot(
+            bar=6434,
+            prices={"BNB": 600.0},
+            regime="bearish",
+        )
+        leader = EnsemblePlayer(
+            label="DefaultEnsemble",
+            agents=[],
+            weights={},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        signal = Signal(
+            id=1,
+            bar=6434,
+            sym="BNB",
+            action=Action.FUT_SHORT_FULL,
+            price=600.0,
+            regime=Regime.BEARISH,
+            by_player="DefaultEnsemble",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            leader,
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(guard.signals, [signal])
+        self.assertEqual(guard.filtered, 0)
+        self.assertNotIn(
+            "genetics_signal_key_blocked:BNB:GeneticsCore",
+            guard.details,
+        )
+
     def test_genetics_probation_overlay_allows_exact_signal_key(self):
         pipeline = type("Pipeline", (), {
             "live_execution": LiveExecutionConfig(
@@ -3235,6 +3865,52 @@ class TestMainLoop(unittest.TestCase):
 
         self.assertEqual(len(guard.signals), 1)
         self.assertAlmostEqual(guard.signals[0].risk_mult, 0.25)
+
+    def test_genetics_probation_overlay_allows_signal_key_symbol_alias(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("bearish",),
+                genetics_probation_allowed_signal_keys=(
+                    "agent:GeneticsCore|BNB|FUT_SHORT_FULL",
+                ),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=False,
+            ),
+        })()
+        market = make_market_snapshot(
+            bar=1,
+            prices={"BNB/USDT": 600.0},
+            regime="bearish",
+        )
+        signal = Signal(
+            id=1,
+            bar=1,
+            sym="BNB/USDT",
+            action=Action.FUT_SHORT_FULL,
+            price=600.0,
+            regime=Regime.BEARISH,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[signal]),
+        )
+
+        self.assertEqual(len(guard.signals), 1)
+        self.assertAlmostEqual(guard.signals[0].risk_mult, 0.20)
 
     def test_genetics_probation_preselection_degrades_unlisted_shadow_open_keys(self):
         main_loop_module = importlib.import_module("panteon_v2.app.main_loop")
@@ -3341,6 +4017,147 @@ class TestMainLoop(unittest.TestCase):
             "agent:GeneticsNeutral|ATOM/USDT|FUT_SHORT_FULL",
             degraded,
         )
+
+    def test_genetics_probation_preselection_admits_current_shadow_agent_signal(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_require_shadow_confirmation=True,
+                genetics_probation_max_daily_trades=3,
+            ),
+            "event_log": EventLog(),
+            "real_perf": PerformanceMemory(),
+        })()
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        shadow_signal = Signal(
+            id=77,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+        )
+
+        keys = _genetics_probation_preselection_admission_signal_keys(
+            pipeline,
+            shadow_player_signals={},
+            shadow_agent_signals={"GeneticsCore": (shadow_signal,)},
+            market=market,
+        )
+
+        self.assertIn("agent:GeneticsCore|BTC|FUT_SHORT_FULL", keys)
+        self.assertIn("ensemble:GeneticsCore|BTC|FUT_SHORT_FULL", keys)
+
+    def test_genetics_probation_preselection_admits_exact_allowed_key_without_shadow_signal(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_allowed_signal_keys=(
+                    "agent:GeneticsCore|ADA|FUT_SHORT_FULL",
+                ),
+                genetics_probation_max_daily_trades=1,
+            ),
+            "event_log": EventLog(),
+        })()
+        market = make_market_snapshot(
+            bar=2,
+            prices={"ADA": 0.2},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+
+        keys = _genetics_probation_preselection_admission_signal_keys(
+            pipeline,
+            shadow_player_signals={},
+            shadow_agent_signals={},
+            market=market,
+        )
+
+        self.assertEqual(keys, ("agent:GeneticsCore|ADA|FUT_SHORT_FULL",))
+
+    def test_genetics_probation_preselection_exact_allowed_key_respects_daily_limit(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_allowed_signal_keys=(
+                    "agent:GeneticsCore|ADA|FUT_SHORT_FULL",
+                ),
+                genetics_probation_max_daily_trades=1,
+            ),
+            "event_log": EventLog(),
+        })()
+        existing = Signal(
+            id=100,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+        )
+        pipeline.event_log.emit(SignalEmitted(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal=existing,
+        ))
+        pipeline.event_log.emit(PositionOpened(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal_id=100,
+            sym="BTC",
+            side="short",
+            entry=100.0,
+            qty=0.1,
+        ))
+        market = make_market_snapshot(
+            bar=2,
+            prices={"ADA": 0.2},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+
+        keys = _genetics_probation_preselection_admission_signal_keys(
+            pipeline,
+            shadow_player_signals={},
+            shadow_agent_signals={},
+            market=market,
+        )
+
+        self.assertEqual(keys, ())
+
+    def test_shadow_confirmation_accepts_current_shadow_agent_signal(self):
+        signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+        )
+        pipeline = type("Pipeline", (), {
+            "_current_shadow_player_signals": {},
+            "_current_shadow_agent_signals": {"GeneticsCore": (signal,)},
+        })()
+
+        self.assertTrue(_shadow_confirms_signal(pipeline, "GeneticsCore", signal))
 
     def test_genetics_probation_preselection_ignores_disallowed_regime(self):
         main_loop_module = importlib.import_module("panteon_v2.app.main_loop")
@@ -4882,6 +5699,35 @@ class TestMainLoop(unittest.TestCase):
 
         self.assertNotIn("AgedWinner", default_labels)
         self.assertIn("AgedWinner", extended_labels)
+
+    def test_current_actionable_labels_drop_quarantined_player_and_agent(self):
+        from panteon_v2.app.main_loop import _current_actionable_player_labels
+
+        qm = QuarantineManager(seed=set())
+        qm.force_quarantine("Perfect_MeanRev")
+        qm.force_quarantine("LiveMeanRev")
+        signal = Signal(
+            id=1,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="Perfect_MeanRev",
+            by_agent="LiveMeanRev",
+        )
+
+        labels = _current_actionable_player_labels(
+            updates=(),
+            signals_by_player={"Perfect_MeanRev": (signal,), "SafePlayer": (signal,)},
+            signals_by_agent={"LiveMeanRev": (signal,), "SafeAgent": (signal,)},
+            quarantine_manager=qm,
+        )
+
+        self.assertNotIn("Perfect_MeanRev", labels)
+        self.assertNotIn("Solo_LiveMeanRev", labels)
+        self.assertIn("SafePlayer", labels)
+        self.assertIn("Solo_SafeAgent", labels)
 
     def test_flash_causal_payload_includes_configured_shadow_position_diagnostics(self):
         class Strategist:
@@ -6681,9 +7527,12 @@ class TestMainLoop(unittest.TestCase):
             signal_id_start=10,
         )
         self.assertEqual(errors, [])
-        self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].by_agent, "BestAgent")
-        self.assertEqual(signals[0].sym, "ETH")
+        self.assertEqual(len(signals), 2)
+        by_symbol = {signal.sym: signal for signal in signals}
+        self.assertEqual(by_symbol["BTC"].by_agent, "OldDefaultAgent")
+        self.assertEqual(by_symbol["BTC"].action, Action.FUT_LONG_FULL)
+        self.assertEqual(by_symbol["ETH"].by_agent, "BestAgent")
+        self.assertEqual(by_symbol["ETH"].action, Action.FUT_SHORT_FULL)
 
     def test_regime_switch_candidate_keeps_default_order_without_walk_forward_evidence(self):
         reg = AgentRegistry()
@@ -6746,9 +7595,12 @@ class TestMainLoop(unittest.TestCase):
             signal_id_start=10,
         )
         self.assertEqual(errors, [])
-        self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].by_agent, "OldDefaultAgent")
-        self.assertEqual(signals[0].sym, "BTC")
+        self.assertEqual(len(signals), 2)
+        by_symbol = {signal.sym: signal for signal in signals}
+        self.assertEqual(by_symbol["BTC"].by_agent, "OldDefaultAgent")
+        self.assertEqual(by_symbol["BTC"].action, Action.FUT_LONG_FULL)
+        self.assertEqual(by_symbol["ETH"].by_agent, "ThinBestAgent")
+        self.assertEqual(by_symbol["ETH"].action, Action.FUT_SHORT_FULL)
 
     def test_regime_switch_candidate_prefers_causal_pnl_over_lower_profit_score(self):
         reg = AgentRegistry()
@@ -6811,9 +7663,12 @@ class TestMainLoop(unittest.TestCase):
             signal_id_start=10,
         )
         self.assertEqual(errors, [])
-        self.assertEqual(len(signals), 1)
-        self.assertEqual(signals[0].by_agent, "ProfitAgent")
-        self.assertEqual(signals[0].sym, "ETH")
+        self.assertEqual(len(signals), 2)
+        by_symbol = {signal.sym: signal for signal in signals}
+        self.assertEqual(by_symbol["BTC"].by_agent, "RiskAdjustedAgent")
+        self.assertEqual(by_symbol["BTC"].action, Action.FUT_LONG_FULL)
+        self.assertEqual(by_symbol["ETH"].by_agent, "ProfitAgent")
+        self.assertEqual(by_symbol["ETH"].action, Action.FUT_SHORT_FULL)
 
     def test_rotating_agent_candidate_does_not_use_off_regime_agents(self):
         reg = AgentRegistry()
@@ -7090,7 +7945,7 @@ class TestMainLoop(unittest.TestCase):
             {
                 "bullish": "VolBreakoutHunter",
                 "bearish": "FundingArb",
-                "neutral": "ResearchValidatorAgent",
+                "neutral": "GeneticsCore",
                 "crash": "CrashPanicShortAgent",
             },
         )
@@ -7105,6 +7960,8 @@ class TestMainLoop(unittest.TestCase):
         self.assertIn("LiveCrashHunter", rotating["Optimal_StaticRotator"]["crash"])
         self.assertIn("Optimal_StaticRotator", pipeline.qm.protected_labels)
         self.assertIn("Antonius_conservative", pipeline.qm.protected_labels)
+        self.assertNotIn("Perfect_NeutralValidator", pipeline.qm.protected_labels)
+        self.assertNotIn("Perfect_MeanRev", pipeline.qm.protected_labels)
         self.assertNotIn("Antonius_strategy", pipeline.qm.protected_labels)
 
     def test_external_exchange_positions_do_not_trip_desync_kill_switch(self):
@@ -7674,6 +8531,50 @@ class TestMainLoop(unittest.TestCase):
 
         self.assertEqual(signals, [])
 
+    def test_genetics_probation_regime_exit_treats_range_low_vol_as_neutral_seed(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("Idle"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+            live_execution_config=LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsNeutral",),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_min_regime_confidence=0.80,
+            ),
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=20,
+            sym="ETH",
+            side="short",
+            entry_price=2000.0,
+            qty=0.01,
+            fee_open=0.0,
+            by_player="Panteon_Flash",
+            by_agent="GeneticsNeutral",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=20,
+            open_action="FUT_SHORT_FULL",
+            open_regime="neutral",
+        ))
+
+        signals = _genetics_probation_regime_exit_close_signals(
+            pipeline,
+            make_market_snapshot(
+                bar=25,
+                prices={"ETH": 1980.0},
+                regime="range_low_vol",
+                regime_confidence=0.95,
+            ),
+            signal_id_start=230,
+        )
+
+        self.assertEqual(signals, [])
+
 
 class TestOutputWriter(unittest.TestCase):
     def test_writer_creates_operator_files_before_first_bar(self):
@@ -8065,7 +8966,10 @@ class TestOutputWriter(unittest.TestCase):
                 n_filled=0,
                 n_rejected=0,
                 n_blocked=0,
-                causal_decision={"prices": {"BTC": "100", "ZERO": 0, "BAD": "x"}},
+                causal_decision={
+                    "timestamp": "2026-06-03T10:00:00+00:00",
+                    "prices": {"BTC": "100", "ZERO": 0, "BAD": "x"},
+                },
             ))
             writer.write(StepResult(
                 bar=2,
@@ -8084,8 +8988,71 @@ class TestOutputWriter(unittest.TestCase):
 
         self.assertEqual(len(status["price_history"]), 2)
         self.assertEqual(status["price_history"][0]["prices"], {"BTC": 100.0})
+        self.assertEqual(status["price_history"][0]["timestamp"], "2026-06-03T10:00:00+00:00")
         self.assertEqual(status["price_history"][1]["regime"], "neutral")
+        self.assertIn("timestamp", status["price_history"][1])
         self.assertEqual(status["current_prices"], {"BTC": 101.0, "ETH": 50.0})
+
+    def test_leaderboard_rows_include_real_actor_equity_curve(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("CurveAgent", {"BTC": Action.HOLD}))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        os1 = Signal(
+            id=1,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="CurvePlayer",
+            by_agent="CurveAgent",
+        )
+        cs1 = Signal(
+            id=2,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_CLOSE_ALL,
+            price=110.0,
+            regime=Regime.BULLISH,
+            by_player="CurvePlayer",
+            by_agent="CurveAgent",
+        )
+        pipeline.perf.update_from_trade(
+            Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="long",
+                qty=1.0,
+                fill_price=100.0,
+                fee=0.0,
+            ),
+            os1,
+        )
+        pipeline.perf.update_from_trade(
+            Trade(
+                signal_id=2,
+                bar=2,
+                sym="BTC",
+                side="long",
+                qty=1.0,
+                fill_price=110.0,
+                fee=0.0,
+            ),
+            cs1,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(
+                os.path.join(writer.output_dir, "leaderboard_players.json"),
+                encoding="utf-8",
+            ) as fh:
+                players = json.load(fh)["players"]
+            writer.close()
+
+        self.assertEqual(players["V_CurveAgent"]["equity_curve"], [100.0, 101.0])
 
     def test_status_and_trading_log_include_selected_executed_fallback_debug(self):
         reg = AgentRegistry()
@@ -8773,7 +9740,8 @@ class TestOutputWriter(unittest.TestCase):
 
         self.assertIn("V_DefaultEnsemble", players)
         self.assertAlmostEqual(players["V_DefaultEnsemble"]["pnl_pct"], 1.2)
-        self.assertNotIn("V_AgentA", players)
+        self.assertIn("V_AgentA", players)
+        self.assertEqual(players["V_AgentA"]["actor_pool_kind"], "strategy")
 
     def test_player_leaderboard_includes_regime_switch_player_memory(self):
         reg = AgentRegistry()
@@ -8874,16 +9842,67 @@ class TestOutputWriter(unittest.TestCase):
             writer.close()
 
         player = players["V_DefaultEnsemble"]
-        agent = agents["V_AgentA"]
+        strategy = players["V_AgentA"]
         self.assertEqual(player["signals"], 5)
         self.assertEqual(player["entries"], 5)
         self.assertEqual(player["wins"], 3)
         self.assertEqual(player["losses"], 2)
         self.assertEqual(player["per_regime"]["bullish"]["signals"], 5)
-        self.assertEqual(agent["signals"], 4)
-        self.assertEqual(agent["per_regime"]["bullish"]["entries"], 4)
+        self.assertEqual(strategy["signals"], 4)
+        self.assertEqual(strategy["per_regime"]["bullish"]["entries"], 4)
+        self.assertNotIn("V_AgentA", agents)
 
-    def test_agent_leaderboard_includes_shadow_only_agent_labels(self):
+    def test_writer_does_not_duplicate_standalone_strategy_in_agents_and_players(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("GeneticsCore"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        migrate_v1_regime_memory({
+            "neutral": {
+                "GeneticsCore": {
+                    "samples": 4,
+                    "wins": 3,
+                    "losses": 1,
+                    "pnl_pct": 1.2,
+                },
+            },
+        }, pipeline.perf)
+        pipeline.event_log.emit(PositionOpened(
+            bar=1,
+            signal_id=1,
+            sym="BTC",
+            side="short",
+            entry=100.0,
+            qty=0.1,
+        ))
+        pipeline.event_log.emit(PositionClosed(
+            bar=2,
+            open_signal_id=1,
+            close_signal_id=2,
+            sym="BTC",
+            side="short",
+            entry=100.0,
+            exit=99.0,
+            qty=0.1,
+            realized_pnl=1.0,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+        ))
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "leaderboard_agents.json"),
+                      "r", encoding="utf-8") as f:
+                agents = json.load(f)["agents"]
+            writer.close()
+
+        self.assertIn("V_GeneticsCore", players)
+        self.assertNotIn("V_GeneticsCore", agents)
+
+    def test_player_leaderboard_includes_shadow_only_strategy_labels(self):
         reg = AgentRegistry()
         reg.register(FakeAgent("AgentA"))
         pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
@@ -8902,13 +9921,166 @@ class TestOutputWriter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             writer = OutputWriter.for_session(pipeline, results_root=td)
             writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_players.json"),
+                      "r", encoding="utf-8") as f:
+                players = json.load(f)["players"]
             with open(os.path.join(writer.output_dir, "leaderboard_agents.json"),
                       "r", encoding="utf-8") as f:
                 agents = json.load(f)["agents"]
             writer.close()
 
-        self.assertIn("V_ShadowOnlyAgent", agents)
-        self.assertEqual(agents["V_ShadowOnlyAgent"]["signals"], 3)
+        self.assertIn("V_ShadowOnlyAgent", players)
+        self.assertEqual(players["V_ShadowOnlyAgent"]["signals"], 3)
+        self.assertNotIn("V_ShadowOnlyAgent", agents)
+
+    def test_output_writer_splits_real_executable_and_shadow_only_leaderboards(self):
+        reg = AgentRegistry()
+        live_agent = FakeAgent("LiveAgent")
+        shadow_agent = FakeAgent("ShadowOnlyAgent")
+        shadow_agent.shadow_only = True
+        reg.register(live_agent)
+        reg.register(shadow_agent)
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        pipeline.shadow_agent_labels = ("ShadowOnlyAgent",)
+        migrate_v1_regime_memory({
+            "neutral": {
+                "LiveAgent": {"samples": 2, "wins": 1, "losses": 1, "pnl_pct": 0.2},
+                "ShadowOnlyAgent": {"samples": 4, "wins": 3, "losses": 1, "pnl_pct": 1.4},
+            },
+        }, pipeline.perf)
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_real_executable_players.json"),
+                      "r", encoding="utf-8") as f:
+                real_players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "leaderboard_shadow_only_players.json"),
+                      "r", encoding="utf-8") as f:
+                shadow_players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "status.json"),
+                      "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        self.assertIn("V_LiveAgent", real_players)
+        self.assertNotIn("V_ShadowOnlyAgent", real_players)
+        self.assertIn("V_ShadowOnlyAgent", shadow_players)
+        self.assertNotIn("V_LiveAgent", shadow_players)
+        self.assertEqual(status["active_pid"], os.getpid())
+        self.assertIn("+00:00", status["timestamp_utc"])
+        self.assertIn("+03:00", status["timestamp_msk"])
+
+    def test_output_writer_marks_controlled_genetics_probation_real_executable(self):
+        reg = AgentRegistry()
+        genetics = FakeAgent("GeneticsCore")
+        genetics.shadow_only = True
+        genetics.live_trading_eligible = False
+        reg.register(genetics)
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_execution_enabled",
+            True,
+        )
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_labels",
+            ("GeneticsCore",),
+        )
+        object.__setattr__(
+            pipeline.live_execution,
+            "genetics_probation_allowed_regimes",
+            ("neutral",),
+        )
+        migrate_v1_regime_memory({
+            "neutral": {
+                "GeneticsCore": {
+                    "samples": 8,
+                    "wins": 6,
+                    "losses": 2,
+                    "pnl_pct": 1.6,
+                },
+            },
+        }, pipeline.perf)
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer._write_leaderboards()
+            with open(os.path.join(writer.output_dir, "leaderboard_real_executable_players.json"),
+                      "r", encoding="utf-8") as f:
+                real_players = json.load(f)["players"]
+            with open(os.path.join(writer.output_dir, "leaderboard_shadow_only_players.json"),
+                      "r", encoding="utf-8") as f:
+                shadow_players = json.load(f)["players"]
+            writer.close()
+
+        self.assertIn("V_GeneticsCore", real_players)
+        self.assertNotIn("V_GeneticsCore", shadow_players)
+
+    def test_output_writer_records_missed_flash_shadow_opportunity(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("LiveAgent"))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        step = StepResult(
+            bar=7,
+            regime=Regime.NEUTRAL,
+            leader="Panteon_Flash",
+            leader_changed=False,
+            n_signals=0,
+            n_filled=0,
+            n_rejected=0,
+            n_blocked=0,
+            selected_leader="Panteon_Flash",
+            executed_leader="Panteon_Flash",
+            causal_decision={
+                "flash_enabled": True,
+                "timestamp": {"utc": "2026-06-01T09:00:00+00:00"},
+                "flash_decisions": [
+                    {
+                        "symbol": "BTC",
+                        "selected_actor": "NoTrade",
+                        "score": 0.0,
+                        "candidates": [
+                            {
+                                "label": "GeneticsCore",
+                                "actor_type": "agent",
+                                "action": "FUT_LONG_FULL",
+                                "rejected": True,
+                                "reason": "shadow_unconfirmed",
+                                "rank": 1,
+                                "shadow_score": 8.0,
+                                "shadow_closed_trades": 44,
+                                "pnl_net_pct": 3.5,
+                            },
+                            {
+                                "label": "NoTrade",
+                                "actor_type": "no_trade",
+                                "action": "HOLD",
+                                "rejected": False,
+                                "reason": "eligible_no_trade",
+                                "rank": 2,
+                                "score": 0.0,
+                                "pnl_net_pct": 0.0,
+                            },
+                        ],
+                    },
+                ],
+            },
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(step)
+            path = os.path.join(writer.output_dir, "missed_opportunities.jsonl")
+            with open(path, "r", encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            writer.close()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["top_shadow_actor"], "GeneticsCore")
+        self.assertEqual(rows[0]["rejection_reason"], "shadow_unconfirmed")
+        self.assertEqual(rows[0]["estimated_lost_pnl_pct"], 3.5)
 
     def test_leaderboard_and_status_include_session_local_virtual_leader_metrics(self):
         reg = AgentRegistry()

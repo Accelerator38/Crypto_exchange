@@ -125,17 +125,35 @@ STATUS_REFRESH_INTERVAL_SEC = 60
 LEADERBOARD_INTERVAL_SEC = 600   # Таблица лидеров каждые 10 мин
 ROTATION_CHANGE_LOGS_ONLY = True
 SIGNAL_CSV_FILE = "all_signals.csv"
-MARKET_REGIMES = ("bullish", "bearish", "neutral", "crash")
+MARKET_REGIMES = (
+    "bullish",
+    "bearish",
+    "neutral",
+    "crash",
+    "range_low_vol",
+    "choppy_down",
+    "choppy_up",
+    "mixed_rotational",
+)
 
 
 def _canonical_dashboard_regime(regime: str) -> str:
     text = str(regime or "neutral").strip().lower()
+    normalized = text.replace("-", "_").replace(" ", "_").replace("/", "_")
     if text in ("bull", "bullish", "uptrend", "risk_on"):
         return "bullish"
     if text in ("bear", "bearish", "downtrend", "risk_off"):
         return "bearish"
     if text in ("crash", "panic", "capitulation"):
         return "crash"
+    if normalized in ("range_low_vol", "low_vol_range", "low_vol"):
+        return "range_low_vol"
+    if normalized in ("choppy_down", "chop_down", "volatile_down"):
+        return "choppy_down"
+    if normalized in ("choppy_up", "chop_up", "volatile_up"):
+        return "choppy_up"
+    if normalized in ("mixed_rotational", "mixed_rotation", "rotational", "mixed"):
+        return "mixed_rotational"
     return "neutral"
 
 

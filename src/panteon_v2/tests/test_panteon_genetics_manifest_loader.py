@@ -31,6 +31,16 @@ class _DefaultingFakeGeneticsAgent:
         return {symbol: int(self.genome[0]) for symbol in prices}
 
 
+class _ConfigurableFakeGeneticsAgent(_FakeGeneticsAgent):
+    def configure_regime_adaptive_output_bias(self, regime_open_bias, *, enabled=True):
+        self._regime_adaptive_output_bias_map = {
+            str(key): float(value)
+            for key, value in dict(regime_open_bias).items()
+        }
+        self._regime_adaptive_output_bias_enabled = bool(enabled)
+        return self
+
+
 def _install_fake_crypto_genetics(monkeypatch):
     module = types.ModuleType("crypto_genetics")
     module.GeneticsAgent = _FakeGeneticsAgent
@@ -196,6 +206,49 @@ def test_manifest_specialists_register_shadow_only_from_neiro_genetics_manifest(
         assert Path(adapter.source_genome_path).resolve() == paths[label].resolve()
 
 
+def test_manifest_specialists_register_risk_tight_shadow_candidate(
+    tmp_path,
+    monkeypatch,
+):
+    from panteon_v2.app import agent_bootstrap
+
+    _install_fake_crypto_genetics(monkeypatch)
+    results_root = tmp_path / "Results" / "neiro_genetics"
+    run_dir = results_root / "risk_tight"
+    genome_path = _write_genome(run_dir / "risk_tight.npy", 3)
+    manifest_path = run_dir / "genetics_specialists_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "specialist_genome_map": {
+                    "GeneticsRiskTight": str(genome_path),
+                },
+                "paper_trading_eligible": False,
+                "live_trading_eligible": False,
+                "shadow_only": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with monkeypatch.context() as mp:
+        mp.setenv("PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST", str(manifest_path))
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        registry = AgentRegistry()
+        registered = agent_bootstrap.register_optional_agents(
+            registry,
+            optional_agent_labels=("GeneticsRiskTight",),
+            skip_on_error=False,
+        )
+
+    assert registered == ["GeneticsRiskTight"]
+    adapter = registry.get("GeneticsRiskTight")
+    assert adapter.shadow_only is True
+    assert adapter.paper_trading_eligible is False
+    assert adapter.live_trading_eligible is False
+    assert Path(adapter.source_genome_path).resolve() == genome_path.resolve()
+
+
 def test_manifest_router_registers_when_manifest_env_is_set_and_label_requested(
     tmp_path,
     monkeypatch,
@@ -246,6 +299,149 @@ def test_manifest_router_registers_when_manifest_env_is_set_and_label_requested(
     assert adapter.shadow_only is True
     assert adapter.live_trading_eligible is False
     assert Path(adapter.selection_manifest_path).resolve() == manifest_path.resolve()
+
+
+def test_regime_adaptive_bias_manifest_registers_shadow_only_configured_agent(
+    tmp_path,
+    monkeypatch,
+):
+    from panteon_v2.app import agent_bootstrap
+
+    module = _install_fake_crypto_genetics(monkeypatch)
+    module.GeneticsAgent = _ConfigurableFakeGeneticsAgent
+    results_root = tmp_path / "Results" / "neiro_genetics"
+    run_dir = results_root / "regime_adaptive"
+    source_path = _write_genome(run_dir / "source.npy", 3)
+    manifest_path = run_dir / "regime_adaptive_output_bias_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source_genome": str(source_path),
+                "regime_open_bias": {
+                    "bearish": 0.75,
+                    "neutral": 0.95,
+                    "default": 0.75,
+                },
+                "promotion_eligible": True,
+                "paper_trading_eligible": True,
+                "live_trading_eligible": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with monkeypatch.context() as mp:
+        mp.setenv("PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST", str(manifest_path))
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        registered = agent_bootstrap.register_optional_agents(
+            AgentRegistry(),
+            optional_agent_labels=("GeneticsRegimeAdaptiveBias",),
+            skip_on_error=False,
+        )
+
+    registry = AgentRegistry()
+    with monkeypatch.context() as mp:
+        mp.setenv("PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST", str(manifest_path))
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        agent_bootstrap.register_optional_agents(
+            registry,
+            optional_agent_labels=("GeneticsRegimeAdaptiveBias",),
+            skip_on_error=False,
+        )
+
+    assert registered == ["GeneticsRegimeAdaptiveBias"]
+    adapter = registry.get("GeneticsRegimeAdaptiveBias")
+    assert adapter.shadow_only is True
+    assert adapter.live_trading_eligible is False
+    assert adapter.paper_trading_eligible is True
+    assert Path(adapter.source_genome_path).resolve() == source_path.resolve()
+    assert adapter.regime_open_bias == {
+        "bearish": 0.75,
+        "neutral": 0.95,
+        "default": 0.75,
+    }
+    assert adapter.v1_agent._regime_adaptive_output_bias_enabled is True
+    assert adapter.v1_agent._regime_adaptive_output_bias_map["neutral"] == 0.95
+
+
+def test_regime_adaptive_bias_manifest_applies_source_position_state_meta(
+    tmp_path,
+    monkeypatch,
+):
+    from panteon_v2.app import agent_bootstrap
+
+    module = _install_fake_crypto_genetics(monkeypatch)
+    module.GeneticsAgent = _ConfigurableFakeGeneticsAgent
+    results_root = tmp_path / "Results" / "neiro_genetics"
+    run_dir = results_root / "regime_adaptive"
+    source_path = _write_genome(run_dir / "best_genome.npy", 3)
+    (run_dir / "best_genome_meta.json").write_text(
+        json.dumps({"position_state_features_enabled": True}),
+        encoding="utf-8",
+    )
+    manifest_path = run_dir / "regime_adaptive_output_bias_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source_genome": str(source_path),
+                "regime_open_bias": {"default": 0.75},
+                "promotion_eligible": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    adapter = agent_bootstrap.build_genetics_regime_adaptive_bias_adapter(
+        manifest_path,
+        module.GeneticsAgent,
+        results_root=results_root,
+        expected_genome_size=module.GENOME_SIZE,
+    )
+
+    assert adapter.v1_agent._position_state_features_enabled is True
+
+
+def test_regime_adaptive_bias_manifest_accepts_project_relative_results_path(
+    tmp_path,
+    monkeypatch,
+):
+    from panteon_v2.app import agent_bootstrap
+
+    module = _install_fake_crypto_genetics(monkeypatch)
+    module.GeneticsAgent = _ConfigurableFakeGeneticsAgent
+    results_root = tmp_path / "Results" / "neiro_genetics"
+    run_dir = results_root / "regime_adaptive"
+    source_path = _write_genome(run_dir / "source.npy", 3)
+    manifest_path = run_dir / "regime_adaptive_output_bias_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "source_genome": "regime_adaptive/source.npy",
+                "regime_open_bias": {"default": 0.75},
+                "promotion_eligible": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry()
+    with monkeypatch.context() as mp:
+        mp.chdir(tmp_path)
+        mp.setenv(
+            "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST",
+            "Results/neiro_genetics/regime_adaptive/regime_adaptive_output_bias_manifest.json",
+        )
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        registered = agent_bootstrap.register_optional_agents(
+            registry,
+            optional_agent_labels=("GeneticsRegimeAdaptiveBias",),
+            skip_on_error=False,
+        )
+
+    assert registered == ["GeneticsRegimeAdaptiveBias"]
+    adapter = registry.get("GeneticsRegimeAdaptiveBias")
+    assert Path(adapter.selection_manifest_path).resolve() == manifest_path.resolve()
+    assert Path(adapter.source_genome_path).resolve() == source_path.resolve()
 
 
 def test_manifest_specialist_loader_rejects_genome_outside_neiro_genetics(

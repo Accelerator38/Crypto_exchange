@@ -1662,6 +1662,8 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
         "0.75",
         "--genetics-probation-max-real-trades",
         "7",
+        "--genetics-probation-max-daily-trades",
+        "3",
         "--genetics-probation-label",
         "GeneticsNeutral",
         "--genetics-probation-label",
@@ -1696,6 +1698,7 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
     assert config.genetics_probation_risk_mult == 0.20
     assert config.genetics_probation_min_regime_confidence == 0.75
     assert config.genetics_probation_max_real_trades == 7
+    assert config.genetics_probation_max_daily_trades == 3
     assert config.genetics_probation_labels == (
         "GeneticsNeutral",
         "GeneticsRegimeRouter",
@@ -1727,6 +1730,7 @@ def test_cli_and_live_execution_config_accept_genetics_probation_execution_flags
     assert live_config.genetics_probation_risk_mult == 0.20
     assert live_config.genetics_probation_min_regime_confidence == 0.75
     assert live_config.genetics_probation_max_real_trades == 7
+    assert live_config.genetics_probation_max_daily_trades == 3
     assert live_config.genetics_probation_require_shadow_confirmation is False
 
 

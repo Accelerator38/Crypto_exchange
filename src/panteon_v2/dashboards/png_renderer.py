@@ -2,11 +2,46 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from collections import Counter
+from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
+from ..domain.types import Regime
 
+
+DEFAULT_DASHBOARD_PRODUCT_VERSION = "Panteon v3"
+PRODUCT_VERSION_STATUS_KEYS = (
+    "product_version",
+    "global_version",
+    "display_version",
+    "app_version",
+)
+PRODUCT_VERSION_ENV_KEYS = (
+    "PANTEON_PRODUCT_VERSION",
+    "PANTEON_GLOBAL_VERSION",
+    "PANTEON_DISPLAY_VERSION",
+    "PANTEON_APP_VERSION",
+)
+BUILD_STATUS_KEYS = (
+    "build_id",
+    "build",
+    "build_label",
+    "build_sha",
+    "git_sha",
+    "commit_sha",
+    "commit",
+)
+BUILD_ENV_KEYS = (
+    "PANTEON_BUILD_ID",
+    "PANTEON_BUILD",
+    "PANTEON_BUILD_SHA",
+    "PANTEON_GIT_SHA",
+    "PANTEON_COMMIT_SHA",
+)
 DARK = "#0D1117"
 MID = "#161B22"
 GRID = "#30363D"
@@ -17,7 +52,11 @@ RED = "#F85149"
 BLUE = "#58A6FF"
 GOLD = "#F0C040"
 PURPLE = "#BC8CFF"
-INACTIVE_STATUSES = frozenset({"quarantine", "shadow_only", "purgatory"})
+INACTIVE_STATUSES = frozenset({"quarantine", "quarantined", "shadow_only", "purgatory"})
+
+
+def _regime_labels() -> List[str]:
+    return [regime.label for regime in Regime]
 
 
 def write_operator_pngs(
@@ -35,6 +74,11 @@ def write_operator_pngs(
     players = _entries(players_payload, "players")
     memory_agents = _entries(agents_payload, "agents", pnl_source="memory")
     memory_players = _entries(players_payload, "players", pnl_source="memory")
+    agents, players = _split_visual_agents_and_players(agents, players)
+    memory_agents, memory_players = _split_visual_agents_and_players(
+        memory_agents,
+        memory_players,
+    )
     panteon_pnl_pct = _panteon_pnl_pct(status_map)
 
     paths = [
@@ -89,6 +133,31 @@ def _entries(
             rows.append((str(name).replace("V_", "", 1), row))
     rows.sort(key=lambda item: float(item[1].get("display_pnl_pct", 0.0) or 0.0), reverse=True)
     return rows
+
+
+def _split_visual_agents_and_players(
+    agents: List[Tuple[str, dict]],
+    players: List[Tuple[str, dict]],
+) -> Tuple[List[Tuple[str, dict]], List[Tuple[str, dict]]]:
+    if agents:
+        return agents, players
+    fallback_agents: List[Tuple[str, dict]] = []
+    visual_players: List[Tuple[str, dict]] = []
+    for name, data in players:
+        if _is_strategy_actor_row(data):
+            row = dict(data)
+            row["visual_agent_fallback"] = True
+            fallback_agents.append((name, row))
+        else:
+            visual_players.append((name, data))
+    if not fallback_agents:
+        return agents, players
+    return fallback_agents, visual_players
+
+
+def _is_strategy_actor_row(data: Mapping[str, object]) -> bool:
+    kind = str(data.get("actor_pool_kind") or data.get("kind") or "").strip().lower()
+    return kind == "strategy"
 
 
 def _setup_pyplot():
@@ -166,10 +235,88 @@ def _render_operator_dashboard(
     _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status), flash_info)
     _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status), flash_info)
 
-    fig.suptitle("Panteon v2 Operator Dashboard", color=TEXT, fontsize=16, fontweight="bold")
+    fig.suptitle(_operator_dashboard_title(status), color=TEXT, fontsize=16, fontweight="bold")
     fig.subplots_adjust(top=0.92, bottom=0.08, left=0.06, right=0.97)
     fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
     plt.close(fig)
+
+
+def _operator_dashboard_title(status: Mapping[str, object]) -> str:
+    version = _dashboard_product_version(status)
+    build = _dashboard_build_id(status)
+    if build:
+        return f"{version} - сборка {build}"
+    return version
+
+
+def _dashboard_product_version(status: Mapping[str, object]) -> str:
+    value = _first_clean_value(status, PRODUCT_VERSION_STATUS_KEYS)
+    if value:
+        return value
+    for key in PRODUCT_VERSION_ENV_KEYS:
+        value = _clean_dashboard_text(os.getenv(key))
+        if value:
+            return value
+    return DEFAULT_DASHBOARD_PRODUCT_VERSION
+
+
+def _dashboard_build_id(status: Mapping[str, object]) -> str:
+    value = _first_clean_value(status, BUILD_STATUS_KEYS)
+    if value:
+        return _short_build_id(value)
+    for key in BUILD_ENV_KEYS:
+        value = _clean_dashboard_text(os.getenv(key))
+        if value:
+            return _short_build_id(value)
+    value = _git_build_id()
+    if value:
+        return value
+    return _short_build_id(
+        _first_clean_value(status, ("session_id", "run_id")) or "local"
+    )
+
+
+def _first_clean_value(
+    source: Mapping[str, object],
+    keys: Iterable[str],
+) -> str:
+    if not isinstance(source, Mapping):
+        return ""
+    for key in keys:
+        value = _clean_dashboard_text(source.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _clean_dashboard_text(value: object) -> str:
+    text = str(value or "").strip()
+    return text if text and text.lower() not in {"none", "null", "-"} else ""
+
+
+def _short_build_id(value: object) -> str:
+    text = _clean_dashboard_text(value)
+    if len(text) >= 12 and all(char in "0123456789abcdefABCDEF" for char in text):
+        return text[:8]
+    return text
+
+
+@lru_cache(maxsize=1)
+def _git_build_id() -> str:
+    root = Path(__file__).resolve().parents[3]
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--short=8", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return _clean_dashboard_text(proc.stdout)
 
 
 def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
@@ -264,7 +411,7 @@ def _draw_barh(
                 ha="center", va="center", color=MUTED, fontsize=11)
         return
     labels = [
-        _short(name) + (" [Q]" if _is_inactive_status(data.get("status")) else "")
+        _short(name) + (" [Q]" if _is_inactive_row(data) else "")
         for name, data in rows
     ]
     values = [_row_pnl_value(data) for _, data in rows]
@@ -494,6 +641,14 @@ def _price_history_rows(
             "market": str(item.get("market", "") or ""),
             "prices": clean_prices,
         })
+        timestamp = _parse_datetime_value(
+            item.get("timestamp")
+            or item.get("timestamp_utc")
+            or item.get("time")
+            or item.get("datetime")
+        )
+        if timestamp is not None:
+            rows[-1]["timestamp"] = timestamp
     if not rows:
         current = _clean_price_mapping(status.get("current_prices"))
         if current:
@@ -503,7 +658,96 @@ def _price_history_rows(
                 "market": str(status.get("market", "") or ""),
                 "prices": current,
             })
-    return rows[-max(1, int(limit)):]
+            timestamp = _parse_datetime_value(
+                status.get("timestamp")
+                or status.get("timestamp_utc")
+                or status.get("time")
+            )
+            if timestamp is not None:
+                rows[-1]["timestamp"] = timestamp
+    rows = rows[-max(1, int(limit)):]
+    _fill_missing_price_timestamps(rows, status)
+    return rows
+
+
+def _fill_missing_price_timestamps(
+    rows: List[dict],
+    status: Mapping[str, object],
+) -> None:
+    if not rows or all(isinstance(row.get("timestamp"), datetime) for row in rows):
+        return
+    last_timestamp = next(
+        (
+            row.get("timestamp")
+            for row in reversed(rows)
+            if isinstance(row.get("timestamp"), datetime)
+        ),
+        None,
+    )
+    if last_timestamp is None:
+        last_timestamp = _parse_datetime_value(
+            status.get("timestamp")
+            or status.get("timestamp_utc")
+            or status.get("time")
+        )
+    if last_timestamp is None:
+        return
+    last_bar = int(_float_value(status.get("bar_count", rows[-1].get("bar", 0))))
+    if last_bar <= 0:
+        last_bar = int(_float_value(rows[-1].get("bar", 0)))
+    interval = _timeframe_seconds(status.get("timeframe"))
+    for row in rows:
+        if isinstance(row.get("timestamp"), datetime):
+            continue
+        bar = int(_float_value(row.get("bar", last_bar)))
+        row["timestamp"] = last_timestamp - timedelta(seconds=max(0, last_bar - bar) * interval)
+
+
+def _parse_datetime_value(value: object) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _timeframe_seconds(value: object) -> int:
+    raw = str(value or "").strip().lower()
+    if raw in {"bridge_poll", "poll", "polling", ""}:
+        return 5
+    aliases = {
+        "minute": 60,
+        "min": 60,
+        "hour": 3600,
+        "day": 86400,
+    }
+    if raw in aliases:
+        return aliases[raw]
+    unit = raw[-1:] if raw else ""
+    number = raw[:-1] if unit in {"s", "m", "h", "d"} else raw
+    try:
+        amount = max(1, int(float(number)))
+    except ValueError:
+        return 60
+    if unit == "s":
+        return amount
+    if unit == "m":
+        return amount * 60
+    if unit == "h":
+        return amount * 3600
+    if unit == "d":
+        return amount * 86400
+    return amount * 60
 
 
 def _clean_price_mapping(raw: object) -> Dict[str, float]:
@@ -550,7 +794,11 @@ def _draw_price_panel(ax, status: Mapping[str, object]) -> None:
         palette = plt.cm.tab10
     except Exception:
         palette = None
-    x_values = [row["bar"] for row in rows]
+    use_time_axis = all(isinstance(row.get("timestamp"), datetime) for row in rows)
+    x_values = [
+        row["timestamp"] if use_time_axis else row["bar"]
+        for row in rows
+    ]
     for idx, symbol in enumerate(symbols):
         series = []
         for row in rows:
@@ -570,7 +818,18 @@ def _draw_price_panel(ax, status: Mapping[str, object]) -> None:
         color = palette(idx % 10) if palette is not None else BLUE
         ax.plot(xs, ys, label=symbol, color=color, linewidth=1.4, alpha=0.9)
     ax.axhline(100.0, color=GRID, linewidth=0.8)
-    ax.set_xlabel("Bar", color=MUTED, fontsize=8)
+    if use_time_axis:
+        try:
+            import matplotlib.dates as mdates  # noqa: WPS433
+
+            ax.xaxis.set_major_formatter(
+                mdates.DateFormatter("%m/%d\n%H:%M", tz=timezone.utc)
+            )
+        except Exception:
+            pass
+        ax.set_xlabel("Time (UTC)", color=MUTED, fontsize=8)
+    else:
+        ax.set_xlabel("Bar", color=MUTED, fontsize=8)
     ax.set_ylabel("Indexed price (first=100)", color=MUTED, fontsize=8)
     ax.legend(loc="lower left", frameon=False, labelcolor=TEXT, fontsize=7, ncol=3)
 
@@ -881,6 +1140,22 @@ def _is_inactive_status(status: object) -> bool:
     return str(status or "").strip().lower() in INACTIVE_STATUSES
 
 
+def _is_truthy_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_inactive_row(data: Mapping[str, object]) -> bool:
+    return (
+        _is_inactive_status(data.get("status"))
+        or _is_truthy_flag(data.get("quarantined"))
+        or _is_truthy_flag(data.get("is_quarantined"))
+    )
+
+
 def _is_virtual_panteon_name(name: object) -> bool:
     text = str(name or "").strip()
     if text.startswith("V_"):
@@ -915,7 +1190,7 @@ def _bar_colors_for_rows(rows: List[Tuple[str, dict]], *, fallback_color: str) -
     all_flat = bool(values) and all(abs(value) < 1e-12 for value in values)
     colors = []
     for value, (_, data) in zip(values, rows):
-        if _is_inactive_status(data.get("status")):
+        if _is_inactive_row(data):
             colors.append(MUTED)
         elif all_flat:
             colors.append(fallback_color)
@@ -1095,7 +1370,7 @@ def _draw_memory_regime_summary(
     agents: List[Tuple[str, dict]],
 ) -> None:
     _style_ax(ax, "Memory By Regime")
-    regimes = ["bullish", "bearish", "neutral", "crash"]
+    regimes = _regime_labels()
     rows = _memory_regime_rows(players=players, agents=agents)
     if not rows:
         ax.set_axis_off()
@@ -1145,7 +1420,7 @@ def _memory_regime_rows(
     agents: List[Tuple[str, dict]],
     limit: Optional[int] = None,
 ) -> List[Tuple[str, List[float], int]]:
-    regimes = ["bullish", "bearish", "neutral", "crash"]
+    regimes = _regime_labels()
     candidates: List[Tuple[str, List[float], int, float]] = []
     for prefix, source in (("P", players), ("A", agents)):
         for name, data in source:
@@ -1209,7 +1484,7 @@ def _heatmap_limits(matrix: List[List[float]]) -> Tuple[float, float]:
 
 def _render_regime_heatmap(path: Path, title: str, rows: List[Tuple[str, dict]]) -> None:
     plt = _setup_pyplot()
-    regimes = ["bullish", "bearish", "neutral", "crash"]
+    regimes = _regime_labels()
     usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)]
     fig_h = max(4.5, 2.0 + len(usable) * 0.42)
     fig, ax = plt.subplots(figsize=(11, fig_h), facecolor=DARK)
@@ -1229,7 +1504,7 @@ def _draw_regime_heatmap(
     *,
     regimes: List[str] | None = None,
 ):
-    regimes = regimes or ["bullish", "bearish", "neutral", "crash"]
+    regimes = regimes or _regime_labels()
     usable = [(name, data) for name, data in rows if isinstance(data.get("per_regime"), Mapping)]
     ax.set_facecolor(MID)
     if not usable:
@@ -1312,14 +1587,30 @@ def _equity_curve(data: Mapping[str, object]) -> List[float]:
             continue
         out: List[float] = []
         for value in raw:
-            try:
-                out.append(float(value))
-            except (TypeError, ValueError):
-                continue
+            parsed = _equity_curve_value(value)
+            if parsed is not None:
+                out.append(parsed)
         if len(out) >= 2:
             return out
-    pnl = _float_value(data.get("display_pnl_pct", data.get("pnl_pct", 0.0)))
-    return [100.0, 100.0 * (1.0 + pnl / 100.0)]
+    return []
+
+
+def _equity_curve_value(value: object) -> Optional[float]:
+    if isinstance(value, Mapping):
+        for key in ("equity", "asset", "assets", "total_assets_usd", "value"):
+            parsed = _safe_curve_float(value.get(key))
+            if parsed is not None:
+                return parsed
+        return None
+    return _safe_curve_float(value)
+
+
+def _safe_curve_float(value: object) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed
 
 
 def _usd(value: object) -> str:

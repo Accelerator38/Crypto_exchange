@@ -34,6 +34,33 @@ def flash_open_position_sides_by_symbol(
     return out
 
 
+def flash_open_position_actor_keys_by_symbol(
+    positions: Iterable[Mapping[str, object]],
+    *,
+    is_external: Callable[[Mapping[str, object]], bool],
+) -> dict[str, tuple[str, ...]]:
+    out: dict[str, tuple[str, ...]] = {}
+    for pos in positions:
+        if is_external(pos):
+            continue
+        symbol = str(pos.get("sym") or "").upper()
+        if not symbol:
+            continue
+        by_player = str(pos.get("by_player") or "").strip()
+        by_agent = str(pos.get("by_agent") or "").strip()
+        actor_keys: list[str] = []
+        if by_player and by_player != "Panteon_Flash":
+            actor_keys.append(f"ensemble:{by_player}")
+            if not by_agent or by_player == by_agent:
+                actor_keys.append(f"agent:{by_player}")
+        if by_agent:
+            actor_keys.append(f"agent:{by_agent}")
+        clean_keys = tuple(dict.fromkeys(key for key in actor_keys if key))
+        if clean_keys:
+            out[symbol] = clean_keys
+    return out
+
+
 def flash_degraded_signal_keys(
     pipeline: object,
     *,

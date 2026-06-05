@@ -314,7 +314,16 @@ def _strategist_config_from_settings(settings: dict) -> StrategistConfig:
     )
 
 
-def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
+def _live_execution_config_from_settings(
+    settings: dict,
+    exchange_name: str = "",
+) -> LiveExecutionConfig:
+    def scoped_names(*base_names: str) -> tuple[str, ...]:
+        out: list[str] = []
+        for base in base_names:
+            out.extend(_exchange_scoped_setting_names(exchange_name, base))
+        return tuple(dict.fromkeys(out))
+
     def num_any(names: Sequence[str], default: float) -> float:
         for name in names:
             if name in settings:
@@ -375,10 +384,16 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
         return default
 
     return LiveExecutionConfig(
-        max_new_opens_per_bar=int_any(("v2_max_new_opens_per_bar", "max_new_opens_per_bar"), 1),
-        max_daily_loss_pct=num_any(("v2_max_daily_loss_pct", "max_daily_loss_pct"), 5.0),
+        max_new_opens_per_bar=int_any(
+            scoped_names("v2_max_new_opens_per_bar", "max_new_opens_per_bar"),
+            1,
+        ),
+        max_daily_loss_pct=num_any(
+            scoped_names("v2_max_daily_loss_pct", "max_daily_loss_pct"),
+            5.0,
+        ),
         max_equity_peak_drawdown_pct=num_any(
-            (
+            scoped_names(
                 "v2_max_equity_peak_drawdown_pct",
                 "max_equity_peak_drawdown_pct",
                 "v2_max_trailing_equity_stop_pct",
@@ -387,22 +402,37 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
             5.0,
         ),
         max_consecutive_failed_orders=int_any(
-            ("v2_max_consecutive_failed_orders", "max_consecutive_failed_orders"),
+            scoped_names(
+                "v2_max_consecutive_failed_orders",
+                "max_consecutive_failed_orders",
+            ),
             3,
         ),
         max_exchange_desync_events=int_any(
-            ("v2_max_exchange_desync_events", "max_exchange_desync_events"),
+            scoped_names(
+                "v2_max_exchange_desync_events",
+                "max_exchange_desync_events",
+            ),
             5,
         ),
-        max_stale_feed_polls=int_any(("v2_max_stale_feed_polls", "max_stale_feed_polls"), 12),
-        max_slippage_pct=num_any(("v2_max_slippage_pct", "max_slippage_pct"), 0.75),
-        max_api_error_streak=int_any(("v2_max_api_error_streak", "max_api_error_streak"), 3),
+        max_stale_feed_polls=int_any(
+            scoped_names("v2_max_stale_feed_polls", "max_stale_feed_polls"),
+            12,
+        ),
+        max_slippage_pct=num_any(
+            scoped_names("v2_max_slippage_pct", "max_slippage_pct"),
+            0.75,
+        ),
+        max_api_error_streak=int_any(
+            scoped_names("v2_max_api_error_streak", "max_api_error_streak"),
+            3,
+        ),
         pending_order_timeout_sec=num_any(
-            ("v2_pending_order_timeout_sec", "pending_order_timeout_sec"),
+            scoped_names("v2_pending_order_timeout_sec", "pending_order_timeout_sec"),
             180.0,
         ),
         adopt_existing_positions_enabled=bool_any(
-            (
+            scoped_names(
                 "v2_adopt_existing_positions_enabled",
                 "adopt_existing_positions_enabled",
                 "v2_adopt_existing_positions",
@@ -411,7 +441,7 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
             False,
         ),
         adopt_existing_position_symbols=tuple_any(
-            (
+            scoped_names(
                 "v2_adopt_existing_position_symbols",
                 "adopt_existing_position_symbols",
                 "v2_adopt_existing_positions_symbols",
@@ -420,56 +450,110 @@ def _live_execution_config_from_settings(settings: dict) -> LiveExecutionConfig:
             (),
         ),
         adopt_existing_position_player=str_any(
-            (
+            scoped_names(
                 "v2_adopt_existing_position_player",
                 "adopt_existing_position_player",
             ),
             "PanteonFlashAdopted",
         ),
         adopt_existing_position_agent=str_any(
-            (
+            scoped_names(
                 "v2_adopt_existing_position_agent",
                 "adopt_existing_position_agent",
             ),
             "AdoptedExchangePosition",
         ),
         genetics_probation_execution_enabled=bool_any(
-            (
+            scoped_names(
                 "v2_genetics_probation_execution_enabled",
                 "genetics_probation_execution_enabled",
             ),
             False,
         ),
+        genetics_probation_labels=tuple_any(
+            scoped_names("v2_genetics_probation_labels", "genetics_probation_labels"),
+            ("GeneticsResearch",),
+        ),
+        genetics_probation_allowed_regimes=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_allowed_regimes",
+                "genetics_probation_allowed_regimes",
+            ),
+            ("bearish", "crash"),
+        ),
+        genetics_probation_allowed_signal_keys=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_allowed_signal_keys",
+                "genetics_probation_allowed_signal_keys",
+            ),
+            (),
+        ),
         genetics_probation_risk_mult=num_any(
-            ("v2_genetics_probation_risk_mult", "genetics_probation_risk_mult"),
+            scoped_names(
+                "v2_genetics_probation_risk_mult",
+                "genetics_probation_risk_mult",
+            ),
             0.20,
         ),
         genetics_probation_min_regime_confidence=num_any(
-            (
+            scoped_names(
                 "v2_genetics_probation_min_regime_confidence",
                 "genetics_probation_min_regime_confidence",
             ),
             0.0,
         ),
         genetics_probation_max_real_trades=int_any(
-            (
+            scoped_names(
                 "v2_genetics_probation_max_real_trades",
                 "genetics_probation_max_real_trades",
             ),
             20,
         ),
+        genetics_probation_max_daily_trades=int_any(
+            scoped_names(
+                "v2_genetics_probation_max_daily_trades",
+                "genetics_probation_max_daily_trades",
+            ),
+            0,
+        ),
         genetics_probation_require_shadow_confirmation=bool_any(
-            (
+            scoped_names(
                 "v2_genetics_probation_require_shadow_confirmation",
                 "genetics_probation_require_shadow_confirmation",
             ),
             True,
         ),
+        genetics_probation_max_consecutive_failed_orders=int_any(
+            scoped_names(
+                "v2_genetics_probation_max_consecutive_failed_orders",
+                "genetics_probation_max_consecutive_failed_orders",
+            ),
+            2,
+        ),
+        genetics_probation_max_realized_loss_pct=num_any(
+            scoped_names(
+                "v2_genetics_probation_max_realized_loss_pct",
+                "genetics_probation_max_realized_loss_pct",
+            ),
+            0.25,
+        ),
+        max_real_symbol_min_executable_notional_usd=num_any(
+            scoped_names(
+                "v2_max_real_symbol_min_executable_notional_usd",
+                "max_real_symbol_min_executable_notional_usd",
+                "v2_max_real_contract_min_notional_usd",
+                "max_real_contract_min_notional_usd",
+            ),
+            40.0,
+        ),
     )
 
 
 def _resolve_live_execution_config(exchange_name: str) -> LiveExecutionConfig:
-    return _live_execution_config_from_settings(_load_exchange_settings(exchange_name))
+    return _live_execution_config_from_settings(
+        _load_exchange_settings(exchange_name),
+        exchange_name=exchange_name,
+    )
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -1199,6 +1283,24 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             2.0,
         ),
+        genetics_probation_bypass_min_closed_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_genetics_probation_bypass_min_closed_enabled",
+                "v2_flash_genetics_probation_bypass_min_closed_enabled",
+                "flash_genetics_probation_bypass_min_closed_enabled",
+            ),
+            False,
+        ),
+        genetics_probation_bypass_trend_gate_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_genetics_probation_bypass_trend_gate_enabled",
+                "v2_flash_genetics_probation_bypass_trend_gate_enabled",
+                "flash_genetics_probation_bypass_trend_gate_enabled",
+            ),
+            False,
+        ),
         technical_overlay_enabled=_settings_bool(
             settings,
             (
@@ -1877,23 +1979,54 @@ def _resolve_genetics_shadow_only(
     )
 
 
+def _resolve_genetics_shadow_only_quarantine_exempt_labels(
+    exchange_name: str = "",
+) -> tuple[str, ...]:
+    raw_env = os.getenv("PANTEON_V2_GENETICS_SHADOW_ONLY_QUARANTINE_EXEMPT_LABELS")
+    if raw_env is not None:
+        return _settings_csv_tuple(
+            {"env": raw_env},
+            ("env",),
+        )
+    settings = _load_exchange_settings(exchange_name) if exchange_name else {}
+    return _settings_csv_tuple(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_genetics_shadow_only_quarantine_exempt_labels",
+        )
+        + _exchange_scoped_setting_names(
+            exchange_name,
+            "genetics_shadow_only_quarantine_exempt_labels",
+        ),
+    )
+
+
 def _seed_quarantine_with_shadow_only_genetics(
     seed_quarantine: Sequence[str],
     registered: Sequence[str],
     *,
     include_genetics: bool,
     genetics_shadow_only: bool,
+    quarantine_exempt_labels: Sequence[str] = (),
 ) -> tuple:
     if not include_genetics or not genetics_shadow_only:
         return tuple(seed_quarantine)
 
     optional = set(optional_labels())
+    exempt = {
+        str(label).strip()
+        for label in quarantine_exempt_labels
+        if str(label).strip()
+    }
     merged = []
     seen = set()
     for label in list(seed_quarantine) + [
         label for label in registered
         if label in optional or str(label).startswith("Genetics")
     ]:
+        if label in exempt:
+            continue
         if label in seen:
             continue
         merged.append(label)
@@ -2516,6 +2649,9 @@ def start_production(
         registered,
         include_genetics=include_genetics,
         genetics_shadow_only=genetics_shadow_only,
+        quarantine_exempt_labels=_resolve_genetics_shadow_only_quarantine_exempt_labels(
+            exchange,
+        ),
     )
     if include_genetics:
         genetics_registered = [

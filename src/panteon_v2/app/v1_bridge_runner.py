@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -164,7 +165,9 @@ class V1BridgeFeed:
         self._bridge = bridge
         self._exchange = exchange_name
         self._warmed_up = False
-        self._regime_detector = regime_detector or PriceRegimeDetector()
+        self._regime_detector = regime_detector or PriceRegimeDetector(
+            exchange_name=exchange_name,
+        )
         self._regime_seeded = False
         self._technical_indicator_state = (
             technical_indicator_state or TechnicalIndicatorState()
@@ -187,7 +190,7 @@ class V1BridgeFeed:
 
     def mark_warmup_restored_from_cache(self) -> None:
         self._warmed_up = True
-        self._regime_detector = PriceRegimeDetector()
+        self._regime_detector = PriceRegimeDetector(exchange_name=self._exchange)
         self._regime_seeded = False
         self._technical_indicator_state = TechnicalIndicatorState()
         self._technicals_seeded = False
@@ -250,10 +253,14 @@ class V1BridgeFeed:
         except Exception:
             log.debug("[%s] failed to append bridge market history", self._exchange)
 
-        # Regime is owned by the v2 price detector, not by agent internals.
-        regime = self._regime_detector.update(prices)
-        technicals_by_symbol = self._update_technicals_from_prices(prices)
         funding = _funding_rates_from_bridge(self._bridge, prices.keys())
+        # Regime is owned by the v2 price detector, not by agent internals.
+        regime = self._regime_detector.update(
+            prices,
+            volumes=volumes,
+            funding=funding,
+        )
+        technicals_by_symbol = self._update_technicals_from_prices(prices)
 
         return make_market_snapshot(
             bar=bar,
@@ -263,6 +270,8 @@ class V1BridgeFeed:
             regime=regime.label,
             regime_confidence=self._regime_detector.confidence,
             technicals_by_symbol=technicals_by_symbol,
+            regimes_by_symbol=self._regime_detector.symbol_regimes,
+            regime_features_by_symbol=self._regime_detector.symbol_stats,
         )
 
     def _filter_contract_symbols(
@@ -312,8 +321,11 @@ class V1BridgeFeed:
         if self._regime_seeded:
             return
         try:
-            rows = _history_rows(getattr(self._bridge, "_price_hist", None))
-            self._regime_detector.seed(rows)
+            price_rows = _history_rows(getattr(self._bridge, "_price_hist", None))
+            volume_rows = _history_rows(getattr(self._bridge, "_volume_hist", None))
+            for idx, prices in enumerate(price_rows):
+                volumes = volume_rows[idx] if idx < len(volume_rows) else {}
+                self._regime_detector.update(prices, volumes=volumes)
         except Exception:
             log.debug("[%s] failed to seed regime detector", self._exchange, exc_info=True)
         self._regime_seeded = True
@@ -647,19 +659,43 @@ def _warmup_v2_agents_from_bridge(
                     exchange_name)
         return 0
 
-    detector = PriceRegimeDetector()
+    genetics_warmup_max_bars = _genetics_agent_warmup_max_bars()
+    genetics_warmup_start_idx = 0
+    genetics_warmup_agents = [
+        agent for agent in warmup_agents if _is_genetics_agent_label(agent)
+    ]
+    if genetics_warmup_agents and genetics_warmup_max_bars > 0:
+        genetics_warmup_start_idx = max(0, len(price_rows) - genetics_warmup_max_bars)
+        if genetics_warmup_start_idx > 0:
+            log.info(
+                "[%s] v2-agent warmup limits %d genetics agent(s) to latest %d/%d bars",
+                exchange_name,
+                len(genetics_warmup_agents),
+                genetics_warmup_max_bars,
+                len(price_rows),
+            )
+
+    detector = PriceRegimeDetector(exchange_name=exchange_name)
     warmed = 0
     for idx, prices in enumerate(price_rows, start=1):
         volumes = volume_rows[idx - 1] if idx - 1 < len(volume_rows) else {}
-        regime = detector.update(prices)
+        regime = detector.update(prices, volumes=volumes)
         market = make_market_snapshot(
             bar=idx,
             prices=prices,
             volumes=volumes,
             regime=regime.label,
             regime_confidence=detector.confidence,
+            regimes_by_symbol=detector.symbol_regimes,
+            regime_features_by_symbol=detector.symbol_stats,
         )
         for agent in warmup_agents:
+            if (
+                genetics_warmup_start_idx > 0
+                and idx <= genetics_warmup_start_idx
+                and _is_genetics_agent_label(agent)
+            ):
+                continue
             try:
                 agent.act(market)
             except Exception:
@@ -678,8 +714,48 @@ def _warmup_v2_agents_from_bridge(
 
 
 def _is_heavy_optional_warmup_agent(agent: Any) -> bool:
-    label = str(getattr(agent, "label", "") or "")
-    return label.startswith("Genetics")
+    label = _agent_label(agent)
+    if not label.startswith("Genetics"):
+        return False
+
+    raw_skip_labels = os.getenv("PANTEON_V2_SKIP_GENETICS_AGENT_WARMUP_LABELS", "")
+    skip_labels = {
+        item.strip()
+        for item in raw_skip_labels.split(",")
+        if item.strip()
+    }
+    if "*" in skip_labels or label in skip_labels:
+        return True
+
+    raw_warmup_labels = os.getenv(
+        "PANTEON_V2_GENETICS_AGENT_WARMUP_LABELS",
+        "GeneticsCore,GeneticsRegimeAdaptiveBias,GeneticsBest,GeneticsRiskTight",
+    )
+    warmup_labels = {
+        item.strip()
+        for item in raw_warmup_labels.split(",")
+        if item.strip()
+    }
+    if "*" in warmup_labels or label in warmup_labels:
+        return False
+
+    return True
+
+
+def _agent_label(agent: Any) -> str:
+    return str(getattr(agent, "label", "") or "")
+
+
+def _is_genetics_agent_label(agent: Any) -> bool:
+    return _agent_label(agent).startswith("Genetics")
+
+
+def _genetics_agent_warmup_max_bars() -> int:
+    raw = os.getenv("PANTEON_V2_GENETICS_AGENT_WARMUP_MAX_BARS", "1440")
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 1440
 
 
 def _prepare_v2_agents_for_live_after_warmup(

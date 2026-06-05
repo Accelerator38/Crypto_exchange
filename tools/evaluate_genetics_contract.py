@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import numpy as np
 
@@ -437,6 +437,149 @@ def _contract_regime_label(entry: tuple) -> str:
     return cg.map_regime_3(raw)
 
 
+def _open_output_bias_indices() -> np.ndarray:
+    b4_start = int(cg.GENOME_SIZE - cg.N_ACTIONS)
+    open_action_codes = [
+        int(code)
+        for code in getattr(cg, "_OPEN_ACTION_CODES", ())
+        if 0 <= int(code) < int(cg.N_ACTIONS)
+    ]
+    return b4_start + np.asarray(open_action_codes, dtype=np.int64)
+
+
+def _apply_open_output_bias(genome: np.ndarray, open_bias: float) -> np.ndarray:
+    adjusted = np.asarray(genome, dtype=np.float32).copy()
+    bias_indices = _open_output_bias_indices()
+    if bias_indices.size:
+        adjusted[bias_indices] -= np.float32(open_bias)
+    return adjusted
+
+
+def _parse_regime_open_bias_specs(raw_specs: Optional[List[str]]) -> Dict[str, float]:
+    if not raw_specs:
+        return {}
+    parsed: Dict[str, float] = {}
+    allowed = {"crash", "bearish", "neutral", "bullish", "default"}
+    for raw_spec in raw_specs:
+        key, separator, value = str(raw_spec).partition("=")
+        regime = key.strip().lower()
+        if not separator or not regime:
+            raise ValueError(f"Invalid --regime-open-bias value: {raw_spec!r}; expected REGIME=BIAS")
+        if regime not in allowed:
+            raise ValueError(
+                f"Unsupported regime for --regime-open-bias: {regime!r}; "
+                f"expected one of {', '.join(sorted(allowed))}"
+            )
+        try:
+            parsed[regime] = float(value)
+        except ValueError as exc:
+            raise ValueError(f"Invalid bias for regime {regime!r}: {value!r}") from exc
+    return parsed
+
+
+def _resolve_regime_open_bias(regime: str, regime_open_bias: Mapping[str, float]) -> float:
+    normalized = str(regime).strip().lower()
+    if normalized in regime_open_bias:
+        return float(regime_open_bias[normalized])
+    if normalized == "crash" and "bearish" in regime_open_bias:
+        return float(regime_open_bias["bearish"])
+    if "default" in regime_open_bias:
+        return float(regime_open_bias["default"])
+    return 0.0
+
+
+def _normalize_symbol_base(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    if "/" in text:
+        text = text.split("/", 1)[0]
+    elif text.endswith("USDT"):
+        text = text[:-4]
+    return text.strip()
+
+
+def _parse_symbol_filter(raw_specs: Optional[List[str]]) -> tuple[str, ...]:
+    if not raw_specs:
+        return ()
+    symbols: list[str] = []
+    seen: set[str] = set()
+    for raw_spec in raw_specs:
+        for raw_item in str(raw_spec).replace(";", ",").split(","):
+            symbol = _normalize_symbol_base(raw_item)
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            symbols.append(symbol)
+    return tuple(symbols)
+
+
+def _filter_array_symbol_axis(value: Any, indices: np.ndarray, symbol_count: int) -> Any:
+    arr = np.asarray(value)
+    if arr.ndim >= 2 and arr.shape[1] == symbol_count:
+        return arr[:, indices, ...]
+    if arr.ndim >= 1 and arr.shape[0] == symbol_count:
+        return arr[indices, ...]
+    return value
+
+
+def _filter_precomp_symbols(precomp: list, allowed_symbols: tuple[str, ...]) -> tuple[list, Dict[str, Any]]:
+    allowed = {_normalize_symbol_base(symbol) for symbol in allowed_symbols if _normalize_symbol_base(symbol)}
+    summary: Dict[str, Any] = {
+        "requested_symbols": sorted(allowed),
+        "periods_before": int(len(precomp)),
+        "periods_after": 0,
+        "periods_dropped": 0,
+        "periods": [],
+    }
+    if not allowed:
+        summary["periods_after"] = int(len(precomp))
+        return precomp, summary
+
+    filtered_precomp: list = []
+    for entry in precomp:
+        if len(entry) < 3:
+            continue
+        feat, prices, syms = entry[:3]
+        symbol_names = list(syms) if syms is not None else []
+        indices = [
+            idx
+            for idx, symbol in enumerate(symbol_names)
+            if _normalize_symbol_base(symbol) in allowed
+        ]
+        period = str(entry[4]) if len(entry) > 4 else ""
+        if not indices:
+            summary["periods"].append({
+                "period": period,
+                "symbols_before": int(len(symbol_names)),
+                "symbols_after": 0,
+                "kept_symbols": [],
+                "dropped": True,
+            })
+            continue
+
+        index_arr = np.asarray(indices, dtype=np.int64)
+        filtered_symbols = [symbol_names[idx] for idx in indices]
+        filtered_entry = (
+            _filter_array_symbol_axis(feat, index_arr, len(symbol_names)),
+            _filter_array_symbol_axis(prices, index_arr, len(symbol_names)),
+            filtered_symbols,
+            *entry[3:],
+        )
+        filtered_precomp.append(filtered_entry)
+        summary["periods"].append({
+            "period": period,
+            "symbols_before": int(len(symbol_names)),
+            "symbols_after": int(len(filtered_symbols)),
+            "kept_symbols": [str(symbol) for symbol in filtered_symbols],
+            "dropped": False,
+        })
+
+    summary["periods_after"] = int(len(filtered_precomp))
+    summary["periods_dropped"] = int(len(precomp) - len(filtered_precomp))
+    return filtered_precomp, summary
+
+
 def _position_exposure_metrics(
     actions_arr: np.ndarray,
     *,
@@ -580,6 +723,8 @@ def _contract_metrics_for_genome(
     turnover_rates: list[float] = []
     saturation_rates: list[float] = []
     invalid_open_logit_pressures: list[float] = []
+    capacity_bar_rates: list[float] = []
+    same_side_open_rates: list[float] = []
 
     for entry in precomp:
         feat, prices, syms, _month, period = entry[:5]
@@ -618,6 +763,16 @@ def _contract_metrics_for_genome(
             if suppression_metrics is not None
             else 0.0
         )
+        raw_capacity_bar_rate = float(
+            suppression_metrics["capacity_bar_rates"][0]
+            if suppression_metrics is not None
+            else metrics["capacity_bar_rates"][0]
+        )
+        same_side_open_rate = float(
+            suppression_metrics["same_side_open_rates"][0]
+            if suppression_metrics is not None
+            else metrics["same_side_open_rates"][0]
+        )
         effective_turnover_rate = float(exec_metrics["turnover_rates"][0])
         exposure_metrics = _position_exposure_metrics(
             exec_actions.astype(np.int32),
@@ -628,6 +783,8 @@ def _contract_metrics_for_genome(
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
         invalid_open_logit_pressures.append(invalid_open_logit_pressure)
+        capacity_bar_rates.append(raw_capacity_bar_rate)
+        same_side_open_rates.append(same_side_open_rate)
         period_rows.append({
             "period": str(period),
             "regime": str(regime),
@@ -637,6 +794,8 @@ def _contract_metrics_for_genome(
             "effective_turnover_rate": effective_turnover_rate,
             "saturation_rate": saturation_rate,
             "invalid_open_logit_pressure": invalid_open_logit_pressure,
+            "raw_capacity_bar_rate": raw_capacity_bar_rate,
+            "same_side_open_rate": same_side_open_rate,
             **exposure_metrics,
         })
 
@@ -653,6 +812,10 @@ def _contract_metrics_for_genome(
             "max_saturation_rate": 0.0,
             "mean_invalid_open_logit_pressure": 0.0,
             "max_invalid_open_logit_pressure": 0.0,
+            "mean_raw_capacity_bar_rate": 0.0,
+            "max_raw_capacity_bar_rate": 0.0,
+            "mean_same_side_open_rate": 0.0,
+            "max_same_side_open_rate": 0.0,
             "mean_long_slot_rate": 0.0,
             "mean_short_slot_rate": 0.0,
             "mean_position_slot_rate": 0.0,
@@ -667,6 +830,8 @@ def _contract_metrics_for_genome(
         dtype=np.float64,
     )
     invalid_open_pressure_arr = np.asarray(invalid_open_logit_pressures, dtype=np.float64)
+    raw_capacity_bar_arr = np.asarray(capacity_bar_rates, dtype=np.float64)
+    same_side_open_arr = np.asarray(same_side_open_rates, dtype=np.float64)
     long_slot_arr = np.asarray(
         [float(row["mean_long_slot_rate"]) for row in period_rows],
         dtype=np.float64,
@@ -701,6 +866,10 @@ def _contract_metrics_for_genome(
         "max_saturation_rate": float(saturation_arr.max()),
         "mean_invalid_open_logit_pressure": float(invalid_open_pressure_arr.mean()),
         "max_invalid_open_logit_pressure": float(invalid_open_pressure_arr.max()),
+        "mean_raw_capacity_bar_rate": float(raw_capacity_bar_arr.mean()),
+        "max_raw_capacity_bar_rate": float(raw_capacity_bar_arr.max()),
+        "mean_same_side_open_rate": float(same_side_open_arr.mean()),
+        "max_same_side_open_rate": float(same_side_open_arr.max()),
         "mean_long_slot_rate": float(long_slot_arr.mean()),
         "mean_short_slot_rate": float(short_slot_arr.mean()),
         "mean_position_slot_rate": float(position_slot_arr.mean()),
@@ -708,6 +877,67 @@ def _contract_metrics_for_genome(
         "mean_capacity_usage": float(capacity_usage_arr.mean()),
         "max_open_positions": int(max(int(row["max_open_positions"]) for row in period_rows)),
         "capacity_bar_rate": float(capacity_bar_arr.mean()),
+        "periods": period_rows,
+    }
+
+
+def _aggregate_contract_metrics_from_period_rows(
+    period_rows: list[dict[str, Any]],
+    *,
+    execution_lag_bars: int,
+) -> Dict[str, Any]:
+    if not period_rows:
+        return {
+            "execution_lag_bars": int(execution_lag_bars),
+            "turnover_target_rate": float(cg.TURNOVER_TARGET_RATE),
+            "mean_turnover_rate": 0.0,
+            "max_turnover_rate": 0.0,
+            "mean_effective_turnover_rate": 0.0,
+            "mean_saturation_rate": 0.0,
+            "max_saturation_rate": 0.0,
+            "mean_invalid_open_logit_pressure": 0.0,
+            "max_invalid_open_logit_pressure": 0.0,
+            "mean_raw_capacity_bar_rate": 0.0,
+            "max_raw_capacity_bar_rate": 0.0,
+            "mean_same_side_open_rate": 0.0,
+            "max_same_side_open_rate": 0.0,
+            "mean_long_slot_rate": 0.0,
+            "mean_short_slot_rate": 0.0,
+            "mean_position_slot_rate": 0.0,
+            "mean_net_direction_bias": 0.0,
+            "mean_capacity_usage": 0.0,
+            "max_open_positions": 0,
+            "capacity_bar_rate": 0.0,
+            "periods": [],
+        }
+
+    def mean_of(key: str) -> float:
+        return float(np.asarray([float(row.get(key, 0.0)) for row in period_rows], dtype=np.float64).mean())
+
+    def max_of(key: str) -> float:
+        return float(np.asarray([float(row.get(key, 0.0)) for row in period_rows], dtype=np.float64).max())
+
+    return {
+        "execution_lag_bars": int(execution_lag_bars),
+        "turnover_target_rate": float(cg.TURNOVER_TARGET_RATE),
+        "mean_turnover_rate": mean_of("turnover_rate"),
+        "max_turnover_rate": max_of("turnover_rate"),
+        "mean_effective_turnover_rate": mean_of("effective_turnover_rate"),
+        "mean_saturation_rate": mean_of("saturation_rate"),
+        "max_saturation_rate": max_of("saturation_rate"),
+        "mean_invalid_open_logit_pressure": mean_of("invalid_open_logit_pressure"),
+        "max_invalid_open_logit_pressure": max_of("invalid_open_logit_pressure"),
+        "mean_raw_capacity_bar_rate": mean_of("raw_capacity_bar_rate"),
+        "max_raw_capacity_bar_rate": max_of("raw_capacity_bar_rate"),
+        "mean_same_side_open_rate": mean_of("same_side_open_rate"),
+        "max_same_side_open_rate": max_of("same_side_open_rate"),
+        "mean_long_slot_rate": mean_of("mean_long_slot_rate"),
+        "mean_short_slot_rate": mean_of("mean_short_slot_rate"),
+        "mean_position_slot_rate": mean_of("mean_position_slot_rate"),
+        "mean_net_direction_bias": mean_of("mean_net_direction_bias"),
+        "mean_capacity_usage": mean_of("mean_capacity_usage"),
+        "max_open_positions": int(max(int(row.get("max_open_positions", 0)) for row in period_rows)),
+        "capacity_bar_rate": mean_of("capacity_bar_rate"),
         "periods": period_rows,
     }
 
@@ -755,6 +985,99 @@ def _evaluate_mode(
         "robust_score": robust_period_score(period_rets),
         "contract_metrics": contract_metrics,
         "period_rets": [float(x) for x in period_rets],
+    }
+
+
+def _evaluate_regime_adaptive_output_bias_mode(
+    *,
+    source_genome: np.ndarray,
+    precomp: list,
+    regime_open_bias: Mapping[str, float],
+    mode_name: str,
+    execution_lag_bars: int,
+    futures_fee: float,
+    position_state_features_enabled: bool,
+) -> Dict[str, Any]:
+    old_lag = cg.TRAIN_EXECUTION_LAG_BARS
+    old_futures_fee = cg.TRAIN_FUTURES_FEE
+    old_position_state = cg.POSITION_STATE_FEATURES_ENABLED
+    period_rets: list[float] = []
+    period_rows: list[dict[str, Any]] = []
+    bias_periods: list[dict[str, Any]] = []
+    genome_cache: dict[float, np.ndarray] = {}
+
+    try:
+        cg.TRAIN_EXECUTION_LAG_BARS = int(execution_lag_bars)
+        cg.TRAIN_FUTURES_FEE = float(futures_fee)
+        cg.POSITION_STATE_FEATURES_ENABLED = bool(position_state_features_enabled)
+        t0 = time.time()
+        for entry in precomp:
+            period = str(entry[4]) if len(entry) > 4 else ""
+            regime = _contract_regime_label(entry)
+            open_bias = _resolve_regime_open_bias(regime, regime_open_bias)
+            genome = genome_cache.get(open_bias)
+            if genome is None:
+                genome = _apply_open_output_bias(source_genome, open_bias)
+                genome_cache[open_bias] = genome
+
+            fits, period_ret_lists = _evaluate_population(genome[None].astype(np.float32), [entry])
+            if period_ret_lists and period_ret_lists[0]:
+                period_ret = float(period_ret_lists[0][0])
+            else:
+                period_ret = float(fits[0]) if len(fits) else 0.0
+            period_rets.append(period_ret)
+
+            metrics = _contract_metrics_for_genome(
+                genome=genome,
+                precomp=[entry],
+                execution_lag_bars=execution_lag_bars,
+            )
+            if metrics.get("periods"):
+                row = dict(metrics["periods"][0])
+            else:
+                row = {
+                    "period": period,
+                    "regime": regime,
+                    "turnover_rate": 0.0,
+                    "effective_turnover_rate": 0.0,
+                    "saturation_rate": 0.0,
+                    "invalid_open_logit_pressure": 0.0,
+                }
+            row["open_output_bias"] = float(open_bias)
+            period_rows.append(row)
+            bias_periods.append({
+                "period": period,
+                "regime": str(regime),
+                "open_output_bias": float(open_bias),
+            })
+        elapsed = time.time() - t0
+    finally:
+        cg.TRAIN_EXECUTION_LAG_BARS = old_lag
+        cg.TRAIN_FUTURES_FEE = old_futures_fee
+        cg.POSITION_STATE_FEATURES_ENABLED = old_position_state
+
+    robust = robust_period_score(period_rets)
+    return {
+        "mode": mode_name,
+        "position_state_features_enabled": bool(position_state_features_enabled),
+        "fitness": float(robust.get("robust_utility", np.mean(period_rets) if period_rets else 0.0)),
+        "execution_lag_bars": int(execution_lag_bars),
+        "spot_fee": float(cg.TRAIN_FEE),
+        "futures_fee": float(futures_fee),
+        "slippage": float(cg.TRAIN_SLIPPAGE),
+        "elapsed_sec": float(elapsed),
+        "period_stats": _period_stats(period_rets),
+        "robust_score": robust,
+        "contract_metrics": _aggregate_contract_metrics_from_period_rows(
+            period_rows,
+            execution_lag_bars=execution_lag_bars,
+        ),
+        "period_rets": [float(x) for x in period_rets],
+        "regime_adaptive_output_bias": {
+            "enabled": True,
+            "regime_open_bias": {str(key): float(value) for key, value in regime_open_bias.items()},
+            "periods": bias_periods,
+        },
     }
 
 
@@ -811,6 +1134,24 @@ def main() -> int:
         help="Path to .npy genome. Can be repeated. Defaults to best_genome.npy.",
     )
     parser.add_argument(
+        "--regime-adaptive-output-bias-genome",
+        action="append",
+        default=None,
+        help=(
+            "Path to a source .npy genome evaluated with per-period open-output bias "
+            "selected by regime. Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--regime-open-bias",
+        action="append",
+        default=None,
+        help=(
+            "Open-output bias for adaptive evaluation as REGIME=BIAS. "
+            "Can be repeated for crash, bearish, neutral, bullish, or default."
+        ),
+    )
+    parser.add_argument(
         "--out",
         default=str(ROOT / "Results" / "neiro_genetics" / "genetics_contract_eval.json"),
         help="Output JSON path.",
@@ -829,6 +1170,22 @@ def main() -> int:
         "--data-dir",
         default=None,
         help="Optional Retrodate CSV directory override for this evaluation only.",
+    )
+    parser.add_argument(
+        "--exchange",
+        default=os.getenv("CRYPTO_EXCHANGE", ""),
+        help="Exchange/domain for this genetics evaluation, for example MEXC or BITGET.",
+    )
+    parser.add_argument(
+        "--symbol",
+        "--symbols",
+        dest="symbol_filter",
+        action="append",
+        default=None,
+        help=(
+            "Restrict evaluation to these base symbols. Can be repeated or comma-separated, "
+            "for example --symbols BTC,ETH,SOL."
+        ),
     )
     parser.add_argument(
         "--walk-forward",
@@ -861,6 +1218,12 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    regime_open_bias = _parse_regime_open_bias_specs(args.regime_open_bias)
+    symbol_filter = _parse_symbol_filter(args.symbol_filter)
+    adaptive_genome_paths = args.regime_adaptive_output_bias_genome or []
+    if adaptive_genome_paths and not regime_open_bias:
+        raise ValueError("--regime-adaptive-output-bias-genome requires at least one --regime-open-bias")
+
     genome_paths = args.genome or [str(GENETICS_DIR / "Agents" / "genetics" / "best_genome.npy")]
     genomes = []
     for raw_path in genome_paths:
@@ -871,6 +1234,15 @@ def main() -> int:
         if genome.shape[0] != cg.GENOME_SIZE:
             raise ValueError(f"{path} genome size {genome.shape[0]} != expected {cg.GENOME_SIZE}")
         genomes.append((path, genome, _infer_position_state_features_enabled(path)))
+    adaptive_genomes = []
+    for raw_path in adaptive_genome_paths:
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = ROOT / path
+        genome = np.load(path).astype(np.float32)
+        if genome.shape[0] != cg.GENOME_SIZE:
+            raise ValueError(f"{path} genome size {genome.shape[0]} != expected {cg.GENOME_SIZE}")
+        adaptive_genomes.append((path, genome, _infer_position_state_features_enabled(path)))
 
     old_cfg_start = cg._cx._CFG.get("start_date")
     old_cfg_end = cg._cx._CFG.get("end_date")
@@ -904,6 +1276,23 @@ def main() -> int:
             cg._cx._CFG["end_date"] = old_cfg_end
         cg._cx.DATA_DIR = old_data_dir
 
+    if symbol_filter:
+        periods_before = len(precomp)
+        precomp, symbol_filter_summary = _filter_precomp_symbols(precomp, symbol_filter)
+        print(
+            "[eval] symbol_filter="
+            + ",".join(symbol_filter)
+            + f" periods={len(precomp)}/{periods_before}"
+        )
+    else:
+        symbol_filter_summary = {
+            "requested_symbols": [],
+            "periods_before": int(len(precomp)),
+            "periods_after": int(len(precomp)),
+            "periods_dropped": 0,
+            "periods": [],
+        }
+
     if not precomp:
         raise RuntimeError("No precomputed periods loaded")
     print(f"[eval] periods={len(precomp)}")
@@ -928,6 +1317,7 @@ def main() -> int:
 
     report: Dict[str, Any] = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "exchange": str(args.exchange or "").strip().upper(),
         "start_date": args.start_date,
         "end_date": args.end_date,
         "periods": len(precomp),
@@ -939,6 +1329,10 @@ def main() -> int:
         "default_position_state_features_enabled": bool(cg.POSITION_STATE_FEATURES_ENABLED),
         "genomes": [],
     }
+    if symbol_filter:
+        report["symbol_filter"] = symbol_filter_summary
+    if regime_open_bias:
+        report["regime_open_bias"] = {str(key): float(value) for key, value in regime_open_bias.items()}
     folds: list[dict[str, Any]] = []
     if args.walk_forward:
         period_labels = [str(entry[4]) for entry in precomp if len(entry) > 4]
@@ -984,6 +1378,37 @@ def main() -> int:
                 futures_fee=float(cg.TRAIN_FUTURES_FEE),
                 position_state_features_enabled=position_state_features_enabled,
             )
+        report["genomes"].append(genome_report)
+
+    for path, genome, position_state_features_enabled in adaptive_genomes:
+        print(f"[eval] regime_adaptive_output_bias_genome={path}")
+        genome_report = {
+            "path": f"{path}::regime_adaptive_output_bias",
+            "source_path": str(path),
+            "position_state_features_enabled": bool(position_state_features_enabled),
+            "regime_adaptive_output_bias": {
+                "enabled": True,
+                "regime_open_bias": {str(key): float(value) for key, value in regime_open_bias.items()},
+            },
+            "modes": [],
+        }
+        for mode in modes:
+            print(f"[eval]   mode={mode['mode_name']}")
+            genome_report["modes"].append(
+                _evaluate_regime_adaptive_output_bias_mode(
+                    source_genome=genome,
+                    precomp=precomp,
+                    regime_open_bias=regime_open_bias,
+                    position_state_features_enabled=position_state_features_enabled,
+                    **mode,
+                )
+            )
+        if args.walk_forward:
+            print("[eval]   walk_forward skipped for regime_adaptive_output_bias")
+            genome_report["walk_forward"] = {
+                "skipped": True,
+                "reason": "per-period adaptive output bias is evaluated in report modes only",
+            }
         report["genomes"].append(genome_report)
 
     out = Path(args.out)

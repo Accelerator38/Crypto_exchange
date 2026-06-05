@@ -130,13 +130,14 @@ def _leaderboard_rows(
     prefixes: tuple[str, ...],
 ) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
-    for raw_label, payload in (leaderboard_agents.get("agents") or {}).items():
-        label = str(raw_label)
-        if label.startswith("V_"):
-            label = label[2:]
-        if not _is_monitored(label, prefixes):
-            continue
-        out[label] = dict(payload or {})
+    for section in ("agents", "players"):
+        for raw_label, payload in (leaderboard_agents.get(section) or {}).items():
+            label = str(raw_label)
+            if label.startswith("V_"):
+                label = label[2:]
+            if not _is_monitored(label, prefixes):
+                continue
+            out[label] = dict(payload or {})
     return out
 
 

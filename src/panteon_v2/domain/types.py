@@ -14,10 +14,10 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import IntEnum
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # ────────────────────────────────────────────────────────────────────
 # Action — типизированные торговые действия
@@ -120,14 +120,18 @@ _CLOSES:  frozenset["Action"] = frozenset({
 class Regime(IntEnum):
     """Канонические режимы рынка.
 
-    Только эти 4 значения. Все детекторы возвращают один из них.
-    Никаких "unknown", "sideways", "bull" — единая канонизация.
+    Все детекторы возвращают одно из этих значений.
+    Никаких "unknown", "sideways", "bull" - единая канонизация.
     """
 
     BULLISH = 1
     BEARISH = 2
     NEUTRAL = 3
     CRASH   = 4
+    RANGE_LOW_VOL = 5
+    CHOPPY_DOWN = 6
+    CHOPPY_UP = 7
+    MIXED_ROTATIONAL = 8
 
     @property
     def label(self) -> str:
@@ -135,7 +139,7 @@ class Regime(IntEnum):
 
     @classmethod
     def from_string(cls, value: str) -> "Regime":
-        """Канонизация любых строковых вариантов в один из 4-х режимов."""
+        """Канонизация любых строковых вариантов в один из известных режимов."""
         v = (value or "").strip().lower()
         # Прямой матч
         for regime in cls:
@@ -150,6 +154,15 @@ class Regime(IntEnum):
             return cls.NEUTRAL
         if v in ("crash", "panic", "flash_crash"):
             return cls.CRASH
+        normalized = v.replace("-", "_").replace(" ", "_").replace("/", "_")
+        if normalized in ("range_low_vol", "low_vol_range", "low_vol"):
+            return cls.RANGE_LOW_VOL
+        if normalized in ("choppy_down", "chop_down", "volatile_down"):
+            return cls.CHOPPY_DOWN
+        if normalized in ("choppy_up", "chop_up", "volatile_up"):
+            return cls.CHOPPY_UP
+        if normalized in ("mixed_rotational", "mixed_rotation", "rotational", "mixed"):
+            return cls.MIXED_ROTATIONAL
         return cls.NEUTRAL
 
 
@@ -211,8 +224,16 @@ class MarketSnapshot:
     lookback_returns_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
     lookback_volatility_pct: Dict[str, Dict[int, float]] = field(default_factory=dict)
     technicals_by_symbol: Dict[str, TechnicalIndicators] = field(default_factory=dict)
+    regimes_by_symbol: Dict[str, Regime] = field(default_factory=dict)
+    regime_features_by_symbol: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        regime = (
+            self.regime
+            if isinstance(self.regime, Regime)
+            else Regime.from_string(str(self.regime or ""))
+        )
+        object.__setattr__(self, "regime", regime)
         if not 0.0 <= float(self.regime_confidence) <= 1.0:
             raise ValueError("MarketSnapshot.regime_confidence must be in [0, 1]")
         price_symbols = {str(item).upper() for item in self.prices}
@@ -222,9 +243,50 @@ class MarketSnapshot:
                     "MarketSnapshot.technicals_by_symbol contains unknown symbol "
                     f"{symbol!r}"
                 )
+        clean_regimes: Dict[str, Regime] = {}
+        for symbol, raw_regime in (self.regimes_by_symbol or {}).items():
+            clean_symbol = str(symbol or "").strip().upper()
+            if not clean_symbol:
+                continue
+            if clean_symbol not in price_symbols:
+                raise ValueError(
+                    "MarketSnapshot.regimes_by_symbol contains unknown symbol "
+                    f"{symbol!r}"
+                )
+            clean_regimes[clean_symbol] = (
+                raw_regime
+                if isinstance(raw_regime, Regime)
+                else Regime.from_string(str(raw_regime or ""))
+            )
+        object.__setattr__(self, "regimes_by_symbol", clean_regimes)
+        clean_features: Dict[str, Dict[str, Any]] = {}
+        for symbol, raw_features in (self.regime_features_by_symbol or {}).items():
+            clean_symbol = str(symbol or "").strip().upper()
+            if not clean_symbol:
+                continue
+            if clean_symbol not in price_symbols:
+                raise ValueError(
+                    "MarketSnapshot.regime_features_by_symbol contains unknown "
+                    f"symbol {symbol!r}"
+                )
+            if isinstance(raw_features, dict):
+                clean_features[clean_symbol] = dict(raw_features)
+        object.__setattr__(self, "regime_features_by_symbol", clean_features)
 
     def has_price(self, sym: str) -> bool:
         return sym in self.prices and self.prices[sym] > 0
+
+    def regime_for_symbol(self, sym: str) -> Regime:
+        return self.regimes_by_symbol.get(str(sym or "").strip().upper(), self.regime)
+
+    def regime_features_for_symbol(self, sym: str) -> Dict[str, Any]:
+        return dict(self.regime_features_by_symbol.get(str(sym or "").strip().upper(), {}))
+
+    def with_regime_for_symbol(self, sym: str) -> "MarketSnapshot":
+        regime = self.regime_for_symbol(sym)
+        if regime == self.regime:
+            return self
+        return replace(self, regime=regime)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -254,6 +316,7 @@ class Signal:
     risk_mult:  float = 1.0
     close_fraction: float = 1.0
     timestamp:  datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.id < 0:

@@ -118,6 +118,9 @@ class TestAttributionPanelBuilder(unittest.TestCase):
         panel = build_attribution_panel(self.ledger, self.qm, by="agent")
         labels = {r.label for r in panel.rows}
         self.assertEqual(labels, {"X", "Y"})
+        x_row = next(r for r in panel.rows if r.label == "X")
+        self.assertEqual(x_row.n_trades, 2)
+        self.assertEqual(x_row.n_wins, 2)
 
     def test_invalid_by(self):
         with self.assertRaises(ValueError):

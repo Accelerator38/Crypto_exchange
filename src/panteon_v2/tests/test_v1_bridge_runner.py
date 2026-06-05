@@ -302,8 +302,11 @@ class V1BridgeRunnerTests(unittest.TestCase):
             ],
         )
 
-    def test_warmup_skips_heavy_optional_genetics_agents(self):
-        from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
+    def test_warmup_includes_runtime_genetics_candidates(self):
+        from panteon_v2.app.v1_bridge_runner import (
+            _is_heavy_optional_warmup_agent,
+            _warmup_v2_agents_from_bridge,
+        )
         from panteon_v2.selection import AgentRegistry
 
         class RecordingAgent:
@@ -322,19 +325,102 @@ class V1BridgeRunnerTests(unittest.TestCase):
         ]
         registry = AgentRegistry()
         normal = RecordingAgent("LiveTrendFollow")
-        genetics = RecordingAgent("GeneticsCore")
+        genetics_core = RecordingAgent("GeneticsCore")
+        adaptive = RecordingAgent("GeneticsRegimeAdaptiveBias")
+        genetics_best = RecordingAgent("GeneticsBest")
+        heavy = RecordingAgent("GeneticsResearchHeavy")
         registry.register(normal)
-        registry.register(genetics)
+        registry.register(genetics_core)
+        registry.register(adaptive)
+        registry.register(genetics_best)
+        registry.register(heavy)
 
-        warmed = _warmup_v2_agents_from_bridge(
-            bridge,
-            registry,
-            exchange_name="MEXC",
-        )
+        with patch.dict(
+            os.environ,
+            {
+                "PANTEON_V2_GENETICS_AGENT_WARMUP_LABELS": (
+                    "GeneticsCore,GeneticsRegimeAdaptiveBias,GeneticsBest"
+                ),
+                "PANTEON_V2_SKIP_GENETICS_AGENT_WARMUP_LABELS": "",
+            },
+        ):
+            warmed = _warmup_v2_agents_from_bridge(
+                bridge,
+                registry,
+                exchange_name="MEXC",
+            )
 
-        self.assertEqual(warmed, 2)
-        self.assertEqual(normal.calls, 2)
-        self.assertEqual(genetics.calls, 0)
+            self.assertEqual(warmed, 2)
+            self.assertEqual(normal.calls, 2)
+            self.assertEqual(genetics_core.calls, 2)
+            self.assertEqual(adaptive.calls, 2)
+            self.assertEqual(genetics_best.calls, 2)
+            self.assertEqual(heavy.calls, 0)
+            self.assertFalse(_is_heavy_optional_warmup_agent(genetics_core))
+            self.assertFalse(_is_heavy_optional_warmup_agent(adaptive))
+            self.assertFalse(_is_heavy_optional_warmup_agent(genetics_best))
+            self.assertTrue(_is_heavy_optional_warmup_agent(heavy))
+
+    def test_warmup_limits_runtime_genetics_candidates_to_recent_bars(self):
+        from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
+        from panteon_v2.selection import AgentRegistry
+
+        class RecordingAgent:
+            def __init__(self, label):
+                self.label = label
+                self.calls = []
+
+            def act(self, market):
+                self.calls.append(market.bar)
+                return {}
+
+        bridge = FakeBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 101.0},
+            {"BTC": 102.0},
+            {"BTC": 103.0},
+            {"BTC": 104.0},
+        ]
+        registry = AgentRegistry()
+        normal = RecordingAgent("LiveTrendFollow")
+        genetics_best = RecordingAgent("GeneticsBest")
+        registry.register(normal)
+        registry.register(genetics_best)
+
+        with patch.dict(
+            os.environ,
+            {
+                "PANTEON_V2_GENETICS_AGENT_WARMUP_LABELS": "GeneticsBest",
+                "PANTEON_V2_SKIP_GENETICS_AGENT_WARMUP_LABELS": "",
+                "PANTEON_V2_GENETICS_AGENT_WARMUP_MAX_BARS": "2",
+            },
+        ):
+            warmed = _warmup_v2_agents_from_bridge(
+                bridge,
+                registry,
+                exchange_name="MEXC",
+            )
+
+        self.assertEqual(warmed, 5)
+        self.assertEqual(normal.calls, [1, 2, 3, 4, 5])
+        self.assertEqual(genetics_best.calls, [4, 5])
+
+    def test_risk_tight_genetics_is_in_default_warmup_labels(self):
+        from panteon_v2.app.v1_bridge_runner import _is_heavy_optional_warmup_agent
+
+        class Agent:
+            label = "GeneticsRiskTight"
+
+        with patch.dict(
+            os.environ,
+            {
+                "PANTEON_V2_SKIP_GENETICS_AGENT_WARMUP_LABELS": "",
+            },
+            clear=False,
+        ):
+            os.environ.pop("PANTEON_V2_GENETICS_AGENT_WARMUP_LABELS", None)
+            self.assertFalse(_is_heavy_optional_warmup_agent(Agent()))
 
     def test_prepare_live_agents_clears_warmup_positions_and_injects_real_positions(self):
         from panteon_v2.app.v1_bridge_runner import (

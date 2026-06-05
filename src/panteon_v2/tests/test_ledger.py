@@ -241,6 +241,18 @@ class TestCounters(unittest.TestCase):
         self.assertEqual(ledger.trade_counts_by_player(), {"P": 3})
         self.assertEqual(ledger.win_counts_by_player(), {"P": 2})
 
+    def test_trade_counts_by_agent(self):
+        log = EventLog()
+        for sid, agent in ((1, "A"), (3, "A"), (5, "B")):
+            log.emit(_open_event(sid, "BTC", sid))
+            log.emit(_close_event(sid + 1, "BTC", sid, sid + 1,
+                                  realized_pnl=1.0 if sid != 3 else -1.0,
+                                  by_player="P", by_agent=agent))
+        ledger = AttributionLedger()
+        ledger.replay_from_event_log(log)
+        self.assertEqual(ledger.trade_counts_by_agent(), {"A": 2, "B": 1})
+        self.assertEqual(ledger.win_counts_by_agent(), {"A": 1, "B": 1})
+
 
 class TestOpenAttributions(unittest.TestCase):
     def test_open_position_present(self):

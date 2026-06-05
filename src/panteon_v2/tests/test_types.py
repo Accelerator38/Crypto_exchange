@@ -99,6 +99,14 @@ class TestRegime(unittest.TestCase):
         self.assertEqual(Regime.from_string("down"), Regime.BEARISH)
         self.assertEqual(Regime.from_string("sideways"), Regime.NEUTRAL)
         self.assertEqual(Regime.from_string("range"), Regime.NEUTRAL)
+        self.assertEqual(Regime.from_string("range_low_vol"), Regime.RANGE_LOW_VOL)
+        self.assertEqual(Regime.from_string("low-vol range"), Regime.RANGE_LOW_VOL)
+        self.assertEqual(Regime.from_string("choppy_down"), Regime.CHOPPY_DOWN)
+        self.assertEqual(Regime.from_string("choppy up"), Regime.CHOPPY_UP)
+        self.assertEqual(
+            Regime.from_string("mixed/rotational"),
+            Regime.MIXED_ROTATIONAL,
+        )
         self.assertEqual(Regime.from_string("flash_crash"), Regime.CRASH)
         self.assertEqual(Regime.from_string(""), Regime.NEUTRAL)
         self.assertEqual(Regime.from_string("garbage"), Regime.NEUTRAL)
@@ -208,6 +216,21 @@ class TestMarketSnapshot(unittest.TestCase):
         self.assertTrue(snap.has_price("BTC"))
         self.assertTrue(snap.has_price("ETH"))
         self.assertFalse(snap.has_price("UNKNOWN"))
+
+    def test_regime_for_symbol_uses_symbol_override(self):
+        snap = MarketSnapshot(
+            bar=100,
+            timestamp=datetime.now(timezone.utc),
+            regime=Regime.NEUTRAL,
+            prices={"BTC": 50000.0, "ETH": 3000.0},
+            volumes={"BTC": 100.0, "ETH": 500.0},
+            regimes_by_symbol={"BTC": "bullish", "ETH": Regime.BEARISH},
+        )
+
+        self.assertEqual(snap.regime_for_symbol("BTC"), Regime.BULLISH)
+        self.assertEqual(snap.regime_for_symbol("ETH"), Regime.BEARISH)
+        self.assertEqual(snap.regime_for_symbol("UNKNOWN"), Regime.NEUTRAL)
+        self.assertEqual(snap.with_regime_for_symbol("ETH").regime, Regime.BEARISH)
 
 
 if __name__ == "__main__":

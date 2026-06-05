@@ -96,6 +96,29 @@ class TestGeneticsDegradationMonitoring(unittest.TestCase):
         self.assertEqual(report["labels"][0]["session_signals"], 9)
         self.assertFalse(report["labels"][0]["gate_should_disable"])
 
+    def test_report_reads_genetics_from_player_leaderboard(self) -> None:
+        status = {
+            "degradation_gate": {"last_decisions": []},
+            "quarantine_records": {},
+        }
+        leaderboard = {
+            "agents": {},
+            "players": {
+                "V_GeneticsCore": {
+                    "session_pnl_pct": 0.4,
+                    "session_closed_trades": 2,
+                    "session_signals": 5,
+                    "is_quarantined": False,
+                },
+            },
+        }
+
+        report = build_genetics_degradation_report(status, leaderboard)
+
+        self.assertEqual(report["summary"]["monitored_labels"], 1)
+        self.assertEqual(report["labels"][0]["label"], "GeneticsCore")
+        self.assertEqual(report["labels"][0]["session_signals"], 5)
+
     def test_report_enriches_genetics_rows_with_shadow_blocked_reasons(self) -> None:
         status = {
             "degradation_gate": {

@@ -22,6 +22,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
+from datetime import timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..attribution import (
@@ -29,10 +30,12 @@ from ..attribution import (
     BarStarted,
     DecisionStarted,
     LeaderSelected,
+    OrderFilled,
     PlayerVoteFailed,
     QuarantineRecomputed,
     RegimeDetected,
     SignalEmitted,
+    PositionOpened,
     SwitchGateEvaluated,
 )
 from ..domain.types import Action, MarketSnapshot, Regime, Signal
@@ -65,6 +68,7 @@ from .flash_state import (
     flash_degraded_actor_keys,
     flash_degraded_open_symbols,
     flash_degraded_signal_keys,
+    flash_open_position_actor_keys_by_symbol,
     flash_open_position_sides_by_symbol,
     flash_regime_degradation_key,
 )
@@ -98,6 +102,8 @@ def sync_pipeline_balance(pipeline: ProductionPipeline) -> Optional[float]:
                 pipeline.current_balance = balance
                 _record_live_equity_peak(pipeline, balance)
                 return balance
+            if snapshot.get("data_health"):
+                pipeline.account_snapshot = snapshot
 
         getter = getattr(exchange, "get_account_equity", None)
         if not callable(getter):
@@ -649,26 +655,23 @@ def _run_one_bar(
     if degradation_result is not None and not degradation_result.is_no_op:
         candidates = _drop_quarantined_candidates(pipeline, candidates)
 
-    kill_reason = _kill_switch_reason(pipeline)
-    if kill_reason:
-        return (
-            StepResult(
-                bar=market.bar, regime=market.regime,
-                leader=None, leader_changed=False,
-                n_signals=0, n_filled=0, n_rejected=0, n_blocked=0,
-                n_shadow_signals=shadow_summary.total_signals,
-                n_shadow_filled=shadow_summary.total_filled,
-                n_shadow_rejected=shadow_summary.total_rejected,
-                n_shadow_blocked=shadow_summary.total_blocked,
-                n_shadow_actors=shadow_summary.actors,
-                error=f"kill switch active: {kill_reason}",
-            ),
-            signal_id_counter, last_qm_bar, last_regime,
-        )
-
     decision_id = trace
     context = _decision_context(pipeline, market)
     health_reason = _exchange_health_open_block_reason(pipeline)
+    kill_reason = _kill_switch_reason(pipeline)
+    if kill_reason:
+        return _run_manage_only_kill_switch_step(
+            pipeline,
+            market,
+            shadow_summary,
+            signal_id_counter=signal_id_counter,
+            last_qm_bar=last_qm_bar,
+            last_regime=last_regime,
+            trace=trace,
+            decision_id=decision_id,
+            context=context,
+            kill_reason=kill_reason,
+        )
 
     if bool(getattr(pipeline, "flash_enabled", False)):
         return _run_flash_decision_path(
@@ -961,7 +964,7 @@ def _run_one_bar(
             )
         except Exception:
             log.exception("execute failed for signal %d", sig.id)
-            _record_order_failure(pipeline, "execute exception")
+            _record_order_failure(pipeline, "execute exception", signal=sig)
             n_rejected += 1
             continue
         if res.status == ExecutionStatus.FILLED:
@@ -971,10 +974,10 @@ def _run_one_bar(
             # Update balance (simple): добавляем realized PnL если был close
             # (детальнее — в AttributionLedger; здесь упрощённо)
         elif res.status == ExecutionStatus.REJECTED:
-            _record_order_failure(pipeline, res.reason or "rejected")
+            _record_order_failure(pipeline, res.reason or "rejected", signal=sig)
             n_rejected += 1
         elif res.status == ExecutionStatus.PENDING:
-            _record_order_failure(pipeline, res.reason or "pending")
+            _record_order_failure(pipeline, res.reason or "pending", signal=sig)
             n_rejected += 1
         elif res.status == ExecutionStatus.BLOCKED:
             n_blocked += 1
@@ -1045,6 +1048,155 @@ def _run_one_bar(
     )
 
 
+def _run_manage_only_kill_switch_step(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    shadow_summary: object,
+    *,
+    signal_id_counter: int,
+    last_qm_bar: int,
+    last_regime: Optional[Regime],
+    trace: str,
+    decision_id: str,
+    context: Dict[str, str],
+    kill_reason: str,
+):
+    raw_signals = _cash_flat_close_signals(
+        pipeline,
+        market,
+        signal_id_start=signal_id_counter,
+    )
+    if raw_signals:
+        signal_id_counter = max(signal.id for signal in raw_signals) + 1
+    actor = _FlashExecutionActor(
+        label="ManageOnly",
+        agents=(),
+        agent_labels=("CashFlat",),
+    )
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=actor,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=0,
+        max_open_positions=getattr(
+            getattr(pipeline, "risk_config", None),
+            "max_open_positions",
+            None,
+        ),
+        manage_only=True,
+    )
+    signals = signal_guard.signals
+    for sig in signals:
+        signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+        pipeline.event_log.emit(SignalEmitted(
+            bar=market.bar,
+            trace_id=trace,
+            signal=sig,
+            **signal_context,
+        ))
+        getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
+
+    n_filled = n_rejected = n_blocked = 0
+    blocked_reasons: Dict[str, int] = {}
+    for sig in signals:
+        try:
+            set_event_context = getattr(pipeline.executor, "set_event_context", None)
+            if callable(set_event_context):
+                set_event_context(
+                    _signal_context(context, decision_id=decision_id, signal=sig)
+                )
+            res: ExecutionResult = pipeline.executor.execute(
+                sig,
+                balance_usd=pipeline.current_balance,
+            )
+        except Exception:
+            log.exception("manage-only execute failed for signal %d", sig.id)
+            _record_order_failure(pipeline, "manage-only execute exception", signal=sig)
+            n_rejected += 1
+            continue
+        if res.status == ExecutionStatus.FILLED:
+            n_filled += 1
+            _record_order_success(pipeline, sig, res)
+            _record_realized_result_for_strategy(pipeline, res)
+        elif res.status == ExecutionStatus.REJECTED:
+            _record_order_failure(pipeline, res.reason or "rejected", signal=sig)
+            n_rejected += 1
+        elif res.status == ExecutionStatus.PENDING:
+            _record_order_failure(pipeline, res.reason or "pending", signal=sig)
+            n_rejected += 1
+        elif res.status == ExecutionStatus.BLOCKED:
+            n_blocked += 1
+            reason = res.reason or "blocked"
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+
+    causal_decision = {
+        "manage_only": True,
+        "bar": int(getattr(market, "bar", 0) or 0),
+        "timestamp": _timestamp_payload(getattr(market, "timestamp", None)),
+        "regime": getattr(
+            getattr(market, "regime", None),
+            "label",
+            str(getattr(market, "regime", "")),
+        ),
+        "selected_leader": "ManageOnly",
+        "executed_leader": "ManageOnly",
+        "decision_reason": f"manage-only kill switch active: {kill_reason}",
+        "prices": _float_mapping(getattr(market, "prices", {}) or {}),
+        "raw_signal_count": len(tuple(raw_signals or ())),
+        "executable_signal_count": len(tuple(signals or ())),
+        "raw_signals": [_signal_payload(sig) for sig in raw_signals or ()],
+        "executable_signals": [_signal_payload(sig) for sig in signals or ()],
+        "guarded_signals": [_signal_payload(sig) for sig in signals or ()],
+        "filtered_real_signals": int(getattr(signal_guard, "filtered", 0) or 0),
+        "signal_filter_details": tuple(
+            str(item) for item in (getattr(signal_guard, "details", ()) or ())
+        ),
+        "n_filled": int(n_filled),
+        "n_rejected": int(n_rejected),
+        "n_blocked": int(n_blocked),
+        "blocked_reasons": dict(blocked_reasons),
+        "kill_switch_reason": str(kill_reason or ""),
+    }
+    return (
+        StepResult(
+            bar=market.bar,
+            regime=market.regime,
+            leader="ManageOnly",
+            leader_changed=False,
+            n_signals=len(signals),
+            n_filled=n_filled,
+            n_rejected=n_rejected,
+            n_blocked=n_blocked,
+            n_shadow_signals=int(getattr(shadow_summary, "total_signals", 0) or 0),
+            n_shadow_filled=int(getattr(shadow_summary, "total_filled", 0) or 0),
+            n_shadow_rejected=int(getattr(shadow_summary, "total_rejected", 0) or 0),
+            n_shadow_blocked=int(getattr(shadow_summary, "total_blocked", 0) or 0),
+            n_shadow_actors=int(getattr(shadow_summary, "actors", 0) or 0),
+            n_filtered_real_signals=signal_guard.filtered,
+            n_stale_close_signals=signal_guard.stale_closes,
+            n_duplicate_open_signals=signal_guard.duplicate_opens,
+            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            n_max_position_saturated_open_signals=(
+                signal_guard.max_position_saturated_opens
+            ),
+            n_external_position_signals=signal_guard.external_position_signals,
+            n_raw_signals=len(raw_signals),
+            leader_agent_labels=actor.agent_labels,
+            signal_filter_details=tuple(signal_guard.details),
+            selected_leader="ManageOnly",
+            executed_leader="ManageOnly",
+            fallback_reason=f"manage-only kill switch active: {kill_reason}",
+            blocked_reasons=blocked_reasons,
+            causal_decision=causal_decision,
+            error=f"kill switch active: {kill_reason}",
+        ),
+        signal_id_counter,
+        last_qm_bar,
+        last_regime,
+    )
+
+
 def _run_flash_decision_path(
     pipeline: ProductionPipeline,
     market: MarketSnapshot,
@@ -1085,10 +1237,16 @@ def _run_flash_decision_path(
             genetics_probation_preselection_degraded_signal_keys=(
                 _genetics_probation_preselection_degraded_signal_keys
             ),
+            genetics_probation_preselection_admission_signal_keys=(
+                _genetics_probation_preselection_admission_signal_keys
+            ),
             flash_degraded_actor_keys=_flash_degraded_actor_keys,
             flash_degraded_open_symbols=_flash_degraded_open_symbols,
             flash_promoted_signal_keys=_flash_promoted_signal_keys,
             flash_open_position_sides_by_symbol=_flash_open_position_sides_by_symbol,
+            flash_open_position_actor_keys_by_symbol=(
+                _flash_open_position_actor_keys_by_symbol
+            ),
             flash_previous_actor_key_from_decision=_flash_previous_actor_key_from_decision,
             flash_register_degradation_signal_keys=_flash_register_degradation_signal_keys,
             emit_flash_audit_events=_emit_flash_audit_events,
@@ -1741,6 +1899,15 @@ def _flash_open_position_sides_by_symbol(pipeline: ProductionPipeline) -> dict[s
     )
 
 
+def _flash_open_position_actor_keys_by_symbol(
+    pipeline: ProductionPipeline,
+) -> dict[str, tuple[str, ...]]:
+    return flash_open_position_actor_keys_by_symbol(
+        tracker_positions_for_agent_sync(pipeline),
+        is_external=is_external_position,
+    )
+
+
 def _flash_event_log_tail(event_log: object, cursor: int) -> tuple[list[object], int]:
     return flash_event_log_tail(event_log, cursor)
 
@@ -1769,16 +1936,124 @@ def _flash_degraded_actor_keys(
     )
 
 
-def _flash_degraded_open_symbols(pipeline: ProductionPipeline) -> set[str]:
+def _flash_degraded_open_symbols(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot | None = None,
+) -> set[str]:
     allocator = getattr(pipeline, "flash_allocator", None)
     config = getattr(allocator, "config", None)
-    return flash_degraded_open_symbols(
+    degraded = set(flash_degraded_open_symbols(
         pipeline,
         guard_enabled=_flash_degradation_guard_enabled(pipeline),
         symbol_guard_enabled=bool(
             getattr(config, "degradation_symbol_guard_enabled", False)
         ),
+    ))
+    degraded.update(_real_universe_contract_sizing_degraded_symbols(pipeline, market))
+    return degraded
+
+
+def _real_universe_contract_sizing_degraded_symbols(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot | None,
+) -> set[str]:
+    if market is None:
+        return set()
+    cfg = getattr(pipeline, "live_execution", None)
+    max_min_executable = float(
+        getattr(cfg, "max_real_symbol_min_executable_notional_usd", 0.0) or 0.0
     )
+    if max_min_executable <= 0.0:
+        try:
+            pipeline._real_universe_symbol_reject_reasons = {}
+        except Exception:
+            pass
+        return set()
+
+    risk_cfg = getattr(pipeline, "risk_config", None)
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    quantize = getattr(exchange, "quantize_order_qty", None)
+    if not callable(quantize):
+        try:
+            pipeline._real_universe_symbol_reject_reasons = {}
+        except Exception:
+            pass
+        return set()
+
+    balance = float(
+        getattr(pipeline, "current_balance", 0.0)
+        or getattr(pipeline, "initial_capital", 0.0)
+        or 0.0
+    )
+    capital_fraction = float(getattr(risk_cfg, "capital_fraction", 0.0) or 0.0)
+    max_upscale = float(getattr(risk_cfg, "max_min_notional_upscale", 1.0) or 1.0)
+    max_notional = float(getattr(risk_cfg, "max_notional_usd", float("inf")) or float("inf"))
+    cfg_min_notional = float(getattr(risk_cfg, "min_notional_usd", 0.0) or 0.0)
+    floor_min_notional = bool(
+        getattr(risk_cfg, "floor_to_exchange_min_notional", False)
+    )
+    base_notional = balance * capital_fraction
+    blocked: set[str] = set()
+    reasons: Dict[str, str] = {}
+    for raw_symbol, raw_price in (getattr(market, "prices", {}) or {}).items():
+        symbol = str(raw_symbol or "").upper()
+        try:
+            price = float(raw_price or 0.0)
+        except (TypeError, ValueError):
+            price = 0.0
+        if not symbol or price <= 0.0 or base_notional <= 0.0:
+            continue
+        exchange_min = 0.0
+        getter = getattr(exchange, "get_min_notional", None)
+        if callable(getter):
+            try:
+                exchange_min = float(getter(symbol) or 0.0)
+            except Exception:
+                exchange_min = 0.0
+        effective_min = max(cfg_min_notional, exchange_min)
+        approved_notional = base_notional
+        if approved_notional < effective_min and floor_min_notional:
+            upscale = effective_min / max(approved_notional, 1e-12)
+            if upscale <= max_upscale and effective_min <= max_notional:
+                approved_notional = effective_min
+        signal = Signal(
+            id=0,
+            bar=int(getattr(market, "bar", 0) or 0),
+            sym=symbol,
+            action=Action.FUT_LONG_FULL,
+            price=price,
+            regime=getattr(market, "regime", Regime.NEUTRAL),
+            by_player="Panteon_Flash",
+            by_agent="contract_sizing_guard",
+            timestamp=getattr(market, "timestamp", None),
+        )
+        try:
+            quantized_qty = float(quantize(signal, approved_notional / price) or 0.0)
+        except Exception as exc:
+            blocked.add(symbol)
+            reasons[symbol] = f"contract_metadata_unavailable:{type(exc).__name__}: {exc}"
+            continue
+        quantized_notional = quantized_qty * price
+        if quantized_notional <= 0.0:
+            blocked.add(symbol)
+            reasons[symbol] = "min_executable_notional unavailable"
+            continue
+        upscale = quantized_notional / max(approved_notional, 1e-12)
+        if (
+            quantized_notional >= max_min_executable
+            and quantized_notional > approved_notional + 1e-9
+        ) or upscale > max_upscale:
+            blocked.add(symbol)
+            reasons[symbol] = (
+                "min_executable_notional "
+                f"${quantized_notional:.2f} exceeds approved "
+                f"${approved_notional:.2f} ({upscale:.2f}x)"
+            )
+    try:
+        pipeline._real_universe_symbol_reject_reasons = reasons
+    except Exception:
+        pass
+    return blocked
 
 
 def _flash_promoted_signal_keys(pipeline: ProductionPipeline) -> set[str]:
@@ -2343,12 +2618,31 @@ def _candidate_is_genetics_probation_executable(
         )
     }
     if allowed_regimes and regime is not None:
-        return _regime_key(regime) in allowed_regimes
+        return _regime_allowed_by_keys(regime, allowed_regimes)
     return True
 
 
 def _regime_key(regime: Regime | str | object) -> str:
     return str(getattr(regime, "label", regime) or "").strip().lower()
+
+
+def _regime_allowed_by_keys(
+    regime: Regime | str | object,
+    allowed_regimes: set[str],
+) -> bool:
+    key = _regime_key(regime)
+    if key in allowed_regimes:
+        return True
+    compatible = {
+        "neutral": {"range_low_vol", "mixed_rotational"},
+        "range_low_vol": {"neutral"},
+        "mixed_rotational": {"neutral"},
+        "bullish": {"choppy_up"},
+        "choppy_up": {"bullish"},
+        "bearish": {"choppy_down"},
+        "choppy_down": {"bearish"},
+    }
+    return bool(compatible.get(key, set()) & set(allowed_regimes or set()))
 
 
 def _candidate_uses_shadow_state_entry_gate(candidate: object) -> bool:
@@ -2487,6 +2781,10 @@ def _apply_genetics_probation_execution_overlay(
     if not label_set:
         return signal_guard
     max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
+    max_daily_trades = int(
+        getattr(cfg, "genetics_probation_max_daily_trades", 0) or 0
+    )
+    disabled_reason = _genetics_probation_disabled_reason(pipeline)
 
     allowed_regimes = {
         item.lower()
@@ -2494,12 +2792,6 @@ def _apply_genetics_probation_execution_overlay(
             getattr(cfg, "genetics_probation_allowed_regimes", ("bearish", "crash")),
         )
     }
-    regime_key = str(getattr(market.regime, "label", market.regime) or "").lower()
-    regime_allowed = not allowed_regimes or regime_key in allowed_regimes
-    try:
-        regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
-    except (TypeError, ValueError):
-        regime_confidence = 0.0
     min_regime_confidence = max(
         0.0,
         min(
@@ -2507,7 +2799,6 @@ def _apply_genetics_probation_execution_overlay(
             float(getattr(cfg, "genetics_probation_min_regime_confidence", 0.0) or 0.0),
         ),
     )
-    regime_confident = regime_confidence >= min_regime_confidence
     require_shadow_confirmation = bool(
         getattr(cfg, "genetics_probation_require_shadow_confirmation", True)
     )
@@ -2539,15 +2830,60 @@ def _apply_genetics_probation_execution_overlay(
             continue
         sym = str(signal.sym).upper()
         agent_label = str(signal.by_agent or "-")
+        try:
+            symbol_regime = market.regime_for_symbol(sym)
+        except Exception:
+            symbol_regime = getattr(market, "regime", "")
+        regime_key = _regime_key(symbol_regime)
+        regime_allowed = (
+            not allowed_regimes
+            or _regime_allowed_by_keys(regime_key, allowed_regimes)
+        )
+        raw_regime_confidence: object = None
+        try:
+            features = market.regime_features_for_symbol(sym)
+        except Exception:
+            features = {}
+        if isinstance(features, dict):
+            raw_regime_confidence = features.get("regime_confidence")
+        if raw_regime_confidence is None:
+            raw_regime_confidence = getattr(market, "regime_confidence", 1.0)
+        try:
+            regime_confidence = float(raw_regime_confidence or 0.0)
+        except (TypeError, ValueError):
+            regime_confidence = 0.0
+        regime_confident = regime_confidence >= min_regime_confidence
+        if disabled_reason:
+            dropped += 1
+            changed = True
+            details.append(
+                f"genetics_probation_disabled:{sym}:{probation_label}:{disabled_reason}"
+            )
+            continue
         if (
             max_real_trades > 0
-            and _real_closed_trades_for_label(pipeline, probation_label)
+            and _real_trade_attempts_for_label(pipeline, probation_label)
             >= max_real_trades
         ):
             dropped += 1
             changed = True
             details.append(
                 f"genetics_max_real_trades:{sym}:{probation_label}:{max_real_trades}"
+            )
+            continue
+        if (
+            max_daily_trades > 0
+            and _real_trade_attempts_for_label_today(
+                pipeline,
+                probation_label,
+                market,
+            )
+            >= max_daily_trades
+        ):
+            dropped += 1
+            changed = True
+            details.append(
+                f"genetics_daily_trade_limit:{sym}:{probation_label}:{max_daily_trades}"
             )
             continue
         if not regime_allowed:
@@ -2583,6 +2919,13 @@ def _apply_genetics_probation_execution_overlay(
             continue
         old_risk_mult = max(0.0, float(signal.risk_mult or 0.0))
         new_risk_mult = min(old_risk_mult, max_risk_mult)
+        min_executable_risk_mult = _genetics_probation_min_executable_risk_mult(
+            pipeline,
+            market,
+            signal,
+        )
+        if min_executable_risk_mult > new_risk_mult:
+            new_risk_mult = min(1.0, min_executable_risk_mult)
         if abs(new_risk_mult - old_risk_mult) > 1e-12:
             changed = True
             details.append(
@@ -2599,6 +2942,60 @@ def _apply_genetics_probation_execution_overlay(
         filtered=int(getattr(signal_guard, "filtered", 0) or 0) + dropped,
         details=details,
     )
+
+
+def _genetics_probation_min_executable_risk_mult(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    signal: Signal,
+) -> float:
+    risk_cfg = getattr(pipeline, "risk_config", None)
+    if risk_cfg is None:
+        risk_obj = getattr(getattr(pipeline, "executor", None), "_risk", None)
+        risk_cfg = getattr(risk_obj, "config", None)
+    if risk_cfg is None or not bool(
+        getattr(risk_cfg, "floor_to_exchange_min_notional", False)
+    ):
+        return 0.0
+
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    get_min_notional = getattr(exchange, "get_min_notional", None)
+    if not callable(get_min_notional):
+        return 0.0
+    try:
+        exchange_min = float(get_min_notional(signal.sym) or 0.0)
+    except Exception:
+        return 0.0
+    if exchange_min <= 0.0:
+        return 0.0
+
+    cfg_min = float(getattr(risk_cfg, "min_notional_usd", 0.0) or 0.0)
+    effective_min = max(cfg_min, exchange_min)
+    max_notional = float(
+        getattr(risk_cfg, "max_notional_usd", float("inf")) or float("inf")
+    )
+    if effective_min <= 0.0 or effective_min > max_notional:
+        return 0.0
+
+    balance = float(
+        getattr(pipeline, "current_balance", 0.0)
+        or getattr(pipeline, "initial_capital", 0.0)
+        or 0.0
+    )
+    capital_fraction = float(getattr(risk_cfg, "capital_fraction", 0.0) or 0.0)
+    size_mult = float(getattr(signal.action, "fraction", 1.0) or 1.0)
+    leverage_mult = (
+        max(1.0, float(getattr(risk_cfg, "max_leverage", 1.0) or 1.0))
+        if bool(getattr(risk_cfg, "apply_leverage_to_notional", False))
+        else 1.0
+    )
+    max_upscale = float(getattr(risk_cfg, "max_min_notional_upscale", 1.0) or 1.0)
+    base_notional = balance * capital_fraction * size_mult * leverage_mult
+    if base_notional <= 0.0 or max_upscale <= 0.0:
+        return 0.0
+
+    required = effective_min / (base_notional * max_upscale)
+    return max(0.0, min(1.0, required * 1.000001))
 
 
 def _soft_allocator_execution_attempt(
@@ -3010,7 +3407,7 @@ def _genetics_probation_preselection_degraded_signal_keys(
     if (
         allowed_regimes
         and regime is not None
-        and _regime_key(regime) not in allowed_regimes
+        and not _regime_allowed_by_keys(regime, allowed_regimes)
     ):
         return ()
     allowed_signal_keys = {
@@ -3047,6 +3444,124 @@ def _genetics_probation_preselection_degraded_signal_keys(
     return tuple(dict.fromkeys(degraded))
 
 
+def _genetics_probation_preselection_admission_signal_keys(
+    pipeline: ProductionPipeline,
+    shadow_player_signals: Mapping[str, Sequence[Signal]] | None,
+    shadow_agent_signals: Mapping[str, Sequence[Signal]] | None = None,
+    *,
+    market: MarketSnapshot,
+) -> Tuple[str, ...]:
+    cfg = getattr(pipeline, "live_execution", None)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return ()
+    labels = set(_string_tuple(
+        getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
+    ))
+    if not labels:
+        return ()
+    allowed_regimes = {
+        item.lower()
+        for item in _string_tuple(
+            getattr(cfg, "genetics_probation_allowed_regimes", ()),
+        )
+    }
+    regime_key = _regime_key(getattr(market, "regime", ""))
+    if allowed_regimes and not _regime_allowed_by_keys(regime_key, allowed_regimes):
+        return ()
+    try:
+        regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
+    except (TypeError, ValueError):
+        regime_confidence = 0.0
+    min_regime_confidence = max(
+        0.0,
+        min(
+            1.0,
+            float(getattr(cfg, "genetics_probation_min_regime_confidence", 0.0) or 0.0),
+        ),
+    )
+    if regime_confidence < min_regime_confidence:
+        return ()
+    if _genetics_probation_disabled_reason(pipeline):
+        return ()
+    max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
+    max_daily_trades = int(
+        getattr(cfg, "genetics_probation_max_daily_trades", 0) or 0
+    )
+    allowed_signal_keys = {
+        str(item or "").strip()
+        for item in getattr(cfg, "genetics_probation_allowed_signal_keys", ()) or ()
+        if str(item or "").strip()
+    }
+    keys: List[str] = []
+
+    def label_budget_available(label: str) -> bool:
+        if (
+            max_real_trades > 0
+            and _real_trade_attempts_for_label(pipeline, label) >= max_real_trades
+        ):
+            return False
+        if (
+            max_daily_trades > 0
+            and _real_trade_attempts_for_label_today(pipeline, label, market)
+            >= max_daily_trades
+        ):
+            return False
+        return True
+
+    for signal_key in sorted(allowed_signal_keys):
+        key_label = _label_from_genetics_signal_key(signal_key)
+        if key_label in labels and label_budget_available(key_label):
+            keys.append(signal_key)
+
+    def add_current_shadow_open_keys(
+        raw_label: object,
+        signals: Sequence[Signal] | None,
+    ) -> None:
+        leader_label = str(raw_label or "").strip()
+        for signal in signals or ():
+            action = getattr(signal, "action", None)
+            if not bool(getattr(action, "is_open", False)):
+                continue
+            probation_label = _genetics_probation_signal_label(
+                leader_label=leader_label,
+                signal=signal,
+                labels=labels,
+            )
+            if not probation_label:
+                continue
+            if not label_budget_available(probation_label):
+                continue
+            signal_keys = _genetics_probation_signal_keys(probation_label, signal)
+            if allowed_signal_keys and not signal_keys & allowed_signal_keys:
+                continue
+            keys.extend(sorted(signal_keys))
+
+    for label, signals in dict(shadow_player_signals or {}).items():
+        add_current_shadow_open_keys(label, signals)
+    for label, signals in dict(shadow_agent_signals or {}).items():
+        add_current_shadow_open_keys(label, signals)
+    return tuple(dict.fromkeys(keys))
+
+
+def _label_from_genetics_signal_key(signal_key: object) -> str:
+    raw = str(signal_key or "").strip()
+    head, _, _tail = raw.partition("|")
+    _kind, sep, label = head.partition(":")
+    return label.strip() if sep else ""
+
+
+def _genetics_probation_symbol_variants(symbol: object) -> tuple[str, ...]:
+    raw = str(symbol or "").strip().upper().replace("-", "/")
+    if not raw:
+        return tuple()
+    variants = [raw]
+    if raw.endswith("/USDT"):
+        variants.append(raw[:-5])
+    elif "/" not in raw:
+        variants.append(f"{raw}/USDT")
+    return tuple(dict.fromkeys(variants))
+
+
 def _genetics_probation_signal_label(
     *,
     leader_label: str,
@@ -3055,13 +3570,9 @@ def _genetics_probation_signal_label(
 ) -> str:
     if leader_label in labels:
         return leader_label
-    for raw_label in (
-        getattr(signal, "by_player", ""),
-        getattr(signal, "by_agent", ""),
-    ):
-        label = str(raw_label or "")
-        if label in labels:
-            return label
+    player_label = str(getattr(signal, "by_player", "") or "")
+    if player_label in labels:
+        return player_label
     return ""
 
 
@@ -3071,7 +3582,7 @@ def _genetics_probation_signal_keys(
 ) -> set[str]:
     action = getattr(signal, "action", None)
     action_name = str(getattr(action, "name", action) or "")
-    sym = str(getattr(signal, "sym", "") or "").upper()
+    symbols = _genetics_probation_symbol_variants(getattr(signal, "sym", ""))
     labels = tuple(dict.fromkeys(
         str(item or "").strip()
         for item in (
@@ -3084,6 +3595,7 @@ def _genetics_probation_signal_keys(
     return {
         f"{actor_type}:{label}|{sym}|{action_name}"
         for label in labels
+        for sym in symbols
         for actor_type in ("agent", "ensemble")
     }
 
@@ -3093,8 +3605,11 @@ def _shadow_confirms_signal(
     player_label: str,
     signal: Signal,
 ) -> bool:
-    registry = dict(getattr(pipeline, "_current_shadow_player_signals", {}) or {})
-    shadow_signals = tuple(registry.get(str(player_label), ()) or ())
+    clean_label = str(player_label)
+    shadow_signals: List[Signal] = []
+    for attr in ("_current_shadow_player_signals", "_current_shadow_agent_signals"):
+        registry = dict(getattr(pipeline, attr, {}) or {})
+        shadow_signals.extend(tuple(registry.get(clean_label, ()) or ()))
     sym = str(signal.sym).upper()
     for shadow_signal in shadow_signals:
         if str(getattr(shadow_signal, "sym", "") or "").upper() != sym:
@@ -3104,10 +3619,62 @@ def _shadow_confirms_signal(
     return False
 
 
-def _real_closed_trades_for_label(
+def _genetics_probation_disabled_reason(pipeline: ProductionPipeline) -> str:
+    state = _kill_state(pipeline)
+    if state is None:
+        return ""
+    return str(getattr(state, "genetics_probation_disabled_reason", "") or "")
+
+
+def _set_genetics_probation_disabled(
+    pipeline: ProductionPipeline,
+    reason: str,
+) -> None:
+    clean = str(reason or "").strip()
+    if not clean:
+        return
+    state = _kill_state(pipeline)
+    if state is None or getattr(state, "genetics_probation_disabled_reason", ""):
+        return
+    state.genetics_probation_disabled_reason = clean
+    log.error("genetics probation disabled: %s", clean)
+
+
+def _real_trade_attempts_for_label(
     pipeline: ProductionPipeline,
     label: str,
 ) -> int:
+    clean_label = str(label or "")
+    if not clean_label:
+        return 0
+    actual_count = 0
+    actual_source_available = False
+
+    ledger = getattr(pipeline, "ledger", None)
+    realized_attributions = getattr(ledger, "realized_attributions", None)
+    if callable(realized_attributions):
+        actual_source_available = True
+        try:
+            for attr in realized_attributions():
+                if _label_matches_trade_source(clean_label, attr):
+                    actual_count += 1
+        except Exception:
+            actual_count = 0
+
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    all_open = getattr(tracker, "all_open", None)
+    if callable(all_open):
+        actual_source_available = True
+        try:
+            for position in (all_open() or {}).values():
+                if _label_matches_trade_source(clean_label, position):
+                    actual_count += 1
+        except Exception:
+            pass
+
+    if actual_source_available:
+        return max(0, actual_count)
+
     perf = getattr(pipeline, "real_perf", None)
     getter = getattr(perf, "get", None)
     if not callable(getter):
@@ -3116,7 +3683,108 @@ def _real_closed_trades_for_label(
         metrics = getter(label)
     except Exception:
         return 0
-    return max(0, int(getattr(metrics, "closed_trades", 0) or 0))
+    return max(
+        0,
+        int(getattr(metrics, "entries", 0) or 0),
+        int(getattr(metrics, "closed_trades", 0) or 0),
+    )
+
+
+def _real_trade_attempts_for_label_today(
+    pipeline: ProductionPipeline,
+    label: str,
+    market: MarketSnapshot,
+) -> int:
+    target_date = _utc_date(getattr(market, "timestamp", None))
+    if target_date is None:
+        return 0
+    clean_label = str(label or "")
+    if not clean_label:
+        return 0
+    event_log = getattr(pipeline, "event_log", None)
+    query = getattr(event_log, "query", None)
+    actual_source_available = False
+    if callable(query):
+        actual_source_available = True
+        try:
+            events = query(event_types=[SignalEmitted, PositionOpened])
+        except Exception:
+            events = ()
+        signal_ids_for_label: set[int] = set()
+        opened_events = []
+        for event in events:
+            if isinstance(event, SignalEmitted):
+                signal = getattr(event, "signal", None)
+                if not _label_matches_signal_source(clean_label, signal):
+                    continue
+                try:
+                    signal_ids_for_label.add(int(getattr(signal, "id")))
+                except (TypeError, ValueError):
+                    continue
+            elif isinstance(event, PositionOpened):
+                if _utc_date(getattr(event, "timestamp", None)) == target_date:
+                    opened_events.append(event)
+        if opened_events:
+            count = 0
+            for event in opened_events:
+                try:
+                    signal_id = int(getattr(event, "signal_id", -1))
+                except (TypeError, ValueError):
+                    signal_id = -1
+                if signal_id in signal_ids_for_label:
+                    count += 1
+            return count
+
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    all_open = getattr(tracker, "all_open", None)
+    if callable(all_open):
+        actual_source_available = True
+        count = 0
+        try:
+            for position in (all_open() or {}).values():
+                if _utc_date(getattr(position, "opened_at", None)) != target_date:
+                    continue
+                if _label_matches_trade_source(clean_label, position):
+                    count += 1
+            return count
+        except Exception:
+            return 0
+
+    return 0
+
+
+def _label_matches_signal_source(label: str, signal: object) -> bool:
+    if signal is None:
+        return False
+    return label in {
+        str(getattr(signal, "by_player", "") or ""),
+        str(getattr(signal, "by_agent", "") or ""),
+    }
+
+
+def _label_matches_trade_source(label: str, trade_source: object) -> bool:
+    if trade_source is None:
+        return False
+    return label in {
+        str(getattr(trade_source, "by_player", "") or ""),
+        str(getattr(trade_source, "by_agent", "") or ""),
+    }
+
+
+def _utc_date(value: object):
+    if value is None:
+        return None
+    try:
+        if getattr(value, "tzinfo", None) is None:
+            replace = getattr(value, "replace", None)
+            if callable(replace):
+                return value.replace(tzinfo=timezone.utc).date()
+        astimezone = getattr(value, "astimezone", None)
+        if callable(astimezone):
+            return value.astimezone(timezone.utc).date()
+    except Exception:
+        return None
+    return None
 
 
 def _string_tuple(value: object) -> Tuple[str, ...]:
@@ -3187,8 +3855,10 @@ def _genetics_probation_regime_exit_close_signals(
             getattr(cfg, "genetics_probation_allowed_regimes", ("bearish", "crash")),
         )
     }
-    regime_key = _regime_key(market.regime)
-    regime_allowed = not allowed_regimes or regime_key in allowed_regimes
+    regime_allowed = (
+        not allowed_regimes
+        or _regime_allowed_by_keys(market.regime, allowed_regimes)
+    )
     try:
         regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
     except (TypeError, ValueError):
@@ -4310,6 +4980,7 @@ def _capture_pending_shadow_updates(pipeline: ProductionPipeline) -> None:
         getattr(pipeline, "_current_shadow_player_signals", {}) or {},
         getattr(pipeline, "_current_shadow_agent_signals", {}) or {},
         positions_by_player=getattr(pipeline, "_pending_shadow_player_positions", {}) or {},
+        quarantine_manager=getattr(pipeline, "qm", None),
         max_shadow_position_age_bars=_shadow_position_replay_max_age(pipeline),
         require_positive_unrealized=(
             _shadow_position_replay_requires_positive_unrealized(pipeline)
@@ -4322,17 +4993,29 @@ def _current_actionable_player_labels(
     signals_by_player: Dict[str, Sequence[Signal]],
     signals_by_agent: Optional[Dict[str, Sequence[Signal]]] = None,
     positions_by_player: Optional[Dict[str, Sequence[object]]] = None,
+    quarantine_manager: Optional[object] = None,
     max_shadow_position_age_bars: int = 1,
     require_positive_unrealized: bool = True,
 ) -> set[str]:
     labels = {
         str(label).strip()
         for label, signals in dict(signals_by_player or {}).items()
-        if str(label).strip() and len(tuple(signals or ())) > 0
+        if (
+            str(label).strip()
+            and len(tuple(signals or ())) > 0
+            and not _actionable_label_is_quarantined(
+                str(label).strip(),
+                quarantine_manager,
+            )
+        )
     }
     for label, signals in dict(signals_by_agent or {}).items():
         clean = str(label).strip()
-        if clean and len(tuple(signals or ())) > 0:
+        if (
+            clean
+            and len(tuple(signals or ())) > 0
+            and not _actionable_label_is_quarantined(clean, quarantine_manager)
+        ):
             labels.add(f"Solo_{clean}")
     for event in updates or ():
         actor_type = str(getattr(event, "actor_type", "") or "")
@@ -4341,22 +5024,45 @@ def _current_actionable_player_labels(
         label = str(getattr(event, "actor_label", "") or "").strip()
         if not label:
             continue
+        if _actionable_label_is_quarantined(label, quarantine_manager):
+            continue
         signals = int(getattr(event, "signals", 0) or 0)
         filled = int(getattr(event, "filled", 0) or 0)
         if signals > 0 or filled > 0:
             labels.add(label if actor_type == "player" else f"Solo_{label}")
     for label, positions in dict(positions_by_player or {}).items():
         clean = str(label).strip()
-        if clean and any(
+        if (
+            clean
+            and not _actionable_label_is_quarantined(clean, quarantine_manager)
+            and any(
             _is_fresh_shadow_position_payload(
                 item,
                 max_age_bars=max_shadow_position_age_bars,
                 require_positive_unrealized=require_positive_unrealized,
             )
             for item in positions or ()
+            )
         ):
             labels.add(clean)
     return labels
+
+
+def _actionable_label_is_quarantined(label: str, quarantine_manager: object) -> bool:
+    is_quarantined = getattr(quarantine_manager, "is_quarantined", None)
+    if not callable(is_quarantined):
+        return False
+    clean = str(label or "").strip()
+    if not clean:
+        return False
+    try:
+        if bool(is_quarantined(clean)):
+            return True
+        if clean.startswith("Solo_"):
+            return bool(is_quarantined(clean[5:]))
+    except Exception:
+        return False
+    return False
 
 
 def _flash_shadow_player_signals_with_position_replay(
@@ -4524,6 +5230,8 @@ def _causal_decision_payload(
         "regime_confidence": _safe_float_or_zero(
             getattr(market, "regime_confidence", 0.0),
         ),
+        "regimes_by_symbol": _regimes_by_symbol_payload(market),
+        "regime_features_by_symbol": _regime_features_by_symbol_payload(market),
         "selected_leader": selected_label,
         "executed_leader": executed_label,
         "decision_reason": str(getattr(decision, "reason", "") or ""),
@@ -4615,6 +5323,8 @@ def _flash_causal_decision_payload(
         "regime_confidence": _safe_float_or_zero(
             getattr(market, "regime_confidence", 0.0),
         ),
+        "regimes_by_symbol": _regimes_by_symbol_payload(market),
+        "regime_features_by_symbol": _regime_features_by_symbol_payload(market),
         "selected_leader": "Panteon_Flash",
         "executed_leader": "Panteon_Flash",
         "decision_reason": "flash per-symbol actor selection",
@@ -4642,7 +5352,12 @@ def _flash_causal_decision_payload(
             for key, value in dict(blocked_reasons or {}).items()
         },
         "flash_degraded_signal_keys": sorted(_flash_degraded_signal_keys(pipeline)),
-        "flash_degraded_open_symbols": sorted(_flash_degraded_open_symbols(pipeline)),
+        "flash_degraded_open_symbols": sorted(
+            _flash_degraded_open_symbols(pipeline, market)
+        ),
+        "real_universe_symbol_reject_reasons": dict(
+            getattr(pipeline, "_real_universe_symbol_reject_reasons", {}) or {}
+        ),
         "flash_selected_actors_by_symbol": selected_by_symbol,
         "flash_actor_types_by_symbol": {
             str(getattr(decision, "symbol", "") or ""): str(getattr(decision, "actor_type", "") or "")
@@ -4689,6 +5404,41 @@ def _signal_payload(signal: Signal) -> Dict[str, object]:
         ),
         "timestamp": _timestamp_payload(getattr(signal, "timestamp", None)),
     }
+
+
+def _regimes_by_symbol_payload(market: MarketSnapshot) -> Dict[str, str]:
+    regimes = getattr(market, "regimes_by_symbol", {}) or {}
+    if not isinstance(regimes, Mapping):
+        return {}
+    return {
+        str(symbol).upper(): getattr(regime, "label", str(regime or "")).lower()
+        for symbol, regime in regimes.items()
+        if str(symbol or "").strip()
+    }
+
+
+def _regime_features_by_symbol_payload(market: MarketSnapshot) -> Dict[str, dict]:
+    features = getattr(market, "regime_features_by_symbol", {}) or {}
+    if not isinstance(features, Mapping):
+        return {}
+    out: Dict[str, dict] = {}
+    for raw_symbol, raw_payload in features.items():
+        symbol = str(raw_symbol or "").strip().upper()
+        if not symbol or not isinstance(raw_payload, Mapping):
+            continue
+        clean_payload: Dict[str, object] = {}
+        for raw_key, raw_value in raw_payload.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            if isinstance(raw_value, (str, bool)):
+                clean_payload[key] = raw_value
+                continue
+            parsed = _safe_float_or_none(raw_value)
+            if parsed is not None:
+                clean_payload[key] = parsed
+        out[symbol] = clean_payload
+    return out
 
 
 def _shadow_position_payloads_for_label(
@@ -5249,6 +5999,8 @@ def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
     limit = int(getattr(cfg, "max_exchange_desync_events", 0) or 0)
     if limit <= 0 or not isinstance(summary, dict):
         return
+    if bool(summary.get("snapshot_unreliable")):
+        return
     if any(key.startswith("owned_") for key in summary):
         events = int(summary.get("owned_added", 0) or 0)
         events += int(summary.get("owned_updated", 0) or 0)
@@ -5310,6 +6062,8 @@ def _record_order_success(
     if state is not None:
         state.consecutive_failed_orders = 0
         state.api_error_streak = 0
+        if _genetics_probation_label_for_signal(pipeline, signal):
+            state.genetics_probation_consecutive_failed_orders = 0
 
     cfg = _live_config(pipeline)
     limit = float(getattr(cfg, "max_slippage_pct", 0.0) or 0.0)
@@ -5351,6 +6105,7 @@ def _record_realized_result_for_strategy(
     pipeline._allocator_realized_trade_counts_by_player = trades_by_player
     pipeline._allocator_realized_win_counts_by_player = wins_by_player
     _record_soft_allocator_realized_gate_result(pipeline, result)
+    _disable_genetics_probation_if_realized_loss_exceeded(pipeline)
 
 
 def _record_soft_allocator_realized_gate_result(
@@ -5431,7 +6186,12 @@ def _sync_strategist_realized_snapshot(pipeline: ProductionPipeline) -> None:
         log.debug("failed to sync realized PnL snapshot into strategist", exc_info=True)
 
 
-def _record_order_failure(pipeline: ProductionPipeline, reason: str) -> None:
+def _record_order_failure(
+    pipeline: ProductionPipeline,
+    reason: str,
+    *,
+    signal: Optional[Signal] = None,
+) -> None:
     state = _kill_state(pipeline)
     cfg = _live_config(pipeline)
     if state is None:
@@ -5439,6 +6199,7 @@ def _record_order_failure(pipeline: ProductionPipeline, reason: str) -> None:
     state.consecutive_failed_orders += 1
     if _looks_like_api_error(reason):
         state.api_error_streak += 1
+    _record_genetics_probation_order_failure(pipeline, signal, reason)
 
     failed_limit = int(getattr(cfg, "max_consecutive_failed_orders", 0) or 0)
     api_limit = int(getattr(cfg, "max_api_error_streak", 0) or 0)
@@ -5455,6 +6216,102 @@ def _record_order_failure(pipeline: ProductionPipeline, reason: str) -> None:
             pipeline,
             f"API error storm {state.api_error_streak} >= {api_limit}",
         )
+
+
+def _record_genetics_probation_order_failure(
+    pipeline: ProductionPipeline,
+    signal: Optional[Signal],
+    reason: str,
+) -> None:
+    label = _genetics_probation_label_for_signal(pipeline, signal)
+    if not label:
+        return
+    state = _kill_state(pipeline)
+    cfg = _live_config(pipeline)
+    if state is None:
+        return
+    state.genetics_probation_consecutive_failed_orders += 1
+    limit = int(
+        getattr(cfg, "genetics_probation_max_consecutive_failed_orders", 0) or 0
+    )
+    if limit > 0 and state.genetics_probation_consecutive_failed_orders >= limit:
+        _set_genetics_probation_disabled(
+            pipeline,
+            (
+                f"{label} consecutive failed orders "
+                f"{state.genetics_probation_consecutive_failed_orders} >= {limit}"
+            ),
+        )
+
+
+def _disable_genetics_probation_if_realized_loss_exceeded(
+    pipeline: ProductionPipeline,
+) -> None:
+    if _genetics_probation_disabled_reason(pipeline):
+        return
+    cfg = _live_config(pipeline)
+    max_loss_pct = float(
+        getattr(cfg, "genetics_probation_max_realized_loss_pct", 0.0) or 0.0
+    )
+    if max_loss_pct <= 0:
+        return
+    labels = _genetics_probation_labels(pipeline)
+    if not labels:
+        return
+    perf = getattr(pipeline, "real_perf", None)
+    getter = getattr(perf, "get", None)
+    if not callable(getter):
+        return
+    for label in labels:
+        try:
+            metrics = getter(label)
+        except Exception:
+            continue
+        closed = int(getattr(metrics, "closed_trades", 0) or 0)
+        pnl_pct = float(getattr(metrics, "pnl_pct", 0.0) or 0.0)
+        if closed > 0 and pnl_pct <= -max_loss_pct:
+            _set_genetics_probation_disabled(
+                pipeline,
+                (
+                    f"{label} realized loss {pnl_pct:.4f}% "
+                    f"<= -{max_loss_pct:.4f}% after {closed} closed trades"
+                ),
+            )
+            return
+
+
+def _genetics_probation_labels(pipeline: ProductionPipeline) -> set[str]:
+    cfg = _live_config(pipeline)
+    if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+        return set()
+    return set(_string_tuple(
+        getattr(cfg, "genetics_probation_labels", ("GeneticsResearch",)),
+    ))
+
+
+def _genetics_probation_label_for_signal(
+    pipeline: ProductionPipeline,
+    signal: Optional[Signal],
+) -> str:
+    if signal is None:
+        return ""
+    labels = _genetics_probation_labels(pipeline)
+    if not labels:
+        return ""
+    label = _genetics_probation_signal_label(
+        leader_label=str(getattr(signal, "by_player", "") or ""),
+        signal=signal,
+        labels=labels,
+    )
+    if label:
+        return label
+    player_label = str(getattr(signal, "by_player", "") or "")
+    if player_label not in {"Panteon_Flash", "PanteonFlash", "PanteonFlashAdopted"}:
+        return ""
+    agent_label = str(getattr(signal, "by_agent", "") or "")
+    if agent_label in labels:
+        return agent_label
+    return ""
 
 
 def _result_slippage_pct(

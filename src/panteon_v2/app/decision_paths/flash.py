@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Sequence
 
 from ...attribution import DecisionStarted, LeaderSelected, SignalEmitted
@@ -31,10 +31,12 @@ class FlashDecisionPathCallbacks:
     flash_shadow_confirmation_scores: Callable[..., Any]
     flash_degraded_signal_keys: Callable[..., Any]
     genetics_probation_preselection_degraded_signal_keys: Callable[..., Any]
+    genetics_probation_preselection_admission_signal_keys: Callable[..., Any]
     flash_degraded_actor_keys: Callable[..., Any]
     flash_degraded_open_symbols: Callable[..., Any]
     flash_promoted_signal_keys: Callable[..., Any]
     flash_open_position_sides_by_symbol: Callable[..., Any]
+    flash_open_position_actor_keys_by_symbol: Callable[..., Any]
     flash_previous_actor_key_from_decision: Callable[..., Any]
     flash_register_degradation_signal_keys: Callable[..., Any]
     emit_flash_audit_events: Callable[..., Any]
@@ -135,6 +137,14 @@ def run_flash_decision_path(
             regime=market.regime,
         ) or ()
     )
+    probation_signal_keys = tuple(
+        callbacks.genetics_probation_preselection_admission_signal_keys(
+            pipeline,
+            shadow_player_signals,
+            shadow_agent_signals,
+            market=market,
+        ) or ()
+    )
     decisions = tuple(allocator.decide(
         market,
         agents=agents,
@@ -151,10 +161,12 @@ def run_flash_decision_path(
         shadow_agent_signals=shadow_agent_signals,
         degraded_signal_keys=degraded_signal_keys,
         degraded_actor_keys=callbacks.flash_degraded_actor_keys(pipeline, market.regime),
-        degraded_open_symbols=callbacks.flash_degraded_open_symbols(pipeline),
+        degraded_open_symbols=callbacks.flash_degraded_open_symbols(pipeline, market),
         promoted_signal_keys=callbacks.flash_promoted_signal_keys(pipeline),
+        probation_signal_keys=probation_signal_keys,
         previous_actor_by_symbol=previous_flash_actors,
         open_position_sides_by_symbol=callbacks.flash_open_position_sides_by_symbol(pipeline),
+        open_position_actor_keys_by_symbol=callbacks.flash_open_position_actor_keys_by_symbol(pipeline),
     ))
     pipeline._flash_previous_actor_by_symbol = {
         symbol: actor_key
@@ -233,16 +245,17 @@ def run_flash_decision_path(
     raw_signal_count = len(raw_signals)
     guard_actor = callbacks.flash_guard_actor(decisions, agents=agents, players=candidates)
     reserved_new_opens = _reserved_new_opens_from_flash_decisions(decisions)
+    max_new_opens_per_bar = getattr(
+        getattr(pipeline, "live_execution", None),
+        "max_new_opens_per_bar",
+        1,
+    )
     signal_guard = callbacks.filter_real_signals_against_tracker(
         raw_signals,
         player=guard_actor,
         pipeline=pipeline,
         bar_index=market.bar,
-        max_new_opens_per_bar=getattr(
-            getattr(pipeline, "live_execution", None),
-            "max_new_opens_per_bar",
-            1,
-        ),
+        max_new_opens_per_bar=None,
         max_open_positions=getattr(
             getattr(pipeline, "risk_config", None),
             "max_open_positions",
@@ -256,6 +269,17 @@ def run_flash_decision_path(
         guard_actor,
         signal_guard,
     )
+    if signal_guard.signals:
+        rate_limited_signal_guard = callbacks.filter_real_signals_against_tracker(
+            signal_guard.signals,
+            player=guard_actor,
+            pipeline=pipeline,
+            bar_index=market.bar,
+            max_new_opens_per_bar=max_new_opens_per_bar,
+            max_open_positions=None,
+            reserved_new_opens=reserved_new_opens,
+        )
+        signal_guard = _merge_signal_guard_results(signal_guard, rate_limited_signal_guard)
     signals = signal_guard.signals
     for sig in signals:
         signal_context = callbacks.signal_context(
@@ -293,7 +317,7 @@ def run_flash_decision_path(
             )
         except Exception:
             log.exception("execute failed for signal %d", sig.id)
-            callbacks.record_order_failure(pipeline, "execute exception")
+            callbacks.record_order_failure(pipeline, "execute exception", signal=sig)
             n_rejected += 1
             continue
         if res.status == ExecutionStatus.FILLED:
@@ -301,10 +325,10 @@ def run_flash_decision_path(
             callbacks.record_order_success(pipeline, sig, res)
             callbacks.record_realized_result_for_strategy(pipeline, res)
         elif res.status == ExecutionStatus.REJECTED:
-            callbacks.record_order_failure(pipeline, res.reason or "rejected")
+            callbacks.record_order_failure(pipeline, res.reason or "rejected", signal=sig)
             n_rejected += 1
         elif res.status == ExecutionStatus.PENDING:
-            callbacks.record_order_failure(pipeline, res.reason or "pending")
+            callbacks.record_order_failure(pipeline, res.reason or "pending", signal=sig)
             n_rejected += 1
         elif res.status == ExecutionStatus.BLOCKED:
             n_blocked += 1
@@ -368,6 +392,31 @@ def run_flash_decision_path(
         signal_id_counter,
         last_qm_bar,
         last_regime,
+    )
+
+
+def _merge_signal_guard_results(base, overlay):
+    return replace(
+        base,
+        signals=list(getattr(overlay, "signals", ()) or ()),
+        filtered=int(getattr(base, "filtered", 0) or 0)
+        + int(getattr(overlay, "filtered", 0) or 0),
+        stale_closes=int(getattr(base, "stale_closes", 0) or 0)
+        + int(getattr(overlay, "stale_closes", 0) or 0),
+        foreign_closes=int(getattr(base, "foreign_closes", 0) or 0)
+        + int(getattr(overlay, "foreign_closes", 0) or 0),
+        duplicate_opens=int(getattr(base, "duplicate_opens", 0) or 0)
+        + int(getattr(overlay, "duplicate_opens", 0) or 0),
+        rate_limited_opens=int(getattr(base, "rate_limited_opens", 0) or 0)
+        + int(getattr(overlay, "rate_limited_opens", 0) or 0),
+        max_position_saturated_opens=int(
+            getattr(base, "max_position_saturated_opens", 0) or 0
+        )
+        + int(getattr(overlay, "max_position_saturated_opens", 0) or 0),
+        external_position_signals=int(getattr(base, "external_position_signals", 0) or 0)
+        + int(getattr(overlay, "external_position_signals", 0) or 0),
+        details=list(getattr(base, "details", ()) or ())
+        + list(getattr(overlay, "details", ()) or ()),
     )
 
 

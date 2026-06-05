@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Пути относительно корня репозитория
@@ -64,13 +65,103 @@ def _clean_price_history(raw, limit=240):
                 clean_prices[symbol] = price
         if not clean_prices:
             continue
-        out.append({
+        row = {
             "bar": int(float(item.get("bar", idx) or idx)),
             "regime": str(item.get("regime", "") or ""),
             "market": str(item.get("market", "") or ""),
             "prices": clean_prices,
-        })
+        }
+        timestamp = (
+            item.get("timestamp")
+            or item.get("timestamp_utc")
+            or item.get("time")
+            or item.get("datetime")
+        )
+        if timestamp:
+            row["timestamp"] = str(timestamp)
+        out.append(row)
     return out
+
+
+def _fill_price_history_timestamps(history: list, status: dict):
+    if not history:
+        return history
+    if all(isinstance(row, dict) and row.get("timestamp") for row in history):
+        return history
+    last_timestamp = next(
+        (
+            _parse_timestamp(row.get("timestamp"))
+            for row in reversed(history)
+            if isinstance(row, dict) and row.get("timestamp")
+        ),
+        None,
+    )
+    if last_timestamp is None:
+        last_timestamp = _parse_timestamp(
+            status.get("timestamp")
+            or status.get("timestamp_utc")
+            or status.get("time")
+        )
+    if last_timestamp is None:
+        return history
+    last_bar = int(_float_value(status.get("bar_count"), history[-1].get("bar", 0)))
+    if last_bar <= 0:
+        last_bar = int(_float_value(history[-1].get("bar"), 0))
+    interval = _timeframe_seconds(status.get("timeframe"))
+    out = []
+    for row in history:
+        row = dict(row)
+        if not row.get("timestamp"):
+            bar = int(_float_value(row.get("bar"), last_bar))
+            row["timestamp"] = (
+                last_timestamp - timedelta(seconds=max(0, last_bar - bar) * interval)
+            ).isoformat()
+        out.append(row)
+    return out
+
+
+def _parse_timestamp(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _timeframe_seconds(value):
+    raw = str(value or "").strip().lower()
+    if raw in {"bridge_poll", "poll", "polling", ""}:
+        return 5
+    aliases = {
+        "minute": 60,
+        "min": 60,
+        "hour": 3600,
+        "day": 86400,
+    }
+    if raw in aliases:
+        return aliases[raw]
+    unit = raw[-1:] if raw else ""
+    number = raw[:-1] if unit in {"s", "m", "h", "d"} else raw
+    try:
+        amount = max(1, int(float(number)))
+    except ValueError:
+        return 60
+    if unit == "s":
+        return amount
+    if unit == "m":
+        return amount * 60
+    if unit == "h":
+        return amount * 3600
+    if unit == "d":
+        return amount * 86400
+    return amount * 60
 
 
 def _session_visuals(exchange: str, session_name: str):
@@ -185,6 +276,26 @@ def _merge_configured_pool(status: dict, players: dict, agents: dict, dashboard_
     return players, agents
 
 
+def _split_visual_agents_from_strategy_players(players: dict, agents: dict):
+    players = dict(players or {})
+    agents = dict(agents or {})
+    if agents:
+        return players, agents
+    visual_players = {}
+    visual_agents = {}
+    for name, row in players.items():
+        row_data = dict(row) if isinstance(row, dict) else {}
+        kind = str(row_data.get("actor_pool_kind") or row_data.get("kind") or "").strip().lower()
+        if kind == "strategy":
+            row_data["visual_agent_fallback"] = True
+            visual_agents[name] = row_data
+        else:
+            visual_players[name] = row_data
+    if not visual_agents:
+        return players, agents
+    return visual_players, visual_agents
+
+
 def _actor_asset_value(row: dict, initial: float):
     for key in ("equity", "asset", "assets", "total_assets_usd"):
         value = _float_value(row.get(key), 0.0)
@@ -267,6 +378,7 @@ def _price_history_from_causal_log(path: Path, limit: int = 120):
             continue
         rows.append({
             "bar": item.get("bar", len(rows)),
+            "timestamp": item.get("timestamp") or item.get("timestamp_utc") or item.get("time") or "",
             "regime": item.get("regime", ""),
             "market": item.get("market", item.get("regime", "")),
             "prices": prices,
@@ -296,11 +408,17 @@ def _collect_sessions(exchange: str, results_dir: Path = RESULTS, sessions_limit
             agent_rows,
             sdir / "dashboard.txt",
         )
+        player_rows, agent_rows = _split_visual_agents_from_strategy_players(
+            player_rows,
+            agent_rows,
+        )
         price_history = _clean_price_history(status.get("price_history", []))
+        price_history = _fill_price_history_timestamps(price_history, status)
         if not price_history and idx == 0:
             price_history = _price_history_from_causal_log(
                 sdir / "causal_entry_decisions.jsonl",
             )
+            price_history = _fill_price_history_timestamps(price_history, status)
         summary = {
                 "version": status.get("version", "v1"),
                 "uptime": status.get("uptime", ""),
@@ -620,6 +738,8 @@ function renderPriceChart(session) {
   const symbols = priceSymbols(history);
   const colors = ["#58a6ff", "#bc8cff", "#3fb950", "#f0c040", "#ff7b72", "#79c0ff"];
   const pad = {l: 45, r: 20, t: 18, b: 32};
+  const timeValues = history.map(row => Date.parse(row.timestamp || row.timestamp_utc || row.time || ""));
+  const hasTimeAxis = timeValues.length > 1 && timeValues.every(v => Number.isFinite(v));
   const series = symbols.map((sym, idx) => {
     const raw = history.map(row => parseFloat((row.prices || {})[sym]));
     const first = raw.find(v => Number.isFinite(v) && v > 0);
@@ -629,7 +749,13 @@ function renderPriceChart(session) {
   const vals = series.flatMap(s => s.points).filter(v => Number.isFinite(v));
   const minY = Math.min(...vals, 99), maxY = Math.max(...vals, 101);
   const spanY = Math.max(1, maxY - minY);
-  const xAt = i => pad.l + (canvas.width - pad.l - pad.r) * (i / Math.max(1, history.length - 1));
+  const minX = hasTimeAxis ? Math.min(...timeValues) : 0;
+  const maxX = hasTimeAxis ? Math.max(...timeValues) : Math.max(1, history.length - 1);
+  const spanX = Math.max(1, maxX - minX);
+  const xAt = i => {
+    if (hasTimeAxis) return pad.l + (canvas.width - pad.l - pad.r) * ((timeValues[i] - minX) / spanX);
+    return pad.l + (canvas.width - pad.l - pad.r) * (i / Math.max(1, history.length - 1));
+  };
   const yAt = v => pad.t + (canvas.height - pad.t - pad.b) * (1 - (v - minY) / spanY);
   ctx.strokeStyle = "#30363d";
   ctx.lineWidth = 1;
@@ -641,6 +767,14 @@ function renderPriceChart(session) {
   ctx.font = "11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
   ctx.fillText(minY.toFixed(1), 6, yAt(minY));
   ctx.fillText(maxY.toFixed(1), 6, yAt(maxY) + 4);
+  const xLabelIndexes = [0, Math.floor((history.length - 1) / 2), history.length - 1]
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+  for (const i of xLabelIndexes) {
+    const label = hasTimeAxis
+      ? new Date(timeValues[i]).toLocaleString("ru-RU", {month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit"})
+      : `bar ${history[i].bar ?? i}`;
+    ctx.fillText(label, Math.min(canvas.width - 112, Math.max(pad.l, xAt(i) - 34)), canvas.height - 10);
+  }
   for (const s of series) {
     ctx.strokeStyle = s.color;
     ctx.lineWidth = 2;

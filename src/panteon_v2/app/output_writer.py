@@ -18,7 +18,7 @@ import time
 import html
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,6 +82,27 @@ def _configured_dynamic_player_labels(pipeline: object) -> set[str]:
     return labels
 
 
+def _registered_strategy_labels(pipeline: object) -> set[str]:
+    labels: set[str] = set()
+    registry = getattr(pipeline, "registry", None)
+    all_labels = getattr(registry, "all_labels", None)
+    if callable(all_labels):
+        try:
+            labels.update(
+                str(label).strip()
+                for label in all_labels()
+                if str(label or "").strip()
+            )
+        except Exception:
+            pass
+    labels.update(
+        str(label).strip()
+        for label in (getattr(pipeline, "shadow_agent_labels", ()) or ())
+        if str(label or "").strip()
+    )
+    return labels
+
+
 def _flash_decision_has_selected_signal(decision: Any) -> bool:
     if not isinstance(decision, dict):
         return False
@@ -105,6 +126,69 @@ def _safe_float_or_none(value: object) -> Optional[float]:
     return parsed if math.isfinite(parsed) else None
 
 
+def _clean_regimes_by_symbol(value: object) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for symbol, regime in value.items():
+        clean_symbol = str(symbol or "").strip().upper()
+        if not clean_symbol:
+            continue
+        label = getattr(regime, "label", str(regime or "")).strip().lower()
+        if label:
+            out[clean_symbol] = label
+    return out
+
+
+def _clean_regime_features_by_symbol(value: object) -> Dict[str, dict]:
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, dict] = {}
+    for symbol, payload in value.items():
+        clean_symbol = str(symbol or "").strip().upper()
+        if not clean_symbol or not isinstance(payload, dict):
+            continue
+        clean_payload: Dict[str, object] = {}
+        for raw_key, raw_value in payload.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            if isinstance(raw_value, (str, bool)):
+                clean_payload[key] = raw_value
+                continue
+            parsed = _safe_float_or_none(raw_value)
+            if parsed is not None:
+                clean_payload[key] = parsed
+        if clean_payload:
+            out[clean_symbol] = clean_payload
+    return out
+
+
+def _coerce_timestamp_text(value: object) -> str:
+    if isinstance(value, dict):
+        for key in ("utc", "timestamp_utc", "timestamp", "time"):
+            text = _coerce_timestamp_text(value.get(key))
+            if text:
+                return text
+        return ""
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return str(isoformat())
+        except Exception:
+            return str(value or "")
+    return str(value or "").strip()
+
+
+def _utc_msk_timestamps() -> Dict[str, str]:
+    now_utc = datetime.now(timezone.utc)
+    now_msk = now_utc.astimezone(timezone(timedelta(hours=3)))
+    return {
+        "timestamp_utc": now_utc.isoformat(),
+        "timestamp_msk": now_msk.isoformat(),
+    }
+
+
 @dataclass
 class OutputWriterConfig:
     """Конфигурация писателя."""
@@ -116,10 +200,15 @@ class OutputWriterConfig:
     status_filename:      str = "status.json"
     leaderboard_agents:   str = "leaderboard_agents.json"
     leaderboard_players:  str = "leaderboard_players.json"
+    leaderboard_real_executable_agents: str = "leaderboard_real_executable_agents.json"
+    leaderboard_shadow_only_agents: str = "leaderboard_shadow_only_agents.json"
+    leaderboard_real_executable_players: str = "leaderboard_real_executable_players.json"
+    leaderboard_shadow_only_players: str = "leaderboard_shadow_only_players.json"
     dashboard_filename:   str = "dashboard.txt"
     dashboard_html:       str = "dashboard.html"
     events_jsonl:         str = "events.jsonl"
     causal_entry_decisions_jsonl: str = "causal_entry_decisions.jsonl"
+    missed_opportunities_jsonl: str = "missed_opportunities.jsonl"
     compact_causal_entry_decisions: bool = False
     compact_causal_entry_selected_only: bool = False
     compact_causal_entry_top_rejected_candidates: int = 5
@@ -173,10 +262,21 @@ class OutputWriter:
             config.output_dir,
             config.causal_entry_decisions_jsonl,
         )
+        self._missed_opportunities_path = os.path.join(
+            config.output_dir,
+            config.missed_opportunities_jsonl,
+        )
         Path(self._causal_entry_path).touch(exist_ok=True)
+        Path(self._missed_opportunities_path).touch(exist_ok=True)
+        start_ts = _utc_msk_timestamps()
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(f"\n{'='*70}\n")
-            f.write(f"Panteon v2 started: {datetime.now(timezone.utc).isoformat()}\n")
+            f.write(
+                "Panteon v2 started: "
+                f"UTC={start_ts['timestamp_utc']} "
+                f"MSK={start_ts['timestamp_msk']} "
+                f"pid={os.getpid()}\n"
+            )
             f.write(f"  exchange: {pipeline.exchange_name}\n")
             f.write(f"  run_id: {getattr(pipeline, 'run_id', '')}\n")
             f.write(f"  session_id: {getattr(pipeline, 'session_id', '')}\n")
@@ -229,6 +329,7 @@ class OutputWriter:
         self._accumulate_fallback_counts(step)
         self._log_step(step)
         self._write_causal_entry_decision(step)
+        self._write_missed_opportunities(step)
 
         # каждый bar — status.json
         if step.bar % self._config.write_every_bars == 0:
@@ -354,6 +455,112 @@ class OutputWriter:
                 f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
         except Exception:
             log.exception("causal_entry_decisions.jsonl write failed")
+
+    def _write_missed_opportunities(self, step: StepResult) -> None:
+        row = self._missed_opportunity_row(step)
+        if not row:
+            return
+        try:
+            with open(self._missed_opportunities_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            log.exception("missed_opportunities.jsonl write failed")
+
+    def _missed_opportunity_row(self, step: StepResult) -> Dict[str, Any]:
+        causal = dict(getattr(step, "causal_decision", {}) or {})
+        decisions = causal.get("flash_decisions")
+        if not isinstance(decisions, list):
+            return {}
+
+        best: Dict[str, Any] = {}
+        best_selected: Dict[str, Any] = {}
+        best_decision: Dict[str, Any] = {}
+        for decision in decisions:
+            if not isinstance(decision, dict):
+                continue
+            candidates = decision.get("candidates")
+            if not isinstance(candidates, list):
+                continue
+            selected_actor = str(decision.get("selected_actor") or "")
+            selected_type = str(decision.get("actor_type") or "")
+            selected_candidate = self._selected_candidate_from_flash_decision(
+                candidates,
+                selected_actor=selected_actor,
+                selected_type=selected_type,
+            )
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                if not bool(candidate.get("rejected")):
+                    continue
+                if str(candidate.get("actor_type") or "") == "no_trade":
+                    continue
+                if not self._candidate_action_is_open(candidate):
+                    continue
+                shadow_score = _safe_float_or_none(candidate.get("shadow_score")) or 0.0
+                pnl_net = _safe_float_or_none(candidate.get("pnl_net_pct")) or 0.0
+                if shadow_score <= 0.0 and pnl_net <= 0.0:
+                    continue
+                if not best or (
+                    shadow_score,
+                    pnl_net,
+                    -int(candidate.get("rank") or 999999),
+                ) > (
+                    _safe_float_or_none(best.get("shadow_score")) or 0.0,
+                    _safe_float_or_none(best.get("pnl_net_pct")) or 0.0,
+                    -int(best.get("rank") or 999999),
+                ):
+                    best = dict(candidate)
+                    best_selected = dict(selected_candidate or {})
+                    best_decision = dict(decision)
+        if not best:
+            return {}
+
+        selected_pnl = _safe_float_or_none(best_selected.get("pnl_net_pct")) or 0.0
+        candidate_pnl = _safe_float_or_none(best.get("pnl_net_pct")) or 0.0
+        timestamp = causal.get("timestamp")
+        if isinstance(timestamp, dict):
+            timestamp_utc = str(timestamp.get("utc") or timestamp.get("timestamp_utc") or "")
+        else:
+            timestamp_utc = str(timestamp or "")
+        return {
+            "bar": int(causal.get("bar") or step.bar or 0),
+            "timestamp_utc": timestamp_utc,
+            "regime": str(causal.get("regime") or step.regime.label),
+            "symbol": str(best_decision.get("symbol") or best.get("symbol") or ""),
+            "top_shadow_actor": str(best.get("label") or ""),
+            "actor_type": str(best.get("actor_type") or ""),
+            "action": str(best.get("action") or ""),
+            "rejection_reason": str(best.get("reason") or ""),
+            "shadow_score": _safe_float_or_none(best.get("shadow_score")) or 0.0,
+            "shadow_closed_trades": int(best.get("shadow_closed_trades") or 0),
+            "selected_actor": str(best_decision.get("selected_actor") or ""),
+            "selected_actor_pnl_pct": selected_pnl,
+            "top_shadow_pnl_pct": candidate_pnl,
+            "estimated_lost_pnl_pct": max(0.0, candidate_pnl - selected_pnl),
+        }
+
+    @staticmethod
+    def _selected_candidate_from_flash_decision(
+        candidates: List[Any],
+        *,
+        selected_actor: str,
+        selected_type: str,
+    ) -> Dict[str, Any]:
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            if str(candidate.get("label") or "") != selected_actor:
+                continue
+            if selected_type and str(candidate.get("actor_type") or "") != selected_type:
+                continue
+            return dict(candidate)
+        return {}
+
+    @staticmethod
+    def _candidate_action_is_open(candidate: Dict[str, Any]) -> bool:
+        action = str(candidate.get("action") or "").upper()
+        return action.startswith("FUT_LONG") or action.startswith("FUT_SHORT")
 
     def _compact_causal_entry_decision(self, row: Dict[str, Any]) -> Dict[str, Any]:
         out = dict(row)
@@ -711,10 +918,14 @@ class OutputWriter:
             shadow_session=shadow_session,
             blocked_reasons=blocked_reasons,
         )
+        timestamps = _utc_msk_timestamps()
 
         data = {
             "version":          "v2",
-            "timestamp":        datetime.now(timezone.utc).isoformat(),
+            "timestamp":        timestamps["timestamp_utc"],
+            "timestamp_utc":    timestamps["timestamp_utc"],
+            "timestamp_msk":    timestamps["timestamp_msk"],
+            "active_pid":       os.getpid(),
             "exchange":         self._pipeline.exchange_name,
             "run_id":           getattr(self._pipeline, "run_id", ""),
             "session_id":       getattr(self._pipeline, "session_id", ""),
@@ -728,6 +939,11 @@ class OutputWriter:
             "market":           market_view["market"],
             "regime":           regime,
             "regime_confidence": market_view.get("regime_confidence"),
+            "regimes_by_symbol": market_view.get("regimes_by_symbol", {}),
+            "regime_features_by_symbol": market_view.get(
+                "regime_features_by_symbol",
+                {},
+            ),
             "market_view":      market_view,
             "current_prices":    current_prices,
             "price_history":     list(self._price_history),
@@ -952,6 +1168,12 @@ class OutputWriter:
             "market": market,
             "regime": str(fallback_regime or "unknown").lower(),
             "regime_confidence": confidence,
+            "regimes_by_symbol": _clean_regimes_by_symbol(
+                causal.get("regimes_by_symbol")
+            ),
+            "regime_features_by_symbol": _clean_regime_features_by_symbol(
+                causal.get("regime_features_by_symbol")
+            ),
             "funding_symbols": len(funding_values),
             "avg_funding": avg_funding,
             "funding_bias": funding_bias,
@@ -1034,11 +1256,29 @@ class OutputWriter:
             if isinstance(causal, dict):
                 prices = self._clean_price_mapping(causal.get("prices"))
         if prices:
+            timestamp = ""
+            if step is not None:
+                causal = getattr(step, "causal_decision", {}) or {}
+                if isinstance(causal, dict):
+                    timestamp = _coerce_timestamp_text(
+                        causal.get("timestamp")
+                        or causal.get("timestamp_utc")
+                        or causal.get("time")
+                    )
+            if not timestamp:
+                timestamp = datetime.now(timezone.utc).isoformat()
             self._price_history.append({
                 "bar": int(step.bar if step is not None else 0),
+                "timestamp": timestamp,
                 "regime": str(regime or ""),
                 "market": str(market_view.get("market", regime) or regime or ""),
                 "regime_confidence": market_view.get("regime_confidence"),
+                "regimes_by_symbol": dict(
+                    market_view.get("regimes_by_symbol", {}) or {}
+                ),
+                "regime_features_by_symbol": dict(
+                    market_view.get("regime_features_by_symbol", {}) or {}
+                ),
                 "prices": prices,
             })
             if len(self._price_history) > limit:
@@ -1198,6 +1438,9 @@ class OutputWriter:
             agent_pnl = self._pipeline.ledger.total_pnl_by_agent()
         except Exception:
             agent_pnl = {}
+        player_label_set = set(player_pnl.keys())
+        player_label_set.update(_configured_dynamic_player_labels(self._pipeline))
+        player_label_set.update(_registered_strategy_labels(self._pipeline))
 
         closed_players = []
         for label, pnl in sorted(
@@ -1230,6 +1473,7 @@ class OutputWriter:
                 agent_pnl.items(),
                 key=lambda item: -float(item[1] or 0.0),
             )
+            if str(label) not in player_label_set
         ]
 
         open_rows = []
@@ -1391,6 +1635,16 @@ class OutputWriter:
             "win_rate": (wins / closed * 100.0) if closed else 0.0,
         }
 
+    def _actor_equity_curve(self, label: str) -> List[float]:
+        getter = getattr(getattr(self._pipeline, "perf", None), "equity_curve", None)
+        if not callable(getter):
+            return []
+        try:
+            curve = [float(item) for item in getter(label) if float(item) > 0.0]
+        except Exception:
+            return []
+        return curve if len(curve) > 1 else []
+
     def _exchange_positions_count(self) -> int:
         return len(self._exchange_positions())
 
@@ -1415,28 +1669,43 @@ class OutputWriter:
         except Exception:
             return
 
-        # AGENTS: registered agent labels from PerformanceMemory plus configured pool.
+        player_pnl = self._pipeline.ledger.total_pnl_by_player()
+        trade_counts = self._pipeline.ledger.trade_counts_by_player()
+        win_counts = self._pipeline.ledger.win_counts_by_player()
+        actor_pool_players = {
+            str(row.get("label") or ""): row
+            for row in self._actor_pool_player_rows()
+            if str(row.get("label") or "")
+        }
+        player_labels = {
+            str(profile.label)
+            for profile in self._pipeline.profiles
+            if str(getattr(profile, "label", "") or "")
+        }
+        player_labels.update(actor_pool_players.keys())
+        player_labels.update(_configured_dynamic_player_labels(self._pipeline))
+        player_labels.update(player_pnl.keys())
+
+        # AGENTS: component labels referenced by players, excluding standalone strategies.
         agents: Dict[str, dict] = {}
+        agent_pnl = self._pipeline.ledger.total_pnl_by_agent()
         actor_pool_agents = {
             str(row.get("label") or ""): row
             for row in self._actor_pool_agent_rows()
-            if str(row.get("label") or "")
+            if str(row.get("label") or "") and str(row.get("label") or "") not in player_labels
         }
-        agent_labels = set(self._pipeline.registry.all_labels())
-        agent_labels.update(
-            str(label)
-            for label in (getattr(self._pipeline, "shadow_agent_labels", ()) or ())
-            if str(label)
-        )
+        agent_labels = set(agent_pnl.keys())
         agent_labels.update(actor_pool_agents.keys())
+        agent_labels.difference_update(player_labels)
         for label in sorted(agent_labels):
             metrics_agg = self._pipeline.perf.get(label)
             configured_pool = label in actor_pool_agents
-            if not metrics_agg.has_data and not configured_pool:
+            has_agent_pnl = label in agent_pnl
+            if not metrics_agg.has_data and not configured_pool and not has_agent_pnl:
                 continue
             session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
-            for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
+            for r in Regime:
                 rm = self._pipeline.perf.get(label, regime=r)
                 if rm.has_data:
                     per_regime[r.label] = {
@@ -1455,6 +1724,7 @@ class OutputWriter:
             agents["V_" + label] = {
                 "pnl_pct":        metrics_agg.pnl_pct,
                 "session_pnl_pct": session["pnl_pct"],
+                "equity_curve":   self._actor_equity_curve(label),
                 "closed_trades":  metrics_agg.closed_trades,
                 "session_closed_trades": session["closed_trades"],
                 "entries":        metrics_agg.entries,
@@ -1483,22 +1753,6 @@ class OutputWriter:
 
         # PLAYERS: profile labels from PerformanceMemory plus real ledger overlay.
         players: Dict[str, dict] = {}
-        player_pnl = self._pipeline.ledger.total_pnl_by_player()
-        trade_counts = self._pipeline.ledger.trade_counts_by_player()
-        win_counts = self._pipeline.ledger.win_counts_by_player()
-        actor_pool_players = {
-            str(row.get("label") or ""): row
-            for row in self._actor_pool_player_rows()
-            if str(row.get("label") or "")
-        }
-        player_labels = {
-            str(profile.label)
-            for profile in self._pipeline.profiles
-            if str(getattr(profile, "label", "") or "")
-        }
-        player_labels.update(actor_pool_players.keys())
-        player_labels.update(_configured_dynamic_player_labels(self._pipeline))
-        player_labels.update(player_pnl.keys())
         for label in sorted(player_labels):
             metrics_agg = self._pipeline.perf.get(label)
             configured_pool = label in actor_pool_players
@@ -1506,7 +1760,7 @@ class OutputWriter:
                 continue
             session = self._session_metrics_for(label, metrics_agg)
             per_regime = {}
-            for r in (Regime.BULLISH, Regime.BEARISH, Regime.NEUTRAL, Regime.CRASH):
+            for r in Regime:
                 rm = self._pipeline.perf.get(label, regime=r)
                 if rm.has_data:
                     per_regime[r.label] = {
@@ -1530,6 +1784,7 @@ class OutputWriter:
             players["V_" + label] = {
                 "pnl_pct":          metrics_agg.pnl_pct,
                 "session_pnl_pct":  session["pnl_pct"],
+                "equity_curve":     self._actor_equity_curve(label),
                 "closed_trades":    metrics_agg.closed_trades,
                 "session_closed_trades": session["closed_trades"],
                 "entries":          metrics_agg.entries,
@@ -1548,6 +1803,7 @@ class OutputWriter:
                 "real_trades":      real_trades,
                 "real_wins":        real_wins,
                 "real_win_rate":    (real_wins / real_trades * 100.0) if real_trades else 0.0,
+                "is_quarantined":    self._pipeline.qm.is_quarantined(label),
                 "configured_pool":   configured_pool,
                 "configured_pool_only": configured_pool_only,
                 "actor_pool_kind":   str(actor_pool_players.get(label, {}).get("kind", "")),
@@ -1564,6 +1820,13 @@ class OutputWriter:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "regime":    "—",  # фиксируется по последнему step, ниже
         }
+        split_meta = dict(agents_meta)
+        split_meta["real_executable_criteria"] = (
+            "registered live actor, or explicit controlled-probation Genetics label; "
+            "per-symbol Flash gates, min-notional, slippage, fees, and daily limits still apply"
+        )
+        real_agents, shadow_agents = self._split_agent_leaderboard(agents)
+        real_players, shadow_players = self._split_player_leaderboard(players)
         self._last_agents_payload = {"metadata": agents_meta, "agents": agents}
         self._last_players_payload = {"metadata": agents_meta, "players": players}
         self._write_json_atomic(
@@ -1574,6 +1837,112 @@ class OutputWriter:
             os.path.join(self._config.output_dir, self._config.leaderboard_players),
             self._last_players_payload,
         )
+        self._write_json_atomic(
+            os.path.join(
+                self._config.output_dir,
+                self._config.leaderboard_real_executable_agents,
+            ),
+            {"metadata": dict(split_meta, scope="real_executable"), "agents": real_agents},
+        )
+        self._write_json_atomic(
+            os.path.join(
+                self._config.output_dir,
+                self._config.leaderboard_shadow_only_agents,
+            ),
+            {"metadata": dict(split_meta, scope="shadow_only"), "agents": shadow_agents},
+        )
+        self._write_json_atomic(
+            os.path.join(
+                self._config.output_dir,
+                self._config.leaderboard_real_executable_players,
+            ),
+            {"metadata": dict(split_meta, scope="real_executable"), "players": real_players},
+        )
+        self._write_json_atomic(
+            os.path.join(
+                self._config.output_dir,
+                self._config.leaderboard_shadow_only_players,
+            ),
+            {"metadata": dict(split_meta, scope="shadow_only"), "players": shadow_players},
+        )
+
+    def _split_agent_leaderboard(
+        self,
+        agents: Dict[str, dict],
+    ) -> tuple[Dict[str, dict], Dict[str, dict]]:
+        real: Dict[str, dict] = {}
+        shadow: Dict[str, dict] = {}
+        for key, row in sorted(agents.items()):
+            label = key[2:] if key.startswith("V_") else key
+            if self._agent_is_real_executable_for_leaderboard(label):
+                real[key] = row
+            else:
+                shadow[key] = row
+        return real, shadow
+
+    def _split_player_leaderboard(
+        self,
+        players: Dict[str, dict],
+    ) -> tuple[Dict[str, dict], Dict[str, dict]]:
+        real: Dict[str, dict] = {}
+        shadow: Dict[str, dict] = {}
+        for key, row in sorted(players.items()):
+            label = key[2:] if key.startswith("V_") else key
+            if self._player_is_real_executable_for_leaderboard(label, row):
+                real[key] = row
+            else:
+                shadow[key] = row
+        return real, shadow
+
+    def _agent_is_real_executable_for_leaderboard(self, label: str) -> bool:
+        registry = getattr(self._pipeline, "registry", None)
+        agent = registry.get(label) if registry is not None and hasattr(registry, "get") else None
+        if agent is None:
+            return False
+        if self._agent_is_controlled_probation_for_leaderboard(label):
+            return not self._pipeline.qm.is_quarantined(label)
+        if bool(getattr(agent, "shadow_only", False)):
+            return False
+        if getattr(agent, "live_trading_eligible", True) is False:
+            return False
+        if self._pipeline.qm.is_quarantined(label):
+            return False
+        return True
+
+    def _agent_is_controlled_probation_for_leaderboard(self, label: str) -> bool:
+        cfg = getattr(self._pipeline, "live_execution", None)
+        if not bool(getattr(cfg, "genetics_probation_execution_enabled", False)):
+            return False
+        clean = str(label or "").strip()
+        if not clean.startswith("Genetics"):
+            return False
+        labels = {
+            str(item or "").strip()
+            for item in (getattr(cfg, "genetics_probation_labels", ()) or ())
+            if str(item or "").strip()
+        }
+        return clean in labels
+
+    def _player_is_real_executable_for_leaderboard(
+        self,
+        label: str,
+        row: Dict[str, object],
+    ) -> bool:
+        if self._pipeline.qm.is_quarantined(label):
+            return False
+        if int(row.get("real_trades") or 0) > 0:
+            return True
+        if bool(row.get("configured_pool_only")):
+            return False
+        profile_labels = {
+            str(getattr(profile, "label", "") or "")
+            for profile in getattr(self._pipeline, "profiles", ()) or ()
+        }
+        if label in profile_labels or label in _configured_dynamic_player_labels(self._pipeline):
+            return True
+        if label in _registered_strategy_labels(self._pipeline):
+            return self._agent_is_real_executable_for_leaderboard(label)
+        return False
 
     def _write_dashboard(self) -> None:
         """ASCII dashboard через TextRenderer."""
@@ -1603,11 +1972,11 @@ class OutputWriter:
 
         out = ["", line, f"  {title}", line]
         out.append(
-            "  Source: configured profiles/dynamic players + registered agents; "
+            "  Source: configured profiles/dynamic players + standalone strategies; "
             "rows are shown even before leaderboard activity."
         )
         out.append(
-            "  players={players} registered_agents={agents} actionable={actionable}".format(
+            "  players={players} component_agents={agents} actionable={actionable}".format(
                 players=len(player_rows),
                 agents=len(agent_rows),
                 actionable=len(actionable),
@@ -1666,7 +2035,7 @@ class OutputWriter:
         )
         return {
             "source": (
-                "configured profiles/dynamic players + registered agents; "
+                "configured profiles/dynamic players + standalone strategies; "
                 "rows are shown even before leaderboard activity"
             ),
             "players": self._actor_pool_player_rows(),
@@ -1720,25 +2089,65 @@ class OutputWriter:
                 "agents": agents,
             })
 
+        existing_player_labels = {
+            str(row.get("label") or "").strip()
+            for row in rows
+            if str(row.get("label") or "").strip()
+        }
+        for label in sorted(_registered_strategy_labels(self._pipeline)):
+            if label in existing_player_labels:
+                continue
+            rows.append({
+                "label": label,
+                "kind": "strategy",
+                "scope": "standalone",
+                "agents": "-",
+            })
+
         deduped: Dict[tuple[str, str], Dict[str, str]] = {}
         for row in rows:
             deduped[(row["kind"], row["label"])] = row
         return list(deduped.values())
 
+    def _component_agent_labels(self) -> set[str]:
+        labels: set[str] = set()
+        for profile in getattr(self._pipeline, "profiles", ()) or ():
+            labels.update(
+                str(label).strip()
+                for label in tuple(getattr(profile, "allowed_labels", ()) or ())
+                if str(label or "").strip()
+            )
+            raw_bias = getattr(profile, "bias", {}) or {}
+            if isinstance(raw_bias, dict):
+                labels.update(
+                    str(label).strip()
+                    for label in raw_bias.keys()
+                    if str(label or "").strip()
+                )
+        for _label, mapping in self._regime_switch_pool_specs():
+            for agent_labels in mapping.values():
+                labels.update(agent_labels)
+        for _label, mapping, fallback in self._rotating_pool_specs():
+            for agent_labels in mapping.values():
+                labels.update(agent_labels)
+            labels.update(fallback)
+        try:
+            labels.update(self._pipeline.ledger.total_pnl_by_agent().keys())
+        except Exception:
+            pass
+        for signals in (
+            getattr(self._pipeline, "_current_shadow_player_signals", {}) or {}
+        ).values():
+            for signal in signals or ():
+                by_agent = str(getattr(signal, "by_agent", "") or "").strip()
+                if by_agent:
+                    labels.add(by_agent)
+        return {label for label in labels if str(label or "").strip()}
+
     def _actor_pool_agent_rows(self) -> List[Dict[str, object]]:
         registry = getattr(self._pipeline, "registry", None)
-        labels = set()
-        all_labels = getattr(registry, "all_labels", None)
-        if callable(all_labels):
-            try:
-                labels.update(str(label) for label in all_labels() if str(label))
-            except Exception:
-                pass
-        labels.update(
-            str(label)
-            for label in (getattr(self._pipeline, "shadow_agent_labels", ()) or ())
-            if str(label)
-        )
+        labels = self._component_agent_labels()
+        labels.difference_update(_registered_strategy_labels(self._pipeline))
         rows: List[Dict[str, object]] = []
         for label in sorted(labels):
             agent = registry.get(label) if registry is not None and hasattr(registry, "get") else None
@@ -2139,9 +2548,15 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
             self._write_leaderboards()
             self._write_dashboard()
             self._write_final_session_reports()
+            stop_ts = _utc_msk_timestamps()
             with open(self._log_path, "a", encoding="utf-8") as f:
                 f.write(f"\n{'='*70}\n")
-                f.write(f"Panteon v2 stopped: {datetime.now(timezone.utc).isoformat()}\n")
+                f.write(
+                    "Panteon v2 stopped: "
+                    f"UTC={stop_ts['timestamp_utc']} "
+                    f"MSK={stop_ts['timestamp_msk']} "
+                    f"pid={os.getpid()}\n"
+                )
                 f.write(f"{'='*70}\n")
         except Exception:
             log.exception("close failed")
@@ -2152,7 +2567,10 @@ figcaption {{ color: #8b949e; font-size: 12px; padding-top: 6px; }}
         status.setdefault("run_state", "stopped")
         status.setdefault("session_id", getattr(self._pipeline, "session_id", ""))
         status.setdefault("run_id", getattr(self._pipeline, "run_id", ""))
-        status["final_report_generated_at"] = datetime.now(timezone.utc).isoformat()
+        report_ts = _utc_msk_timestamps()
+        status["final_report_generated_at"] = report_ts["timestamp_utc"]
+        status["final_report_generated_at_msk"] = report_ts["timestamp_msk"]
+        status.setdefault("active_pid", os.getpid())
         kill_switch = getattr(self._pipeline, "kill_switch", None)
         status["kill_switch"] = {
             "disabled_reason": str(getattr(kill_switch, "disabled_reason", "") or ""),

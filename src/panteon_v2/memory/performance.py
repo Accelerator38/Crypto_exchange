@@ -55,6 +55,7 @@ class _LabelRegimeState:
     equity:        float = 1.0
     peak:          float = 1.0
     max_dd_pct:    float = 0.0          # максимальная просадка в %
+    equity_curve:  List[float] = field(default_factory=lambda: [100.0])
     blocked_signals: int = 0
     rejected_signals: int = 0
     pending_signals: int = 0
@@ -97,6 +98,15 @@ def _sharpe(returns: List[float]) -> float:
     return float(mean / std)
 
 
+def _uses_neutral_seed(regime: Regime) -> bool:
+    return regime in {
+        Regime.RANGE_LOW_VOL,
+        Regime.CHOPPY_DOWN,
+        Regime.CHOPPY_UP,
+        Regime.MIXED_ROTATIONAL,
+    }
+
+
 # ────────────────────────────────────────────────────────────────────
 # Открытая позиция — для парного расчёта close → realized PnL
 # ────────────────────────────────────────────────────────────────────
@@ -126,6 +136,7 @@ class _OpenPosition:
 # Используется чтобы абсолютный pnl_pct совпадал с тем, что видит
 # Пантеон в реальной торговле. Конфигурируется через __init__.
 _DEFAULT_TRADE_FRACTION = 0.10
+_DEFAULT_EXCHANGE_SCOPE = "__default__"
 _CASH_FLAT_AGENT = "CashFlat"
 _NO_TRADE_PLAYER = "NoTrade"
 _OPENER_ATTRIBUTED_CLOSE_AGENTS = frozenset({
@@ -157,13 +168,17 @@ class PerformanceMemory:
         *,
         trade_fraction: float = _DEFAULT_TRADE_FRACTION,
         strict_close_action_family: bool = False,
+        exchange_scope: str = _DEFAULT_EXCHANGE_SCOPE,
     ):
         if not 0 < trade_fraction <= 1.0:
             raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
         self._trade_fraction = float(trade_fraction)
         self._strict_close_action_family = bool(strict_close_action_family)
+        self._exchange_scope = _normalize_exchange_scope(exchange_scope)
         # (label, regime) → state
         self._state: Dict[Tuple[str, Regime], _LabelRegimeState] = {}
+        self._context_state: Dict[Tuple[str, str, Regime, str], _LabelRegimeState] = {}
+        self._context_bootstrap_state: Dict[Tuple[str, Regime], _LabelRegimeState] = {}
         # Открытые позиции по (label, sym) — нужно знать для close.
         # Один label может иметь только одну открытую позицию по sym
         # (общепринятое допущение, как в v1).
@@ -172,6 +187,8 @@ class PerformanceMemory:
         # update_from_signal вызывается отдельно):
         self._seen_signal_ids: set = set()
         self._aggregate_cache: Dict[str, Metrics] = {}
+        self._context_aggregate_cache: Dict[Tuple[str, str, str], Metrics] = {}
+        self._equity_curves: Dict[str, List[float]] = {}
 
     # ── Обновление ──────────────────────────────────────────────────
 
@@ -221,6 +238,7 @@ class PerformanceMemory:
                 signal.regime,
                 status=normalized,
                 count_signal=False,
+                sym=signal.sym,
             )
 
     def seed_open_position(
@@ -259,7 +277,8 @@ class PerformanceMemory:
             return
         for label in normalized_labels:
             if count_entry:
-                self._get_or_create(label, regime).entries += 1
+                for state in self._states_for_update(label, regime, symbol):
+                    state.entries += 1
             self._open[(position_scope, label, symbol)] = _OpenPosition(
                 signal_id=int(signal_id or 0),
                 label=label,
@@ -270,7 +289,7 @@ class PerformanceMemory:
                 fee_open=float(fee_open or 0.0),
                 funding_open=float(funding_open or 0.0),
             )
-            self._aggregate_cache.pop(label, None)
+            self._invalidate_label(label)
 
     def update_from_trade(self, trade: Trade, signal: Signal) -> None:
         """Главный entry point. Обновляет метрики на основании trade.
@@ -305,6 +324,9 @@ class PerformanceMemory:
         self,
         label: str,
         regime: Optional[Regime] = None,
+        *,
+        exchange: Optional[str] = None,
+        symbol: Optional[str] = None,
     ) -> Metrics:
         """Возвращает immutable Metrics.
 
@@ -312,8 +334,17 @@ class PerformanceMemory:
         """
         if not label:
             return Metrics.empty()
+        if self._context_requested(exchange=exchange, symbol=symbol):
+            return self._get_context_metrics(
+                label,
+                regime=regime,
+                exchange=exchange,
+                symbol=symbol,
+            )
         if regime is not None:
             state = self._state.get((label, regime))
+            if state is None and _uses_neutral_seed(regime):
+                state = self._state.get((label, Regime.NEUTRAL))
             return state.snapshot_as_metrics() if state else Metrics.empty()
         # Агрегат по всем регимам
         cached = self._aggregate_cache.get(label)
@@ -326,20 +357,51 @@ class PerformanceMemory:
     def per_regime_for_label(
         self,
         label: str,
+        *,
+        exchange: Optional[str] = None,
+        symbol: Optional[str] = None,
     ) -> Mapping[Regime, Metrics]:
         """Полная карта regime → Metrics для одного label.
 
         Используется QuarantineManager для is_locally_proven /
         is_hopeless_in_all_regimes.
         """
+        if self._context_requested(exchange=exchange, symbol=symbol):
+            return self._per_regime_context_for_label(
+                label,
+                exchange=exchange,
+                symbol=symbol,
+            )
         out: Dict[Regime, Metrics] = {}
         for (lbl, reg), state in self._state.items():
             if lbl == label:
                 out[reg] = state.snapshot_as_metrics()
         return out
 
+    def equity_curve(
+        self,
+        label: str,
+        regime: Optional[Regime] = None,
+        *,
+        limit: Optional[int] = None,
+    ) -> List[float]:
+        if not label:
+            return []
+        if regime is not None:
+            state = self._state.get((label, regime))
+            if state is None and _uses_neutral_seed(regime):
+                state = self._state.get((label, Regime.NEUTRAL))
+            curve = list(state.equity_curve) if state is not None else []
+        else:
+            curve = list(self._equity_curves.get(label) or [])
+        if limit is not None and int(limit) > 0:
+            curve = curve[-int(limit):]
+        return [round(float(item), 10) for item in curve]
+
     def all_labels(self) -> List[str]:
-        return sorted({label for (label, _) in self._state.keys()})
+        labels = {label for (label, _) in self._state.keys()}
+        labels.update(label for (_, _, _, label) in self._context_state.keys())
+        return sorted(labels)
 
     def top_k_for_regime(
         self,
@@ -348,6 +410,8 @@ class PerformanceMemory:
         *,
         scorer,                       # Callable[[Metrics, Regime], float]
         exclude: Optional[set] = None,
+        exchange: Optional[str] = None,
+        symbol: Optional[str] = None,
     ) -> List[Tuple[str, float, Metrics]]:
         """Top-k labels для регима, отсортированных по убыванию score.
 
@@ -356,6 +420,33 @@ class PerformanceMemory:
         """
         exclude = exclude or set()
         candidates: List[Tuple[str, float, Metrics]] = []
+        if self._context_requested(exchange=exchange, symbol=symbol):
+            for label in self.all_labels():
+                if label in exclude:
+                    continue
+                metrics = self.get(
+                    label,
+                    regime=regime,
+                    exchange=exchange,
+                    symbol=symbol,
+                )
+                if not metrics.has_data:
+                    continue
+                score = scorer(metrics, regime)
+                candidates.append((label, score, metrics))
+            candidates.sort(key=lambda t: -t[1])
+            return candidates[: max(0, int(k))]
+        if _uses_neutral_seed(regime):
+            for label in sorted({label for (label, _) in self._state.keys()}):
+                if label in exclude:
+                    continue
+                metrics = self.get(label, regime=regime)
+                if not metrics.has_data:
+                    continue
+                score = scorer(metrics, regime)
+                candidates.append((label, score, metrics))
+            candidates.sort(key=lambda t: -t[1])
+            return candidates[: max(0, int(k))]
         seen_labels = set()
         for (label, reg), state in self._state.items():
             if reg != regime or label in seen_labels or label in exclude:
@@ -373,40 +464,110 @@ class PerformanceMemory:
         """Сериализуемый снимок состояния (для save/restore)."""
         return {
             "trade_fraction": self._trade_fraction,
+            "exchange_scope": self._exchange_scope,
             "state": {
                 f"{label}|{regime.label}": _state_to_dict(s)
                 for (label, regime), s in self._state.items()
+            },
+            "context_state": {
+                _context_key_to_text(exchange, symbol, label, regime): _state_to_dict(s)
+                for (exchange, symbol, regime, label), s in self._context_state.items()
             },
             "open": {
                 _open_key_to_text(scope, label, sym): _open_to_dict(p)
                 for (scope, label, sym), p in self._open.items()
             },
             "seen_signal_ids": sorted(self._seen_signal_ids),
+            "equity_curves": {
+                label: list(curve)
+                for label, curve in sorted(self._equity_curves.items())
+            },
         }
 
     def restore(self, snapshot: dict) -> None:
         """Восстановление из snapshot()."""
         self._trade_fraction = float(snapshot.get("trade_fraction", _DEFAULT_TRADE_FRACTION))
+        snapshot_exchange_scope = _normalize_exchange_scope(
+            snapshot.get("exchange_scope", "")
+        )
+        if snapshot_exchange_scope != _DEFAULT_EXCHANGE_SCOPE:
+            self._exchange_scope = snapshot_exchange_scope
         self._state.clear()
+        self._context_state.clear()
+        self._context_bootstrap_state.clear()
         self._aggregate_cache.clear()
+        self._context_aggregate_cache.clear()
         for key, payload in (snapshot.get("state") or {}).items():
             label, regime_str = key.split("|", 1)
             regime = Regime.from_string(regime_str)
             self._state[(label, regime)] = _state_from_dict(payload)
+        self._context_bootstrap_state = {
+            key: _clone_state(state)
+            for key, state in self._state.items()
+        }
+        for key, payload in (snapshot.get("context_state") or {}).items():
+            exchange, symbol, label, regime = _context_key_from_text(key)
+            self._context_state[(exchange, symbol, regime, label)] = _state_from_dict(payload)
         self._open.clear()
         for key, payload in (snapshot.get("open") or {}).items():
             scope, label, sym = _open_key_from_text(key)
             self._open[(scope, label, sym)] = _open_from_dict(payload)
         self._seen_signal_ids = set(int(x) for x in snapshot.get("seen_signal_ids", []))
+        self._equity_curves = {
+            str(label): [float(item) for item in curve]
+            for label, curve in dict(snapshot.get("equity_curves") or {}).items()
+            if isinstance(curve, list)
+        }
+        if not self._equity_curves:
+            self._equity_curves = self._aggregate_equity_curves_from_states()
 
     # ── Внутренние helper-методы ───────────────────────────────────
 
     def _get_or_create(self, label: str, regime: Regime) -> _LabelRegimeState:
         key = (label, regime)
-        self._aggregate_cache.pop(label, None)
+        self._invalidate_label(label)
         if key not in self._state:
             self._state[key] = _LabelRegimeState()
         return self._state[key]
+
+    def _get_or_create_context(
+        self,
+        label: str,
+        regime: Regime,
+        sym: str,
+        *,
+        exchange: Optional[str] = None,
+    ) -> Optional[_LabelRegimeState]:
+        symbol = _normalize_symbol_scope(sym)
+        if not symbol:
+            return None
+        exchange_scope = _normalize_exchange_scope(exchange or self._exchange_scope)
+        key = (exchange_scope, symbol, regime, label)
+        self._invalidate_label(label)
+        if key not in self._context_state:
+            base = self._context_bootstrap_state.get((label, regime))
+            self._context_state[key] = (
+                _clone_state(base) if base is not None else _LabelRegimeState()
+            )
+        return self._context_state[key]
+
+    def _states_for_update(
+        self,
+        label: str,
+        regime: Regime,
+        sym: str,
+    ) -> List[_LabelRegimeState]:
+        states = [self._get_or_create(label, regime)]
+        context_state = self._get_or_create_context(label, regime, sym)
+        if context_state is not None:
+            states.append(context_state)
+        return states
+
+    def _invalidate_label(self, label: str) -> None:
+        self._aggregate_cache.pop(label, None)
+        stale = [key for key in self._context_aggregate_cache if key[0] == label]
+        for key in stale:
+            self._context_aggregate_cache.pop(key, None)
 
     @staticmethod
     def _labels_from_signal(signal: Signal) -> List[str]:
@@ -426,7 +587,8 @@ class PerformanceMemory:
             return
         self._seen_signal_ids.add(signal.id)
         for label in labels:
-            self._get_or_create(label, signal.regime).signals += 1
+            for state in self._states_for_update(label, signal.regime, signal.sym):
+                state.signals += 1
 
     def _labels_for_signal(self, signal: Signal, *, trade: Optional[Trade] = None) -> List[str]:
         if self._is_opener_attributed_close(signal):
@@ -468,17 +630,18 @@ class PerformanceMemory:
         *,
         status: str,
         count_signal: bool,
+        sym: str = "",
     ) -> None:
-        state = self._get_or_create(label, regime)
-        if count_signal:
-            state.signals += 1
-        if status == "blocked":
-            state.blocked_signals += 1
-        elif status == "rejected":
-            state.rejected_signals += 1
-        elif status == "pending":
-            state.pending_signals += 1
-        state.execution_failures += 1
+        for state in self._states_for_update(label, regime, sym):
+            if count_signal:
+                state.signals += 1
+            if status == "blocked":
+                state.blocked_signals += 1
+            elif status == "rejected":
+                state.rejected_signals += 1
+            elif status == "pending":
+                state.pending_signals += 1
+            state.execution_failures += 1
 
     def _record_open(
         self,
@@ -487,8 +650,8 @@ class PerformanceMemory:
         trade: Trade,
         signal: Signal,
     ) -> None:
-        state = self._get_or_create(label, regime)
-        state.entries += 1
+        for state in self._states_for_update(label, regime, trade.sym):
+            state.entries += 1
         # Запоминаем открытую позицию
         self._open[(signal.position_scope, label, trade.sym)] = _OpenPosition(
             signal_id=signal.id,
@@ -512,14 +675,15 @@ class PerformanceMemory:
         key = (signal.position_scope, label, trade.sym)
         opened = self._open.get(key)
         # Считаем close в любом случае (для signal counter etc)
-        state = self._get_or_create(label, regime)
+        states = self._states_for_update(label, regime, trade.sym)
         if (
             self._strict_close_action_family
             and opened is not None
             and not _close_matches_open_action(signal.action, opened.open_action)
         ):
             return
-        state.closed_trades += 1
+        for state in states:
+            state.closed_trades += 1
         if opened is None:
             # Пытаемся закрыть несуществующую позицию — записываем close,
             # но без realized PnL (не знаем entry). В v1 такое случалось.
@@ -558,27 +722,23 @@ class PerformanceMemory:
         net_pnl_pct = net_pnl * 100.0  # переводим в %
 
         # Обновляем cumulative PnL и returns
-        state.pnl_pct += net_pnl_pct
-        state.pnl_gross_pct += gross_pnl * 100.0
-        state.fee_pct += fee_total_pct * 100.0
-        state.funding_pct += funding_total_pct * 100.0
-        state.returns.append(net_pnl_pct)
-        if net_pnl_pct > 0:
-            state.wins += 1
-        elif net_pnl_pct < 0:
-            state.losses += 1
+        for state in states:
+            _apply_realized_close_to_state(
+                state,
+                net_pnl=net_pnl,
+                net_pnl_pct=net_pnl_pct,
+                gross_pnl_pct=gross_pnl * 100.0,
+                fee_pct=fee_total_pct * 100.0,
+                funding_pct=funding_total_pct * 100.0,
+            )
+        aggregate_curve = self._equity_curves.setdefault(label, [100.0])
+        aggregate_curve.append(aggregate_curve[-1] * (1.0 + net_pnl))
         # Wins+Losses == closed_trades (плюс ноль). Ноль не считаем ни win, ни loss
         # — это редкий случай idealized fill.
 
         # Обновляем equity-curve и max_dd для этой (label, regime) пары.
         # Равитет переменная — стартует с 1.0 = 100%, изменяется на
         # net_pnl (доля). +1% = 1.01.
-        state.equity *= (1.0 + net_pnl)
-        if state.equity > state.peak:
-            state.peak = state.equity
-        dd = (state.peak - state.equity) / max(state.peak, 1e-12) * 100.0
-        if dd > state.max_dd_pct:
-            state.max_dd_pct = dd
         remaining_qty = float(opened.qty) - close_qty
         if not quantity_limited_close or remaining_qty <= 1e-12:
             self._open.pop(key, None)
@@ -640,6 +800,132 @@ class PerformanceMemory:
 
 
 # ────────────────────────────────────────────────────────────────────
+    def _aggregate_equity_curves_from_states(self) -> Dict[str, List[float]]:
+        curves: Dict[str, List[float]] = {}
+        for (label, _regime), state in self._state.items():
+            curve = curves.setdefault(label, [100.0])
+            values = list(state.equity_curve)
+            for idx in range(1, len(values)):
+                previous = curve[-1]
+                state_previous = float(values[idx - 1])
+                if previous <= 0.0 or state_previous <= 0.0:
+                    continue
+                curve.append(previous * (float(values[idx]) / state_previous))
+        return curves
+
+    @staticmethod
+    def _context_requested(
+        *,
+        exchange: Optional[str],
+        symbol: Optional[str],
+    ) -> bool:
+        return bool(str(exchange or "").strip() or str(symbol or "").strip())
+
+    def _get_context_metrics(
+        self,
+        label: str,
+        *,
+        regime: Optional[Regime],
+        exchange: Optional[str],
+        symbol: Optional[str],
+    ) -> Metrics:
+        exchange_scope = _normalize_exchange_scope(exchange or self._exchange_scope)
+        symbol_scope = _normalize_symbol_scope(symbol)
+        if regime is not None and symbol_scope:
+            state = self._context_state.get((exchange_scope, symbol_scope, regime, label))
+            if state is None:
+                state = self._bootstrap_context_state(
+                    label,
+                    regime,
+                    exchange_scope,
+                    symbol_scope,
+                )
+            return state.snapshot_as_metrics() if state else Metrics.empty()
+        cache_key = (label, exchange_scope, symbol_scope)
+        if regime is None:
+            cached = self._context_aggregate_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        metrics = self._aggregate_context_metrics(
+            label,
+            exchange=exchange_scope,
+            symbol=symbol_scope,
+            regime=regime,
+        )
+        if regime is None:
+            self._context_aggregate_cache[cache_key] = metrics
+        return metrics
+
+    def _bootstrap_context_state(
+        self,
+        label: str,
+        regime: Regime,
+        exchange: str,
+        symbol: str,
+    ) -> Optional[_LabelRegimeState]:
+        key = (exchange, symbol, regime, label)
+        state = self._context_state.get(key)
+        if state is not None:
+            return state
+        if exchange != self._exchange_scope:
+            return None
+        self._ensure_context_bootstrap_baseline()
+        base = self._context_bootstrap_state.get((label, regime))
+        if base is None and _uses_neutral_seed(regime):
+            base = self._context_bootstrap_state.get((label, Regime.NEUTRAL))
+        if base is None or not base.snapshot_as_metrics().has_data:
+            return None
+        self._context_state[key] = _clone_state(base)
+        self._context_aggregate_cache.pop((label, exchange, symbol), None)
+        return self._context_state[key]
+
+    def _ensure_context_bootstrap_baseline(self) -> None:
+        if self._context_bootstrap_state or not self._state:
+            return
+        self._context_bootstrap_state = {
+            key: _clone_state(state)
+            for key, state in self._state.items()
+        }
+
+    def _aggregate_context_metrics(
+        self,
+        label: str,
+        *,
+        exchange: str,
+        symbol: str,
+        regime: Optional[Regime],
+    ) -> Metrics:
+        return _metrics_from_states(
+            state
+            for (ex, sym, reg, lbl), state in self._context_state.items()
+            if lbl == label
+            and ex == exchange
+            and (not symbol or sym == symbol)
+            and (regime is None or reg == regime)
+        )
+
+    def _per_regime_context_for_label(
+        self,
+        label: str,
+        *,
+        exchange: Optional[str],
+        symbol: Optional[str],
+    ) -> Mapping[Regime, Metrics]:
+        exchange_scope = _normalize_exchange_scope(exchange or self._exchange_scope)
+        symbol_scope = _normalize_symbol_scope(symbol)
+        out: Dict[Regime, Metrics] = {}
+        for regime in Regime:
+            metrics = self.get(
+                label,
+                regime=regime,
+                exchange=exchange_scope,
+                symbol=symbol_scope,
+            )
+            if metrics.has_data:
+                out[regime] = metrics
+        return out
+
+
 # (De)serialization helpers
 # ────────────────────────────────────────────────────────────────────
 
@@ -657,6 +943,7 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
         "funding_pct":   s.funding_pct,
         "returns":       list(s.returns),
         "equity":        s.equity,
+        "equity_curve":  list(s.equity_curve),
         "peak":          s.peak,
         "max_dd_pct":    s.max_dd_pct,
         "blocked_signals": s.blocked_signals,
@@ -664,6 +951,112 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
         "pending_signals": s.pending_signals,
         "execution_failures": s.execution_failures,
     }
+
+
+def _clone_state(s: _LabelRegimeState) -> _LabelRegimeState:
+    return _state_from_dict(_state_to_dict(s))
+
+
+def _normalize_exchange_scope(value: object) -> str:
+    clean = str(value or "").strip().upper()
+    return clean or _DEFAULT_EXCHANGE_SCOPE
+
+
+def _normalize_symbol_scope(value: object) -> str:
+    return str(value or "").strip().upper()
+
+
+def _context_key_to_text(
+    exchange: str,
+    symbol: str,
+    label: str,
+    regime: Regime,
+) -> str:
+    return f"{exchange}|{symbol}|{label}|{regime.label}"
+
+
+def _context_key_from_text(key: str) -> Tuple[str, str, str, Regime]:
+    exchange, symbol, rest = str(key).split("|", 2)
+    label, regime_str = rest.rsplit("|", 1)
+    return (
+        _normalize_exchange_scope(exchange),
+        _normalize_symbol_scope(symbol),
+        label,
+        Regime.from_string(regime_str),
+    )
+
+
+def _apply_realized_close_to_state(
+    state: _LabelRegimeState,
+    *,
+    net_pnl: float,
+    net_pnl_pct: float,
+    gross_pnl_pct: float,
+    fee_pct: float,
+    funding_pct: float,
+) -> None:
+    state.pnl_pct += net_pnl_pct
+    state.pnl_gross_pct += gross_pnl_pct
+    state.fee_pct += fee_pct
+    state.funding_pct += funding_pct
+    state.returns.append(net_pnl_pct)
+    if net_pnl_pct > 0:
+        state.wins += 1
+    elif net_pnl_pct < 0:
+        state.losses += 1
+    state.equity *= (1.0 + net_pnl)
+    state.equity_curve.append(state.equity * 100.0)
+    if state.equity > state.peak:
+        state.peak = state.equity
+    dd = (state.peak - state.equity) / max(state.peak, 1e-12) * 100.0
+    if dd > state.max_dd_pct:
+        state.max_dd_pct = dd
+
+
+def _metrics_from_states(states) -> Metrics:
+    agg_pnl = 0.0
+    agg_gross = agg_fee = agg_funding = 0.0
+    closed = entries = signals = wins = losses = 0
+    blocked = rejected = pending = execution_failures = 0
+    all_returns: List[float] = []
+    agg_dd = 0.0
+    any_data = False
+    for state in states:
+        any_data = True
+        agg_pnl += state.pnl_pct
+        agg_gross += state.pnl_gross_pct
+        agg_fee += state.fee_pct
+        agg_funding += state.funding_pct
+        closed += state.closed_trades
+        entries += state.entries
+        signals += state.signals
+        wins += state.wins
+        losses += state.losses
+        blocked += state.blocked_signals
+        rejected += state.rejected_signals
+        pending += state.pending_signals
+        execution_failures += state.execution_failures
+        all_returns.extend(state.returns)
+        agg_dd = max(agg_dd, state.max_dd_pct)
+    if not any_data:
+        return Metrics.empty()
+    return Metrics(
+        pnl_pct=agg_pnl,
+        closed_trades=closed,
+        entries=entries,
+        signals=signals,
+        wins=wins,
+        losses=losses,
+        sharpe=_sharpe(all_returns),
+        max_dd_pct=agg_dd,
+        blocked_signals=blocked,
+        rejected_signals=rejected,
+        pending_signals=pending,
+        execution_failures=execution_failures,
+        pnl_gross_pct=agg_gross,
+        fee_pct=agg_fee,
+        funding_pct=agg_funding,
+    )
 
 
 def _is_intentional_partial_close(signal: Signal) -> bool:
@@ -692,6 +1085,18 @@ def _state_from_dict(d: dict) -> _LabelRegimeState:
     s.funding_pct   = float(d.get("funding_pct", 0.0))
     s.returns       = [float(r) for r in d.get("returns", [])]
     s.equity        = float(d.get("equity", 1.0))
+    curve = d.get("equity_curve")
+    if isinstance(curve, list) and curve:
+        s.equity_curve = [float(item) for item in curve]
+    elif s.returns:
+        values = [100.0]
+        equity = 1.0
+        for item in s.returns:
+            equity *= 1.0 + (float(item) / 100.0)
+            values.append(equity * 100.0)
+        s.equity_curve = values
+    elif abs(s.equity - 1.0) > 1e-12:
+        s.equity_curve = [100.0, s.equity * 100.0]
     s.peak          = float(d.get("peak", 1.0))
     s.max_dd_pct    = float(d.get("max_dd_pct", 0.0))
     s.blocked_signals = int(d.get("blocked_signals", 0))

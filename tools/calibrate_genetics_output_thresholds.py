@@ -53,6 +53,17 @@ def calibrate_open_action_bias(genome: np.ndarray, *, open_bias: float) -> np.nd
     return calibrated.astype(np.float32, copy=False)
 
 
+def _source_position_state_features_enabled(source: Path) -> bool:
+    meta_path = source.with_name(f"{source.stem}_meta.json")
+    if not meta_path.exists():
+        return False
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(payload.get("position_state_features_enabled", False))
+
+
 def write_calibrated_variants(
     *,
     source_genome: Path | str,
@@ -66,6 +77,7 @@ def write_calibrated_variants(
     genome = np.load(source).astype(np.float32).ravel()
     if genome.shape[0] != cg.GENOME_SIZE:
         raise ValueError(f"{source} genome size {genome.shape[0]} != expected {cg.GENOME_SIZE}")
+    position_state_features_enabled = _source_position_state_features_enabled(source)
 
     out = _resolve_under_neiro_genetics(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -83,6 +95,7 @@ def write_calibrated_variants(
             "source_genome": str(source),
             "open_bias": bias,
             "genome_size": int(calibrated.shape[0]),
+            "position_state_features_enabled": position_state_features_enabled,
             "changed_indices": [int(v) for v in open_output_bias_indices().tolist()],
             "promotion_allowed": False,
             "requires_validation": True,
@@ -101,6 +114,7 @@ def write_calibrated_variants(
         "schema_version": 1,
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "source_genome": str(source),
+        "position_state_features_enabled": position_state_features_enabled,
         "promotion_allowed": False,
         "paper_trading_eligible": False,
         "live_trading_eligible": False,

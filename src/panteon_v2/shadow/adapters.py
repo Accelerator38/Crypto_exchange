@@ -127,7 +127,13 @@ def _clone_genetics_runtime_agent(agent: Any) -> Any:
             except Exception:
                 cloned = None
         if cloned is not None:
-            for attr in ("MAX_POS", "_position_state_features_enabled"):
+            for attr in (
+                "MAX_POS",
+                "_position_state_features_enabled",
+                "_regime_adaptive_output_bias_enabled",
+                "_regime_adaptive_output_bias_map",
+                "last_regime_adaptive_output_bias",
+            ):
                 if hasattr(agent, attr):
                     try:
                         setattr(cloned, attr, copy.deepcopy(getattr(agent, attr)))
@@ -293,6 +299,7 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
     """Adapter for GeneticsAgent collapsed live actions."""
 
     _act_cache: ClassVar[Dict[Tuple[object, ...], Dict[str, Action]]] = {}
+    _act_trace_cache: ClassVar[Dict[Tuple[object, ...], Dict[str, object]]] = {}
     _act_cache_max_size: ClassVar[int] = 512
 
     def __init__(
@@ -309,6 +316,7 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             action_mapper=map_genetics_legacy_action,
         )
         self.allowed_open_regimes = _normalize_open_regimes(allowed_open_regimes)
+        self.last_regime_adaptive_output_bias: Dict[str, object] = {}
 
     def clone_for_shadow(self) -> "GeneticsV2AgentAdapter":
         cloned_v1 = _clone_genetics_runtime_agent(self.v1_agent)
@@ -323,24 +331,39 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
         key = self._cache_key(market)
         cached = self._act_cache.get(key)
         if cached is not None:
+            self.last_regime_adaptive_output_bias = dict(self._act_trace_cache.get(key, {}))
             return dict(cached)
         result = super().act(market)
-        if (
-            self.allowed_open_regimes is not None
-            and market.regime not in self.allowed_open_regimes
-        ):
+        trace = getattr(self.v1_agent, "last_regime_adaptive_output_bias", None)
+        self.last_regime_adaptive_output_bias = dict(trace) if isinstance(trace, dict) else {}
+        if self.allowed_open_regimes is not None:
             result = {
-                sym: (Action.HOLD if action.is_open else action)
+                sym: (
+                    Action.HOLD
+                    if action.is_open
+                    and market.regime_for_symbol(sym) not in self.allowed_open_regimes
+                    else action
+                )
                 for sym, action in result.items()
             }
         self._act_cache[key] = dict(result)
+        self._act_trace_cache[key] = dict(self.last_regime_adaptive_output_bias)
         if len(self._act_cache) > self._act_cache_max_size:
-            self._act_cache.pop(next(iter(self._act_cache)))
+            expired_key = next(iter(self._act_cache))
+            self._act_cache.pop(expired_key)
+            self._act_trace_cache.pop(expired_key, None)
         return result
 
     def _cache_key(self, market: MarketSnapshot) -> Tuple[object, ...]:
+        bias_map = getattr(self.v1_agent, "_regime_adaptive_output_bias_map", {}) or {}
+        if isinstance(bias_map, Mapping):
+            bias_items = tuple(sorted((str(key), float(value)) for key, value in bias_map.items()))
+        else:
+            bias_items = ()
         return (
             self.label,
+            bool(getattr(self.v1_agent, "_regime_adaptive_output_bias_enabled", False)),
+            bias_items,
             (
                 None
                 if self.allowed_open_regimes is None
@@ -349,6 +372,10 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             int(market.bar),
             getattr(market.timestamp, "isoformat", lambda: "")(),
             market.regime.label,
+            tuple(sorted(
+                (str(sym), regime.label)
+                for sym, regime in market.regimes_by_symbol.items()
+            )),
             tuple(sorted((str(sym), round(float(price), 10)) for sym, price in market.prices.items())),
             tuple(sorted((str(sym), round(float(volume), 10)) for sym, volume in market.volumes.items())),
         )
@@ -416,23 +443,28 @@ class GeneticsRegimeRouterV2AgentAdapter:
         prices = dict(market.prices)
         volumes = dict(market.volumes)
         portfolio_value = self.portfolio_value_fn() if self.portfolio_value_fn else 0.0
-        raw = _invoke_v1_agent(
-            self._selected_agent(market),
-            prices=prices,
-            volumes=volumes,
-            month=market.month,
-            portfolio_value=portfolio_value,
-            bar_index=market.bar,
-        )
-        result = _map_v1_actions(raw, market, map_genetics_legacy_action)
-        if (
-            self.allowed_open_regimes is not None
-            and market.regime not in self.allowed_open_regimes
-        ):
-            result = {
-                sym: (Action.HOLD if action.is_open else action)
-                for sym, action in result.items()
-            }
+        result: Dict[str, Action] = {}
+        for sym in prices:
+            symbol_market = market.with_regime_for_symbol(sym)
+            raw = _invoke_v1_agent(
+                self._selected_agent(symbol_market),
+                prices=prices,
+                volumes=volumes,
+                month=market.month,
+                portfolio_value=portfolio_value,
+                bar_index=market.bar,
+            )
+            mapped = _map_v1_actions(raw, symbol_market, map_genetics_legacy_action)
+            action = mapped.get(sym)
+            if action is None:
+                continue
+            if (
+                self.allowed_open_regimes is not None
+                and action.is_open
+                and symbol_market.regime not in self.allowed_open_regimes
+            ):
+                action = Action.HOLD
+            result[sym] = action
         return result
 
     def sync_from_execution_results(self, results) -> None:
@@ -452,6 +484,8 @@ def make_market_snapshot(
     volumes:   Optional[Dict[str, float]] = None,
     funding:   Optional[Dict[str, float]] = None,
     technicals_by_symbol: Optional[Dict[str, TechnicalIndicators]] = None,
+    regimes_by_symbol: Optional[Dict[str, object]] = None,
+    regime_features_by_symbol: Optional[Dict[str, dict]] = None,
     regime:    str = "neutral",
     regime_confidence: float = 1.0,
     month:     Optional[int] = None,
@@ -497,6 +531,22 @@ def make_market_snapshot(
         if sym in clean_prices and indicators is not None:
             clean_technicals[sym] = indicators
 
+    clean_regimes: Dict[str, Regime] = {}
+    for sym, raw_regime in (regimes_by_symbol or {}).items():
+        sym = str(sym).upper()
+        if sym in clean_prices:
+            clean_regimes[sym] = (
+                raw_regime
+                if isinstance(raw_regime, Regime)
+                else Regime.from_string(str(raw_regime or ""))
+            )
+
+    clean_regime_features: Dict[str, dict] = {}
+    for sym, raw_features in (regime_features_by_symbol or {}).items():
+        sym = str(sym).upper()
+        if sym in clean_prices and isinstance(raw_features, dict):
+            clean_regime_features[sym] = dict(raw_features)
+
     return MarketSnapshot(
         bar=int(bar),
         timestamp=timestamp or datetime.now(timezone.utc),
@@ -507,6 +557,8 @@ def make_market_snapshot(
         funding=clean_funding,
         month=month,
         technicals_by_symbol=clean_technicals,
+        regimes_by_symbol=clean_regimes,
+        regime_features_by_symbol=clean_regime_features,
     )
 
 

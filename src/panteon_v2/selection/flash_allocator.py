@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass, replace
-from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..domain.types import Action, MarketSnapshot, Metrics, Regime, Signal
 from ..memory import PerformanceMemory, QuarantineManager
@@ -15,6 +15,13 @@ from .player import Player, normalize_vote_result
 
 
 _SHADOW_POSITION_REPLAY_AGENT = "ShadowPositionReplay"
+_SYSTEM_CLOSE_AGENTS = frozenset((
+    "CashFlat",
+    "GeneticsProbationRegimeExit",
+    "PartialProfitLock",
+    "ShadowPositionReplay",
+    "StalePositionGuard",
+))
 _QUOTE_ASSET_SUFFIXES = ("USDT", "USDC", "USD")
 _SYMBOL_SEPARATORS = ("/", "-", "_")
 
@@ -167,6 +174,12 @@ def _normalize_regime_value(raw: object) -> Regime:
         "crash": Regime.CRASH,
         "panic": Regime.CRASH,
         "flash_crash": Regime.CRASH,
+        "low-vol range": Regime.RANGE_LOW_VOL,
+        "low_vol_range": Regime.RANGE_LOW_VOL,
+        "choppy down": Regime.CHOPPY_DOWN,
+        "choppy up": Regime.CHOPPY_UP,
+        "mixed/rotational": Regime.MIXED_ROTATIONAL,
+        "rotational": Regime.MIXED_ROTATIONAL,
     }
     labels = {regime.label: regime for regime in Regime}
     if value in labels:
@@ -174,7 +187,7 @@ def _normalize_regime_value(raw: object) -> Regime:
     if value in aliases:
         return aliases[value]
     raise ValueError(
-        "Flash denied open regime must be one of bullish, bearish, neutral, crash"
+        "Flash denied open regime must be one of the canonical Regime labels"
     )
 
 
@@ -306,6 +319,20 @@ class FlashAllocatorConfig:
     volatility_risk_target_pct: float = 2.0
     volatility_risk_min_volatility_pct: float = 0.5
     volatility_risk_max_mult: float = 2.0
+    regime_feature_risk_sizing_enabled: bool = True
+    regime_feature_risk_min_mult: float = 0.40
+    regime_feature_risk_max_pressure: float = 2.50
+    mixed_rotational_exposure_cap_enabled: bool = True
+    mixed_rotational_max_directional_opens: int = 1
+    mixed_rotational_min_symbol_confidence: float = 0.55
+    mixed_rotational_symbol_local_shadow_gate_enabled: bool = False
+    mixed_rotational_symbol_local_shadow_min_score: float = 4.0
+    mixed_rotational_symbol_local_shadow_min_closed_trades: int = 5
+    trend_alignment_gate_enabled: bool = True
+    counter_trend_min_closed_trades: int = 3
+    counter_trend_min_pnl_pct: float = 1.0
+    genetics_probation_bypass_min_closed_enabled: bool = False
+    genetics_probation_bypass_trend_gate_enabled: bool = False
     technical_overlay_enabled: bool = False
     technical_hard_gate_enabled: bool = False
     technical_score_bonus: float = 0.10
@@ -665,6 +692,26 @@ class FlashAllocatorConfig:
             raise ValueError("volatility_risk_min_volatility_pct must be > 0")
         if self.volatility_risk_max_mult <= 0:
             raise ValueError("volatility_risk_max_mult must be > 0")
+        if self.regime_feature_risk_min_mult < 0:
+            raise ValueError("regime_feature_risk_min_mult must be >= 0")
+        if self.regime_feature_risk_max_pressure <= 0:
+            raise ValueError("regime_feature_risk_max_pressure must be > 0")
+        if self.mixed_rotational_max_directional_opens < 0:
+            raise ValueError("mixed_rotational_max_directional_opens must be >= 0")
+        if not 0.0 <= self.mixed_rotational_min_symbol_confidence <= 1.0:
+            raise ValueError("mixed_rotational_min_symbol_confidence must be in [0, 1]")
+        if self.mixed_rotational_symbol_local_shadow_min_score < 0.0:
+            raise ValueError(
+                "mixed_rotational_symbol_local_shadow_min_score must be >= 0"
+            )
+        if self.mixed_rotational_symbol_local_shadow_min_closed_trades < 0:
+            raise ValueError(
+                "mixed_rotational_symbol_local_shadow_min_closed_trades must be >= 0"
+            )
+        if self.counter_trend_min_closed_trades < 0:
+            raise ValueError("counter_trend_min_closed_trades must be >= 0")
+        if self.counter_trend_min_pnl_pct < 0:
+            raise ValueError("counter_trend_min_pnl_pct must be >= 0")
         if self.technical_score_bonus < 0.0:
             raise ValueError("technical_score_bonus must be >= 0")
         if self.technical_score_penalty < 0.0:
@@ -721,6 +768,8 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "technical_overlay_enabled",
     "technical_hard_gate_enabled",
     "technical_atr_risk_sizing_enabled",
+    "genetics_probation_bypass_min_closed_enabled",
+    "genetics_probation_bypass_trend_gate_enabled",
 )
 
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
@@ -809,6 +858,20 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "volatility_risk_target_pct": 2.0,
     "volatility_risk_min_volatility_pct": 0.5,
     "volatility_risk_max_mult": 2.0,
+    "regime_feature_risk_sizing_enabled": True,
+    "regime_feature_risk_min_mult": 0.40,
+    "regime_feature_risk_max_pressure": 2.50,
+    "mixed_rotational_exposure_cap_enabled": True,
+    "mixed_rotational_max_directional_opens": 1,
+    "mixed_rotational_min_symbol_confidence": 0.55,
+    "mixed_rotational_symbol_local_shadow_gate_enabled": False,
+    "mixed_rotational_symbol_local_shadow_min_score": 4.0,
+    "mixed_rotational_symbol_local_shadow_min_closed_trades": 5,
+    "trend_alignment_gate_enabled": True,
+    "counter_trend_min_closed_trades": 3,
+    "counter_trend_min_pnl_pct": 1.0,
+    "genetics_probation_bypass_min_closed_enabled": False,
+    "genetics_probation_bypass_trend_gate_enabled": False,
     "technical_overlay_enabled": False,
     "technical_hard_gate_enabled": False,
     "technical_score_bonus": 0.10,
@@ -863,6 +926,8 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     technical_overlay_enabled=True,
     technical_hard_gate_enabled=True,
     technical_atr_risk_sizing_enabled=True,
+    genetics_probation_bypass_min_closed_enabled=True,
+    genetics_probation_bypass_trend_gate_enabled=True,
     funding_score_weight=1.0,
     funding_risk_mult_weight=1.0,
     no_trade_default_fee_bps=5.0,
@@ -919,6 +984,9 @@ class FlashCandidateAudit:
     technical_alignment: str = ""
     technical_score_adjustment: float = 0.0
     technical_gate_reason: str = ""
+    trend_alignment: str = ""
+    trend_gate_reason: str = ""
+    regime_feature_risk_mult: float = 1.0
     actor_key: str = ""
 
     def as_dict(self) -> dict:
@@ -1000,6 +1068,9 @@ class FlashCandidateAudit:
             "technical_alignment": self.technical_alignment,
             "technical_score_adjustment": float(self.technical_score_adjustment),
             "technical_gate_reason": self.technical_gate_reason,
+            "trend_alignment": self.trend_alignment,
+            "trend_gate_reason": self.trend_gate_reason,
+            "regime_feature_risk_mult": float(self.regime_feature_risk_mult),
         }
 
 
@@ -1123,8 +1194,10 @@ class FlashAllocator:
         degraded_actor_keys: Optional[Iterable[str]] = None,
         degraded_open_symbols: Optional[Iterable[str]] = None,
         promoted_signal_keys: Optional[Iterable[str]] = None,
+        probation_signal_keys: Optional[Iterable[str]] = None,
         previous_actor_by_symbol: Optional[Mapping[str, str]] = None,
         open_position_sides_by_symbol: Optional[Mapping[str, str]] = None,
+        open_position_actor_keys_by_symbol: Optional[Mapping[str, Iterable[str] | str]] = None,
     ) -> Tuple[FlashDecision, ...]:
         actionable = {
             str(label).strip()
@@ -1148,6 +1221,11 @@ class FlashAllocator:
             for symbol, side in (open_position_sides_by_symbol or {}).items()
             if str(symbol or "").strip() and str(side or "").strip()
         }
+        open_position_actor_keys = {
+            str(symbol).upper(): frozenset(_normalize_string_tuple(actor_keys))
+            for symbol, actor_keys in (open_position_actor_keys_by_symbol or {}).items()
+            if str(symbol or "").strip()
+        }
         promoted = (
             {
                 _normalize_signal_deny_key(key)
@@ -1157,6 +1235,11 @@ class FlashAllocator:
             if self._config.promotion_manifest_enabled
             else set()
         )
+        probation = {
+            _normalize_signal_deny_key(key)
+            for key in (probation_signal_keys or ())
+            if str(key or "").strip()
+        }
         agent_rows = self._agent_outputs(market, agents)
         player_rows = self._player_outputs(market, players, signal_id_start=signal_id_start)
         known_rows = tuple(agent_rows + player_rows)
@@ -1170,6 +1253,7 @@ class FlashAllocator:
         )
         active_solo_wrapper_keys = self._active_solo_wrapper_keys_for_suppression(
             player_rows,
+            market=market,
             shadow_player_signals=shadow_player_signal_map,
         )
         base_rows = agent_rows + player_rows
@@ -1212,17 +1296,20 @@ class FlashAllocator:
                 degraded_actor_keys=degraded_actors,
                 degraded_open_symbols=degraded_symbols,
                 promoted_signal_keys=promoted,
+                probation_signal_keys=probation,
                 previous_actor_by_symbol=previous_actor_by_symbol or {},
                 suppressed_agent_labels=suppressed_agent_labels,
                 active_solo_wrapper_keys=active_solo_wrapper_keys,
                 open_position_sides_by_symbol=open_position_sides,
+                open_position_actor_keys_by_symbol=open_position_actor_keys,
                 position_state_available=position_state_available,
                 genetics_confirmation_by_symbol=genetics_confirmation_by_symbol,
             )
             if decision.signal is not None:
                 next_signal_id += 1
             decisions.append(decision)
-        return self._apply_actor_signal_cap(tuple(decisions))
+        capped = self._apply_mixed_rotational_exposure_cap(market, tuple(decisions))
+        return self._apply_actor_signal_cap(capped)
 
     def _decide_symbol(
         self,
@@ -1237,13 +1324,16 @@ class FlashAllocator:
         degraded_actor_keys: set[str],
         degraded_open_symbols: set[str],
         promoted_signal_keys: set[str],
+        probation_signal_keys: set[str],
         previous_actor_by_symbol: Mapping[str, str],
         suppressed_agent_labels: set[str],
         active_solo_wrapper_keys: set[tuple[str, str]],
         open_position_sides_by_symbol: Mapping[str, str],
+        open_position_actor_keys_by_symbol: Mapping[str, frozenset[str]],
         position_state_available: bool,
         genetics_confirmation_by_symbol: Mapping[str, Mapping[str, int]],
     ) -> FlashDecision:
+        local_regime = market.regime_for_symbol(symbol)
         rows: List[FlashCandidateAudit] = []
         signal_by_actor_key: dict[str, Signal] = {}
         metrics_by_actor_key: dict[str, Metrics] = {}
@@ -1258,7 +1348,10 @@ class FlashAllocator:
                 output.actor_key,
                 symbol,
                 output.action,
-                market.regime,
+                local_regime,
+            )
+            probation_admission = bool(
+                output.action.is_open and signal_key in probation_signal_keys
             )
             selected_subset_protected = (
                 signal_key in self._selected_subset_do_not_demote_signal_keys
@@ -1295,11 +1388,11 @@ class FlashAllocator:
             shadow_confirmed_by_base = False
             fallback_min_base_score = self._actor_fallback_min_base_score_for(output)
             shadow_min_score = self._shadow_min_score_for(output)
-            actor_fallback_base_allowed = (
-                base_score >= fallback_min_base_score
-                if fallback_min_base_score > 0.0
-                else True
-            )
+            session_recovery_override = self._session_recovery_override_active(output)
+            if session_recovery_override or fallback_min_base_score <= 0.0:
+                actor_fallback_base_allowed = True
+            else:
+                actor_fallback_base_allowed = base_score >= fallback_min_base_score
             symbol_shadow_not_bad = (
                 shadow.closed_trades <= 0
                 or shadow.score >= shadow_min_score
@@ -1372,6 +1465,14 @@ class FlashAllocator:
                 )
                 shadow_source = "portfolio_base_fallback"
                 shadow_confirmed_by_base = True
+            session_recovery_shadow_confirmed = (
+                session_recovery_override
+                and output.action.is_open
+                and self._shadow_confirmation_meets_minimum(
+                    shadow,
+                    shadow_min_score,
+                )
+            )
 
             shadow_pnl_per_trade_lcb_usd = shadow.pnl_per_trade_lcb(
                 z=self._config.shadow_confirmation_pnl_per_trade_lcb_z,
@@ -1399,7 +1500,7 @@ class FlashAllocator:
             if selected_subset_protected and output.action.is_open:
                 shadow_pnl_per_trade_lcb_penalty = 0.0
                 symbol_health_penalty = 0.0
-            regime_confidence_scale = _regime_confidence_scale(market)
+            regime_confidence_scale = _regime_confidence_scale(market, symbol=symbol)
             gate_score = shadow.score if self._config.shadow_confirmation_enabled else base_score
             gate_score *= regime_confidence_scale
             gate_score -= shadow_pnl_per_trade_lcb_penalty
@@ -1423,6 +1524,21 @@ class FlashAllocator:
                 self._technical_alignment(market, symbol, output.action)
             )
             gate_score += technical_score_adjustment
+            trend_alignment, trend_gate_reason = self._trend_alignment_gate(
+                market,
+                symbol,
+                output.action,
+                metrics,
+            )
+            if probation_admission:
+                probation_gate_score = base_score * regime_confidence_scale
+                probation_gate_score += funding_score_adjustment
+                probation_gate_score += genetics_confirmation_adjustment
+                probation_gate_score += selected_subset_score_boost
+                probation_gate_score += technical_score_adjustment
+                gate_score = max(gate_score, probation_gate_score)
+                shadow_source = "genetics_probation"
+                shadow_confirmed_by_base = True
             tech = _technical_indicators_for_symbol(market, symbol)
             signal_degraded = self._is_signal_degraded(
                 output,
@@ -1455,6 +1571,13 @@ class FlashAllocator:
                 lookback_return_pct,
                 lookback_return_z,
             )
+            position_owner_block_reason = self._position_owner_block_reason(
+                output,
+                symbol=symbol,
+                open_position_sides_by_symbol=open_position_sides_by_symbol,
+                open_position_actor_keys_by_symbol=open_position_actor_keys_by_symbol,
+                position_state_available=position_state_available,
+            )
 
             rejected = False
             reason = "eligible"
@@ -1469,6 +1592,7 @@ class FlashAllocator:
             elif (
                 output.actor_type == "agent"
                 and output.label in suppressed_agent_labels
+                and not probation_admission
                 and self._raw_agent_has_active_solo_wrapper(
                     output.label,
                     symbol,
@@ -1480,7 +1604,7 @@ class FlashAllocator:
             elif output.action.is_hold:
                 rejected = True
                 reason = "inactive"
-            elif self._is_open_regime_denied(output, market.regime):
+            elif self._is_open_regime_denied(output, local_regime):
                 rejected = True
                 reason = "denied_open_regime"
             elif self._is_open_symbol_denied(output, symbol):
@@ -1497,15 +1621,24 @@ class FlashAllocator:
                 and
                 metrics.closed_trades < self._config.min_closed_trades_to_trade
                 and not shadow_bootstrap_evidence
+                and not (
+                    probation_admission
+                    and self._config.genetics_probation_bypass_min_closed_enabled
+                )
             ):
                 rejected = True
                 reason = "insufficient_closed_trades"
-            elif output.action.is_open and metrics.pnl_pct < self._config.min_pnl_pct_to_trade:
+            elif (
+                output.action.is_open
+                and metrics.pnl_pct < self._config.min_pnl_pct_to_trade
+                and not session_recovery_shadow_confirmed
+            ):
                 rejected = True
                 reason = "pnl_below_threshold"
             elif (
                 self._config.shadow_confirmation_enabled
                 and output.action.is_open
+                and not probation_admission
                 and not shadow_confirmed_by_base
                 and shadow.closed_trades < self._config.shadow_confirmation_min_closed_trades
             ):
@@ -1515,6 +1648,7 @@ class FlashAllocator:
                 self._config.shadow_confirmation_enabled
                 and not shadow_confirmed_by_base
                 and output.action.is_open
+                and not probation_admission
                 and output.action.is_fraction_full
                 and self._config.shadow_confirmation_min_full_open_closed_trades > 0
                 and shadow.closed_trades
@@ -1524,7 +1658,9 @@ class FlashAllocator:
                 reason = "shadow_full_open_unconfirmed"
             elif (
                 self._config.shadow_confirmation_enabled
+                and not shadow_confirmed_by_base
                 and output.action.is_open
+                and not probation_admission
                 and shadow.score <= shadow_min_score
             ):
                 rejected = True
@@ -1533,6 +1669,7 @@ class FlashAllocator:
                 self._config.shadow_confirmation_enabled
                 and self._config.shadow_quality_confirmation_enabled
                 and output.action.is_open
+                and not probation_admission
                 and self._config.shadow_confirmation_min_win_rate_pct > 0.0
                 and shadow.win_rate_pct < self._config.shadow_confirmation_min_win_rate_pct
             ):
@@ -1542,6 +1679,7 @@ class FlashAllocator:
                 self._config.shadow_confirmation_enabled
                 and self._config.shadow_quality_confirmation_enabled
                 and output.action.is_open
+                and not probation_admission
                 and self._config.shadow_confirmation_max_recent_downside_usd > 0.0
                 and shadow.recent_downside_usd > self._config.shadow_confirmation_max_recent_downside_usd
             ):
@@ -1551,6 +1689,7 @@ class FlashAllocator:
                 self._config.shadow_confirmation_enabled
                 and self._config.shadow_quality_confirmation_enabled
                 and output.action.is_open
+                and not probation_admission
                 and not shadow_confirmed_by_base
                 and not selected_subset_protected
                 and self._config.shadow_confirmation_min_pnl_per_trade_lcb_usd is not None
@@ -1566,6 +1705,7 @@ class FlashAllocator:
                 self._config.shadow_confirmation_enabled
                 and self._config.shadow_symbol_health_enabled
                 and output.action.is_open
+                and not probation_admission
                 and symbol_health.closed_trades
                 >= self._config.shadow_symbol_health_min_closed_trades
                 and not selected_subset_protected
@@ -1586,9 +1726,18 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = technical_gate_reason
+            elif trend_gate_reason and not (
+                probation_admission
+                and self._config.genetics_probation_bypass_trend_gate_enabled
+            ):
+                rejected = True
+                reason = trend_gate_reason
             elif overextension_reason:
                 rejected = True
                 reason = overextension_reason
+            elif position_owner_block_reason:
+                rejected = True
+                reason = position_owner_block_reason
             elif output.action.is_open and self._is_actor_degraded(output, degraded_actor_keys):
                 rejected = True
                 reason = "flash_actor_degraded"
@@ -1600,7 +1749,7 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "flash_signal_degraded"
-            elif self._is_signal_terminal_denied(output, symbol, market.regime):
+            elif self._is_signal_terminal_denied(output, symbol, local_regime):
                 rejected = True
                 reason = "flash_signal_terminal_deny_key"
             elif self._is_signal_denied(output, symbol):
@@ -1622,6 +1771,12 @@ class FlashAllocator:
             elif output.action.is_open and gate_score <= self._min_score_to_trade_for(output):
                 rejected = True
                 reason = "score_below_threshold"
+            if (
+                not rejected
+                and reason == "eligible"
+                and probation_admission
+            ):
+                reason = "genetics_probation_admission"
             if (
                 not rejected
                 and reason == "eligible"
@@ -1699,6 +1854,13 @@ class FlashAllocator:
                 technical_alignment=technical_alignment,
                 technical_score_adjustment=technical_score_adjustment,
                 technical_gate_reason=technical_gate_reason,
+                trend_alignment=trend_alignment,
+                trend_gate_reason=trend_gate_reason,
+                regime_feature_risk_mult=self._regime_feature_risk_mult(
+                    market,
+                    symbol,
+                    output.action,
+                ),
             ))
 
         rows.sort(
@@ -1756,6 +1918,29 @@ class FlashAllocator:
                 signal=None,
                 candidates=ranked,
             )
+        no_trade_admission_block = (
+            self._top_rejected_positive_shadow_candidate(ranked)
+            if _is_no_trade_candidate(selected)
+            else None
+        )
+        if no_trade_admission_block is not None:
+            return FlashDecision(
+                symbol=symbol,
+                selected_actor="NoTrade",
+                actor_type="no_trade",
+                score=0.0,
+                action=Action.HOLD,
+                reason=f"no_real_admission:{no_trade_admission_block.reason}",
+                signal=None,
+                candidates=ranked,
+                original_selected_actor=no_trade_admission_block.label,
+                original_actor_type=no_trade_admission_block.actor_type,
+                selected_reasons=(
+                    "selected",
+                    "no_real_admission",
+                    no_trade_admission_block.reason,
+                ),
+            )
 
         original_selected = selected
         selected_reasons: List[str] = ["selected"]
@@ -1791,6 +1976,7 @@ class FlashAllocator:
             signal,
             symbol=symbol,
             open_position_sides_by_symbol=open_position_sides_by_symbol,
+            open_position_actor_keys_by_symbol=open_position_actor_keys_by_symbol,
             position_state_available=position_state_available,
         )
         if position_block_reason:
@@ -1806,6 +1992,7 @@ class FlashAllocator:
                         signal_by_actor_key.get(row.actor_key),
                         symbol=symbol,
                         open_position_sides_by_symbol=open_position_sides_by_symbol,
+                        open_position_actor_keys_by_symbol=open_position_actor_keys_by_symbol,
                         position_state_available=position_state_available,
                     )
                 ),
@@ -1815,6 +2002,20 @@ class FlashAllocator:
                 selected = replacement
                 signal = signal_by_actor_key.get(selected.actor_key)
                 selected_reasons.append("position_state_fallback")
+            else:
+                return FlashDecision(
+                    symbol=symbol,
+                    selected_actor="NoTrade",
+                    actor_type="no_trade",
+                    score=0.0,
+                    action=Action.HOLD,
+                    reason=position_block_reason,
+                    signal=None,
+                    candidates=ranked,
+                    original_selected_actor=selected.label,
+                    original_actor_type=selected.actor_type,
+                    selected_reasons=tuple(selected_reasons),
+                )
         if signal is not None:
             if (
                 position_state_available
@@ -1874,7 +2075,7 @@ class FlashAllocator:
                 bar=market.bar,
                 sym=symbol,
                 price=price,
-                regime=market.regime,
+                regime=local_regime,
                 risk_mult=self._risk_mult_for_signal(
                     signal,
                     metrics_by_actor_key.get(selected.actor_key),
@@ -1915,6 +2116,7 @@ class FlashAllocator:
         *,
         symbol: str,
         open_position_sides_by_symbol: Mapping[str, str],
+        open_position_actor_keys_by_symbol: Mapping[str, frozenset[str]],
         position_state_available: bool,
     ) -> str:
         if signal is None or not position_state_available:
@@ -1922,16 +2124,87 @@ class FlashAllocator:
         if signal.action.is_close and symbol not in open_position_sides_by_symbol:
             return "stale_close_position"
         existing_side = open_position_sides_by_symbol.get(symbol, "")
+        owner_keys = open_position_actor_keys_by_symbol.get(symbol, frozenset())
+        if (
+            owner_keys
+            and (
+                signal.action.is_close
+                or (
+                    signal.action.is_open
+                    and existing_side
+                    and signal.action.side != existing_side
+                )
+            )
+            and not self._signal_matches_position_owner(signal, row, owner_keys)
+        ):
+            return "foreign_position_owner"
         if signal.action.is_open and existing_side and signal.action.side == existing_side:
             return "duplicate_open_position"
         return ""
+
+    def _position_owner_block_reason(
+        self,
+        output: _ActorSignal,
+        *,
+        symbol: str,
+        open_position_sides_by_symbol: Mapping[str, str],
+        open_position_actor_keys_by_symbol: Mapping[str, frozenset[str]],
+        position_state_available: bool,
+    ) -> str:
+        if not position_state_available or symbol not in open_position_sides_by_symbol:
+            return ""
+        owner_keys = open_position_actor_keys_by_symbol.get(symbol, frozenset())
+        if not owner_keys:
+            return ""
+        existing_side = open_position_sides_by_symbol.get(symbol, "")
+        would_close = output.action.is_close or (
+            output.action.is_open
+            and existing_side
+            and output.action.side != existing_side
+        )
+        if not would_close:
+            return ""
+        if self._signal_matches_position_owner(output.signal, output, owner_keys):
+            return ""
+        return "foreign_position_owner"
+
+    def _signal_matches_position_owner(
+        self,
+        signal: Optional[Signal],
+        actor: _ActorSignal | FlashCandidateAudit,
+        owner_keys: frozenset[str],
+    ) -> bool:
+        actor_key = str(getattr(actor, "actor_key", "") or "").strip()
+        if actor_key and actor_key in owner_keys:
+            return True
+        if signal is None:
+            return False
+        closer_agent = str(getattr(signal, "by_agent", "") or "").strip()
+        if closer_agent in _SYSTEM_CLOSE_AGENTS:
+            return True
+        closer_player = str(getattr(signal, "by_player", "") or "").strip()
+        signal_keys = {
+            key
+            for key in (
+                f"agent:{closer_agent}" if closer_agent else "",
+                f"ensemble:{closer_player}" if closer_player else "",
+                f"agent:{closer_player}" if closer_player else "",
+            )
+            if key
+        }
+        return bool(signal_keys & owner_keys)
 
     def _score_actor(
         self,
         output: _ActorSignal,
         market: MarketSnapshot | Regime,
     ) -> tuple[Metrics, float]:
-        regime = getattr(market, "regime", market)
+        symbol = str(getattr(output, "symbol", "") or "").upper()
+        if isinstance(market, MarketSnapshot) and symbol:
+            regime = market.regime_for_symbol(symbol)
+        else:
+            raw_regime = getattr(market, "regime", market)
+            regime = raw_regime if isinstance(raw_regime, Regime) else Regime.from_string(str(raw_regime or ""))
         if _is_no_trade_output(output):
             if not isinstance(market, MarketSnapshot):
                 return Metrics.empty(), 0.0
@@ -1944,19 +2217,24 @@ class FlashAllocator:
             or _actor_key(output.actor_type, output.label)
         )
         if self._is_portfolio_actor(actor_key, output.label):
-            metrics = self._perf.get(output.label)
+            metrics = (
+                self._metrics_for_label(output.label, regime, symbol=symbol)
+                if symbol
+                else self._perf.get(output.label)
+            )
             if metrics.has_data:
                 return metrics, self._score_metrics(metrics, regime)
             if output.actor_type == "ensemble":
                 return self._component_score(
                     output.agent_labels,
                     regime,
-                    use_aggregate=True,
+                    use_aggregate=not bool(symbol),
+                    symbol=symbol,
                 )
             return metrics, float(self._config.no_data_score)
-        metrics = self._metrics_for_label(output.label, regime)
+        metrics = self._metrics_for_label(output.label, regime, symbol=symbol)
         if not metrics.has_data and output.actor_type == "ensemble":
-            return self._component_score(output.agent_labels, regime)
+            return self._component_score(output.agent_labels, regime, symbol=symbol)
         if not metrics.has_data:
             return metrics, float(self._config.no_data_score)
         return metrics, self._score_metrics(metrics, regime)
@@ -2002,6 +2280,51 @@ class FlashAllocator:
         if action.is_short_open:
             return funding * self._config.funding_score_weight
         return 0.0
+
+    def _trend_alignment_gate(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+        metrics: Metrics,
+    ) -> tuple[str, str]:
+        if not self._config.trend_alignment_gate_enabled or not action.is_open:
+            return "", ""
+        features = _regime_features_for_symbol(market, symbol)
+        if not features:
+            return "", ""
+        micro = str(features.get("micro_direction") or "flat").lower()
+        macro = str(features.get("macro_direction") or "flat").lower()
+        alignment = str(features.get("micro_macro_alignment") or "").lower()
+        if not alignment:
+            alignment = _micro_macro_alignment_from_features(micro, macro)
+        action_direction = _open_action_direction(action)
+        expected = "up" if action_direction == "long" else "down" if action_direction == "short" else ""
+        if not expected:
+            return alignment, ""
+        if self._counter_trend_edge_allowed(metrics):
+            return alignment, ""
+        if alignment == "conflict" and micro in {"up", "down"} and macro in {"up", "down"}:
+            return alignment, "micro_macro_conflict"
+        if macro in {"up", "down"} and macro != expected:
+            return alignment or f"macro_{macro}", "trend_contra_unsupported"
+        if macro == "flat" and micro in {"up", "down"} and micro != expected:
+            return alignment or f"micro_{micro}", "trend_contra_unsupported"
+        return alignment, ""
+
+    def _counter_trend_edge_allowed(self, metrics: Metrics) -> bool:
+        if metrics is None or not getattr(metrics, "has_data", False):
+            return False
+        if int(getattr(metrics, "closed_trades", 0) or 0) < int(
+            self._config.counter_trend_min_closed_trades
+        ):
+            return False
+        closed = max(1, int(getattr(metrics, "closed_trades", 0) or 0))
+        pnl_per_trade_pct = (
+            float(getattr(metrics, "pnl_net_pct", metrics.pnl_pct) or 0.0)
+            / closed
+        )
+        return pnl_per_trade_pct >= float(self._config.counter_trend_min_pnl_pct)
 
     def _technical_alignment(
         self,
@@ -2307,6 +2630,8 @@ class FlashAllocator:
             risk_mult *= self._funding_risk_mult(market, symbol, action)
         if self._config.volatility_risk_sizing_enabled:
             risk_mult *= self._volatility_risk_mult(market, symbol)
+        if self._config.regime_feature_risk_sizing_enabled:
+            risk_mult *= self._regime_feature_risk_mult(market, symbol, action)
         if (
             self._config.technical_overlay_enabled
             and self._config.technical_atr_risk_sizing_enabled
@@ -2454,6 +2779,24 @@ class FlashAllocator:
         raw = float(self._config.volatility_risk_target_pct) / adjusted_vol
         return _clamp(raw, 0.0, float(self._config.volatility_risk_max_mult))
 
+    def _regime_feature_risk_mult(
+        self,
+        market: MarketSnapshot,
+        symbol: str,
+        action: Action,
+    ) -> float:
+        if not action.is_open:
+            return 1.0
+        features = _regime_features_for_symbol(market, symbol)
+        if not features:
+            return 1.0
+        pressure = _finite_float_or_none(features.get("risk_pressure"))
+        if pressure is None or pressure <= 1.0:
+            return 1.0
+        capped = min(float(pressure), float(self._config.regime_feature_risk_max_pressure))
+        raw = 1.0 / capped
+        return _clamp(raw, float(self._config.regime_feature_risk_min_mult), 1.0)
+
     def _suppressed_agent_labels_for_solo_players(
         self,
         player_rows: Sequence[_ActorSignal],
@@ -2522,15 +2865,23 @@ class FlashAllocator:
         self,
         player_rows: Sequence[_ActorSignal],
         *,
+        market: MarketSnapshot,
         shadow_player_signals: Mapping[str, Sequence[Signal]],
     ) -> set[tuple[str, str]]:
-        """Return raw-agent/symbol pairs where an active Solo wrapper competes."""
+        """Return raw-agent/symbol pairs where an admissible active Solo wrapper competes."""
         keys: set[tuple[str, str]] = set()
 
         def add_if_active(label: str, symbol: str, action: Action) -> None:
             raw_label = _raw_agent_label_from_solo(label)
             clean_symbol = str(symbol or "").strip().upper()
             if not raw_label or not clean_symbol or action.is_hold:
+                return
+            local_regime = market.regime_for_symbol(clean_symbol)
+            if not self._solo_wrapper_can_suppress_raw(
+                raw_label,
+                str(label or "").strip(),
+                regime=local_regime,
+            ):
                 return
             keys.add((raw_label, clean_symbol))
 
@@ -2571,6 +2922,29 @@ class FlashAllocator:
     ) -> bool:
         metrics = self._direct_metrics_for_label(solo_label, regime)
         return bool(metrics.has_data)
+
+    def _solo_wrapper_can_suppress_raw(
+        self,
+        raw_label: str,
+        solo_label: str,
+        *,
+        regime: Regime,
+    ) -> bool:
+        if self._is_portfolio_actor(_actor_key("agent", raw_label), raw_label):
+            return False
+        if (
+            self._config.prefer_proven_solo_player_wrappers_enabled
+            and not self._config.prefer_solo_player_wrappers_enabled
+        ):
+            return self._solo_wrapper_outscores_raw(
+                raw_label,
+                solo_label,
+                regime=regime,
+            )
+        metrics = self._direct_metrics_for_label(solo_label, regime)
+        if not metrics.has_data:
+            return False
+        return metrics.closed_trades >= self._config.min_closed_trades_to_trade
 
     def _solo_wrapper_outscores_raw(
         self,
@@ -2752,6 +3126,42 @@ class FlashAllocator:
             return True
         return actor_shadow.score >= floor
 
+    def _session_recovery_override_active(self, output: _ActorSignal) -> bool:
+        record_for = getattr(self._qm, "record_for", None)
+        if not callable(record_for):
+            return False
+        labels: List[str] = []
+        for raw_label in (
+            output.label,
+            *tuple(getattr(output, "agent_labels", ()) or ()),
+        ):
+            for label in _solo_label_lookup_sequence(str(raw_label or "")):
+                if label and label not in labels:
+                    labels.append(label)
+        for label in labels:
+            record = record_for(label)
+            if (
+                record is not None
+                and str(getattr(record, "state", "") or "") == "probation"
+                and str(getattr(record, "reason", "") or "").startswith(
+                    "session_recovery:"
+                )
+            ):
+                return True
+        return False
+
+    def _shadow_confirmation_meets_minimum(
+        self,
+        shadow: _ShadowConfirmation,
+        shadow_min_score: float,
+    ) -> bool:
+        return (
+            self._config.shadow_confirmation_enabled
+            and shadow.closed_trades
+            >= self._config.shadow_confirmation_min_closed_trades
+            and shadow.score > shadow_min_score
+        )
+
     def _shadow_pnl_per_trade_lcb_penalty(
         self,
         action: Action,
@@ -2855,6 +3265,26 @@ class FlashAllocator:
             return anchor
         return None
 
+    @staticmethod
+    def _top_rejected_positive_shadow_candidate(
+        rows: Sequence[FlashCandidateAudit],
+    ) -> Optional[FlashCandidateAudit]:
+        for row in rows:
+            if not bool(getattr(row, "rejected", False)):
+                continue
+            if _is_no_trade_candidate(row):
+                continue
+            action = getattr(row, "action", Action.HOLD)
+            if not bool(getattr(action, "is_open", False)):
+                continue
+            if (
+                float(getattr(row, "shadow_score", 0.0) or 0.0) > 0.0
+                or float(getattr(row, "score", 0.0) or 0.0) > 0.0
+                or float(getattr(row, "pnl_net_pct", 0.0) or 0.0) > 0.0
+            ):
+                return row
+        return None
+
     def _is_anchor_actor(self, actor_key: str, label: str) -> bool:
         anchors = set(self._config.anchor_actor_keys)
         if not anchors:
@@ -2935,6 +3365,92 @@ class FlashAllocator:
             return "long_overextended_upmove"
         return ""
 
+    def _apply_mixed_rotational_exposure_cap(
+        self,
+        market: MarketSnapshot,
+        decisions: Tuple[FlashDecision, ...],
+    ) -> Tuple[FlashDecision, ...]:
+        if (
+            not self._config.mixed_rotational_exposure_cap_enabled
+            or market.regime != Regime.MIXED_ROTATIONAL
+        ):
+            return decisions
+        cap = int(self._config.mixed_rotational_max_directional_opens)
+        min_confidence = float(self._config.mixed_rotational_min_symbol_confidence)
+        out: List[FlashDecision] = list(decisions)
+        directional: List[tuple[int, FlashDecision]] = []
+        for index, decision in enumerate(decisions):
+            signal = decision.signal
+            if signal is None or not signal.action.is_open:
+                continue
+            local_regime = market.regime_for_symbol(decision.symbol)
+            local_shadow_allowed = (
+                self._mixed_rotational_symbol_local_shadow_gate_allows(
+                    decision,
+                    local_regime,
+                )
+            )
+            if (
+                local_regime not in {Regime.BULLISH, Regime.BEARISH}
+                and not local_shadow_allowed
+            ):
+                out[index] = _blocked_flash_decision(
+                    decision,
+                    reason="mixed_rotational_symbol_not_directional",
+                )
+                continue
+            features = _regime_features_for_symbol(market, decision.symbol)
+            confidence = _finite_float_or_none(features.get("regime_confidence"))
+            if confidence is None:
+                confidence = 1.0
+            if confidence < min_confidence:
+                out[index] = _blocked_flash_decision(
+                    decision,
+                    reason="mixed_rotational_symbol_low_confidence",
+                )
+                continue
+            directional.append((index, decision))
+        if cap < 0 or len(directional) <= cap:
+            return tuple(out)
+        keep = {
+            index
+            for index, _ in sorted(
+                directional,
+                key=lambda item: (-float(item[1].score), item[1].symbol),
+            )[:cap]
+        }
+        for index, decision in directional:
+            if index in keep:
+                continue
+            out[index] = _blocked_flash_decision(
+                decision,
+                reason="mixed_rotational_exposure_cap",
+            )
+        return tuple(out)
+
+    def _mixed_rotational_symbol_local_shadow_gate_allows(
+        self,
+        decision: FlashDecision,
+        local_regime: Regime,
+    ) -> bool:
+        if not self._config.mixed_rotational_symbol_local_shadow_gate_enabled:
+            return False
+        if local_regime not in {Regime.RANGE_LOW_VOL, Regime.BEARISH}:
+            return False
+        row = _selected_candidate_audit(decision)
+        if row is None:
+            return False
+        shadow_score = float(getattr(row, "shadow_score", 0.0) or 0.0)
+        shadow_closed = int(getattr(row, "shadow_closed_trades", 0) or 0)
+        return (
+            shadow_score
+            >= float(self._config.mixed_rotational_symbol_local_shadow_min_score)
+            and shadow_closed
+            >= int(
+                self._config.mixed_rotational_symbol_local_shadow_min_closed_trades
+            )
+        )
+
     def _apply_actor_signal_cap(
         self,
         decisions: Tuple[FlashDecision, ...],
@@ -3005,14 +3521,16 @@ class FlashAllocator:
         regime: Regime,
         *,
         use_aggregate: bool = False,
+        symbol: str = "",
     ) -> tuple[Metrics, float]:
         scored: List[tuple[Metrics, float]] = []
         for label in labels:
-            metrics = (
-                self._perf.get(label)
-                if use_aggregate
-                else self._metrics_for_label(label, regime)
-            )
+            if symbol:
+                metrics = self._metrics_for_label(label, regime, symbol=symbol)
+            elif use_aggregate:
+                metrics = self._perf.get(label)
+            else:
+                metrics = self._metrics_for_label(label, regime)
             if metrics.has_data:
                 scored.append((metrics, self._score_metrics(metrics, regime)))
         if not scored:
@@ -3069,8 +3587,29 @@ class FlashAllocator:
                 return _shadow_confirmation_from_raw(raw)
         return _ShadowConfirmation()
 
-    def _metrics_for_label(self, label: str, regime: Regime) -> Metrics:
+    def _metrics_for_label(
+        self,
+        label: str,
+        regime: Regime,
+        *,
+        symbol: str = "",
+    ) -> Metrics:
         lookup_labels = _solo_label_lookup_sequence(label)
+        clean_symbol = str(symbol or "").strip().upper()
+        if clean_symbol:
+            for lookup_label in lookup_labels:
+                metrics = self._perf.get(
+                    lookup_label,
+                    regime=regime,
+                    symbol=clean_symbol,
+                )
+                if metrics.has_data:
+                    return metrics
+            return self._perf.get(
+                str(label or "").strip(),
+                regime=regime,
+                symbol=clean_symbol,
+            )
         for lookup_label in lookup_labels:
             metrics = self._perf.get(lookup_label, regime=regime)
             if metrics.has_data:
@@ -3095,11 +3634,12 @@ class FlashAllocator:
             label = str(getattr(agent, "label", "") or "")
             if not label:
                 continue
-            try:
-                actions = agent.act(market) or {}
-            except Exception:
-                actions = {}
             for symbol in market.prices:
+                symbol_market = market.with_regime_for_symbol(symbol)
+                try:
+                    actions = agent.act(symbol_market) or {}
+                except Exception:
+                    actions = {}
                 action = _coerce_action(actions.get(symbol, Action.HOLD))
                 signal = None
                 if not action.is_hold:
@@ -3109,9 +3649,9 @@ class FlashAllocator:
                         sym=str(symbol).upper(),
                         action=action,
                         price=float(market.prices.get(symbol, 0.0)),
-                        regime=market.regime,
+                        regime=symbol_market.regime,
                         by_player=label,
-                        by_agent=label,
+                        by_agent="",
                         timestamp=market.timestamp,
                     )
                 rows.append(_ActorSignal(
@@ -3227,8 +3767,7 @@ class FlashAllocator:
                         else ()
                     ),
                     by_player=clean_label,
-                    by_agent=str(getattr(signal, "by_agent", "") or "").strip()
-                    or clean_label,
+                    by_agent=str(getattr(signal, "by_agent", "") or "").strip(),
                 )
                 if row is None or (row.actor_key, row.symbol) in used:
                     continue
@@ -3259,9 +3798,9 @@ class FlashAllocator:
                     "agent",
                     actor_key,
                     signal,
-                    agent_labels=(clean_label,),
+                    agent_labels=(),
                     by_player=clean_label,
-                    by_agent=clean_label,
+                    by_agent="",
                 )
                 if row is None or (row.actor_key, row.symbol) in used:
                     continue
@@ -3355,6 +3894,13 @@ def _is_no_trade_output(output: _ActorSignal) -> bool:
     )
 
 
+def _is_no_trade_candidate(row: FlashCandidateAudit) -> bool:
+    return str(getattr(row, "actor_key", "") or "") == "NoTrade" or (
+        str(getattr(row, "actor_type", "") or "") == "no_trade"
+        and str(getattr(row, "label", "") or "") == "NoTrade"
+    )
+
+
 def _is_shadow_position_replay_output(output: _ActorSignal) -> bool:
     signal = getattr(output, "signal", None)
     return (
@@ -3369,6 +3915,24 @@ def _actor_key(actor_type: str, label: str) -> str:
     clean_type = str(actor_type or "unknown").strip() or "unknown"
     clean_label = str(label or "").strip()
     return f"{clean_type}:{clean_label}"
+
+
+def _selected_candidate_audit(decision: FlashDecision) -> Optional[FlashCandidateAudit]:
+    selected_key = _actor_key(
+        str(getattr(decision, "actor_type", "") or ""),
+        str(getattr(decision, "selected_actor", "") or ""),
+    )
+    for row in getattr(decision, "candidates", ()) or ():
+        row_key = _actor_key(
+            str(getattr(row, "actor_type", "") or ""),
+            str(getattr(row, "label", "") or ""),
+        )
+        if row_key != selected_key:
+            continue
+        if getattr(row, "action", None) != getattr(decision, "action", None):
+            continue
+        return row
+    return None
 
 
 def _raw_agent_label_from_solo(label: str) -> str:
@@ -3397,8 +3961,17 @@ def _previous_actor_key_for_symbol(mapping: Mapping[str, str], symbol: str) -> s
     return ""
 
 
-def _regime_confidence_scale(market: MarketSnapshot) -> float:
-    raw = getattr(market, "regime_confidence", 1.0)
+def _regime_confidence_scale(
+    market: MarketSnapshot,
+    *,
+    symbol: str = "",
+) -> float:
+    raw: object = None
+    if symbol:
+        features = _regime_features_for_symbol(market, symbol)
+        raw = features.get("regime_confidence")
+    if raw is None:
+        raw = getattr(market, "regime_confidence", 1.0)
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -3495,6 +4068,54 @@ def _normalize_signal_context_key(raw: object) -> str:
     signal_key = _normalize_signal_deny_key("|".join(parts[:3]))
     regime = _normalize_regime_value(parts[3]).label
     return f"{signal_key}|{regime}"
+
+
+def _blocked_flash_decision(decision: FlashDecision, *, reason: str) -> FlashDecision:
+    return replace(
+        decision,
+        selected_actor="NoTrade",
+        actor_type="no_trade",
+        score=0.0,
+        action=Action.HOLD,
+        reason=reason,
+        signal=None,
+        original_selected_actor=(
+            decision.original_selected_actor or decision.selected_actor
+        ),
+        original_actor_type=(
+            decision.original_actor_type or decision.actor_type
+        ),
+        selected_reasons=tuple((*decision.selected_reasons, reason)),
+    )
+
+
+def _regime_features_for_symbol(
+    market: MarketSnapshot,
+    symbol: str,
+) -> Mapping[str, Any]:
+    getter = getattr(market, "regime_features_for_symbol", None)
+    if callable(getter):
+        try:
+            features = getter(symbol)
+            if isinstance(features, Mapping):
+                return features
+        except Exception:
+            return {}
+    clean_symbol = str(symbol or "").strip().upper()
+    raw = (getattr(market, "regime_features_by_symbol", {}) or {}).get(clean_symbol)
+    return raw if isinstance(raw, Mapping) else {}
+
+
+def _micro_macro_alignment_from_features(micro: str, macro: str) -> str:
+    micro = str(micro or "flat").lower()
+    macro = str(macro or "flat").lower()
+    if micro in {"up", "down"} and macro in {"up", "down"}:
+        return "aligned" if micro == macro else "conflict"
+    if micro in {"up", "down"}:
+        return "micro_only"
+    if macro in {"up", "down"}:
+        return "macro_only"
+    return "flat"
 
 
 def _lookback_return_pct(

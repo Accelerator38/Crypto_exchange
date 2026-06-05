@@ -31,7 +31,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Summarize genetics degradation/quarantine state from a v2 results directory.",
     )
-    parser.add_argument("--results-dir", required=True, help="Directory containing status.json and leaderboard_agents.json.")
+    parser.add_argument("--results-dir", required=True, help="Directory containing status.json and leaderboards.")
     parser.add_argument("--events-jsonl", default=None, help="Optional v2 event log JSONL for shadow blocked/rejected reasons.")
     parser.add_argument("--out", default=None, help="Optional output JSON path.")
     args = parser.parse_args()
@@ -41,9 +41,13 @@ def main() -> int:
         results_dir = ROOT / results_dir
     status_path = results_dir / "status.json"
     leaderboard_path = results_dir / "leaderboard_agents.json"
+    players_path = results_dir / "leaderboard_players.json"
 
     status = json.loads(status_path.read_text(encoding="utf-8"))
     leaderboard = json.loads(leaderboard_path.read_text(encoding="utf-8"))
+    if players_path.exists():
+        players_payload = json.loads(players_path.read_text(encoding="utf-8"))
+        leaderboard["players"] = players_payload.get("players", {})
     shadow_events = _load_jsonl(args.events_jsonl) if args.events_jsonl else None
     report = build_genetics_degradation_report(
         status,

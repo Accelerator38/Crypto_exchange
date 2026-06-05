@@ -78,13 +78,18 @@ class SessionOverlayConfig:
 
 
 def _metrics_delta(current: Metrics, baseline: Metrics) -> Metrics:
+    closed_trades = max(0, current.closed_trades - baseline.closed_trades)
+    raw_wins = max(0, current.wins - baseline.wins)
+    raw_losses = max(0, current.losses - baseline.losses)
+    losses = min(raw_losses, closed_trades)
+    wins = min(raw_wins, max(0, closed_trades - losses))
     return Metrics(
         pnl_pct=current.pnl_pct - baseline.pnl_pct,
-        closed_trades=max(0, current.closed_trades - baseline.closed_trades),
+        closed_trades=closed_trades,
         entries=max(0, current.entries - baseline.entries),
         signals=max(0, current.signals - baseline.signals),
-        wins=max(0, current.wins - baseline.wins),
-        losses=max(0, current.losses - baseline.losses),
+        wins=wins,
+        losses=losses,
         max_dd_pct=max(0.0, current.max_dd_pct - baseline.max_dd_pct),
         blocked_signals=max(0, current.blocked_signals - baseline.blocked_signals),
         rejected_signals=max(0, current.rejected_signals - baseline.rejected_signals),

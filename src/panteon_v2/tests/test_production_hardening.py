@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import logging
 import sys
 import tempfile
 import types
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from panteon_v2.domain.types import Action, MarketSnapshot, Regime, Signal, Trade
@@ -30,6 +32,10 @@ from panteon_v2.selection import (
 from panteon_v2.tests._helpers import FakeAgent
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PANTEON_RUNTIME = PROJECT_ROOT / "src" / "panteon_runtime"
+
+
 def _signal(action: Action, *, sid: int = 1, sym: str = "BTC", price: float = 100.0) -> Signal:
     return Signal(
         id=sid,
@@ -44,6 +50,28 @@ def _signal(action: Action, *, sid: int = 1, sym: str = "BTC", price: float = 10
 
 
 class TestExchangeProfiles(unittest.TestCase):
+    def test_mexc_futures_domain_defaults_to_current_api_domain(self):
+        import importlib
+
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        mexc_connector = importlib.import_module("mexc_connector")
+        exchange_api_runtime = importlib.import_module("exchange_api_runtime")
+        mexc_funding = importlib.import_module("mexc_funding")
+
+        with patch.dict(os.environ, {"MEXC_FUTURES_BASE_URL": ""}):
+            self.assertEqual(
+                mexc_connector._mexc_futures_live_base_url(),
+                "https://api.mexc.com",
+            )
+            self.assertEqual(
+                exchange_api_runtime._mexc_futures_base_url(),
+                "https://api.mexc.com",
+            )
+            self.assertEqual(
+                mexc_funding._mexc_futures_base_url(),
+                "https://api.mexc.com",
+            )
+
     def test_runtime_settings_are_loaded_for_requested_exchange(self):
         from panteon_v2.app.v1_futures_adapter import (
             load_runtime_leverage,
@@ -91,6 +119,62 @@ class TestExchangeProfiles(unittest.TestCase):
                 sys.modules.pop("exchange_registry", None)
             else:
                 sys.modules["exchange_registry"] = old_registry
+
+    def test_bitget_top_symbols_exclude_static_symbol_blocklist(self):
+        import importlib
+
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        bitget_connector = importlib.import_module("bitget_connector")
+
+        class PublicClient:
+            def load_markets(self):
+                return {
+                    "BTC/USDT": {
+                        "spot": True,
+                        "quote": "USDT",
+                        "base": "BTC",
+                        "active": True,
+                    },
+                    "BSB/USDT": {
+                        "spot": True,
+                        "quote": "USDT",
+                        "base": "BSB",
+                        "active": True,
+                    },
+                    "ETH/USDT": {
+                        "spot": True,
+                        "quote": "USDT",
+                        "base": "ETH",
+                        "active": True,
+                    },
+                }
+
+            def fetch_tickers(self):
+                return {
+                    "BTC/USDT": {"quoteVolume": 100.0},
+                    "BSB/USDT": {"quoteVolume": 1000.0},
+                    "ETH/USDT": {"quoteVolume": 50.0},
+                }
+
+        with patch.object(bitget_connector, "BITGET_SYMBOL_BLOCKLIST", frozenset({"BSB"})):
+            with patch.object(bitget_connector, "_public_client", return_value=PublicClient()):
+                self.assertEqual(bitget_connector.fetch_top_symbols(3), ["BTC", "ETH"])
+
+    def test_bitget_futures_client_seeds_bad_symbols_from_static_blocklist(self):
+        import importlib
+
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        bitget_connector = importlib.import_module("bitget_connector")
+
+        class PrivateClient:
+            def load_markets(self):
+                return {}
+
+        with patch.object(bitget_connector, "BITGET_SYMBOL_BLOCKLIST", frozenset({"BSB"})):
+            with patch.object(bitget_connector, "_private_client", return_value=PrivateClient()):
+                client = bitget_connector.BitgetFuturesClient("key", "secret", "pass")
+
+        self.assertIn("BSB", client._bad_symbols)
 
 
 class TestPendingOrders(unittest.TestCase):
@@ -248,6 +332,8 @@ class TestRegimeDetectorHardening(unittest.TestCase):
         regime = detector.update({"BTC": 100.2, "ETH": 99.9, "ALT": 90.0})
 
         self.assertNotEqual(regime, Regime.CRASH)
+        self.assertEqual(detector.symbol_regimes["ALT"], Regime.CRASH)
+        self.assertNotEqual(detector.symbol_regimes["BTC"], Regime.CRASH)
 
     def test_anchor_crash_flips_to_crash_with_high_confidence(self):
         from panteon_v2.app.regime_detector import PriceRegimeDetector
@@ -403,10 +489,19 @@ class TestStartupFailClosed(unittest.TestCase):
             "v2_max_stale_feed_polls": 7,
             "v2_pending_order_timeout_sec": 90,
             "v2_genetics_probation_execution_enabled": "on",
+            "v2_genetics_probation_labels": "GeneticsCore, GeneticsRouter",
+            "v2_genetics_probation_allowed_regimes": "neutral,bearish",
+            "v2_genetics_probation_allowed_signal_keys": (
+                "agent:GeneticsCore|BTC|FUT_LONG_FULL"
+            ),
             "v2_genetics_probation_risk_mult": 0.2,
             "v2_genetics_probation_min_regime_confidence": 0.75,
             "v2_genetics_probation_max_real_trades": 7,
+            "v2_genetics_probation_max_daily_trades": 3,
             "v2_genetics_probation_require_shadow_confirmation": "off",
+            "v2_genetics_probation_max_consecutive_failed_orders": 2,
+            "v2_genetics_probation_max_realized_loss_pct": 0.25,
+            "v2_max_real_symbol_min_executable_notional_usd": 40.0,
         })
 
         self.assertEqual(cfg.max_daily_loss_pct, 4.5)
@@ -416,10 +511,131 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(cfg.max_stale_feed_polls, 7)
         self.assertEqual(cfg.pending_order_timeout_sec, 90)
         self.assertTrue(cfg.genetics_probation_execution_enabled)
+        self.assertEqual(cfg.genetics_probation_labels, ("GeneticsCore", "GeneticsRouter"))
+        self.assertEqual(cfg.genetics_probation_allowed_regimes, ("neutral", "bearish"))
+        self.assertEqual(
+            cfg.genetics_probation_allowed_signal_keys,
+            ("agent:GeneticsCore|BTC|FUT_LONG_FULL",),
+        )
         self.assertEqual(cfg.genetics_probation_risk_mult, 0.2)
         self.assertEqual(cfg.genetics_probation_min_regime_confidence, 0.75)
         self.assertEqual(cfg.genetics_probation_max_real_trades, 7)
+        self.assertEqual(cfg.genetics_probation_max_daily_trades, 3)
         self.assertFalse(cfg.genetics_probation_require_shadow_confirmation)
+        self.assertEqual(cfg.genetics_probation_max_consecutive_failed_orders, 2)
+        self.assertEqual(cfg.genetics_probation_max_realized_loss_pct, 0.25)
+        self.assertEqual(cfg.max_real_symbol_min_executable_notional_usd, 40.0)
+
+    def test_live_guardrails_accept_exchange_scoped_probation_overrides(self):
+        from panteon_v2.app.startup import _live_execution_config_from_settings
+
+        cfg = _live_execution_config_from_settings({
+            "v2_max_consecutive_failed_orders": 3,
+            "mexc_v2_max_consecutive_failed_orders": 8,
+            "v2_genetics_probation_execution_enabled": "off",
+            "bitget_v2_genetics_probation_execution_enabled": "on",
+            "bitget_v2_genetics_probation_labels": "GeneticsCore",
+            "bitget_v2_genetics_probation_allowed_regimes": "neutral",
+            "bitget_v2_genetics_probation_max_real_trades": 7,
+            "bitget_v2_genetics_probation_max_daily_trades": 3,
+            "bitget_v2_max_real_symbol_min_executable_notional_usd": 40.0,
+        }, exchange_name="BITGET")
+
+        self.assertEqual(cfg.max_consecutive_failed_orders, 3)
+        self.assertTrue(cfg.genetics_probation_execution_enabled)
+        self.assertEqual(cfg.genetics_probation_labels, ("GeneticsCore",))
+        self.assertEqual(cfg.genetics_probation_allowed_regimes, ("neutral",))
+        self.assertEqual(cfg.genetics_probation_max_real_trades, 7)
+        self.assertEqual(cfg.genetics_probation_max_daily_trades, 3)
+        self.assertEqual(cfg.max_real_symbol_min_executable_notional_usd, 40.0)
+
+        mexc_cfg = _live_execution_config_from_settings({
+            "v2_max_consecutive_failed_orders": 3,
+            "mexc_v2_max_consecutive_failed_orders": 8,
+            "v2_genetics_probation_execution_enabled": "on",
+            "mexc_v2_genetics_probation_execution_enabled": "off",
+        }, exchange_name="MEXC")
+
+        self.assertEqual(mexc_cfg.max_consecutive_failed_orders, 8)
+        self.assertFalse(mexc_cfg.genetics_probation_execution_enabled)
+
+    def test_v1_settings_parser_accepts_exchange_scoped_symbols(self):
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        try:
+            import mexc_connector
+
+            raw = {
+                "symbols": "all",
+                "bitget_symbols": "BTC,ETH,SOL",
+            }
+            with patch.dict(os.environ, {"CRYPTO_EXCHANGE": "bitget"}):
+                bitget_cfg = mexc_connector._parse_settings(raw)
+            with patch.dict(os.environ, {"CRYPTO_EXCHANGE": "mexc"}):
+                mexc_cfg = mexc_connector._parse_settings(raw)
+        finally:
+            try:
+                sys.path.remove(str(PANTEON_RUNTIME))
+            except ValueError:
+                pass
+
+        self.assertEqual(bitget_cfg["symbols"], ["BTC", "ETH", "SOL"])
+        self.assertIsNone(mexc_cfg["symbols"])
+
+    def test_bitget_bridge_uses_scoped_symbols_before_auto_top_fallback(self):
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        try:
+            import bitget_connector
+
+            cfg = {
+                "initial_capital": 100.0,
+                "trade_fraction": 0.10,
+                "leverage": 2,
+                "poll_interval": 60,
+                "liquidity_min_adv": 0.0,
+                "spot_fee": 0.001,
+                "futures_fee": 0.0002,
+                "slippage": 0.0001,
+                "tf_kline": "1m",
+                "bar": 60,
+                "symbols": None,
+            }
+            with tempfile.TemporaryDirectory() as tmpdir:
+                try:
+                    with patch.object(
+                        bitget_connector,
+                        "_BITGET_SETTINGS_RAW",
+                        {"bitget_symbols": "BTC,ETH,SOL"},
+                    ), patch.object(
+                        bitget_connector,
+                        "_public_client",
+                        return_value=object(),
+                    ), patch.object(
+                        bitget_connector,
+                        "fetch_top_symbols",
+                        side_effect=AssertionError("auto-top should not be used"),
+                    ):
+                        bridge = bitget_connector.AgentBitgetBridge(
+                            {},
+                            cfg,
+                            mode="paper",
+                            output_dir=tmpdir,
+                        )
+                finally:
+                    tmp_path = str(Path(tmpdir).resolve())
+                    root_logger = logging.getLogger()
+                    for handler in list(root_logger.handlers):
+                        if not isinstance(handler, logging.FileHandler):
+                            continue
+                        if str(getattr(handler, "baseFilename", "")).startswith(tmp_path):
+                            root_logger.removeHandler(handler)
+                            handler.close()
+        finally:
+            try:
+                sys.path.remove(str(PANTEON_RUNTIME))
+            except ValueError:
+                pass
+
+        self.assertEqual(bridge.symbols, ["BTC", "ETH", "SOL"])
 
     def test_exchange_settings_merge_raw_v2_keys_with_parsed_settings(self):
         from panteon_v2.app.startup import _load_exchange_settings
@@ -443,6 +659,17 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(settings["trade_fraction"], 0.06)
         self.assertEqual(settings["v2_flash_enabled"], "on")
         self.assertEqual(settings["v2_max_equity_peak_drawdown_pct"], "5")
+
+    def test_flash_genetics_probation_bypass_flags_are_resolved_from_settings(self):
+        from panteon_v2.app.startup import _flash_allocator_config_from_settings
+
+        cfg = _flash_allocator_config_from_settings({
+            "v2_flash_genetics_probation_bypass_min_closed_enabled": "on",
+            "v2_flash_genetics_probation_bypass_trend_gate_enabled": "on",
+        })
+
+        self.assertTrue(cfg.genetics_probation_bypass_min_closed_enabled)
+        self.assertTrue(cfg.genetics_probation_bypass_trend_gate_enabled)
 
     def test_risk_max_open_positions_is_resolved_from_settings(self):
         from panteon_v2.app.startup import _risk_config_from_settings
@@ -488,6 +715,7 @@ class TestKillSwitches(unittest.TestCase):
         from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
         from panteon_v2.app.main_loop import (
             _kill_switch_reason,
+            _record_exchange_desync,
             _record_order_failure,
             _record_order_success,
             _record_stale_feed_poll,
@@ -541,6 +769,152 @@ class TestKillSwitches(unittest.TestCase):
         )
         _record_order_success(slippage_pipeline, sig, result)
         self.assertIn("excessive slippage", _kill_switch_reason(slippage_pipeline))
+
+        desync_pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(max_exchange_desync_events=1),
+            kill_switch=KillSwitchState(),
+            initial_capital=1000.0,
+            current_balance=1000.0,
+        )
+        _record_exchange_desync(desync_pipeline, {
+            "owned_removed": 3,
+            "snapshot_unreliable": True,
+            "guard_reason": "cached_futures_assets",
+        })
+        self.assertEqual(desync_pipeline.kill_switch.exchange_desync_events, 0)
+        self.assertEqual(_kill_switch_reason(desync_pipeline), "")
+
+    def test_unhealthy_balance_snapshot_is_preserved_for_open_blocking(self):
+        from panteon_v2.app.bootstrap import KillSwitchState
+        from panteon_v2.app.main_loop import (
+            _exchange_health_open_block_reason,
+            sync_pipeline_balance,
+        )
+
+        class Exchange:
+            def get_account_snapshot(self):
+                return {
+                    "current_balance": 0.0,
+                    "futures_equity": 0.0,
+                    "available_balance": 0.0,
+                    "data_health": {
+                        "last_data_error_reason": "cached_futures_assets",
+                        "snapshot_healthy": False,
+                    },
+                }
+
+        pipeline = types.SimpleNamespace(
+            executor=types.SimpleNamespace(_exchange=Exchange()),
+            kill_switch=KillSwitchState(),
+            current_balance=100.0,
+        )
+
+        self.assertIsNone(sync_pipeline_balance(pipeline))
+        self.assertEqual(
+            pipeline.account_snapshot["data_health"]["last_data_error_reason"],
+            "cached_futures_assets",
+        )
+        self.assertEqual(
+            _exchange_health_open_block_reason(pipeline),
+            "cached_futures_assets",
+        )
+
+    def test_genetics_probation_failed_orders_disable_only_probation(self):
+        from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
+        from panteon_v2.app.main_loop import _kill_switch_reason, _record_order_failure
+
+        pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(
+                max_consecutive_failed_orders=5,
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_max_consecutive_failed_orders=2,
+            ),
+            kill_switch=KillSwitchState(),
+            initial_capital=1000.0,
+            current_balance=1000.0,
+        )
+        signal = Signal(
+            id=777,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="Panteon_Flash",
+            by_agent="GeneticsCore",
+        )
+
+        _record_order_failure(pipeline, "exchange rejected", signal=signal)
+        self.assertEqual(_kill_switch_reason(pipeline), "")
+        self.assertEqual(pipeline.kill_switch.genetics_probation_disabled_reason, "")
+
+        _record_order_failure(pipeline, "exchange rejected", signal=signal)
+
+        self.assertEqual(_kill_switch_reason(pipeline), "")
+        self.assertIn(
+            "GeneticsCore consecutive failed orders",
+            pipeline.kill_switch.genetics_probation_disabled_reason,
+        )
+
+    def test_default_ensemble_origin_does_not_count_as_genetics_probation_failure(self):
+        from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
+        from panteon_v2.app.main_loop import _kill_switch_reason, _record_order_failure
+
+        pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(
+                max_consecutive_failed_orders=5,
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_max_consecutive_failed_orders=1,
+            ),
+            kill_switch=KillSwitchState(),
+            initial_capital=1000.0,
+            current_balance=1000.0,
+        )
+        signal = Signal(
+            id=778,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="DefaultEnsemble",
+            by_agent="GeneticsCore",
+        )
+
+        _record_order_failure(pipeline, "exchange rejected", signal=signal)
+
+        self.assertEqual(_kill_switch_reason(pipeline), "")
+        self.assertEqual(pipeline.kill_switch.genetics_probation_disabled_reason, "")
+
+    def test_genetics_probation_realized_loss_disables_probation(self):
+        from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
+        from panteon_v2.app.main_loop import (
+            _disable_genetics_probation_if_realized_loss_exceeded,
+        )
+
+        pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore",),
+                genetics_probation_max_realized_loss_pct=0.25,
+            ),
+            kill_switch=KillSwitchState(),
+            real_perf=types.SimpleNamespace(
+                get=lambda label: types.SimpleNamespace(
+                    closed_trades=1,
+                    pnl_pct=-0.30 if label == "GeneticsCore" else 0.0,
+                ),
+            ),
+        )
+
+        _disable_genetics_probation_if_realized_loss_exceeded(pipeline)
+
+        self.assertIn(
+            "GeneticsCore realized loss",
+            pipeline.kill_switch.genetics_probation_disabled_reason,
+        )
 
 
 class TestMemorySeparationAndQuarantineState(unittest.TestCase):

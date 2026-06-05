@@ -88,14 +88,19 @@ OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
 
 MANIFEST_GENETICS_AGENT_LABELS: Tuple[str, ...] = (
     "GeneticsBest",
+    "GeneticsRiskTight",
     "GeneticsCrash",
     "GeneticsBullish",
     "GeneticsBearish",
     "GeneticsNeutral",
 )
 MANIFEST_GENETICS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
+REGIME_ADAPTIVE_BIAS_ENV = "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST"
 
-OPTIONAL_SPECIAL_AGENTS: Tuple[str, ...] = ("GeneticsRegimeRouter",)
+OPTIONAL_SPECIAL_AGENTS: Tuple[str, ...] = (
+    "GeneticsRegimeRouter",
+    "GeneticsRegimeAdaptiveBias",
+)
 
 EXPERIMENTAL_FLASH_SPOT_QUALITY_SYMBOLS: Tuple[str, ...] = (
     "FIL/USDT",
@@ -368,12 +373,12 @@ class ActionFilterAgent:
         allowed_symbols = frozenset(self.allowed_symbols)
         denied_symbols = frozenset(self.denied_symbols)
         allowed_regimes = frozenset(self.allowed_regimes)
-        regime_label = _normalize_regime_label(market.regime)
         out: dict[str, Action] = {}
         for raw_symbol, raw_action in raw.items():
             symbol = _normalize_symbol(raw_symbol)
             if symbol not in market.prices:
                 continue
+            regime_label = _normalize_regime_label(market.regime_for_symbol(symbol))
             action = _coerce_action(raw_action)
             if action is None or action.is_hold:
                 continue
@@ -675,9 +680,8 @@ def _default_genetics_results_root() -> Path:
 
 
 def _infer_genetics_results_root(path: str | Path) -> Path:
-    resolved = Path(path)
-    if not resolved.is_absolute():
-        return _default_genetics_results_root()
+    raw = Path(path)
+    resolved = raw if raw.is_absolute() else Path.cwd() / raw
     resolved = resolved.resolve()
     for parent in (resolved.parent, *resolved.parents):
         if (
@@ -689,9 +693,15 @@ def _infer_genetics_results_root(path: str | Path) -> Path:
 
 
 def _resolve_router_manifest_path(path: str | Path, *, results_root: Path) -> Path:
-    resolved = Path(path)
-    if not resolved.is_absolute():
-        resolved = results_root / resolved
+    raw = Path(path)
+    if raw.is_absolute():
+        resolved = raw
+    else:
+        cwd_candidate = (Path.cwd() / raw).resolve()
+        if cwd_candidate.exists():
+            resolved = cwd_candidate
+        else:
+            resolved = results_root / raw
     resolved = resolved.resolve()
     try:
         resolved.relative_to(results_root.resolve())
@@ -836,6 +846,101 @@ def build_genetics_regime_router_adapter(
     return adapter
 
 
+def _regime_adaptive_bias_from_manifest(payload: dict[str, Any]) -> dict[str, float]:
+    raw = payload.get("regime_open_bias")
+    if raw is None and isinstance(payload.get("regime_adaptive_output_bias"), dict):
+        raw = payload["regime_adaptive_output_bias"].get("regime_open_bias")
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("regime adaptive bias manifest must contain regime_open_bias")
+    return {
+        str(key).strip().lower(): float(value)
+        for key, value in raw.items()
+        if str(key).strip()
+    }
+
+
+def _regime_adaptive_source_genome_from_manifest(payload: dict[str, Any]) -> str:
+    for key in ("source_genome", "source_path", "source_genome_path"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    selected = str(payload.get("selected_genome") or "")
+    if selected:
+        return selected.split("::", 1)[0]
+    raise ValueError("regime adaptive bias manifest must contain source_genome")
+
+
+def _genome_position_state_features_enabled(genome_path: Path) -> Optional[bool]:
+    metadata_candidates = [
+        genome_path.with_name(f"{genome_path.stem}_meta.json"),
+        genome_path.parent / "best_genome_meta.json",
+    ]
+    for meta_path in metadata_candidates:
+        if not meta_path.exists():
+            continue
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            continue
+        if "position_state_features_enabled" in payload:
+            return bool(payload["position_state_features_enabled"])
+    return None
+
+
+def build_genetics_regime_adaptive_bias_adapter(
+    manifest_path: str | Path,
+    genetics_cls: Any,
+    *,
+    results_root: Optional[str | Path] = None,
+    label: str = "GeneticsRegimeAdaptiveBias",
+    portfolio_value_fn: Optional[callable] = None,
+    expected_genome_size: Optional[int] = None,
+) -> GeneticsV2AgentAdapter:
+    import numpy as np
+
+    root = Path(results_root).resolve() if results_root is not None else _default_genetics_results_root().resolve()
+    manifest = _resolve_router_manifest_path(manifest_path, results_root=root)
+    payload = json.loads(manifest.read_text(encoding="utf-8-sig"))
+    regime_open_bias = _regime_adaptive_bias_from_manifest(payload)
+    genome_path = _resolve_router_manifest_path(
+        _regime_adaptive_source_genome_from_manifest(payload),
+        results_root=root,
+    )
+    genome = np.load(genome_path).astype(np.float32).ravel()
+    if expected_genome_size is not None and genome.size != int(expected_genome_size):
+        raise ValueError(
+            f"regime adaptive genetics genome size mismatch for {genome_path}: "
+            f"{genome.size} != {int(expected_genome_size)}"
+        )
+    agent = genetics_cls(genome=genome)
+    configure = getattr(agent, "configure_regime_adaptive_output_bias", None)
+    if not callable(configure):
+        raise ValueError("GeneticsAgent does not support regime_adaptive_output_bias")
+    configure(regime_open_bias, enabled=True)
+    position_state_features_enabled = _genome_position_state_features_enabled(genome_path)
+    if position_state_features_enabled is not None:
+        setattr(
+            agent,
+            "_position_state_features_enabled",
+            bool(position_state_features_enabled),
+        )
+
+    adapter = GeneticsV2AgentAdapter(
+        label=label,
+        v1_agent=agent,
+        portfolio_value_fn=portfolio_value_fn,
+    )
+    adapter.selection_manifest_path = str(manifest)
+    adapter.source_genome_path = str(genome_path)
+    adapter.source_position_state_features_enabled = position_state_features_enabled
+    adapter.regime_open_bias = dict(regime_open_bias)
+    adapter.promotion_eligible = bool(payload.get("promotion_eligible", False))
+    adapter.paper_trading_eligible = bool(payload.get("paper_trading_eligible", False)) and adapter.promotion_eligible
+    adapter.live_trading_eligible = False
+    adapter.shadow_only = True
+    return adapter
+
+
 def _filter_manifest_genetics_labels(
     labels: Optional[Sequence[str]],
 ) -> List[str]:
@@ -968,21 +1073,33 @@ def _register_special_optional_agents(
     registered: List[str] = []
     for label in _filter_optional_special_labels(labels):
         try:
-            if label != "GeneticsRegimeRouter":
-                continue
-            manifest = os.environ.get("PANTEON_V2_GENETICS_ROUTER_MANIFEST")
-            if not manifest and not _env_flag("PANTEON_V2_LOAD_GENETICS_ROUTER", False):
-                continue
-            if not manifest:
-                raise ValueError("PANTEON_V2_GENETICS_ROUTER_MANIFEST is required")
             module = __import__("crypto_genetics", fromlist=["GeneticsAgent"])
-            adapter = build_genetics_regime_router_adapter(
-                manifest,
-                getattr(module, "GeneticsAgent"),
-                results_root=_infer_genetics_results_root(manifest),
-                portfolio_value_fn=portfolio_value_fn,
-                expected_genome_size=getattr(module, "GENOME_SIZE", None),
-            )
+            if label == "GeneticsRegimeRouter":
+                manifest = os.environ.get("PANTEON_V2_GENETICS_ROUTER_MANIFEST")
+                if not manifest and not _env_flag("PANTEON_V2_LOAD_GENETICS_ROUTER", False):
+                    continue
+                if not manifest:
+                    raise ValueError("PANTEON_V2_GENETICS_ROUTER_MANIFEST is required")
+                adapter = build_genetics_regime_router_adapter(
+                    manifest,
+                    getattr(module, "GeneticsAgent"),
+                    results_root=_infer_genetics_results_root(manifest),
+                    portfolio_value_fn=portfolio_value_fn,
+                    expected_genome_size=getattr(module, "GENOME_SIZE", None),
+                )
+            elif label == "GeneticsRegimeAdaptiveBias":
+                manifest = os.environ.get(REGIME_ADAPTIVE_BIAS_ENV)
+                if not manifest:
+                    continue
+                adapter = build_genetics_regime_adaptive_bias_adapter(
+                    manifest,
+                    getattr(module, "GeneticsAgent"),
+                    results_root=_infer_genetics_results_root(manifest),
+                    portfolio_value_fn=portfolio_value_fn,
+                    expected_genome_size=getattr(module, "GENOME_SIZE", None),
+                )
+            else:
+                continue
             registry.register(adapter, replace=True)
             registered.append(label)
         except Exception as exc:

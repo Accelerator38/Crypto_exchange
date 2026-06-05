@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import hmac
 import json
 import sys
 import tempfile
@@ -126,6 +128,145 @@ class RuntimeHttpClientTests(unittest.TestCase):
         self.assertFalse(direct._session.trust_env)
         self.assertFalse(spot.s.trust_env)
         self.assertFalse(futures.s.trust_env)
+
+    def test_mexc_direct_futures_reads_sync_server_time_and_extend_recv_window(self):
+        import exchange_api_runtime
+
+        captured = []
+
+        class FakeResponse:
+            status_code = 200
+
+            def __init__(self, payload):
+                self._payload = payload
+
+            def json(self):
+                return self._payload
+
+        original_get = exchange_api_runtime._mexc_direct_get
+        original_time = exchange_api_runtime.time.time
+
+        def fake_time():
+            return 1_700_000_000.0
+
+        def fake_get(url, **kwargs):
+            captured.append((url, kwargs))
+            if url.endswith("/api/v1/contract/ping"):
+                return FakeResponse({"success": True, "data": 1_700_000_012_000})
+            if url.endswith("/api/v1/private/position/open_positions"):
+                return FakeResponse({"success": True, "code": 0, "data": []})
+            raise AssertionError(url)
+
+        exchange_api_runtime._mexc_direct_get = fake_get
+        exchange_api_runtime.time.time = fake_time
+        try:
+            direct = MexcDirectClient("key", "secret")
+            self.assertEqual(direct.get_futures_positions(), [])
+        finally:
+            exchange_api_runtime._mexc_direct_get = original_get
+            exchange_api_runtime.time.time = original_time
+
+        private_headers = captured[-1][1]["headers"]
+        self.assertEqual(private_headers["Request-Time"], "1700000012000")
+        self.assertEqual(private_headers["recv-window"], "60000")
+        expected_sig = hmac.new(
+            b"secret",
+            b"key1700000012000",
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertEqual(private_headers["Signature"], expected_sig)
+
+    def test_mexc_futures_client_private_requests_sync_server_time_and_extend_recv_window(self):
+        import mexc_connector
+
+        captured = []
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def __init__(self, payload):
+                self._payload = payload
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+        class FakeSession:
+            trust_env = False
+
+            def get(self, url, **kwargs):
+                captured.append(("GET", url, kwargs))
+                if url.endswith("/api/v1/contract/ping"):
+                    return FakeResponse({"success": True, "data": 1_700_000_012_000})
+                raise AssertionError(url)
+
+            def request(self, method, url, **kwargs):
+                captured.append((method, url, kwargs))
+                return FakeResponse({"success": True, "code": 0, "data": []})
+
+        original_time = mexc_connector.time.time
+        mexc_connector.time.time = lambda: 1_700_000_000.0
+        try:
+            futures = mexc_connector.MexcFuturesClient("key", "secret")
+            futures.s = FakeSession()
+            self.assertEqual(
+                futures._req("GET", "/api/v1/private/account/assets"),
+                {"success": True, "code": 0, "data": []},
+            )
+        finally:
+            mexc_connector.time.time = original_time
+
+        private_headers = captured[-1][2]["headers"]
+        self.assertEqual(private_headers["Request-Time"], "1700000012000")
+        self.assertEqual(private_headers["recv-window"], "60000")
+        expected_sig = hmac.new(
+            b"secret",
+            b"key1700000012000",
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertEqual(private_headers["Signature"], expected_sig)
+
+    def test_mexc_futures_permission_check_uses_synced_headers_and_rejects_api_error_codes(self):
+        import exchange_api_runtime
+        import requests
+
+        captured = {}
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {
+                    "success": False,
+                    "code": 513,
+                    "message": "Invalid request, please try again later",
+                }
+
+        original_get = requests.get
+        original_time = exchange_api_runtime.time.time
+
+        def fake_get(url, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+        requests.get = fake_get
+        exchange_api_runtime.time.time = lambda: 1_700_000_000.0
+        try:
+            direct = MexcDirectClient("key", "secret")
+            direct._futures_time_offset_ms = 12_000
+            direct._futures_time_synced_at = 1_700_000_000.0
+            self.assertFalse(exchange_api_runtime._check_futures_api_permission(direct))
+        finally:
+            requests.get = original_get
+            exchange_api_runtime.time.time = original_time
+
+        headers = captured["headers"]
+        self.assertEqual(headers["Request-Time"], "1700000012000")
+        self.assertEqual(headers["recv-window"], "60000")
 
     def test_mexc_futures_post_sends_the_exact_signed_json_body(self):
         import mexc_connector

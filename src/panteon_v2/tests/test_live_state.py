@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from panteon_v2.app.live_state import (
     filter_real_signals_against_tracker,
+    prepare_v2_agents_for_live_after_warmup,
     reconcile_tracker_with_exchange,
     sync_player_agents_to_real_positions,
 )
@@ -150,6 +151,179 @@ class TestLiveSignalGuard(unittest.TestCase):
         self.assertEqual(result.signals[0].id, 2)
         self.assertIn("reverse_close:BTC:Agent", result.details)
 
+    def test_drops_foreign_close_for_owned_position(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_SHORT_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "GeneticsCore")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="short",
+                qty=0.1,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+        close_sig = _signal(2, Action.FUT_CLOSE_ALL, price=101.0)
+        object.__setattr__(close_sig, "by_player", "NeutralRangeScalper")
+        object.__setattr__(close_sig, "by_agent", "NeutralRangeScalper")
+
+        result = filter_real_signals_against_tracker(
+            [close_sig],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+        )
+
+        self.assertEqual(result.signals, [])
+        self.assertEqual(result.foreign_closes, 1)
+        self.assertEqual(result.filtered, 1)
+        self.assertIn(
+            "foreign_close:BTC:NeutralRangeScalper:owner=GeneticsCore",
+            result.details,
+        )
+
+    def test_allows_owner_close_for_owned_position(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_SHORT_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "GeneticsCore")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="short",
+                qty=0.1,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+        close_sig = _signal(2, Action.FUT_CLOSE_ALL, price=101.0)
+        object.__setattr__(close_sig, "by_player", "GeneticsCore")
+        object.__setattr__(close_sig, "by_agent", "GeneticsCore")
+
+        result = filter_real_signals_against_tracker(
+            [close_sig],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+        )
+
+        self.assertEqual(result.signals, [close_sig])
+        self.assertEqual(result.foreign_closes, 0)
+        self.assertEqual(result.filtered, 0)
+
+    def test_allows_ensemble_close_when_signal_agent_matches_owner_player(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_SHORT_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="short",
+                qty=0.1,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+        close_sig = _signal(2, Action.FUT_CLOSE_ALL, price=101.0)
+        object.__setattr__(close_sig, "by_player", "DefaultEnsemble")
+        object.__setattr__(close_sig, "by_agent", "GeneticsCore")
+
+        result = filter_real_signals_against_tracker(
+            [close_sig],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+        )
+
+        self.assertEqual(result.signals, [close_sig])
+        self.assertEqual(result.foreign_closes, 0)
+        self.assertEqual(result.filtered, 0)
+
+    def test_allows_system_guard_close_for_owned_position(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_SHORT_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "GeneticsCore")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="short",
+                qty=0.1,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+        close_sig = _signal(2, Action.FUT_CLOSE_ALL, price=101.0)
+        object.__setattr__(close_sig, "by_player", "Panteon_Flash")
+        object.__setattr__(close_sig, "by_agent", "StalePositionGuard")
+
+        result = filter_real_signals_against_tracker(
+            [close_sig],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+        )
+
+        self.assertEqual(result.signals, [close_sig])
+        self.assertEqual(result.foreign_closes, 0)
+        self.assertEqual(result.filtered, 0)
+
+    def test_drops_foreign_opposite_open_for_owned_position(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_LONG_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "GeneticsCore")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="long",
+                qty=0.1,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+        opposite = _signal(2, Action.FUT_SHORT_FULL, price=95.0)
+        object.__setattr__(opposite, "by_player", "NeutralRangeScalper")
+        object.__setattr__(opposite, "by_agent", "NeutralRangeScalper")
+
+        result = filter_real_signals_against_tracker(
+            [opposite],
+            player=_Player(),
+            pipeline=_pipeline_for_tracker(tracker),
+            bar_index=2,
+            max_new_opens_per_bar=1,
+        )
+
+        self.assertEqual(result.signals, [])
+        self.assertEqual(result.foreign_closes, 1)
+        self.assertEqual(result.filtered, 1)
+        self.assertIn(
+            "foreign_reverse_close:BTC:NeutralRangeScalper:owner=GeneticsCore",
+            result.details,
+        )
+
     def test_drops_close_for_external_recovered_position(self):
         tracker = PositionTracker()
         tracker.force_set(_external_position())
@@ -208,6 +382,69 @@ class TestLiveSignalGuard(unittest.TestCase):
         self.assertIsNone(Agent.pos["BTC"])
         self.assertEqual(Agent.ep["BTC"], 0.0)
         self.assertEqual(Agent.et["BTC"], 0)
+
+    def test_prepare_live_clears_and_injects_genetics_position_state(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_SHORT_FULL, price=100.0)
+        object.__setattr__(open_sig, "by_player", "GeneticsCore")
+        object.__setattr__(open_sig, "by_agent", "GeneticsCore")
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=1,
+                sym="BTC",
+                side="short",
+                qty=0.25,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+
+        class GeneticsRuntime:
+            spot_qty = {"SOL": 2.0}
+            spot_entry = {"SOL": 25.0}
+            fut_qty = {"SOL": -1.2}
+            fut_entry = {"SOL": 24.0}
+            pos = {"SOL": "fut_s"}
+            updates = []
+
+            def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+                self.updates.append((symbol, spot_qty, spot_entry, fut_qty, fut_entry))
+                self.spot_qty[symbol] = spot_qty
+                self.spot_entry[symbol] = spot_entry
+                self.fut_qty[symbol] = fut_qty
+                self.fut_entry[symbol] = fut_entry
+                self.pos[symbol] = "fut_s" if fut_qty < 0 else "fut_l" if fut_qty > 0 else None
+
+        class Agent:
+            label = "GeneticsBest"
+            v1_agent = GeneticsRuntime()
+
+        class Registry:
+            def all_agents(self):
+                return [Agent()]
+
+        class Pipeline:
+            registry = Registry()
+            executor = _pipeline_for_tracker(tracker).executor
+
+        summary = prepare_v2_agents_for_live_after_warmup(
+            Pipeline(),
+            exchange_name="MEXC",
+            bar_index=10,
+        )
+
+        runtime = Agent.v1_agent
+        self.assertEqual(summary["agent_positions"], 1)
+        self.assertIsNone(runtime.pos["SOL"])
+        self.assertEqual(runtime.spot_qty["SOL"], 0.0)
+        self.assertEqual(runtime.spot_entry["SOL"], 0.0)
+        self.assertEqual(runtime.fut_qty["SOL"], 0.0)
+        self.assertEqual(runtime.fut_entry["SOL"], 0.0)
+        self.assertEqual(runtime.fut_qty["BTC"], -0.25)
+        self.assertEqual(runtime.fut_entry["BTC"], 100.0)
+        self.assertIn(("BTC", 0.0, 0.0, -0.25, 100.0), runtime.updates)
 
 
 class TestLiveExchangeReconcile(unittest.TestCase):
@@ -283,6 +520,57 @@ class TestLiveExchangeReconcile(unittest.TestCase):
         opened = perf.snapshot()["open"]
         self.assertIn("AdoptedExchangePosition|BTC", opened)
         self.assertIn("PanteonFlashAdopted|BTC", opened)
+
+    def test_reconcile_does_not_remove_positions_on_unreliable_empty_snapshot(self):
+        tracker = PositionTracker()
+        tracker.force_set(TrackedPosition(
+            open_signal_id=7,
+            sym="BTC",
+            side="long",
+            entry_price=100.0,
+            qty=0.1,
+            fee_open=0.0,
+            by_player="PlayerA",
+            by_agent="AgentA",
+            opened_at=datetime.now(timezone.utc),
+        ))
+        event_log = EventLog()
+
+        class Exchange:
+            def get_all_positions(self):
+                return {}
+
+            def positions_snapshot_reliable(self):
+                return False
+
+            def positions_snapshot_error(self):
+                return "cached_futures_assets"
+
+        class Executor:
+            _tracker = tracker
+            _exchange = Exchange()
+
+        class Pipeline:
+            executor = Executor()
+            account_snapshot = {
+                "data_health": {
+                    "uses_cached_balance": True,
+                    "last_data_error_reason": "cached_futures_assets",
+                }
+            }
+
+        pipeline = Pipeline()
+        pipeline.event_log = event_log
+
+        summary = reconcile_tracker_with_exchange(pipeline, bar_index=8)
+
+        self.assertEqual(summary["removed"], 0)
+        self.assertEqual(summary["owned_removed"], 0)
+        self.assertEqual(summary["removal_guarded"], 1)
+        self.assertTrue(summary["snapshot_unreliable"])
+        self.assertEqual(summary["guard_reason"], "cached_futures_assets")
+        self.assertIsNotNone(tracker.get("BTC"))
+        self.assertEqual(list(event_log.query(event_types=[PositionClosed])), [])
 
     def test_reconcile_external_close_keeps_forensic_context(self):
         tracker = PositionTracker()

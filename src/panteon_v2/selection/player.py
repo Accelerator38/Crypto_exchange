@@ -174,21 +174,23 @@ class EnsemblePlayer:
         errors: List[VoteError] = []
         votes: Dict[str, Dict[str, Action]] = {}
         for agent in self.agents:
-            try:
-                agent_actions = agent.act(market)
-            except Exception as exc:
+            cleaned: Dict[str, Action] = {}
+            for sym in market.prices:
+                symbol_market = market.with_regime_for_symbol(sym)
+                try:
+                    agent_actions = agent.act(symbol_market)
+                except Exception as exc:
                 # Агент не должен падать в production. Если упал —
                 # его как будто нет в этом баре.
-                errors.append(VoteError(
-                    agent_label=agent.label,
-                    reason=f"{type(exc).__name__}: {exc}",
-                ))
-                agent_actions = {}
-            # Sanitize — только sym из market
-            cleaned: Dict[str, Action] = {}
-            for sym, action in (agent_actions or {}).items():
-                if sym not in market.prices:
+                    errors.append(VoteError(
+                        agent_label=agent.label,
+                        reason=f"{type(exc).__name__}: {exc}",
+                    ))
                     continue
+            # Sanitize — только sym из market
+                if sym not in (agent_actions or {}):
+                    continue
+                action = (agent_actions or {}).get(sym, Action.HOLD)
                 if not isinstance(action, Action):
                     try:
                         action = Action(int(action))
@@ -223,7 +225,7 @@ class EnsemblePlayer:
                 sym=sym,
                 action=action,
                 price=float(market.prices.get(sym, 0.0)),
-                regime=market.regime,
+                regime=market.regime_for_symbol(sym),
                 by_player=self.label,
                 by_agent=by_agent,
                 vote_weights=vote_weights,
@@ -298,21 +300,29 @@ class RotatingAgentPlayer:
         errors: List[VoteError] = []
         if not self.agents:
             return [], []
-        for agent_label in self._ordered_labels(market.regime):
-            agent = self._agents_by_label.get(agent_label)
-            if agent is None:
-                continue
-            cleaned, agent_errors = self._agent_actions(agent, market)
-            errors.extend(agent_errors)
-            if not any(not action.is_hold for action in cleaned.values()):
-                continue
-            return self._signals_from_actions(
-                cleaned,
-                market,
-                by_agent=agent.label,
-                signal_id_start=signal_id_start,
-            ), errors
-        return [], errors
+        signals: List[Signal] = []
+        sid = int(signal_id_start)
+        for sym in market.prices:
+            symbol_market = market.with_regime_for_symbol(sym)
+            for agent_label in self._ordered_labels(symbol_market.regime):
+                agent = self._agents_by_label.get(agent_label)
+                if agent is None:
+                    continue
+                cleaned, agent_errors = self._agent_actions(agent, symbol_market)
+                errors.extend(agent_errors)
+                action = cleaned.get(sym, Action.HOLD)
+                if action.is_hold:
+                    continue
+                created = self._signals_from_actions(
+                    {sym: action},
+                    symbol_market,
+                    by_agent=agent.label,
+                    signal_id_start=sid,
+                )
+                signals.extend(created)
+                sid += len(created)
+                break
+        return signals, errors
 
     def _ordered_labels(self, regime: Regime) -> Tuple[str, ...]:
         ordered: List[str] = []
@@ -381,7 +391,7 @@ class RotatingAgentPlayer:
                 sym=sym,
                 action=action,
                 price=float(market.prices.get(sym, 0.0)),
-                regime=market.regime,
+                regime=market.regime_for_symbol(sym),
                 by_player=self.label,
                 by_agent=by_agent,
                 vote_weights=vote_weights,

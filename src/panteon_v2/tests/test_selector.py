@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import unittest
 
-from panteon_v2.domain.types import Action, Regime, Signal, Trade
+from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import AgentRegistry, AgentSelector, SessionOverlayConfig
+from panteon_v2.selection.selector import _metrics_delta
 from panteon_v2.tests._helpers import FakeAgent
 
 
@@ -187,6 +188,33 @@ class TestAgentSelector(unittest.TestCase):
         after = selector.select(Regime.NEUTRAL, k=2)
 
         self.assertEqual(after[0].label, "SessionWinner")
+
+    def test_metrics_delta_clamps_win_loss_delta_to_closed_trade_delta(self):
+        current = Metrics(
+            pnl_pct=-0.57,
+            closed_trades=1,
+            entries=0,
+            signals=20,
+            wins=1,
+            losses=0,
+            max_dd_pct=0.76,
+        )
+        baseline = Metrics(
+            pnl_pct=0.00,
+            closed_trades=1,
+            entries=0,
+            signals=0,
+            wins=0,
+            losses=0,
+            max_dd_pct=0.00,
+        )
+
+        delta = _metrics_delta(current, baseline)
+
+        self.assertEqual(delta.closed_trades, 0)
+        self.assertEqual(delta.wins, 0)
+        self.assertEqual(delta.losses, 0)
+        self.assertEqual(delta.signals, 20)
 
 
 class TestQuarantineDoesNotLeak(unittest.TestCase):

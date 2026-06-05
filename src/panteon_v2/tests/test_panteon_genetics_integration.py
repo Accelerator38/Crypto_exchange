@@ -122,6 +122,65 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         )
         self.assertEqual(real_enabled, ("FundingArb",))
 
+    def test_shadow_only_genetics_seed_quarantine_can_exempt_runtime_candidate(self):
+        from panteon_v2.app.startup import _seed_quarantine_with_shadow_only_genetics
+
+        merged = _seed_quarantine_with_shadow_only_genetics(
+            ("FundingArb",),
+            [
+                "GeneticsCore",
+                "GeneticsNeutral",
+                "GeneticsRegimeAdaptiveBias",
+            ],
+            include_genetics=True,
+            genetics_shadow_only=True,
+            quarantine_exempt_labels=("GeneticsRegimeAdaptiveBias",),
+        )
+
+        self.assertIn("FundingArb", merged)
+        self.assertIn("GeneticsCore", merged)
+        self.assertIn("GeneticsNeutral", merged)
+        self.assertNotIn("GeneticsRegimeAdaptiveBias", merged)
+
+    def test_startup_resolves_shadow_only_genetics_quarantine_exempt_labels(self):
+        from panteon_v2.app import startup
+
+        with patch.dict(os.environ, {}, clear=True), \
+                patch.object(
+                    startup,
+                    "_load_exchange_settings",
+                    return_value={
+                        "mexc_v2_genetics_shadow_only_quarantine_exempt_labels": (
+                            "GeneticsRegimeAdaptiveBias, OtherRuntimeCandidate"
+                        ),
+                    },
+                ):
+            self.assertEqual(
+                startup._resolve_genetics_shadow_only_quarantine_exempt_labels("MEXC"),
+                ("GeneticsRegimeAdaptiveBias", "OtherRuntimeCandidate"),
+            )
+
+        with patch.dict(
+            os.environ,
+            {
+                "PANTEON_V2_GENETICS_SHADOW_ONLY_QUARANTINE_EXEMPT_LABELS": (
+                    "EnvCandidate"
+                ),
+            },
+        ), patch.object(
+            startup,
+            "_load_exchange_settings",
+            return_value={
+                "mexc_v2_genetics_shadow_only_quarantine_exempt_labels": (
+                    "SettingsCandidate"
+                ),
+            },
+        ):
+            self.assertEqual(
+                startup._resolve_genetics_shadow_only_quarantine_exempt_labels("MEXC"),
+                ("EnvCandidate",),
+            )
+
     def test_startup_resolves_genetics_from_settings_when_env_absent(self):
         from panteon_v2.app import startup
 
@@ -175,6 +234,10 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
                    side_effect=register_agents), \
              patch("panteon_v2.app.startup.build_production_pipeline",
                    side_effect=build_pipeline_capture), \
+             patch(
+                 "panteon_v2.app.startup._resolve_genetics_shadow_only_quarantine_exempt_labels",
+                 return_value=(),
+             ), \
              patch("panteon_v2.app.startup._resolve_trade_fraction",
                    return_value=0.1):
             rc = start_production(

@@ -55,6 +55,7 @@ class ScoringConfig:
     quarantine_recovery_closed:  int   = 3
     quarantine_hard_neg_pnl_pct: float = -0.30  # все режимы хуже −0.30% и ≥ 5 closed → карантин
     quarantine_hard_min_closed:  int   = 5
+    quarantine_dominant_loss_closed_share: float = 0.80
 
     # Минимальный score для попадания в Selector top-k
     min_eligible_score: float = 0.0
@@ -67,6 +68,8 @@ class ScoringConfig:
             raise ValueError("activity_signals_cap must be positive")
         if self.min_closed_for_full_confidence <= 0:
             raise ValueError("min_closed_for_full_confidence must be positive")
+        if not (0.0 < self.quarantine_dominant_loss_closed_share <= 1.0):
+            raise ValueError("quarantine_dominant_loss_closed_share must be in (0, 1]")
 
 
 DEFAULT_SCORING: "ScoringConfig" = ScoringConfig()
@@ -212,18 +215,41 @@ def is_hopeless_in_all_regimes(
     all_neg = True
     total_closed = 0
     worst_pnl = 0.0
+    worst_metrics: Metrics | None = None
+    data_metrics: list[Metrics] = []
     for metrics in per_regime_metrics.values():
         if not metrics.has_data:
             continue
         any_data = True
+        data_metrics.append(metrics)
         total_closed += metrics.closed_trades
         if metrics.pnl_pct > 0.0:
             all_neg = False
         if metrics.pnl_pct < worst_pnl:
             worst_pnl = metrics.pnl_pct
+            worst_metrics = metrics
+    # Keep meaningful positive regimes alive, but do not let a tiny positive
+    # side sample mask a catastrophic loss in the dominant traded regime.
+    dominant_loss = False
+    if (
+        worst_metrics is not None
+        and total_closed >= config.quarantine_hard_min_closed
+        and worst_pnl <= config.quarantine_hard_neg_pnl_pct
+    ):
+        aggregate_pnl = sum(metrics.pnl_pct for metrics in data_metrics)
+        closed_share = (
+            worst_metrics.closed_trades / total_closed
+            if total_closed > 0
+            else 0.0
+        )
+        dominant_loss = (
+            aggregate_pnl <= config.quarantine_hard_neg_pnl_pct
+            and worst_metrics.closed_trades >= config.quarantine_hard_min_closed
+            and closed_share >= config.quarantine_dominant_loss_closed_share
+        )
     return (
         any_data
-        and all_neg
+        and (all_neg or dominant_loss)
         and total_closed >= config.quarantine_hard_min_closed
         and worst_pnl <= config.quarantine_hard_neg_pnl_pct
     )

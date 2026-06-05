@@ -333,6 +333,11 @@ class ProductionShadowTournament:
             )
             return []
 
+        signal_metadata: Dict[str, object] = {}
+        bias_trace = getattr(agent, "last_regime_adaptive_output_bias", None)
+        if isinstance(bias_trace, dict) and bias_trace.get("enabled"):
+            signal_metadata["regime_adaptive_output_bias"] = dict(bias_trace)
+
         signals: List[Signal] = []
         for sym, action in (actions or {}).items():
             if sym not in market.prices:
@@ -355,6 +360,7 @@ class ProductionShadowTournament:
                 by_agent=agent.label,
                 position_scope=f"shadow:agent:{agent.label}",
                 timestamp=market.timestamp,
+                metadata=dict(signal_metadata),
             ))
         return signals
 

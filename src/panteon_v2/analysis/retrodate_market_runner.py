@@ -353,6 +353,11 @@ class RetrodateMarketConfig:
     flash_volatility_risk_target_pct: float = 2.0
     flash_volatility_risk_min_volatility_pct: float = 0.5
     flash_volatility_risk_max_mult: float = 2.0
+    flash_mixed_rotational_symbol_local_shadow_gate_enabled: bool = False
+    flash_mixed_rotational_symbol_local_shadow_min_score: float = 4.0
+    flash_mixed_rotational_symbol_local_shadow_min_closed_trades: int = 5
+    flash_genetics_probation_bypass_min_closed_enabled: bool = False
+    flash_genetics_probation_bypass_trend_gate_enabled: bool = False
     flash_technical_overlay_enabled: bool = False
     flash_technical_hard_gate_enabled: bool = False
     flash_technical_score_bonus: float = 0.10
@@ -507,6 +512,7 @@ class RetrodateMarketConfig:
     genetics_probation_risk_mult: float = 0.25
     genetics_probation_min_regime_confidence: float = 0.0
     genetics_probation_max_real_trades: int = 20
+    genetics_probation_max_daily_trades: int = 0
     genetics_probation_require_shadow_confirmation: bool = True
     v3_realized_profit_lock_min_closed_trades: int = 0
     v3_realized_profit_lock_min_peak_pnl_pct: float = 0.75
@@ -619,6 +625,14 @@ class RetrodateMarketConfig:
             raise ValueError("flash_volatility_risk_min_volatility_pct must be > 0")
         if self.flash_volatility_risk_max_mult <= 0:
             raise ValueError("flash_volatility_risk_max_mult must be > 0")
+        if self.flash_mixed_rotational_symbol_local_shadow_min_score < 0:
+            raise ValueError(
+                "flash_mixed_rotational_symbol_local_shadow_min_score must be >= 0"
+            )
+        if self.flash_mixed_rotational_symbol_local_shadow_min_closed_trades < 0:
+            raise ValueError(
+                "flash_mixed_rotational_symbol_local_shadow_min_closed_trades must be >= 0"
+            )
         if self.flash_technical_score_bonus < 0:
             raise ValueError("flash_technical_score_bonus must be >= 0")
         if self.flash_technical_score_penalty < 0:
@@ -754,6 +768,8 @@ class RetrodateMarketConfig:
             raise ValueError("risk_max_open_positions must be >= 0")
         if self.risk_max_leverage < 1:
             raise ValueError("risk_max_leverage must be >= 1")
+        if self.genetics_probation_max_daily_trades < 0:
+            raise ValueError("genetics_probation_max_daily_trades must be >= 0")
         if self.flash_degradation_window_closed_trades <= 0:
             raise ValueError("flash_degradation_window_closed_trades must be > 0")
         if self.flash_degradation_actor_scope not in {"actor", "actor_regime"}:
@@ -1065,6 +1081,11 @@ def load_retrodate_year_snapshots(
             for symbol in prices
         }
         regime, confidence = _classify_regime(prices, state)
+        regimes_by_symbol = _classify_symbol_regimes(
+            prices,
+            state,
+            fallback=regime,
+        )
         dt = datetime.fromtimestamp(timestamp / 1000.0, timezone.utc)
         snapshots.append(
             MarketSnapshot(
@@ -1078,6 +1099,7 @@ def load_retrodate_year_snapshots(
                 lookback_returns_pct=lookback_returns_pct,
                 lookback_volatility_pct=lookback_volatility_pct,
                 technicals_by_symbol=technicals_by_symbol,
+                regimes_by_symbol=regimes_by_symbol,
             )
         )
         _update_symbol_close_history(prices, state)
@@ -1719,6 +1741,21 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             args.flash_volatility_risk_min_volatility_pct
         ),
         flash_volatility_risk_max_mult=args.flash_volatility_risk_max_mult,
+        flash_mixed_rotational_symbol_local_shadow_gate_enabled=(
+            args.enable_flash_mixed_rotational_symbol_local_shadow_gate
+        ),
+        flash_mixed_rotational_symbol_local_shadow_min_score=(
+            args.flash_mixed_rotational_symbol_local_shadow_min_score
+        ),
+        flash_mixed_rotational_symbol_local_shadow_min_closed_trades=(
+            args.flash_mixed_rotational_symbol_local_shadow_min_closed_trades
+        ),
+        flash_genetics_probation_bypass_min_closed_enabled=(
+            args.enable_flash_genetics_probation_bypass_min_closed
+        ),
+        flash_genetics_probation_bypass_trend_gate_enabled=(
+            args.enable_flash_genetics_probation_bypass_trend_gate
+        ),
         flash_technical_overlay_enabled=args.enable_flash_technical_overlay,
         flash_technical_hard_gate_enabled=args.enable_flash_technical_hard_gate,
         flash_technical_score_bonus=args.flash_technical_score_bonus,
@@ -2068,6 +2105,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             args.genetics_probation_min_regime_confidence
         ),
         genetics_probation_max_real_trades=args.genetics_probation_max_real_trades,
+        genetics_probation_max_daily_trades=args.genetics_probation_max_daily_trades,
         genetics_probation_require_shadow_confirmation=(
             not args.disable_genetics_probation_shadow_confirmation
         ),
@@ -2304,6 +2342,28 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flash-volatility-risk-target-pct", type=float, default=2.0)
     parser.add_argument("--flash-volatility-risk-min-volatility-pct", type=float, default=0.5)
     parser.add_argument("--flash-volatility-risk-max-mult", type=float, default=2.0)
+    parser.add_argument(
+        "--enable-flash-mixed-rotational-symbol-local-shadow-gate",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--flash-mixed-rotational-symbol-local-shadow-min-score",
+        type=float,
+        default=4.0,
+    )
+    parser.add_argument(
+        "--flash-mixed-rotational-symbol-local-shadow-min-closed-trades",
+        type=int,
+        default=5,
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-probation-bypass-min-closed",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-probation-bypass-trend-gate",
+        action="store_true",
+    )
     parser.add_argument("--enable-flash-technical-overlay", action="store_true")
     parser.add_argument("--enable-flash-technical-hard-gate", action="store_true")
     parser.add_argument("--flash-technical-score-bonus", type=float, default=0.10)
@@ -2625,6 +2685,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
     )
     parser.add_argument("--genetics-probation-max-real-trades", type=int, default=20)
+    parser.add_argument("--genetics-probation-max-daily-trades", type=int, default=0)
     parser.add_argument(
         "--disable-genetics-probation-shadow-confirmation",
         action="store_true",
@@ -2801,6 +2862,21 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
             config.flash_volatility_risk_min_volatility_pct
         ),
         volatility_risk_max_mult=config.flash_volatility_risk_max_mult,
+        mixed_rotational_symbol_local_shadow_gate_enabled=(
+            config.flash_mixed_rotational_symbol_local_shadow_gate_enabled
+        ),
+        mixed_rotational_symbol_local_shadow_min_score=(
+            config.flash_mixed_rotational_symbol_local_shadow_min_score
+        ),
+        mixed_rotational_symbol_local_shadow_min_closed_trades=(
+            config.flash_mixed_rotational_symbol_local_shadow_min_closed_trades
+        ),
+        genetics_probation_bypass_min_closed_enabled=(
+            config.flash_genetics_probation_bypass_min_closed_enabled
+        ),
+        genetics_probation_bypass_trend_gate_enabled=(
+            config.flash_genetics_probation_bypass_trend_gate_enabled
+        ),
         technical_overlay_enabled=config.flash_technical_overlay_enabled,
         technical_hard_gate_enabled=config.flash_technical_hard_gate_enabled,
         technical_score_bonus=config.flash_technical_score_bonus,
@@ -3018,6 +3094,9 @@ def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecution
             config.genetics_probation_min_regime_confidence
         ),
         genetics_probation_max_real_trades=config.genetics_probation_max_real_trades,
+        genetics_probation_max_daily_trades=(
+            config.genetics_probation_max_daily_trades
+        ),
         genetics_probation_require_shadow_confirmation=(
             config.genetics_probation_require_shadow_confirmation
         ),
@@ -3231,6 +3310,31 @@ def _classify_regime(
     if ret >= 0.025:
         return Regime.BULLISH, confidence
     return Regime.NEUTRAL, max(0.55, 0.70 - abs(ret) * 3.0)
+
+
+def _classify_symbol_regimes(
+    prices: dict[str, float],
+    state: RetrodateSnapshotState,
+    *,
+    fallback: Regime,
+) -> dict[str, Regime]:
+    regimes: dict[str, Regime] = {}
+    for symbol, price in prices.items():
+        history = state.symbol_closes.get(symbol)
+        if not history:
+            regimes[symbol] = fallback
+            continue
+        anchor = float(history[0])
+        ret = (float(price) / anchor - 1.0) if anchor > 0 else 0.0
+        if ret <= -0.08:
+            regimes[symbol] = Regime.CRASH
+        elif ret <= -0.025:
+            regimes[symbol] = Regime.BEARISH
+        elif ret >= 0.025:
+            regimes[symbol] = Regime.BULLISH
+        else:
+            regimes[symbol] = Regime.NEUTRAL
+    return regimes
 
 
 def _coerce_float(value: object) -> float:
@@ -6077,6 +6181,21 @@ def _write_run_summary(
             config.flash_volatility_risk_min_volatility_pct
         ),
         "flash_volatility_risk_max_mult": config.flash_volatility_risk_max_mult,
+        "flash_mixed_rotational_symbol_local_shadow_gate_enabled": (
+            config.flash_mixed_rotational_symbol_local_shadow_gate_enabled
+        ),
+        "flash_mixed_rotational_symbol_local_shadow_min_score": (
+            config.flash_mixed_rotational_symbol_local_shadow_min_score
+        ),
+        "flash_mixed_rotational_symbol_local_shadow_min_closed_trades": (
+            config.flash_mixed_rotational_symbol_local_shadow_min_closed_trades
+        ),
+        "flash_genetics_probation_bypass_min_closed_enabled": (
+            config.flash_genetics_probation_bypass_min_closed_enabled
+        ),
+        "flash_genetics_probation_bypass_trend_gate_enabled": (
+            config.flash_genetics_probation_bypass_trend_gate_enabled
+        ),
         "flash_technical_overlay_enabled": config.flash_technical_overlay_enabled,
         "flash_technical_hard_gate_enabled": config.flash_technical_hard_gate_enabled,
         "flash_technical_score_bonus": config.flash_technical_score_bonus,
@@ -6482,6 +6601,9 @@ def _write_run_summary(
         ),
         "genetics_probation_max_real_trades": (
             config.genetics_probation_max_real_trades
+        ),
+        "genetics_probation_max_daily_trades": (
+            config.genetics_probation_max_daily_trades
         ),
         "genetics_probation_require_shadow_confirmation": (
             config.genetics_probation_require_shadow_confirmation

@@ -254,6 +254,20 @@ class AttributionLedger:
 
     # ── Sanity check (Q2) ──────────────────────────────────────────
 
+    def trade_counts_by_agent(self) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for attr in self._closed:
+            if attr.by_agent:
+                out[attr.by_agent] = out.get(attr.by_agent, 0) + 1
+        return out
+
+    def win_counts_by_agent(self) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for attr in self._closed:
+            if attr.by_agent and attr.realized_pnl > 0:
+                out[attr.by_agent] = out.get(attr.by_agent, 0) + 1
+        return out
+
     def consistency_check(self) -> bool:
         """True если суммы согласованы: total = sum(by_player) если все
         attributions имеют by_player.

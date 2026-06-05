@@ -84,7 +84,11 @@ class LiveExecutionConfig:
     genetics_probation_risk_mult: float = 0.25
     genetics_probation_min_regime_confidence: float = 0.0
     genetics_probation_max_real_trades: int = 20
+    genetics_probation_max_daily_trades: int = 0
     genetics_probation_require_shadow_confirmation: bool = True
+    genetics_probation_max_consecutive_failed_orders: int = 2
+    genetics_probation_max_realized_loss_pct: float = 0.25
+    max_real_symbol_min_executable_notional_usd: float = 40.0
 
     def __post_init__(self) -> None:
         if self.max_new_opens_per_bar < 0:
@@ -94,6 +98,7 @@ class LiveExecutionConfig:
             "max_equity_peak_drawdown_pct",
             "max_slippage_pct",
             "pending_order_timeout_sec",
+            "max_real_symbol_min_executable_notional_usd",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
@@ -103,6 +108,12 @@ class LiveExecutionConfig:
             raise ValueError("genetics_probation_min_regime_confidence must be in [0, 1]")
         if self.genetics_probation_max_real_trades < 0:
             raise ValueError("genetics_probation_max_real_trades must be >= 0")
+        if self.genetics_probation_max_daily_trades < 0:
+            raise ValueError("genetics_probation_max_daily_trades must be >= 0")
+        if self.genetics_probation_max_consecutive_failed_orders < 0:
+            raise ValueError("genetics_probation_max_consecutive_failed_orders must be >= 0")
+        if self.genetics_probation_max_realized_loss_pct < 0:
+            raise ValueError("genetics_probation_max_realized_loss_pct must be >= 0")
         for name in (
             "genetics_probation_labels",
             "genetics_probation_allowed_regimes",
@@ -134,6 +145,7 @@ class LiveExecutionConfig:
             "max_exchange_desync_events",
             "max_stale_feed_polls",
             "max_api_error_streak",
+            "genetics_probation_max_consecutive_failed_orders",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
@@ -147,6 +159,8 @@ class KillSwitchState:
     api_error_streak: int = 0
     exchange_desync_events: int = 0
     stale_feed_polls: int = 0
+    genetics_probation_disabled_reason: str = ""
+    genetics_probation_consecutive_failed_orders: int = 0
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -169,7 +183,7 @@ DEFAULT_REGIME_SWITCH_PLAYER_SETS: tuple[tuple[str, Dict[str, object]], ...] = (
         {
             "bullish": "VolBreakoutHunter",
             "bearish": "FundingArb",
-            "neutral": "ResearchValidatorAgent",
+            "neutral": "GeneticsCore",
             "crash": "CrashPanicShortAgent",
         },
     ),
@@ -267,7 +281,15 @@ DEFAULT_ROTATING_AGENT_PLAYER_SETS: tuple[
 
 
 def _protected_composite_labels() -> tuple[str, ...]:
-    labels = [label for label, _mapping in DEFAULT_REGIME_SWITCH_PLAYER_SETS]
+    labels = [
+        label
+        for label, mapping in DEFAULT_REGIME_SWITCH_PLAYER_SETS
+        if len({
+            str(regime).strip().lower()
+            for regime in mapping
+            if str(regime).strip()
+        }) > 1
+    ]
     labels.extend(label for label, _mapping, _fallback in DEFAULT_ROTATING_AGENT_PLAYER_SETS)
     return tuple(dict.fromkeys(labels))
 
@@ -384,8 +406,15 @@ def build_production_pipeline(
         persist_retry_attempts=3,
         persist_retry_delay_sec=0.05,
     )
-    virtual_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
-    real_perf = PerformanceMemory(trade_fraction=perf_trade_fraction)
+    exchange_scope = getattr(exchange, "name", "UNKNOWN")
+    virtual_perf = PerformanceMemory(
+        trade_fraction=perf_trade_fraction,
+        exchange_scope=exchange_scope,
+    )
+    real_perf = PerformanceMemory(
+        trade_fraction=perf_trade_fraction,
+        exchange_scope=exchange_scope,
+    )
     qm = QuarantineManager(
         seed=set(seed_quarantine),
         config=scoring_config,

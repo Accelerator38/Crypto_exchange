@@ -73,8 +73,16 @@ def build_attribution_panel(
         pnl_map = ledger.total_pnl_by_agent()
         title = title or "Реальный вклад агентов-инициаторов"
 
-    trade_counts = ledger.trade_counts_by_player()
-    win_counts = ledger.win_counts_by_player()
+    trade_counts = (
+        ledger.trade_counts_by_player()
+        if by == "player"
+        else ledger.trade_counts_by_agent()
+    )
+    win_counts = (
+        ledger.win_counts_by_player()
+        if by == "player"
+        else ledger.win_counts_by_agent()
+    )
     # for by=agent эти counts пусты, и win_rate=0 — ОК
 
     rows: List[AttributionRow] = []
@@ -82,8 +90,8 @@ def build_attribution_panel(
         rows.append(AttributionRow(
             label=label,
             realized_pnl=pnl,
-            n_trades=trade_counts.get(label, 0) if by == "player" else 0,
-            n_wins=win_counts.get(label, 0) if by == "player" else 0,
+            n_trades=trade_counts.get(label, 0),
+            n_wins=win_counts.get(label, 0),
             is_quarantined=qm.is_quarantined(label),
         ))
     rows.sort(key=lambda r: -r.realized_pnl)

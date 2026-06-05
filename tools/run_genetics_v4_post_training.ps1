@@ -3,7 +3,8 @@ param(
     [string]$RunDir,
     [string]$AgentsDir = "Genetics_DL_Agents\Agents\genetics",
     [string]$BaselineGenome,
-    [string]$DataDir = "C:\Work\Retrodate_cryptotrade\CriptoData",
+    [string]$Exchange = $env:CRYPTO_EXCHANGE,
+    [string]$DataDir = "Retrodate",
     [string]$Python = ".\.venv\Scripts\python.exe"
 )
 
@@ -13,7 +14,10 @@ Set-Location $Root
 
 if ([string]::IsNullOrWhiteSpace($RunDir)) {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $RunDir = Join-Path $Root "Results\neiro_genetics\post_training_v4_$stamp"
+    if ([string]::IsNullOrWhiteSpace($Exchange)) {
+        throw "Exchange is required for genetics post-training; pass -Exchange MEXC or -Exchange BITGET"
+    }
+    $RunDir = Join-Path $Root ("Results\neiro_genetics\" + $Exchange.ToUpperInvariant() + "\post_training_v4_$stamp")
 }
 if (-not [System.IO.Path]::IsPathRooted($RunDir)) {
     $RunDir = Join-Path $Root $RunDir
@@ -83,6 +87,7 @@ if ($uniqueGenomes.Count -lt 2) {
 
 $manifest = [ordered]@{
     generated_at = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    exchange = $Exchange.ToUpperInvariant()
     wait_pid = $WaitPid
     run_dir = $RunDir
     agents_dir = $AgentsDir
@@ -109,6 +114,7 @@ $evalTrainArgs = @(
     "--start-date", "2022-01-01",
     "--end-date", "2023-12-31",
     "--data-dir", $DataDir,
+    "--exchange", $Exchange,
     "--walk-forward",
     "--train-years", "2",
     "--validation-years", "1",
@@ -123,7 +129,8 @@ $evalValidationArgs = @(
     "--out", $validationReport,
     "--start-date", "2024-01-01",
     "--end-date", "2024-12-31",
-    "--data-dir", $DataDir
+    "--data-dir", $DataDir,
+    "--exchange", $Exchange
 )
 Invoke-LoggedPython "eval_validation_2024" $evalValidationArgs
 
@@ -133,7 +140,8 @@ $evalOosArgs = @(
     "--out", $oosReport,
     "--start-date", "2025-01-01",
     "--end-date", "2025-12-31",
-    "--data-dir", $DataDir
+    "--data-dir", $DataDir,
+    "--exchange", $Exchange
 )
 Invoke-LoggedPython "eval_oos_2025" $evalOosArgs
 
@@ -143,7 +151,8 @@ $evalFinalArgs = @(
     "--out", $finalReport,
     "--start-date", "2026-01-01",
     "--end-date", "2026-06-30",
-    "--data-dir", $DataDir
+    "--data-dir", $DataDir,
+    "--exchange", $Exchange
 )
 Invoke-LoggedPython "eval_final_sanity_2026_h1" $evalFinalArgs
 
@@ -154,6 +163,7 @@ Invoke-LoggedPython "select_single_fitness_v4" @(
     "--final-report", $oosReport,
     "--final-report", $finalReport,
     "--out", (Join-Path $RunDir "selection_single_fitness_v4.json"),
+    "--exchange", $Exchange,
     "--use-fitness-v4-robust",
     "--min-validation-mean-delta", "0.0",
     "--min-validation-min-ret-delta", "0.0",
@@ -175,6 +185,7 @@ Invoke-LoggedPython "select_router_fitness_v4" @(
     "--final-report", $oosReport,
     "--final-report", $finalReport,
     "--out", (Join-Path $RunDir "selection_router_fitness_v4.json"),
+    "--exchange", $Exchange,
     "--min-validation-mean-delta", "0.0",
     "--min-validation-min-ret-delta", "0.0",
     "--min-positive-period-pct", "50.0",

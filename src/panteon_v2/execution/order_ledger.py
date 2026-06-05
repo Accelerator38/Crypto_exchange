@@ -224,6 +224,7 @@ def _signal_to_dict(signal: Optional[Signal]) -> Optional[dict]:
         "risk_mult": signal.risk_mult,
         "close_fraction": signal.close_fraction,
         "timestamp": signal.timestamp.isoformat(),
+        "metadata": dict(getattr(signal, "metadata", {}) or {}),
     }
 
 
@@ -249,6 +250,7 @@ def _signal_from_dict(payload) -> Optional[Signal]:
             risk_mult=float(payload.get("risk_mult", 1.0) or 1.0),
             close_fraction=float(payload.get("close_fraction", 1.0) or 1.0),
             timestamp=_parse_ts(payload.get("timestamp")),
+            metadata=dict(payload.get("metadata") or {}),
         )
     except Exception:
         return None

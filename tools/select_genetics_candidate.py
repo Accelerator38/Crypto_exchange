@@ -27,6 +27,129 @@ SPECIALIST_LABEL_BY_REGIME = {
 }
 
 
+def _normalize_exchange(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _report_exchange(report: Dict[str, Any]) -> str:
+    for key in ("exchange", "exchange_id", "domain_exchange"):
+        value = _normalize_exchange(report.get(key))
+        if value:
+            return value
+    metadata = report.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("exchange", "exchange_id", "domain_exchange"):
+            value = _normalize_exchange(metadata.get(key))
+            if value:
+                return value
+    return ""
+
+
+def _strict_exchange_failures(
+    reports: Sequence[tuple[str, Dict[str, Any]]],
+    *,
+    expected_exchange: str,
+) -> List[str]:
+    expected = _normalize_exchange(expected_exchange)
+    failures: List[str] = []
+    if not expected:
+        return ["exchange_domain_missing"]
+    for role, report in reports:
+        actual = _report_exchange(report)
+        if not actual:
+            failures.append(f"{role}_exchange_missing")
+        elif actual != expected:
+            failures.append(f"{role}_exchange_mismatch:{actual}!={expected}")
+    return failures
+
+
+def apply_strict_promotion_contracts(
+    selection: Dict[str, Any],
+    *,
+    reports: Sequence[tuple[str, Dict[str, Any]]] = (),
+    expected_exchange: str = "",
+    baseline_kind: str = "",
+    require_flash_baseline: bool = True,
+    require_oos_gate: bool = True,
+    min_per_symbol_lcb: float | None = 0.0,
+    max_oos_drawdown_pct: float | None = 12.0,
+) -> Dict[str, Any]:
+    """Mark selection ineligible unless it came from the full exchange/OOS chain."""
+
+    failures = list(dict.fromkeys(str(item) for item in selection.get("promotion_failures", [])))
+    failures.extend(
+        item
+        for item in _strict_exchange_failures(
+            reports,
+            expected_exchange=expected_exchange,
+        )
+        if item not in failures
+    )
+    if require_flash_baseline and str(baseline_kind or "").strip().lower() != "flash":
+        failures.append("requires_flash_baseline")
+    if require_oos_gate and "final_holdout_gate" not in selection:
+        failures.append("requires_oos_holdout_gate")
+    final_gate = selection.get("final_holdout_gate")
+    if require_oos_gate and isinstance(final_gate, dict):
+        if not bool(final_gate.get("promotion_eligible", False)):
+            failures.append("oos_holdout_gate")
+        for item in final_gate.get("holdouts", []):
+            if not isinstance(item, dict):
+                continue
+            idx = item.get("index", 0)
+            try:
+                mean_delta = float(item.get("mean_ret_delta", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                mean_delta = 0.0
+            if mean_delta <= 0.0:
+                failures.append(f"oos_{idx}_mean_ret_not_positive")
+            candidate = item.get("candidate")
+            if not isinstance(candidate, dict):
+                continue
+            if min_per_symbol_lcb is not None:
+                lcb = candidate.get("min_per_symbol_lcb")
+                if lcb is None:
+                    failures.append(f"oos_{idx}_per_symbol_lcb_missing")
+                else:
+                    try:
+                        lcb_value = float(lcb)
+                    except (TypeError, ValueError):
+                        lcb_value = float("-inf")
+                    if lcb_value <= float(min_per_symbol_lcb):
+                        failures.append(f"oos_{idx}_per_symbol_lcb")
+            if max_oos_drawdown_pct is not None:
+                dd = candidate.get("max_drawdown_pct")
+                if dd is None:
+                    failures.append(f"oos_{idx}_max_drawdown_missing")
+                else:
+                    try:
+                        dd_value = float(dd)
+                    except (TypeError, ValueError):
+                        dd_value = float("inf")
+                    if dd_value > float(max_oos_drawdown_pct):
+                        failures.append(f"oos_{idx}_max_drawdown")
+
+    failures = list(dict.fromkeys(failures))
+    selection["exchange"] = _normalize_exchange(expected_exchange)
+    selection["baseline_kind"] = str(baseline_kind or "").strip().lower()
+    selection["strict_promotion_contracts"] = {
+        "require_flash_baseline": bool(require_flash_baseline),
+        "require_oos_gate": bool(require_oos_gate),
+        "min_per_symbol_lcb": min_per_symbol_lcb,
+        "max_oos_drawdown_pct": max_oos_drawdown_pct,
+        "report_exchanges": {
+            role: _report_exchange(report)
+            for role, report in reports
+        },
+    }
+    selection["promotion_failures"] = failures
+    selection["promotion_eligible"] = (
+        bool(selection.get("promotion_eligible", False))
+        and not failures
+    )
+    return selection
+
+
 def _load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -192,6 +315,59 @@ def _mode_payload(genome_payload: Dict[str, Any], mode: str) -> Dict[str, Any]:
     raise KeyError(f"mode {mode!r} not found for {genome_payload.get('path')}")
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _contract_min_per_symbol_lcb(contract: Dict[str, Any]) -> float | None:
+    for key in (
+        "min_per_symbol_lcb",
+        "min_symbol_pnl_lcb",
+        "min_symbol_pnl_lcb_pct",
+        "min_per_symbol_pnl_lcb_pct",
+    ):
+        value = _float_or_none(contract.get(key))
+        if value is not None:
+            return value
+    for key in ("per_symbol_lcb", "per_symbol_pnl_lcb", "symbol_lcb"):
+        payload = contract.get(key)
+        if isinstance(payload, dict):
+            values = [_float_or_none(value) for value in payload.values()]
+            clean = [value for value in values if value is not None]
+            if clean:
+                return min(clean)
+        if isinstance(payload, list):
+            values = [
+                _float_or_none(item.get("lcb") if isinstance(item, dict) else item)
+                for item in payload
+            ]
+            clean = [value for value in values if value is not None]
+            if clean:
+                return min(clean)
+    return None
+
+
+def _contract_max_drawdown_pct(contract: Dict[str, Any], robust: Dict[str, Any]) -> float | None:
+    for key in ("max_drawdown_pct", "max_dd_pct", "max_drawdown"):
+        value = _float_or_none(contract.get(key))
+        if value is not None:
+            return value
+    periods = contract.get("periods")
+    if isinstance(periods, list):
+        values = [
+            _float_or_none(row.get("max_drawdown_pct"))
+            for row in periods
+            if isinstance(row, dict)
+        ]
+        clean = [value for value in values if value is not None]
+        if clean:
+            return max(clean)
+    return _float_or_none(robust.get("max_drawdown_pct"))
+
+
 def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
     result: List[Dict[str, Any]] = []
     for genome_payload in report.get("genomes", []):
@@ -199,8 +375,12 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
         stats = mode_payload.get("period_stats", {})
         robust = mode_payload.get("robust_score", {})
         contract = mode_payload.get("contract_metrics", {})
+        if not isinstance(contract, dict):
+            contract = {}
         fitness_v3 = _fitness_v3_from_mode(mode_payload)
         fitness_v4 = _fitness_v4_from_mode(mode_payload)
+        min_per_symbol_lcb = _contract_min_per_symbol_lcb(contract)
+        max_drawdown_pct = _contract_max_drawdown_pct(contract, robust)
         result.append({
             "path": str(genome_payload.get("path", "")),
             "position_state_features_enabled": bool(
@@ -247,6 +427,8 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
                     contract.get("mean_invalid_open_logit_pressure", 0.0),
                 )
             ),
+            "min_per_symbol_lcb": min_per_symbol_lcb,
+            "max_drawdown_pct": max_drawdown_pct,
             "period_rets": list(mode_payload.get("period_rets", [])),
         })
     return result
@@ -348,6 +530,7 @@ def _period_summary_for_map(
     turnover_rates: List[float] = []
     saturation_rates: List[float] = []
     invalid_open_pressures: List[float] = []
+    drawdowns: List[float] = []
     for idx, row in enumerate(baseline_periods):
         regime = str(row.get("regime", "neutral"))
         path = regime_map.get(regime, fallback_path)
@@ -359,10 +542,12 @@ def _period_summary_for_map(
         turnover_rate = float(selected_period.get("turnover_rate", 0.0))
         saturation_rate = float(selected_period.get("saturation_rate", 0.0))
         invalid_open_pressure = float(selected_period.get("invalid_open_logit_pressure", 0.0))
+        max_drawdown_pct = float(selected_period.get("max_drawdown_pct", 0.0) or 0.0)
         selected_rets.append(float(rets[idx]))
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
         invalid_open_pressures.append(invalid_open_pressure)
+        drawdowns.append(max_drawdown_pct)
         selected_rows.append({
             "period": row.get("period", str(idx)),
             "regime": regime,
@@ -371,6 +556,7 @@ def _period_summary_for_map(
             "turnover_rate": turnover_rate,
             "saturation_rate": saturation_rate,
             "invalid_open_logit_pressure": invalid_open_pressure,
+            "max_drawdown_pct": max_drawdown_pct,
         })
 
     if selected_rets:
@@ -390,11 +576,13 @@ def _period_summary_for_map(
             sum(invalid_open_pressures) / len(invalid_open_pressures)
         )
         max_invalid_open_logit_pressure = max(invalid_open_pressures)
+        max_drawdown_pct = max(drawdowns)
     else:
         mean_ret = min_ret = max_ret = positive_period_pct = 0.0
         mean_turnover_rate = max_turnover_rate = 0.0
         mean_saturation_rate = max_saturation_rate = 0.0
         mean_invalid_open_logit_pressure = max_invalid_open_logit_pressure = 0.0
+        max_drawdown_pct = 0.0
 
     return {
         "mean_ret": float(mean_ret),
@@ -407,6 +595,8 @@ def _period_summary_for_map(
         "max_saturation_rate": float(max_saturation_rate),
         "mean_invalid_open_logit_pressure": float(mean_invalid_open_logit_pressure),
         "max_invalid_open_logit_pressure": float(max_invalid_open_logit_pressure),
+        "max_drawdown_pct": float(max_drawdown_pct),
+        "min_per_symbol_lcb": None,
         "period_rets": selected_rets,
         "periods": selected_rows,
     }
@@ -1011,6 +1201,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--mode", default="fee_fixed_nextbar")
     parser.add_argument(
+        "--exchange",
+        default="",
+        help="Required exchange/domain for promotion eligibility, for example MEXC or BITGET.",
+    )
+    parser.add_argument(
+        "--baseline-kind",
+        default="genome",
+        choices=("genome", "flash"),
+        help="Promotion baseline kind. Real promotion requires flash.",
+    )
+    parser.add_argument("--min-per-symbol-lcb", type=float, default=0.0)
+    parser.add_argument("--max-oos-drawdown-pct", type=float, default=12.0)
+    parser.add_argument(
+        "--allow-non-flash-baseline",
+        action="store_true",
+        help="Keep promotion eligible without a Flash baseline. Intended for diagnostics only.",
+    )
+    parser.add_argument(
+        "--allow-missing-oos-gate",
+        action="store_true",
+        help="Keep promotion eligible without final/OOS reports. Intended for diagnostics only.",
+    )
+    parser.add_argument(
         "--regime-router",
         action="store_true",
         help="Select a validation-safe per-regime genome map instead of one global genome.",
@@ -1043,8 +1256,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     train_report = _load_json(train_report_path)
     validation_report = _load_json(validation_report_path)
+    reports_for_strict: List[tuple[str, Dict[str, Any]]] = [
+        ("train", train_report),
+        ("validation", validation_report),
+    ]
     if args.regime_router:
         guard_reports = [_load_json(Path(path)) for path in args.guard_report or []]
+        reports_for_strict.extend(
+            (f"guard_{idx}", report)
+            for idx, report in enumerate(guard_reports)
+        )
         selection = select_regime_router(
             train_report,
             validation_report,
@@ -1065,6 +1286,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.final_report:
             final_reports = [_load_json(Path(path)) for path in args.final_report]
+            reports_for_strict.extend(
+                (f"final_{idx}", report)
+                for idx, report in enumerate(final_reports)
+            )
             final_gate = evaluate_regime_router_multisplit_gate(
                 selection,
                 final_reports,
@@ -1084,6 +1309,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             selection["promotion_failures"] = list(dict.fromkeys(merged_failures))
         if args.paper_report:
             paper_reports = [_load_json(Path(path)) for path in args.paper_report]
+            reports_for_strict.extend(
+                (f"paper_{idx}", report)
+                for idx, report in enumerate(paper_reports)
+            )
             paper_gate = evaluate_regime_router_paper_gate(
                 selection,
                 paper_reports,
@@ -1117,6 +1346,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         if args.final_report:
             final_reports = [_load_json(Path(path)) for path in args.final_report]
+            reports_for_strict.extend(
+                (f"final_{idx}", report)
+                for idx, report in enumerate(final_reports)
+            )
             final_gate = evaluate_single_candidate_multisplit_gate(
                 selection,
                 final_reports,
@@ -1135,6 +1368,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             merged_failures = list(selection.get("promotion_failures", []))
             merged_failures.extend(final_gate.get("promotion_failures", []))
             selection["promotion_failures"] = list(dict.fromkeys(merged_failures))
+    apply_strict_promotion_contracts(
+        selection,
+        reports=reports_for_strict,
+        expected_exchange=args.exchange,
+        baseline_kind=args.baseline_kind,
+        require_flash_baseline=not args.allow_non_flash_baseline,
+        require_oos_gate=not args.allow_missing_oos_gate,
+        min_per_symbol_lcb=args.min_per_symbol_lcb,
+        max_oos_drawdown_pct=args.max_oos_drawdown_pct,
+    )
     out_path.write_text(json.dumps(selection, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(selection, ensure_ascii=False, indent=2))
     return 0

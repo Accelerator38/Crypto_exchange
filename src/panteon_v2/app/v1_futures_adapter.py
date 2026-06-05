@@ -95,6 +95,8 @@ class V1FuturesExchangeAdapter:
         self._close_via_place_order = bool(close_via_place_order)
         self._fail_closed_on_metadata_error = bool(fail_closed_on_metadata_error)
         self._pending_orders: Dict[str, _PendingOrderContext] = {}
+        self._last_positions_snapshot_reliable = True
+        self._last_positions_error = ""
 
     def send_order(self, signal: Signal, *, qty: float) -> OrderResult:
         action = self._to_futures_action(signal.action)
@@ -119,6 +121,12 @@ class V1FuturesExchangeAdapter:
             if pos is not None and pos.qty > 0:
                 out[pos.sym] = pos
         return out
+
+    def positions_snapshot_reliable(self) -> bool:
+        return bool(self._last_positions_snapshot_reliable)
+
+    def positions_snapshot_error(self) -> str:
+        return str(self._last_positions_error or "")
 
     def get_min_notional(self, sym: str) -> float:
         if self._fail_closed_on_metadata_error:
@@ -208,13 +216,14 @@ class V1FuturesExchangeAdapter:
                 return value
         return 0.0
 
-    def get_account_snapshot(self) -> Dict[str, float]:
+    def get_account_snapshot(self) -> Dict[str, Any]:
         """Read a normalized live account snapshot for operator status.
 
         The v1 runtime exposes richer snapshots on direct clients. Panteon v2
         keeps only a compact USD view: futures equity/available, spot value,
         total assets and unrealized PnL.
         """
+        last_unhealthy: Dict[str, Any] = {}
         sources = (self._read_client, self._order_client)
         for source in sources:
             if source is None:
@@ -223,9 +232,11 @@ class V1FuturesExchangeAdapter:
             if callable(snapshot):
                 try:
                     normalized = self._snapshot_from_full_snapshot(snapshot())
+                    self._attach_source_data_health(normalized, source)
                     if normalized.get("current_balance", 0.0) > 0:
-                        self._attach_source_data_health(normalized, source)
                         return normalized
+                    if normalized.get("data_health"):
+                        last_unhealthy = normalized
                 except Exception:
                     pass
 
@@ -236,12 +247,16 @@ class V1FuturesExchangeAdapter:
             if callable(getter):
                 try:
                     normalized = self._snapshot_from_assets(getter())
+                    self._attach_source_data_health(normalized, source)
                     if normalized.get("current_balance", 0.0) > 0:
-                        self._attach_source_data_health(normalized, source)
                         return normalized
+                    if normalized.get("data_health"):
+                        last_unhealthy = normalized
                 except Exception:
                     pass
 
+        if last_unhealthy:
+            return last_unhealthy
         return {}
 
     def _send_open(
@@ -532,7 +547,45 @@ class V1FuturesExchangeAdapter:
             )
         return None
 
+    def _set_positions_read_state(self, reliable: bool, reason: str = "") -> None:
+        self._last_positions_snapshot_reliable = bool(reliable)
+        self._last_positions_error = "" if reliable else str(reason or "position_read_error")
+
+    @staticmethod
+    def _source_recent_data_error(source: Any, max_age_sec: float = 120.0) -> str:
+        probe = getattr(source, "recent_data_error", None)
+        if not callable(probe):
+            return ""
+        try:
+            return str(probe(max_age_sec) or "")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _snapshot_unreliable_reason(snapshot: Any) -> str:
+        if not isinstance(snapshot, dict):
+            return "invalid position snapshot"
+        health = snapshot.get("data_health")
+        if not isinstance(health, dict):
+            return ""
+        reason = str(
+            health.get("recent_data_error")
+            or health.get("last_data_error_reason")
+            or health.get("last_error_reason")
+            or health.get("reason")
+            or ""
+        ).strip()
+        if reason:
+            return reason
+        if bool(health.get("uses_cached_balance") or health.get("cached_equity")):
+            return "cached exchange snapshot"
+        if health.get("snapshot_healthy") is False:
+            return "snapshot unhealthy"
+        return ""
+
     def _raw_positions(self) -> Iterable[dict]:
+        errors = []
+        self._set_positions_read_state(False, "no reliable position source")
         for source in (self._read_client, self._order_client):
             if source is None:
                 continue
@@ -540,30 +593,62 @@ class V1FuturesExchangeAdapter:
             if callable(getter):
                 try:
                     positions = getter()
+                    recent_error = self._source_recent_data_error(source)
                     if positions:
+                        self._set_positions_read_state(True)
+                        return positions
+                    if isinstance(positions, (list, tuple)):
+                        if recent_error:
+                            errors.append(recent_error)
+                            continue
+                        self._set_positions_read_state(True)
                         return positions
                 except Exception:
+                    errors.append(f"{type(source).__name__}.get_futures_positions")
                     pass
 
             snapshot = getattr(source, "get_full_snapshot", None)
             if callable(snapshot):
                 try:
-                    positions = (
-                        snapshot().get("futures", {}).get("positions", [])
+                    raw_snapshot = snapshot()
+                    positions = raw_snapshot.get("futures", {}).get("positions", [])
+                    snapshot_error = (
+                        self._snapshot_unreliable_reason(raw_snapshot)
+                        or self._source_recent_data_error(source)
                     )
                     if positions:
+                        self._set_positions_read_state(True)
+                        return positions
+                    if isinstance(positions, (list, tuple)):
+                        if snapshot_error:
+                            errors.append(snapshot_error)
+                            continue
+                        self._set_positions_read_state(True)
                         return positions
                 except Exception:
+                    errors.append(f"{type(source).__name__}.get_full_snapshot")
                     pass
 
             req = getattr(source, "_req", None)
             if callable(req):
                 try:
                     payload = req("GET", "/api/v1/private/position/open_positions")
-                    positions = payload.get("data", []) if isinstance(payload, dict) else []
+                    if not isinstance(payload, dict):
+                        errors.append(f"{type(source).__name__}._req invalid payload")
+                        continue
+                    code = payload.get("code")
+                    if code not in (None, 0, 200):
+                        errors.append(f"position_open_positions_code_{code}")
+                        continue
+                    positions = payload.get("data", [])
                     if positions:
+                        self._set_positions_read_state(True)
+                        return positions
+                    if isinstance(positions, (list, tuple)):
+                        self._set_positions_read_state(True)
                         return positions
                 except Exception:
+                    errors.append(f"{type(source).__name__}._req")
                     pass
 
             exchange = getattr(source, "exchange", None)
@@ -574,10 +659,17 @@ class V1FuturesExchangeAdapter:
                         params={"productType": "USDT-FUTURES", "marginCoin": "USDT"}
                     )
                     if positions:
+                        self._set_positions_read_state(True)
+                        return positions
+                    if isinstance(positions, (list, tuple)):
+                        self._set_positions_read_state(True)
                         return positions
                 except Exception:
+                    errors.append(f"{type(source).__name__}.fetch_positions")
                     pass
 
+        reason = "; ".join(str(item) for item in errors[:3] if item)
+        self._set_positions_read_state(False, reason or "no reliable position source")
         return []
 
     def _normalize_position(self, raw: dict) -> Optional[ExchangePosition]:

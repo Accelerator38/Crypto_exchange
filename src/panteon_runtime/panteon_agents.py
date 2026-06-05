@@ -3622,7 +3622,16 @@ class Panteon:
     USE_REGIME_TOP_TRADER = False
     RISK_ADJUSTED_MIN_AGENTS = 2
     RISK_ADJUSTED_MAX_AGENTS = 5
-    REGIME_TOPS = ('bullish', 'bearish', 'neutral', 'crash')
+    REGIME_TOPS = (
+        'bullish',
+        'bearish',
+        'neutral',
+        'crash',
+        'range_low_vol',
+        'choppy_down',
+        'choppy_up',
+        'mixed_rotational',
+    )
     REGIME_TOP_MIN_POSITION_TICKS = 12
     RESTORE_SAVED_ACTIVE_WEIGHTS = False
     RESTORE_GLOBAL_SUCCESS_MEMORY = False
@@ -3699,7 +3708,7 @@ class Panteon:
     # Стартовый seed (плохая история на BG/MEXC) — те же три агента, но
     # `Panteon.recompute_dynamic_quarantine()` пересчитывает live-blocklist на
     # каждом тике на основе per-regime памяти shadow-портфелей: если у агента
-    # хотя бы в одном из режимов рынка (bullish/bearish/neutral/crash) есть
+    # хотя бы в одном из канонических режимов рынка есть
     # положительный накопленный pnl при достаточной выборке (>= QUARANTINE_RECOVERY_CLOSED
     # closed-trades), он автоматически выпускается из карантина и снова имеет
     # право быть live-лидером.  И, наоборот, любой агент/игрок, у которого ВО
@@ -3763,12 +3772,22 @@ class Panteon:
             'LiveOIBreakout': 0.14,
         },
     }
+    REGIME_STATIC_WEIGHTS['range_low_vol'] = dict(REGIME_STATIC_WEIGHTS['neutral'])
+    REGIME_STATIC_WEIGHTS['choppy_down'] = dict(REGIME_STATIC_WEIGHTS['bearish'])
+    REGIME_STATIC_WEIGHTS['choppy_up'] = dict(REGIME_STATIC_WEIGHTS['bullish'])
+    REGIME_STATIC_WEIGHTS['mixed_rotational'] = dict(REGIME_STATIC_WEIGHTS['neutral'])
+
     REGIME_PRIORITY_MAP = {
         'bullish': ('LiveAfterShock', 'BullRotationAgent', 'LiveOIBreakout', 'CarryFlowAgentV2', 'LiveVolCompress', 'LiveRegimePullback', 'LiveTrendFollow', 'LiveCrashHunter'),
         'bearish': ('CarryFlowAgentV2', 'BearReliefFadeAgent', 'LiveOIBreakout', 'LiveAfterShock', 'LiveCrashHunter', 'LiveTrendFollow'),
         'neutral': ('NeutralRangeScalper', 'LiveVolCompress', 'LiveAfterShock', 'CarryFlowAgentV2', 'LiveMeanRev', 'LiveOIBreakout', 'LiveCrashHunter', 'LiveRegimePullback'),
         'crash': ('CrashPanicShortAgent', 'CarryFlowAgentV2', 'LiveOIBreakout', 'LiveAfterShock', 'LiveCrashHunter', 'LiveTrendFollow'),
     }
+    REGIME_PRIORITY_MAP['range_low_vol'] = REGIME_PRIORITY_MAP['neutral']
+    REGIME_PRIORITY_MAP['choppy_down'] = REGIME_PRIORITY_MAP['bearish']
+    REGIME_PRIORITY_MAP['choppy_up'] = REGIME_PRIORITY_MAP['bullish']
+    REGIME_PRIORITY_MAP['mixed_rotational'] = REGIME_PRIORITY_MAP['neutral']
+
     REGIME_SCORE_BONUS = {
         'bullish': {
             'BullRotationAgent': 0.24,
@@ -3840,6 +3859,11 @@ class Panteon:
             'LiveAfterShock': 0.12,
         },
     }
+    REGIME_SCORE_BONUS['range_low_vol'] = dict(REGIME_SCORE_BONUS['neutral'])
+    REGIME_SCORE_BONUS['choppy_down'] = dict(REGIME_SCORE_BONUS['bearish'])
+    REGIME_SCORE_BONUS['choppy_up'] = dict(REGIME_SCORE_BONUS['bullish'])
+    REGIME_SCORE_BONUS['mixed_rotational'] = dict(REGIME_SCORE_BONUS['neutral'])
+
     MAJOR_SYMBOLS = frozenset({
         'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'TRX',
         'AVAX', 'DOT', 'LINK', 'UNI', 'NEAR', 'LTC', 'BCH', 'TON',
@@ -4015,22 +4039,40 @@ class Panteon:
 
     def _canonical_market_regime(self, regime: Optional[str]) -> str:
         key = str(regime or '').strip().lower()
+        normalized = key.replace('-', '_').replace(' ', '_').replace('/', '_')
         if key in {'bull', 'bullish', 'up', 'long'}:
             return 'bullish'
         if key in {'bear', 'bearish', 'down', 'short'}:
             return 'bearish'
         if key in {'crash', 'panic', 'capitulation'}:
             return 'crash'
+        if normalized in {'range_low_vol', 'low_vol_range', 'low_vol'}:
+            return 'range_low_vol'
+        if normalized in {'choppy_down', 'chop_down', 'volatile_down'}:
+            return 'choppy_down'
+        if normalized in {'choppy_up', 'chop_up', 'volatile_up'}:
+            return 'choppy_up'
+        if normalized in {'mixed_rotational', 'mixed_rotation', 'rotational', 'mixed'}:
+            return 'mixed_rotational'
         return 'neutral'
 
     def _canonical_symbol_regime(self, regime: Optional[str]) -> str:
         key = str(regime or '').strip().lower()
+        normalized = key.replace('-', '_').replace(' ', '_').replace('/', '_')
         if key in {'bull', 'bullish', 'up', 'long'}:
             return 'bullish'
         if key in {'bear', 'bearish', 'down', 'short'}:
             return 'bearish'
         if key in {'crash', 'panic', 'capitulation'}:
             return 'crash'
+        if normalized in {'range_low_vol', 'low_vol_range', 'low_vol'}:
+            return 'range_low_vol'
+        if normalized in {'choppy_down', 'chop_down', 'volatile_down'}:
+            return 'choppy_down'
+        if normalized in {'choppy_up', 'chop_up', 'volatile_up'}:
+            return 'choppy_up'
+        if normalized in {'mixed_rotational', 'mixed_rotation', 'rotational', 'mixed'}:
+            return 'mixed_rotational'
         if key in {'flat', 'sideways', 'neutral', 'range'}:
             return 'neutral'
         return 'unknown'

@@ -258,6 +258,86 @@ class TestMexcExchangeAdapter(unittest.TestCase):
 
         self.assertAlmostEqual(adapter.get_account_equity(), 120.5)
 
+    def test_empty_positions_with_recent_data_error_are_not_reliable(self):
+        from panteon_v2.app.v1_futures_adapter import V1FuturesExchangeAdapter
+
+        class ReadClient:
+            def get_futures_positions(self):
+                return []
+
+            def recent_data_error(self, max_age_sec=120.0):
+                return "cached_futures_assets"
+
+        class OrderClient:
+            def account_assets(self):
+                return {"USDT": 120.5, "USDT_AVAIL": 118.0}
+
+            def _get_contract_meta(self, symbol: str) -> dict:
+                return {
+                    "symbol": f"{symbol}_USDT",
+                    "contractSize": 0.001,
+                    "minVol": 1,
+                    "volUnit": 1,
+                }
+
+        adapter = V1FuturesExchangeAdapter(
+            name="MEXC",
+            order_client=OrderClient(),
+            read_client=ReadClient(),
+            leverage=2,
+        )
+
+        self.assertEqual(adapter.get_all_positions(), {})
+        self.assertFalse(adapter.positions_snapshot_reliable())
+        self.assertEqual(adapter.positions_snapshot_error(), "cached_futures_assets")
+
+    def test_zero_balance_full_snapshot_preserves_data_health(self):
+        from panteon_v2.app.v1_futures_adapter import V1FuturesExchangeAdapter
+
+        class ReadClient:
+            def get_full_snapshot(self):
+                return {
+                    "futures": {
+                        "equity": 0.0,
+                        "available": 0.0,
+                        "unrealized": 0.0,
+                        "positions": [],
+                    },
+                    "spot": {"total_value": 0.0},
+                    "total_equity": 0.0,
+                    "data_health": {
+                        "last_data_error_reason": "cached_futures_assets",
+                        "snapshot_healthy": False,
+                    },
+                }
+
+        class OrderClient:
+            def account_assets(self):
+                return {}
+
+            def _get_contract_meta(self, symbol: str) -> dict:
+                return {
+                    "symbol": f"{symbol}_USDT",
+                    "contractSize": 0.001,
+                    "minVol": 1,
+                    "volUnit": 1,
+                }
+
+        adapter = V1FuturesExchangeAdapter(
+            name="MEXC",
+            order_client=OrderClient(),
+            read_client=ReadClient(),
+            leverage=2,
+        )
+
+        snapshot = adapter.get_account_snapshot()
+
+        self.assertEqual(snapshot["current_balance"], 0.0)
+        self.assertEqual(
+            snapshot["data_health"]["last_data_error_reason"],
+            "cached_futures_assets",
+        )
+
 
 class TestBitgetExchangeAdapter(unittest.TestCase):
     def test_open_long_maps_to_bitget_futures_order(self):

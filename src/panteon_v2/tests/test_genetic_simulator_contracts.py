@@ -26,6 +26,13 @@ def _load_contract_eval_tool():
     return importlib.import_module("tools.evaluate_genetics_contract")
 
 
+def _load_live_activation_tool():
+    root = Path(__file__).resolve().parents[3]
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return importlib.import_module("tools.evaluate_genetics_live_activation")
+
+
 def _write_retrodate_csv(path: Path, *, timestamp: int, dt: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -44,6 +51,88 @@ def _write_retrodate_csv(path: Path, *, timestamp: int, dt: str) -> None:
             "symbol": "BTC/USDT",
             "datetime": dt,
         })
+
+
+def test_fallback_crypto_exchange_load_data_reads_retrodate_csv(tmp_path):
+    cg = _load_crypto_genetics()
+    csv_path = tmp_path / "crypto_1m_2026_all_symbols.csv"
+    _write_retrodate_csv(
+        csv_path,
+        timestamp=1767225600000,
+        dt="2026-01-01 00:00:00+00:00",
+    )
+
+    dfp, dfv = cg._FallbackCryptoExchange.load_data(
+        str(csv_path),
+        "2026-01-01",
+        "2026-01-01",
+    )
+
+    assert list(dfp.columns) == ["BTC/USDT"]
+    assert list(dfv.columns) == ["BTC/USDT"]
+    assert float(dfp.iloc[0, 0]) == 100.5
+    assert float(dfv.iloc[0, 0]) == 10.0
+
+
+def test_live_activation_virtual_fill_state_maps_exchange_actions():
+    tool = _load_live_activation_tool()
+
+    class FakeAgent:
+        def __init__(self):
+            self.updates = []
+
+        def update_from_exchange(self, symbol, spot_qty, spot_entry, fut_qty, fut_entry):
+            self.updates.append((symbol, spot_qty, spot_entry, fut_qty, fut_entry))
+
+    agent = FakeAgent()
+    positions = {}
+
+    counts = tool._apply_virtual_position_state(
+        agent,
+        {"BTC": 100.0, "ETH": 50.0, "SOL": 25.0},
+        {"BTC": 3, "ETH": 4, "SOL": 1},
+        positions,
+    )
+
+    assert counts == {"fut_long": 1, "fut_short": 1, "spot_buy": 1}
+    assert positions["BTC"]["fut_qty"] == pytest.approx(1.0)
+    assert positions["BTC"]["fut_entry"] == pytest.approx(100.0)
+    assert positions["ETH"]["fut_qty"] == pytest.approx(-1.0)
+    assert positions["ETH"]["fut_entry"] == pytest.approx(50.0)
+    assert positions["SOL"]["spot_qty"] == pytest.approx(1.0)
+    assert positions["SOL"]["spot_entry"] == pytest.approx(25.0)
+
+    close_counts = tool._apply_virtual_position_state(
+        agent,
+        {"BTC": 101.0, "SOL": 26.0},
+        {"BTC": 5, "SOL": 2},
+        positions,
+    )
+
+    assert close_counts == {"fut_close": 1, "spot_sell": 1}
+    assert positions["BTC"]["fut_qty"] == pytest.approx(0.0)
+    assert positions["BTC"]["fut_entry"] == pytest.approx(0.0)
+    assert positions["SOL"]["spot_qty"] == pytest.approx(0.0)
+    assert positions["SOL"]["spot_entry"] == pytest.approx(0.0)
+    assert agent.updates[-2:] == [
+        ("BTC", 0.0, 0.0, 0.0, 0.0),
+        ("SOL", 0.0, 0.0, 0.0, 0.0),
+    ]
+
+
+def test_genetics_v4_launchers_are_exchange_scoped_to_local_retrodate():
+    root = Path(__file__).resolve().parents[3]
+    start_script = (root / "tools" / "start_genetics_v4_heavy_training.ps1").read_text(
+        encoding="utf-8"
+    )
+    post_script = (root / "tools" / "run_genetics_v4_post_training.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[string]$Exchange" in start_script
+    assert 'Results\\neiro_genetics\\" + $Exchange.ToUpperInvariant()' in start_script
+    assert '"-Exchange", $Exchange' in start_script
+    assert '[string]$DataDir = "Retrodate"' in post_script
 
 
 def _patch_minimal_sim_config(monkeypatch, cg, *, spot_fee, futures_fee):
@@ -285,6 +374,8 @@ def test_position_aware_forward_does_not_return_saturated_opens(monkeypatch):
     assert metrics["turnover_rates"][0] == 1 / 6
     assert suppression_metrics["saturation_rates"][0] == 5 / 6
     assert suppression_metrics["invalid_open_logit_pressures"][0] > 6.0
+    assert suppression_metrics["capacity_bar_rates"][0] == pytest.approx(1.0)
+    assert suppression_metrics["same_side_open_rates"][0] == pytest.approx(2 / 6)
 
 
 def test_invalid_open_pressure_counts_same_bar_overcapacity(monkeypatch):
@@ -336,6 +427,61 @@ def test_compute_fitness_penalizes_excess_turnover_and_saturation(monkeypatch):
     assert fits[0] > fits[1] + 5.0
 
 
+def test_compute_fitness_penalizes_no_trade_collapse(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[1.0, 1.0], [1.0, 1.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.array([[0.02, 0.02], [0.0, 0.0]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "TRADE_FLOOR_TARGET_RATE", 0.005, raising=False)
+    monkeypatch.setattr(cg, "TRADE_FLOOR_PENALTY_W", 20.0, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > fits[1] + 15.0
+
+
+def test_activation_selection_fits_demotes_inactive_when_active_exists(monkeypatch):
+    cg = _load_crypto_genetics()
+    trainer = object.__new__(cg.GeneticTrainer)
+    fits = np.array([10.0, -5.0], dtype=np.float64)
+    trade_rates = np.array([[0.0, 0.0], [0.02, 0.02]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_ENABLED", True, raising=False)
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_MIN_TRADE_RATE", 0.005, raising=False)
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_DEMOTE", 25.0, raising=False)
+
+    adjusted = trainer._activation_selection_fits(fits, trade_rates)
+
+    assert adjusted[1] > adjusted[0]
+    assert adjusted[0] <= fits[1] - 25.0
+
+
+def test_activation_selection_fits_leaves_all_inactive_population_unchanged(monkeypatch):
+    cg = _load_crypto_genetics()
+    trainer = object.__new__(cg.GeneticTrainer)
+    fits = np.array([10.0, -5.0], dtype=np.float64)
+    trade_rates = np.zeros((2, 2), dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_ENABLED", True, raising=False)
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_MIN_TRADE_RATE", 0.005, raising=False)
+    monkeypatch.setattr(cg, "ACTIVE_ELITE_DEMOTE", 25.0, raising=False)
+
+    adjusted = trainer._activation_selection_fits(fits, trade_rates)
+
+    np.testing.assert_allclose(adjusted, fits)
+
+
+def test_activation_trade_floor_thresholds_use_simulator_trade_rate_scale():
+    cg = _load_crypto_genetics()
+
+    assert 0.0 < cg.TRADE_FLOOR_TARGET_RATE <= 1e-5
+    assert 0.0 < cg.ACTIVE_ELITE_MIN_TRADE_RATE <= 1e-5
+
+
 def test_compute_fitness_does_not_prefer_low_turnover_lossy_policy(monkeypatch):
     cg = _load_crypto_genetics()
     period_rets = np.array([
@@ -379,6 +525,31 @@ def test_compute_fitness_does_not_prefer_low_turnover_lossy_policy(monkeypatch):
     assert fits[0] > fits[1]
 
 
+def test_compute_fitness_penalizes_negative_worst_period_outlier(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.20, 0.20, 0.20, 0.20],
+        [0.20, 0.30, -0.30, 4.60],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_OUTLIER_CONC_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_NEGATIVE_PERIOD_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WORST_PERIOD_RET_FLOOR", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WORST_PERIOD_FLOOR_PENALTY_W", 80.0, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > fits[1]
+
+
 def test_compute_fitness_penalizes_invalid_open_logit_pressure(monkeypatch):
     cg = _load_crypto_genetics()
     period_rets = np.array([[4.0, 4.0], [4.0, 4.0]], dtype=np.float64)
@@ -400,6 +571,59 @@ def test_compute_fitness_penalizes_invalid_open_logit_pressure(monkeypatch):
     )
 
     assert fits[0] > fits[1] + 7.0
+
+
+def test_compute_fitness_penalizes_capacity_occupation(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[4.0, 4.0], [4.0, 4.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    capacity_rates = np.array([[0.05, 0.05], [0.65, 0.65]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "CAPACITY_BAR_TARGET", 0.20, raising=False)
+    monkeypatch.setattr(cg, "CAPACITY_BAR_PENALTY_W", 8.0, raising=False)
+    monkeypatch.setattr(cg, "CAPACITY_BAR_MAX_PENALTY_W", 6.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_capacity_bar_rates=capacity_rates,
+    )
+
+    assert fits[0] > fits[1] + 6.0
+
+
+def test_compute_fitness_penalizes_same_side_open_attempts(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[4.0, 4.0], [4.0, 4.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    same_side_rates = np.array([[0.0, 0.0], [0.35, 0.35]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "ACTION_FEASIBILITY_PENALTY_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "SAME_SIDE_OPEN_TARGET", 0.01, raising=False)
+    monkeypatch.setattr(cg, "SAME_SIDE_OPEN_PENALTY_W", 20.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_same_side_open_rates=same_side_rates,
+    )
+
+    assert fits[0] > fits[1] + 10.0
 
 
 def test_compute_fitness_penalizes_spiky_max_saturation(monkeypatch):
@@ -1175,7 +1399,16 @@ def test_cpu_batch_eval_applies_regime_weight_override(monkeypatch):
             None,
         )
 
-    def fake_compute(ret_mat, dd_mat, tr_mat, dpv, rw_arr, sat_mat, pressure_mat):
+    def fake_compute(
+        ret_mat,
+        dd_mat,
+        tr_mat,
+        dpv,
+        rw_arr,
+        sat_mat,
+        pressure_mat,
+        *extra_metrics,
+    ):
         captured["rw"] = rw_arr.copy()
         return np.zeros(ret_mat.shape[0], dtype=np.float64)
 
@@ -1272,6 +1505,49 @@ def test_contract_evaluator_reports_directional_exposure_metrics():
     assert by_symbol["top_position_symbols"][1]["long_slot_rate"] == pytest.approx(2 / 4)
 
 
+def test_contract_evaluator_parses_live_universe_symbol_filter():
+    tool = _load_contract_eval_tool()
+
+    assert tool._parse_symbol_filter(["BTC/USDT, ethusdt", "SOL", "BTC"]) == (
+        "BTC",
+        "ETH",
+        "SOL",
+    )
+
+
+def test_contract_evaluator_filters_precomp_to_live_universe_symbols():
+    tool = _load_contract_eval_tool()
+    feat = np.arange(2 * 3 * 2, dtype=np.float32).reshape(2, 3, 2)
+    prices = np.arange(2 * 3, dtype=np.float64).reshape(2, 3)
+    precomp = [(
+        feat,
+        prices,
+        ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        4,
+        "2026-04",
+        1.5,
+        "neutral",
+    )]
+
+    filtered, summary = tool._filter_precomp_symbols(precomp, ("ETH", "XRP"))
+
+    assert summary["requested_symbols"] == ["ETH", "XRP"]
+    assert summary["periods_before"] == 1
+    assert summary["periods_after"] == 1
+    assert summary["periods_dropped"] == 0
+    assert summary["periods"][0]["kept_symbols"] == ["ETH/USDT"]
+    assert filtered[0][2] == ["ETH/USDT"]
+    assert np.array_equal(filtered[0][0], feat[:, [1], :])
+    assert np.array_equal(filtered[0][1], prices[:, [1]])
+    assert filtered[0][4] == "2026-04"
+
+    empty, empty_summary = tool._filter_precomp_symbols(precomp, ("XRP",))
+
+    assert empty == []
+    assert empty_summary["periods_after"] == 0
+    assert empty_summary["periods_dropped"] == 1
+
+
 def test_smoke_training_writes_warm_start_artifacts(tmp_path):
     import importlib
     import json
@@ -1318,6 +1594,10 @@ def test_output_calibration_writes_manifest_only_under_neiro_genetics(tmp_path):
     genome = np.zeros(tool.cg.GENOME_SIZE, dtype=np.float32)
     source = tmp_path / "source.npy"
     np.save(source, genome)
+    source.with_name("source_meta.json").write_text(
+        json.dumps({"position_state_features_enabled": True}),
+        encoding="utf-8",
+    )
 
     outside = tmp_path / "outside_results"
     with pytest.raises(ValueError):
@@ -1340,6 +1620,10 @@ def test_output_calibration_writes_manifest_only_under_neiro_genetics(tmp_path):
     assert manifest["requires_validation"] is True
     assert len(manifest["variants"]) == 2
     assert all("Results\\neiro_genetics" in item["path"] for item in manifest["variants"])
+    first_variant_meta = json.loads(
+        Path(manifest["variants"][0]["meta_path"]).read_text(encoding="utf-8")
+    )
+    assert first_variant_meta["position_state_features_enabled"] is True
 
 
 def test_behavior_cloning_flash_seed_alias_expands_to_best_components():
@@ -1782,6 +2066,74 @@ def test_single_candidate_oos_gate_rejects_oos_loss_and_crash_floor_loss():
     assert gate["promotion_eligible"] is False
     assert "oos_0_mean_ret" in gate["promotion_failures"]
     assert "oos_0_crash_floor" in gate["promotion_failures"]
+
+
+def test_strict_genetics_promotion_contracts_require_exchange_flash_oos_and_lcb():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "promotion_failures": [],
+        "final_holdout_gate": {
+            "promotion_eligible": True,
+            "holdouts": [{
+                "index": 0,
+                "mean_ret_delta": 0.10,
+                "candidate": {
+                    "min_per_symbol_lcb": 0.05,
+                    "max_drawdown_pct": 4.0,
+                },
+            }],
+        },
+    }
+
+    result = selector.apply_strict_promotion_contracts(
+        selection,
+        reports=(
+            ("train", {"exchange": "MEXC"}),
+            ("validation", {"exchange": "MEXC"}),
+            ("final_0", {"exchange": "MEXC"}),
+        ),
+        expected_exchange="MEXC",
+        baseline_kind="flash",
+    )
+
+    assert result["promotion_eligible"] is True
+    assert result["promotion_failures"] == []
+
+
+def test_strict_genetics_promotion_contracts_reject_missing_flash_baseline():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "promotion_failures": [],
+        "final_holdout_gate": {
+            "promotion_eligible": True,
+            "holdouts": [{
+                "index": 0,
+                "mean_ret_delta": 0.0,
+                "candidate": {
+                    "max_drawdown_pct": 4.0,
+                },
+            }],
+        },
+    }
+
+    result = selector.apply_strict_promotion_contracts(
+        selection,
+        reports=(("train", {"exchange": "BITGET"}),),
+        expected_exchange="",
+        baseline_kind="genome",
+    )
+
+    assert result["promotion_eligible"] is False
+    assert "exchange_domain_missing" in result["promotion_failures"]
+    assert "requires_flash_baseline" in result["promotion_failures"]
+    assert "oos_0_mean_ret_not_positive" in result["promotion_failures"]
+    assert "oos_0_per_symbol_lcb_missing" in result["promotion_failures"]
 
 
 def test_regime_router_selector_can_improve_unvalidated_regime_without_validation_degradation():

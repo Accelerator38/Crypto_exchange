@@ -71,14 +71,12 @@ def emit_flash_audit_events(
     trace_id: str,
     context: Dict[str, str],
 ) -> None:
-    regime_label = getattr(
-        getattr(market, "regime", None),
-        "label",
-        str(getattr(market, "regime", "")),
-    )
     for decision in decisions or ():
+        symbol = str(getattr(decision, "symbol", "") or "")
+        regime = market.regime_for_symbol(symbol) if symbol else market.regime
+        regime_label = getattr(regime, "label", str(regime))
         symbol_context = dict(context)
-        symbol_context["symbol"] = str(getattr(decision, "symbol", "") or "")
+        symbol_context["symbol"] = symbol
         selected_label = str(getattr(decision, "selected_actor", "") or "")
         for row in getattr(decision, "candidates", ()) or ():
             row_label = str(getattr(row, "label", "") or "")

@@ -22,13 +22,19 @@ from __future__ import annotations
 import time
 import logging
 import threading
+import os
 from typing import Dict, Optional
 
 import requests
 
 log = logging.getLogger("mexc_funding")
 
-FUTURES_BASE  = "https://contract.mexc.com"
+def _mexc_futures_base_url() -> str:
+    raw = str(os.getenv("MEXC_FUTURES_BASE_URL", "") or "").strip()
+    return (raw or "https://api.mexc.com").rstrip("/")
+
+
+FUTURES_BASE  = _mexc_futures_base_url()
 SPOT_BASE     = "https://api.mexc.com"
 REFRESH_SEC   = 60   # обновлять данные раз в минуту
 
