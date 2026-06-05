@@ -6806,7 +6806,10 @@ class GeneticsAgent:
         }
 
     def _apply_regime_adaptive_output_bias_to_logits(self, logits: np.ndarray) -> np.ndarray:
-        raw_regime = getattr(self, "_regime", "unknown")
+        raw_regime = (
+            getattr(self, "_regime_adaptive_output_bias_regime_override", None)
+            or getattr(self, "_regime", "unknown")
+        )
         _regime, open_output_bias = self._resolve_regime_adaptive_open_output_bias(raw_regime)
         self._record_regime_adaptive_output_bias_trace(
             raw_regime=raw_regime,

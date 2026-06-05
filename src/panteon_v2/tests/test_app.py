@@ -3246,6 +3246,99 @@ class TestMainLoop(unittest.TestCase):
             guard.details,
         )
 
+    def test_genetics_probation_overlay_applies_daily_limit_per_label(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore", "GeneticsRegimeAdaptiveBias"),
+                genetics_probation_allowed_regimes=("neutral",),
+                genetics_probation_risk_mult=0.20,
+                genetics_probation_risk_mult_by_label={
+                    "GeneticsRegimeAdaptiveBias": 0.12,
+                },
+                genetics_probation_require_shadow_confirmation=False,
+                genetics_probation_max_daily_trades=1,
+                genetics_probation_max_daily_trades_by_label={
+                    "GeneticsRegimeAdaptiveBias": 2,
+                },
+            ),
+            "event_log": EventLog(),
+        })()
+        existing = Signal(
+            id=100,
+            bar=1,
+            sym="ETH",
+            action=Action.FUT_SHORT_FULL,
+            price=2000.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+        )
+        pipeline.event_log.emit(SignalEmitted(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal=existing,
+        ))
+        pipeline.event_log.emit(PositionOpened(
+            bar=1,
+            timestamp=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            signal_id=100,
+            sym="ETH",
+            side="short",
+            entry=2000.0,
+            qty=0.01,
+        ))
+        market = make_market_snapshot(
+            bar=2,
+            prices={"BTC": 100.0, "ADA": 0.2},
+            regime="neutral",
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+        core_signal = Signal(
+            id=101,
+            bar=2,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsCore",
+            by_agent="GeneticsCore",
+            risk_mult=1.0,
+        )
+        adaptive_signal = Signal(
+            id=102,
+            bar=2,
+            sym="ADA",
+            action=Action.FUT_SHORT_FULL,
+            price=0.2,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsRegimeAdaptiveBias",
+            by_agent="GeneticsRegimeAdaptiveBias",
+            risk_mult=1.0,
+        )
+
+        guard = _apply_genetics_probation_execution_overlay(
+            pipeline,
+            market,
+            EnsemblePlayer(
+                label="Panteon_Flash",
+                agents=[],
+                weights={},
+                voting=WeightedConsensus(),
+                thresholds=ThresholdProfile(),
+            ),
+            RealSignalGuardResult(signals=[core_signal, adaptive_signal]),
+        )
+
+        self.assertEqual([signal.sym for signal in guard.signals], ["ADA"])
+        self.assertAlmostEqual(guard.signals[0].risk_mult, 0.12)
+        self.assertIn("genetics_daily_trade_limit:BTC:GeneticsCore:1", guard.details)
+        self.assertNotIn(
+            "genetics_daily_trade_limit:ADA:GeneticsRegimeAdaptiveBias:1",
+            guard.details,
+        )
+
     def test_genetics_probation_overlay_ignores_unfilled_daily_signal(self):
         pipeline = type("Pipeline", (), {
             "live_execution": LiveExecutionConfig(
@@ -4086,6 +4179,36 @@ class TestMainLoop(unittest.TestCase):
         )
 
         self.assertEqual(keys, ("agent:GeneticsCore|ADA|FUT_SHORT_FULL",))
+
+    def test_genetics_probation_preselection_uses_symbol_local_regime(self):
+        pipeline = type("Pipeline", (), {
+            "live_execution": LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsRegimeAdaptiveBias",),
+                genetics_probation_allowed_regimes=("bearish",),
+                genetics_probation_allowed_signal_keys=(
+                    "agent:GeneticsRegimeAdaptiveBias|ETH|FUT_SHORT_FULL",
+                ),
+                genetics_probation_max_daily_trades=1,
+            ),
+            "event_log": EventLog(),
+        })()
+        market = make_market_snapshot(
+            bar=2,
+            prices={"ETH": 2000.0},
+            regime="mixed_rotational",
+            regimes_by_symbol={"ETH": "bearish"},
+            timestamp=datetime(2026, 6, 1, 11, 0, tzinfo=timezone.utc),
+        )
+
+        keys = _genetics_probation_preselection_admission_signal_keys(
+            pipeline,
+            shadow_player_signals={},
+            shadow_agent_signals={},
+            market=market,
+        )
+
+        self.assertEqual(keys, ("agent:GeneticsRegimeAdaptiveBias|ETH|FUT_SHORT_FULL",))
 
     def test_genetics_probation_preselection_exact_allowed_key_respects_daily_limit(self):
         pipeline = type("Pipeline", (), {

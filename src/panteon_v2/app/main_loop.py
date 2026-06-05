@@ -2645,6 +2645,68 @@ def _regime_allowed_by_keys(
     return bool(compatible.get(key, set()) & set(allowed_regimes or set()))
 
 
+def _genetics_probation_label_map_value(
+    cfg: object,
+    map_attr: str,
+    scalar_attr: str,
+    label: str,
+    default: object,
+    cast: Callable[[object], object],
+) -> object:
+    fallback = getattr(cfg, scalar_attr, default)
+    raw = getattr(cfg, map_attr, {}) or {}
+    value = None
+    if isinstance(raw, Mapping):
+        value = raw.get(str(label or "").strip())
+    if value is None:
+        value = fallback
+    try:
+        return cast(value)
+    except (TypeError, ValueError):
+        return cast(default)
+
+
+def _genetics_probation_int_for_label(
+    cfg: object,
+    map_attr: str,
+    scalar_attr: str,
+    label: str,
+    default: int,
+) -> int:
+    return max(
+        0,
+        int(
+            _genetics_probation_label_map_value(
+                cfg,
+                map_attr,
+                scalar_attr,
+                label,
+                default,
+                int,
+            )
+        ),
+    )
+
+
+def _genetics_probation_float_for_label(
+    cfg: object,
+    map_attr: str,
+    scalar_attr: str,
+    label: str,
+    default: float,
+) -> float:
+    return float(
+        _genetics_probation_label_map_value(
+            cfg,
+            map_attr,
+            scalar_attr,
+            label,
+            default,
+            float,
+        )
+    )
+
+
 def _candidate_uses_shadow_state_entry_gate(candidate: object) -> bool:
     label = str(getattr(candidate, "label", "") or "")
     return label.startswith(_SHADOW_STATE_PLAYER_PREFIXES)
@@ -2780,12 +2842,6 @@ def _apply_genetics_probation_execution_overlay(
     label_set = set(labels)
     if not label_set:
         return signal_guard
-    max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
-    max_daily_trades = int(
-        getattr(cfg, "genetics_probation_max_daily_trades", 0) or 0
-    )
-    disabled_reason = _genetics_probation_disabled_reason(pipeline)
-
     allowed_regimes = {
         item.lower()
         for item in _string_tuple(
@@ -2807,10 +2863,6 @@ def _apply_genetics_probation_execution_overlay(
         for item in getattr(cfg, "genetics_probation_allowed_signal_keys", ()) or ()
         if str(item or "").strip()
     }
-    max_risk_mult = max(
-        0.0,
-        min(1.0, float(getattr(cfg, "genetics_probation_risk_mult", 0.25) or 0.25)),
-    )
 
     kept: List[Signal] = []
     dropped = 0
@@ -2829,7 +2881,38 @@ def _apply_genetics_probation_execution_overlay(
             kept.append(signal)
             continue
         sym = str(signal.sym).upper()
-        agent_label = str(signal.by_agent or "-")
+        agent_label = str(signal.by_agent or probation_label or "-")
+        max_real_trades = _genetics_probation_int_for_label(
+            cfg,
+            "genetics_probation_max_real_trades_by_label",
+            "genetics_probation_max_real_trades",
+            probation_label,
+            20,
+        )
+        max_daily_trades = _genetics_probation_int_for_label(
+            cfg,
+            "genetics_probation_max_daily_trades_by_label",
+            "genetics_probation_max_daily_trades",
+            probation_label,
+            0,
+        )
+        max_risk_mult = max(
+            0.0,
+            min(
+                1.0,
+                _genetics_probation_float_for_label(
+                    cfg,
+                    "genetics_probation_risk_mult_by_label",
+                    "genetics_probation_risk_mult",
+                    probation_label,
+                    0.25,
+                ),
+            ),
+        )
+        disabled_reason = _genetics_probation_disabled_reason(
+            pipeline,
+            probation_label,
+        )
         try:
             symbol_regime = market.regime_for_symbol(sym)
         except Exception:
@@ -3465,13 +3548,6 @@ def _genetics_probation_preselection_admission_signal_keys(
             getattr(cfg, "genetics_probation_allowed_regimes", ()),
         )
     }
-    regime_key = _regime_key(getattr(market, "regime", ""))
-    if allowed_regimes and not _regime_allowed_by_keys(regime_key, allowed_regimes):
-        return ()
-    try:
-        regime_confidence = float(getattr(market, "regime_confidence", 1.0) or 0.0)
-    except (TypeError, ValueError):
-        regime_confidence = 0.0
     min_regime_confidence = max(
         0.0,
         min(
@@ -3479,14 +3555,8 @@ def _genetics_probation_preselection_admission_signal_keys(
             float(getattr(cfg, "genetics_probation_min_regime_confidence", 0.0) or 0.0),
         ),
     )
-    if regime_confidence < min_regime_confidence:
-        return ()
     if _genetics_probation_disabled_reason(pipeline):
         return ()
-    max_real_trades = int(getattr(cfg, "genetics_probation_max_real_trades", 20) or 0)
-    max_daily_trades = int(
-        getattr(cfg, "genetics_probation_max_daily_trades", 0) or 0
-    )
     allowed_signal_keys = {
         str(item or "").strip()
         for item in getattr(cfg, "genetics_probation_allowed_signal_keys", ()) or ()
@@ -3495,6 +3565,22 @@ def _genetics_probation_preselection_admission_signal_keys(
     keys: List[str] = []
 
     def label_budget_available(label: str) -> bool:
+        if _genetics_probation_disabled_reason(pipeline, label):
+            return False
+        max_real_trades = _genetics_probation_int_for_label(
+            cfg,
+            "genetics_probation_max_real_trades_by_label",
+            "genetics_probation_max_real_trades",
+            label,
+            20,
+        )
+        max_daily_trades = _genetics_probation_int_for_label(
+            cfg,
+            "genetics_probation_max_daily_trades_by_label",
+            "genetics_probation_max_daily_trades",
+            label,
+            0,
+        )
         if (
             max_real_trades > 0
             and _real_trade_attempts_for_label(pipeline, label) >= max_real_trades
@@ -3508,9 +3594,40 @@ def _genetics_probation_preselection_admission_signal_keys(
             return False
         return True
 
+    def symbol_regime_allowed(symbol: str) -> bool:
+        if not allowed_regimes:
+            return True
+        try:
+            regime = market.regime_for_symbol(symbol)
+        except Exception:
+            regime = getattr(market, "regime", "")
+        return _regime_allowed_by_keys(regime, allowed_regimes)
+
+    def symbol_regime_confident(symbol: str) -> bool:
+        raw_confidence: object = None
+        try:
+            features = market.regime_features_for_symbol(symbol)
+        except Exception:
+            features = {}
+        if isinstance(features, dict):
+            raw_confidence = features.get("regime_confidence")
+        if raw_confidence is None:
+            raw_confidence = getattr(market, "regime_confidence", 1.0)
+        try:
+            confidence = float(raw_confidence or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        return confidence >= min_regime_confidence
+
     for signal_key in sorted(allowed_signal_keys):
         key_label = _label_from_genetics_signal_key(signal_key)
-        if key_label in labels and label_budget_available(key_label):
+        key_symbol = _symbol_from_genetics_signal_key(signal_key)
+        if (
+            key_label in labels
+            and label_budget_available(key_label)
+            and symbol_regime_allowed(key_symbol)
+            and symbol_regime_confident(key_symbol)
+        ):
             keys.append(signal_key)
 
     def add_current_shadow_open_keys(
@@ -3531,6 +3648,11 @@ def _genetics_probation_preselection_admission_signal_keys(
                 continue
             if not label_budget_available(probation_label):
                 continue
+            sym = str(getattr(signal, "sym", "") or "").upper()
+            if not symbol_regime_allowed(sym):
+                continue
+            if not symbol_regime_confident(sym):
+                continue
             signal_keys = _genetics_probation_signal_keys(probation_label, signal)
             if allowed_signal_keys and not signal_keys & allowed_signal_keys:
                 continue
@@ -3548,6 +3670,13 @@ def _label_from_genetics_signal_key(signal_key: object) -> str:
     head, _, _tail = raw.partition("|")
     _kind, sep, label = head.partition(":")
     return label.strip() if sep else ""
+
+
+def _symbol_from_genetics_signal_key(signal_key: object) -> str:
+    parts = [part.strip() for part in str(signal_key or "").split("|")]
+    if len(parts) != 3:
+        return ""
+    return parts[1].upper()
 
 
 def _genetics_probation_symbol_variants(symbol: object) -> tuple[str, ...]:
@@ -3619,22 +3748,52 @@ def _shadow_confirms_signal(
     return False
 
 
-def _genetics_probation_disabled_reason(pipeline: ProductionPipeline) -> str:
+def _genetics_probation_disabled_reason(
+    pipeline: ProductionPipeline,
+    label: str = "",
+) -> str:
     state = _kill_state(pipeline)
     if state is None:
         return ""
+    clean_label = str(label or "").strip()
+    if clean_label:
+        reasons = getattr(state, "genetics_probation_disabled_reasons_by_label", {}) or {}
+        if isinstance(reasons, Mapping):
+            reason = str(reasons.get(clean_label, "") or "")
+            if reason:
+                return reason
     return str(getattr(state, "genetics_probation_disabled_reason", "") or "")
 
 
 def _set_genetics_probation_disabled(
     pipeline: ProductionPipeline,
     reason: str,
+    *,
+    label: str = "",
 ) -> None:
     clean = str(reason or "").strip()
     if not clean:
         return
     state = _kill_state(pipeline)
-    if state is None or getattr(state, "genetics_probation_disabled_reason", ""):
+    if state is None:
+        return
+    clean_label = str(label or "").strip()
+    if clean_label:
+        reasons = getattr(state, "genetics_probation_disabled_reasons_by_label", None)
+        if not isinstance(reasons, dict):
+            reasons = {}
+            state.genetics_probation_disabled_reasons_by_label = reasons
+        if reasons.get(clean_label):
+            return
+        reasons[clean_label] = clean
+        if (
+            len(_genetics_probation_labels(pipeline)) <= 1
+            and not getattr(state, "genetics_probation_disabled_reason", "")
+        ):
+            state.genetics_probation_disabled_reason = clean
+        log.error("genetics probation disabled for %s: %s", clean_label, clean)
+        return
+    if getattr(state, "genetics_probation_disabled_reason", ""):
         return
     state.genetics_probation_disabled_reason = clean
     log.error("genetics probation disabled: %s", clean)
@@ -6062,8 +6221,16 @@ def _record_order_success(
     if state is not None:
         state.consecutive_failed_orders = 0
         state.api_error_streak = 0
-        if _genetics_probation_label_for_signal(pipeline, signal):
+        probation_label = _genetics_probation_label_for_signal(pipeline, signal)
+        if probation_label:
             state.genetics_probation_consecutive_failed_orders = 0
+            by_label = getattr(
+                state,
+                "genetics_probation_consecutive_failed_orders_by_label",
+                None,
+            )
+            if isinstance(by_label, dict):
+                by_label[probation_label] = 0
 
     cfg = _live_config(pipeline)
     limit = float(getattr(cfg, "max_slippage_pct", 0.0) or 0.0)
@@ -6230,31 +6397,39 @@ def _record_genetics_probation_order_failure(
     cfg = _live_config(pipeline)
     if state is None:
         return
-    state.genetics_probation_consecutive_failed_orders += 1
-    limit = int(
-        getattr(cfg, "genetics_probation_max_consecutive_failed_orders", 0) or 0
+    by_label = getattr(
+        state,
+        "genetics_probation_consecutive_failed_orders_by_label",
+        None,
     )
-    if limit > 0 and state.genetics_probation_consecutive_failed_orders >= limit:
+    if not isinstance(by_label, dict):
+        by_label = {}
+        state.genetics_probation_consecutive_failed_orders_by_label = by_label
+    count = int(by_label.get(label, 0) or 0) + 1
+    by_label[label] = count
+    state.genetics_probation_consecutive_failed_orders = count
+    limit = _genetics_probation_int_for_label(
+        cfg,
+        "genetics_probation_max_consecutive_failed_orders_by_label",
+        "genetics_probation_max_consecutive_failed_orders",
+        label,
+        0,
+    )
+    if limit > 0 and count >= limit:
         _set_genetics_probation_disabled(
             pipeline,
             (
                 f"{label} consecutive failed orders "
-                f"{state.genetics_probation_consecutive_failed_orders} >= {limit}"
+                f"{count} >= {limit}"
             ),
+            label=label,
         )
 
 
 def _disable_genetics_probation_if_realized_loss_exceeded(
     pipeline: ProductionPipeline,
 ) -> None:
-    if _genetics_probation_disabled_reason(pipeline):
-        return
     cfg = _live_config(pipeline)
-    max_loss_pct = float(
-        getattr(cfg, "genetics_probation_max_realized_loss_pct", 0.0) or 0.0
-    )
-    if max_loss_pct <= 0:
-        return
     labels = _genetics_probation_labels(pipeline)
     if not labels:
         return
@@ -6267,6 +6442,17 @@ def _disable_genetics_probation_if_realized_loss_exceeded(
             metrics = getter(label)
         except Exception:
             continue
+        if _genetics_probation_disabled_reason(pipeline, label):
+            continue
+        max_loss_pct = _genetics_probation_float_for_label(
+            cfg,
+            "genetics_probation_max_realized_loss_pct_by_label",
+            "genetics_probation_max_realized_loss_pct",
+            label,
+            0.0,
+        )
+        if max_loss_pct <= 0:
+            continue
         closed = int(getattr(metrics, "closed_trades", 0) or 0)
         pnl_pct = float(getattr(metrics, "pnl_pct", 0.0) or 0.0)
         if closed > 0 and pnl_pct <= -max_loss_pct:
@@ -6276,6 +6462,7 @@ def _disable_genetics_probation_if_realized_loss_exceeded(
                     f"{label} realized loss {pnl_pct:.4f}% "
                     f"<= -{max_loss_pct:.4f}% after {closed} closed trades"
                 ),
+                label=label,
             )
             return
 

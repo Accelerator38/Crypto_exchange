@@ -13,7 +13,7 @@ Component:
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping, Optional, Tuple
 
@@ -333,9 +333,12 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
         if cached is not None:
             self.last_regime_adaptive_output_bias = dict(self._act_trace_cache.get(key, {}))
             return dict(cached)
-        result = super().act(market)
-        trace = getattr(self.v1_agent, "last_regime_adaptive_output_bias", None)
-        self.last_regime_adaptive_output_bias = dict(trace) if isinstance(trace, dict) else {}
+        if self._regime_adaptive_output_bias_enabled():
+            result = self._act_with_symbol_local_regime_bias(market)
+        else:
+            result = super().act(market)
+            trace = getattr(self.v1_agent, "last_regime_adaptive_output_bias", None)
+            self.last_regime_adaptive_output_bias = dict(trace) if isinstance(trace, dict) else {}
         if self.allowed_open_regimes is not None:
             result = {
                 sym: (
@@ -353,6 +356,104 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             self._act_cache.pop(expired_key)
             self._act_trace_cache.pop(expired_key, None)
         return result
+
+    def _regime_adaptive_output_bias_enabled(self) -> bool:
+        return bool(getattr(self.v1_agent, "_regime_adaptive_output_bias_enabled", False))
+
+    def _act_with_symbol_local_regime_bias(
+        self,
+        market: MarketSnapshot,
+    ) -> Dict[str, Action]:
+        regimes_by_symbol = {
+            str(sym).upper(): market.regime_for_symbol(str(sym))
+            for sym in market.prices
+        }
+        unique_regimes = tuple(dict.fromkeys(regimes_by_symbol.values()))
+        clones = {
+            regime: _clone_genetics_runtime_agent(self.v1_agent)
+            for regime in unique_regimes
+            if regime != market.regime
+        }
+        result, trace = self._act_v1_with_regime_override(
+            self.v1_agent,
+            market,
+            market.regime,
+        )
+        by_symbol_trace: Dict[str, object] = {}
+        for sym, regime in regimes_by_symbol.items():
+            if regime == market.regime and isinstance(trace, dict):
+                by_symbol_trace[sym] = dict(trace)
+
+        for regime, clone in clones.items():
+            local_market = replace(market, regime=regime)
+            local_result, local_trace = self._act_v1_with_regime_override(
+                clone,
+                local_market,
+                regime,
+            )
+            for sym, sym_regime in regimes_by_symbol.items():
+                if sym_regime != regime:
+                    continue
+                if sym in local_result:
+                    result[sym] = local_result[sym]
+                if isinstance(local_trace, dict):
+                    by_symbol_trace[sym] = dict(local_trace)
+
+        self.last_regime_adaptive_output_bias = dict(trace) if isinstance(trace, dict) else {}
+        if by_symbol_trace:
+            self.last_regime_adaptive_output_bias["by_symbol"] = by_symbol_trace
+        return result
+
+    def _act_v1_with_regime_override(
+        self,
+        legacy_agent: Any,
+        market: MarketSnapshot,
+        regime: Regime,
+    ) -> Tuple[Dict[str, Action], Dict[str, object]]:
+        old_present = hasattr(
+            legacy_agent,
+            "_regime_adaptive_output_bias_regime_override",
+        )
+        old_value = getattr(
+            legacy_agent,
+            "_regime_adaptive_output_bias_regime_override",
+            None,
+        )
+        try:
+            setattr(
+                legacy_agent,
+                "_regime_adaptive_output_bias_regime_override",
+                regime.label,
+            )
+            prices = dict(market.prices)
+            volumes = dict(market.volumes)
+            portfolio_value = self.portfolio_value_fn() if self.portfolio_value_fn else 0.0
+            raw = _invoke_v1_agent(
+                legacy_agent,
+                prices=prices,
+                volumes=volumes,
+                month=market.month,
+                portfolio_value=portfolio_value,
+                bar_index=market.bar,
+            )
+            result = _map_v1_actions(raw, market, self.action_mapper)
+            trace = getattr(legacy_agent, "last_regime_adaptive_output_bias", None)
+            return result, dict(trace) if isinstance(trace, dict) else {}
+        finally:
+            if old_present:
+                setattr(
+                    legacy_agent,
+                    "_regime_adaptive_output_bias_regime_override",
+                    old_value,
+                )
+            else:
+                try:
+                    delattr(
+                        legacy_agent,
+                        "_regime_adaptive_output_bias_regime_override",
+                    )
+                except AttributeError:
+                    pass
 
     def _cache_key(self, market: MarketSnapshot) -> Tuple[object, ...]:
         bias_map = getattr(self.v1_agent, "_regime_adaptive_output_bias_map", {}) or {}

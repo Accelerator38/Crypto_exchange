@@ -537,6 +537,41 @@ def _live_execution_config_from_settings(
             ),
             0.25,
         ),
+        genetics_probation_risk_mult_by_label=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_risk_mult_by_label",
+                "genetics_probation_risk_mult_by_label",
+            ),
+            (),
+        ),
+        genetics_probation_max_real_trades_by_label=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_max_real_trades_by_label",
+                "genetics_probation_max_real_trades_by_label",
+            ),
+            (),
+        ),
+        genetics_probation_max_daily_trades_by_label=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_max_daily_trades_by_label",
+                "genetics_probation_max_daily_trades_by_label",
+            ),
+            (),
+        ),
+        genetics_probation_max_consecutive_failed_orders_by_label=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_max_consecutive_failed_orders_by_label",
+                "genetics_probation_max_consecutive_failed_orders_by_label",
+            ),
+            (),
+        ),
+        genetics_probation_max_realized_loss_pct_by_label=tuple_any(
+            scoped_names(
+                "v2_genetics_probation_max_realized_loss_pct_by_label",
+                "genetics_probation_max_realized_loss_pct_by_label",
+            ),
+            (),
+        ),
         max_real_symbol_min_executable_notional_usd=num_any(
             scoped_names(
                 "v2_max_real_symbol_min_executable_notional_usd",

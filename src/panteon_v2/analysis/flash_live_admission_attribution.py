@@ -11,6 +11,8 @@ from typing import Any, Iterable, Mapping, Sequence
 DEFAULT_TARGET_ACTORS = (
     "GeneticsCore",
     "V_GeneticsCore",
+    "GeneticsRegimeAdaptiveBias",
+    "V_GeneticsRegimeAdaptiveBias",
     "GeneticsRiskTight",
     "V_GeneticsRiskTight",
 )
@@ -27,6 +29,9 @@ def build_flash_live_admission_attribution(
     original_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     candidate_rejection_counts: Counter[str] = Counter()
+    signal_filter_reason_counts: Counter[str] = Counter()
+    signal_filter_label_reason_counts: dict[str, Counter[str]] = {}
+    signal_filter_groups: dict[tuple[str, str, str], dict[str, Any]] = {}
     actor_summaries: dict[str, dict[str, Any]] = {}
     denial_groups: dict[tuple[str, str, str], dict[str, Any]] = {}
 
@@ -88,6 +93,26 @@ def build_flash_live_admission_attribution(
                 bar=bar,
                 rejection_counts=decision.get("candidate_rejection_counts"),
             )
+        for detail in _iter_signal_filter_details(row.get("signal_filter_details")):
+            parsed = _parse_signal_filter_detail(detail)
+            if parsed is None:
+                continue
+            filter_reason, symbol, label = parsed
+            if label and target_set and _normalize_actor_name(label) not in target_set:
+                continue
+            signal_filter_reason_counts[filter_reason] += 1
+            if label:
+                signal_filter_label_reason_counts.setdefault(
+                    label,
+                    Counter(),
+                )[filter_reason] += 1
+            _record_signal_filter_group(
+                signal_filter_groups,
+                label=label,
+                symbol=symbol,
+                reason=filter_reason,
+                bar=bar,
+            )
 
     groups = sorted(
         denial_groups.values(),
@@ -114,6 +139,20 @@ def build_flash_live_admission_attribution(
         "original_counts": _counter_dict(original_counts),
         "reason_counts": _counter_dict(reason_counts),
         "candidate_rejection_counts": _counter_dict(candidate_rejection_counts),
+        "signal_filter_reason_counts": _counter_dict(signal_filter_reason_counts),
+        "signal_filter_label_reason_counts": {
+            label: _counter_dict(counts)
+            for label, counts in sorted(signal_filter_label_reason_counts.items())
+        },
+        "signal_filter_groups": sorted(
+            signal_filter_groups.values(),
+            key=lambda item: (
+                -_as_int(item.get("blocked_signals")),
+                str(item.get("label") or ""),
+                str(item.get("symbol") or ""),
+                str(item.get("reason") or ""),
+            ),
+        )[: max(0, int(top_n or 0))],
         "actor_summaries": _finalize_actor_summaries(actor_summaries),
         "denial_groups": groups,
     }
@@ -170,6 +209,67 @@ def _iter_flash_decisions(raw: Any) -> Iterable[Mapping[str, Any]]:
     for item in iterable:
         if isinstance(item, Mapping):
             yield item
+
+
+def _iter_signal_filter_details(raw: Any) -> Iterable[str]:
+    if isinstance(raw, str):
+        yield raw
+        return
+    try:
+        iterable = tuple(raw or ())
+    except TypeError:
+        return
+    for item in iterable:
+        text = str(item or "").strip()
+        if text:
+            yield text
+
+
+def _parse_signal_filter_detail(detail: str) -> tuple[str, str, str] | None:
+    parts = [part.strip() for part in str(detail or "").split(":")]
+    if not parts:
+        return None
+    raw_reason = parts[0]
+    reason_map = {
+        "genetics_signal_key_blocked": "signal_key_blocked",
+        "genetics_shadow_unconfirmed": "shadow_unconfirmed",
+        "genetics_daily_trade_limit": "daily_limit",
+        "genetics_regime_blocked": "regime_blocked",
+        "genetics_regime_confidence_blocked": "regime_blocked",
+        "genetics_max_real_trades": "max_real_trades",
+        "genetics_probation_disabled": "disabled",
+    }
+    reason = reason_map.get(raw_reason)
+    if reason is None:
+        return None
+    symbol = parts[1].upper() if len(parts) >= 2 else ""
+    label = parts[2] if len(parts) >= 3 and parts[2] != "-" else ""
+    return reason, symbol, label
+
+
+def _record_signal_filter_group(
+    groups: dict[tuple[str, str, str], dict[str, Any]],
+    *,
+    label: str,
+    symbol: str,
+    reason: str,
+    bar: int,
+) -> None:
+    key = (label, symbol, reason)
+    group = groups.setdefault(
+        key,
+        {
+            "label": label,
+            "symbol": symbol,
+            "reason": reason,
+            "blocked_signals": 0,
+            "first_bar": bar,
+            "last_bar": bar,
+        },
+    )
+    group["blocked_signals"] += 1
+    group["first_bar"] = min(_as_int(group.get("first_bar")), bar)
+    group["last_bar"] = max(_as_int(group.get("last_bar")), bar)
 
 
 def _record_actor_summary(
@@ -314,6 +414,31 @@ def _markdown_report(report: Mapping[str, Any], *, run_path: Path, top_n: int) -
                     first_bar=_as_int(row.get("first_bar")),
                     last_bar=_as_int(row.get("last_bar")),
                     rejections=_compact_counts(row.get("candidate_rejection_counts")),
+                )
+            )
+    lines.extend(["", "## Signal filter reasons", ""])
+    signal_filter_counts = report.get("signal_filter_reason_counts") or {}
+    if not signal_filter_counts:
+        lines.append("_No target signal filter details._")
+    else:
+        lines.append("| Reason | Count |")
+        lines.append("|---|---:|")
+        for reason, count in signal_filter_counts.items():
+            lines.append(f"| {reason} | {_as_int(count)} |")
+    filter_groups = list(report.get("signal_filter_groups") or [])
+    if filter_groups:
+        lines.extend(["", f"## Top {top_n} signal filter groups", ""])
+        lines.append("| Label | Symbol | Reason | Blocked | First bar | Last bar |")
+        lines.append("|---|---|---|---:|---:|---:|")
+        for row in filter_groups:
+            lines.append(
+                "| {label} | {symbol} | {reason} | {blocked} | {first_bar} | {last_bar} |".format(
+                    label=row.get("label", ""),
+                    symbol=row.get("symbol", ""),
+                    reason=row.get("reason", ""),
+                    blocked=_as_int(row.get("blocked_signals")),
+                    first_bar=_as_int(row.get("first_bar")),
+                    last_bar=_as_int(row.get("last_bar")),
                 )
             )
     lines.extend(

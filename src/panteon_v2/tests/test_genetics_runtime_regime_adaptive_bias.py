@@ -77,6 +77,72 @@ def test_genetics_v2_adapter_exposes_runtime_bias_trace():
     }
 
 
+def test_genetics_v2_adapter_uses_symbol_local_regime_for_adaptive_bias():
+    from panteon_v2.domain.types import Regime
+    from panteon_v2.shadow import make_market_snapshot
+    from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter
+
+    class LegacyAdaptiveAgent:
+        def __init__(self):
+            self.calls = 0
+            self._regime_adaptive_output_bias_enabled = True
+            self._regime_adaptive_output_bias_map = {
+                "bearish": 0.90,
+                "range_low_vol": 0.70,
+                "mixed_rotational": 0.0,
+            }
+            self.last_regime_adaptive_output_bias = {}
+
+        def clone_for_shadow(self):
+            clone = LegacyAdaptiveAgent()
+            clone._regime_adaptive_output_bias_map = dict(
+                self._regime_adaptive_output_bias_map
+            )
+            return clone
+
+        def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+            self.calls += 1
+            raw_regime = str(
+                getattr(self, "_regime_adaptive_output_bias_regime_override", "")
+                or "mixed_rotational"
+            )
+            bias = float(self._regime_adaptive_output_bias_map.get(raw_regime, 0.0))
+            self.last_regime_adaptive_output_bias = {
+                "enabled": True,
+                "regime": raw_regime,
+                "raw_regime": raw_regime,
+                "open_output_bias": bias,
+            }
+            return {
+                "BTC": 4 if raw_regime == "bearish" else 0,
+                "ETH": 3 if raw_regime == "range_low_vol" else 0,
+                "SOL": 0,
+            }
+
+    legacy = LegacyAdaptiveAgent()
+    wrapped = GeneticsV2AgentAdapter("GeneticsRegimeAdaptiveBias", legacy)
+    market = make_market_snapshot(
+        bar=1,
+        prices={"BTC": 100.0, "ETH": 50.0, "SOL": 20.0},
+        regime="mixed_rotational",
+        regimes_by_symbol={
+            "BTC": Regime.BEARISH,
+            "ETH": Regime.RANGE_LOW_VOL,
+            "SOL": Regime.MIXED_ROTATIONAL,
+        },
+    )
+
+    actions = wrapped.act(market)
+
+    assert actions["BTC"].is_open
+    assert actions["ETH"].is_open
+    assert actions["SOL"].is_hold
+    assert legacy.calls == 1
+    trace = wrapped.last_regime_adaptive_output_bias
+    assert trace["by_symbol"]["BTC"]["raw_regime"] == "bearish"
+    assert trace["by_symbol"]["ETH"]["raw_regime"] == "range_low_vol"
+
+
 def test_shadow_agent_signal_records_regime_adaptive_bias_trace():
     from panteon_v2.app.shadow_tournament import ProductionShadowTournament
     from panteon_v2.domain.types import Action
@@ -123,3 +189,60 @@ def test_shadow_agent_signal_records_regime_adaptive_bias_trace():
         "raw_regime": "neutral",
         "open_output_bias": 0.95,
     }
+
+
+def test_shadow_agent_signal_records_symbol_local_adaptive_bias_trace():
+    from panteon_v2.domain.types import Regime
+    from panteon_v2.execution import RiskLimitsConfig
+    from panteon_v2.memory import PerformanceMemory
+    from panteon_v2.selection import AgentRegistry
+    from panteon_v2.shadow import make_market_snapshot
+    from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter
+    from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+
+    class LegacyAdaptiveAgent:
+        def __init__(self):
+            self._regime_adaptive_output_bias_enabled = True
+            self._regime_adaptive_output_bias_map = {"bearish": 0.90}
+            self.last_regime_adaptive_output_bias = {}
+
+        def clone_for_shadow(self):
+            return LegacyAdaptiveAgent()
+
+        def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+            raw_regime = str(
+                getattr(self, "_regime_adaptive_output_bias_regime_override", "")
+                or "mixed_rotational"
+            )
+            self.last_regime_adaptive_output_bias = {
+                "enabled": True,
+                "regime": raw_regime,
+                "raw_regime": raw_regime,
+                "open_output_bias": 0.90 if raw_regime == "bearish" else 0.0,
+            }
+            return {"BTC": 4 if raw_regime == "bearish" else 0}
+
+    registry = AgentRegistry()
+    registry.register(
+        GeneticsV2AgentAdapter(
+            "GeneticsRegimeAdaptiveBias",
+            LegacyAdaptiveAgent(),
+        )
+    )
+    tournament = ProductionShadowTournament(
+        registry=registry,
+        perf=PerformanceMemory(trade_fraction=1.0),
+        risk_config=RiskLimitsConfig(capital_fraction=0.10, min_notional_usd=0.0),
+        runtime_event_logs_enabled=False,
+    )
+    market = make_market_snapshot(
+        bar=1,
+        prices={"BTC": 100.0},
+        regime="mixed_rotational",
+        regimes_by_symbol={"BTC": Regime.BEARISH},
+    )
+
+    tournament.run_bar(market, players=(), balance_usd=10_000.0)
+
+    signal = tournament.last_agent_signals()["GeneticsRegimeAdaptiveBias"][0]
+    assert signal.metadata["regime_adaptive_output_bias"]["raw_regime"] == "bearish"

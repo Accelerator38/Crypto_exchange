@@ -36,6 +36,27 @@ log = logging.getLogger(__name__)
 _SHADOW_SIGNAL_ID_START = 1_000_000_000
 
 
+def _regime_adaptive_bias_trace_for_symbol(
+    bias_trace: object,
+    symbol: object,
+) -> Dict[str, object]:
+    if not isinstance(bias_trace, dict):
+        return {}
+    clean_symbol = str(symbol or "").upper()
+    by_symbol = bias_trace.get("by_symbol")
+    if isinstance(by_symbol, dict):
+        symbol_trace = by_symbol.get(clean_symbol)
+        if isinstance(symbol_trace, dict) and symbol_trace.get("enabled"):
+            return dict(symbol_trace)
+    if bias_trace.get("enabled"):
+        return {
+            str(key): value
+            for key, value in bias_trace.items()
+            if key != "by_symbol"
+        }
+    return {}
+
+
 class _NoopEventLog:
     def emit(self, event: object) -> None:
         return None
@@ -333,10 +354,7 @@ class ProductionShadowTournament:
             )
             return []
 
-        signal_metadata: Dict[str, object] = {}
         bias_trace = getattr(agent, "last_regime_adaptive_output_bias", None)
-        if isinstance(bias_trace, dict) and bias_trace.get("enabled"):
-            signal_metadata["regime_adaptive_output_bias"] = dict(bias_trace)
 
         signals: List[Signal] = []
         for sym, action in (actions or {}).items():
@@ -349,6 +367,13 @@ class ProductionShadowTournament:
                     continue
             if action.is_hold:
                 continue
+            signal_metadata: Dict[str, object] = {}
+            symbol_bias_trace = _regime_adaptive_bias_trace_for_symbol(
+                bias_trace,
+                sym,
+            )
+            if symbol_bias_trace:
+                signal_metadata["regime_adaptive_output_bias"] = symbol_bias_trace
             signals.append(Signal(
                 id=self._next_signal_id(),
                 bar=market.bar,

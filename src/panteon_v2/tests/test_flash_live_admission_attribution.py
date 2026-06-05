@@ -43,6 +43,12 @@ def test_live_admission_attribution_groups_original_actor_denials():
             "raw_signal_count": 1,
             "executable_signal_count": 1,
             "n_filled": 1,
+            "signal_filter_details": [
+                "genetics_signal_key_blocked:ETH:GeneticsRegimeAdaptiveBias",
+                "genetics_shadow_unconfirmed:BNB:GeneticsCore",
+                "genetics_daily_trade_limit:ADA:GeneticsCore:1",
+                "genetics_regime_blocked:XRP:GeneticsRegimeAdaptiveBias:mixed_rotational",
+            ],
             "flash_decisions": [
                 {
                     "symbol": "ADA",
@@ -65,7 +71,11 @@ def test_live_admission_attribution_groups_original_actor_denials():
 
     report = build_flash_live_admission_attribution(
         rows,
-        target_actors=("GeneticsCore", "GeneticsRiskTight"),
+        target_actors=(
+            "GeneticsCore",
+            "GeneticsRiskTight",
+            "GeneticsRegimeAdaptiveBias",
+        ),
     )
 
     assert report["summary"]["rows_read"] == 2
@@ -88,6 +98,37 @@ def test_live_admission_attribution_groups_original_actor_denials():
         "inactive": 2,
         "score_below_threshold": 2,
     }
+    assert report["signal_filter_reason_counts"] == {
+        "daily_limit": 1,
+        "regime_blocked": 1,
+        "shadow_unconfirmed": 1,
+        "signal_key_blocked": 1,
+    }
+    assert report["signal_filter_label_reason_counts"]["GeneticsRegimeAdaptiveBias"] == {
+        "regime_blocked": 1,
+        "signal_key_blocked": 1,
+    }
+
+
+def test_live_admission_attribution_targets_adaptive_by_default():
+    rows = [
+        {
+            "bar": 1,
+            "flash_decisions": [
+                {
+                    "symbol": "ETH",
+                    "selected_actor": "NoTrade",
+                    "original_selected_actor": "GeneticsRegimeAdaptiveBias",
+                    "reason": "no_real_admission:score_below_threshold",
+                }
+            ],
+        }
+    ]
+
+    report = build_flash_live_admission_attribution(rows)
+
+    assert report["summary"]["target_denied_decisions"] == 1
+    assert "GeneticsRegimeAdaptiveBias" in report["actor_summaries"]
 
 
 def test_live_admission_attribution_writer_outputs_json_and_markdown(tmp_path):

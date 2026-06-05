@@ -60,6 +60,41 @@ from ..selection import (
 )
 
 
+def _parse_label_value_map(raw: object, *, numeric_type: type) -> Dict[str, object]:
+    if isinstance(raw, dict):
+        iterable = raw.items()
+    elif isinstance(raw, str):
+        iterable = (
+            part.strip()
+            for part in raw.replace(";", ",").split(",")
+            if part.strip()
+        )
+    else:
+        try:
+            iterable = tuple(raw or ())  # type: ignore[arg-type]
+        except TypeError:
+            iterable = ()
+    parsed: Dict[str, object] = {}
+    for item in iterable:
+        if isinstance(item, tuple) and len(item) == 2:
+            label, value = item
+        elif isinstance(item, str):
+            sep = "=" if "=" in item else ":" if ":" in item else ""
+            if not sep:
+                continue
+            label, value = item.split(sep, 1)
+        else:
+            continue
+        clean_label = str(label or "").strip()
+        if not clean_label:
+            continue
+        try:
+            parsed[clean_label] = numeric_type(value)
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
 @dataclass(frozen=True)
 class LiveExecutionConfig:
     """Guardrails for real exchange execution."""
@@ -88,6 +123,11 @@ class LiveExecutionConfig:
     genetics_probation_require_shadow_confirmation: bool = True
     genetics_probation_max_consecutive_failed_orders: int = 2
     genetics_probation_max_realized_loss_pct: float = 0.25
+    genetics_probation_risk_mult_by_label: Dict[str, float] = field(default_factory=dict)
+    genetics_probation_max_real_trades_by_label: Dict[str, int] = field(default_factory=dict)
+    genetics_probation_max_daily_trades_by_label: Dict[str, int] = field(default_factory=dict)
+    genetics_probation_max_consecutive_failed_orders_by_label: Dict[str, int] = field(default_factory=dict)
+    genetics_probation_max_realized_loss_pct_by_label: Dict[str, float] = field(default_factory=dict)
     max_real_symbol_min_executable_notional_usd: float = 40.0
 
     def __post_init__(self) -> None:
@@ -114,6 +154,36 @@ class LiveExecutionConfig:
             raise ValueError("genetics_probation_max_consecutive_failed_orders must be >= 0")
         if self.genetics_probation_max_realized_loss_pct < 0:
             raise ValueError("genetics_probation_max_realized_loss_pct must be >= 0")
+        for name, numeric_type in (
+            ("genetics_probation_risk_mult_by_label", float),
+            ("genetics_probation_max_realized_loss_pct_by_label", float),
+            ("genetics_probation_max_real_trades_by_label", int),
+            ("genetics_probation_max_daily_trades_by_label", int),
+            ("genetics_probation_max_consecutive_failed_orders_by_label", int),
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _parse_label_value_map(getattr(self, name), numeric_type=numeric_type),
+            )
+        for label, risk_mult in self.genetics_probation_risk_mult_by_label.items():
+            if not 0.0 < float(risk_mult) <= 1.0:
+                raise ValueError(
+                    f"genetics_probation_risk_mult_by_label[{label}] must be in (0, 1]"
+                )
+        for label, loss_pct in self.genetics_probation_max_realized_loss_pct_by_label.items():
+            if float(loss_pct) < 0:
+                raise ValueError(
+                    f"genetics_probation_max_realized_loss_pct_by_label[{label}] must be >= 0"
+                )
+        for name in (
+            "genetics_probation_max_real_trades_by_label",
+            "genetics_probation_max_daily_trades_by_label",
+            "genetics_probation_max_consecutive_failed_orders_by_label",
+        ):
+            for label, value in getattr(self, name).items():
+                if int(value) < 0:
+                    raise ValueError(f"{name}[{label}] must be >= 0")
         for name in (
             "genetics_probation_labels",
             "genetics_probation_allowed_regimes",
@@ -161,6 +231,8 @@ class KillSwitchState:
     stale_feed_polls: int = 0
     genetics_probation_disabled_reason: str = ""
     genetics_probation_consecutive_failed_orders: int = 0
+    genetics_probation_disabled_reasons_by_label: Dict[str, str] = field(default_factory=dict)
+    genetics_probation_consecutive_failed_orders_by_label: Dict[str, int] = field(default_factory=dict)
 
 
 # ────────────────────────────────────────────────────────────────────

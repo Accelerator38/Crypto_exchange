@@ -857,6 +857,49 @@ class TestKillSwitches(unittest.TestCase):
             pipeline.kill_switch.genetics_probation_disabled_reason,
         )
 
+    def test_genetics_probation_failure_disables_only_matching_label(self):
+        from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
+        from panteon_v2.app.main_loop import (
+            _genetics_probation_disabled_reason,
+            _record_order_failure,
+        )
+
+        pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(
+                max_consecutive_failed_orders=5,
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore", "GeneticsRegimeAdaptiveBias"),
+                genetics_probation_max_consecutive_failed_orders=2,
+                genetics_probation_max_consecutive_failed_orders_by_label={
+                    "GeneticsRegimeAdaptiveBias": 1,
+                },
+            ),
+            kill_switch=KillSwitchState(),
+            initial_capital=1000.0,
+            current_balance=1000.0,
+        )
+        adaptive_signal = Signal(
+            id=778,
+            bar=1,
+            sym="BTC",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.NEUTRAL,
+            by_player="GeneticsRegimeAdaptiveBias",
+            by_agent="GeneticsRegimeAdaptiveBias",
+        )
+
+        _record_order_failure(pipeline, "exchange rejected", signal=adaptive_signal)
+
+        self.assertIn(
+            "GeneticsRegimeAdaptiveBias consecutive failed orders",
+            _genetics_probation_disabled_reason(
+                pipeline,
+                "GeneticsRegimeAdaptiveBias",
+            ),
+        )
+        self.assertEqual(_genetics_probation_disabled_reason(pipeline, "GeneticsCore"), "")
+
     def test_default_ensemble_origin_does_not_count_as_genetics_probation_failure(self):
         from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
         from panteon_v2.app.main_loop import _kill_switch_reason, _record_order_failure
@@ -915,6 +958,42 @@ class TestKillSwitches(unittest.TestCase):
             "GeneticsCore realized loss",
             pipeline.kill_switch.genetics_probation_disabled_reason,
         )
+
+    def test_genetics_probation_realized_loss_disables_only_losing_label(self):
+        from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig
+        from panteon_v2.app.main_loop import (
+            _disable_genetics_probation_if_realized_loss_exceeded,
+            _genetics_probation_disabled_reason,
+        )
+
+        pipeline = types.SimpleNamespace(
+            live_execution=LiveExecutionConfig(
+                genetics_probation_execution_enabled=True,
+                genetics_probation_labels=("GeneticsCore", "GeneticsRegimeAdaptiveBias"),
+                genetics_probation_max_realized_loss_pct=0.25,
+                genetics_probation_max_realized_loss_pct_by_label={
+                    "GeneticsRegimeAdaptiveBias": 0.15,
+                },
+            ),
+            kill_switch=KillSwitchState(),
+            real_perf=types.SimpleNamespace(
+                get=lambda label: types.SimpleNamespace(
+                    closed_trades=1,
+                    pnl_pct=-0.20 if label == "GeneticsRegimeAdaptiveBias" else 0.10,
+                ),
+            ),
+        )
+
+        _disable_genetics_probation_if_realized_loss_exceeded(pipeline)
+
+        self.assertIn(
+            "GeneticsRegimeAdaptiveBias realized loss",
+            _genetics_probation_disabled_reason(
+                pipeline,
+                "GeneticsRegimeAdaptiveBias",
+            ),
+        )
+        self.assertEqual(_genetics_probation_disabled_reason(pipeline, "GeneticsCore"), "")
 
 
 class TestMemorySeparationAndQuarantineState(unittest.TestCase):
