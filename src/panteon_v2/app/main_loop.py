@@ -658,7 +658,7 @@ def _run_one_bar(
     decision_id = trace
     context = _decision_context(pipeline, market)
     health_reason = _exchange_health_open_block_reason(pipeline)
-    kill_reason = _kill_switch_reason(pipeline)
+    kill_reason = _kill_switch_reason(pipeline, market)
     if kill_reason:
         return _run_manage_only_kill_switch_step(
             pipeline,
@@ -6111,14 +6111,96 @@ def _kill_state(pipeline: ProductionPipeline) -> Any:
     return getattr(pipeline, "kill_switch", None)
 
 
-def _set_kill_switch(pipeline: ProductionPipeline, reason: str) -> None:
+def _set_kill_switch(
+    pipeline: ProductionPipeline,
+    reason: str,
+    *,
+    kind: str = "",
+) -> None:
     state = _kill_state(pipeline)
     if state is None or not reason:
         return
     if getattr(state, "disabled_reason", ""):
         return
     state.disabled_reason = reason
+    # Запоминаем категорию и бар защёлки для возможного авто-recovery (A7).
+    if hasattr(state, "disabled_kind"):
+        state.disabled_kind = str(kind or "")
+    if hasattr(state, "disabled_bar"):
+        state.disabled_bar = int(getattr(state, "last_seen_bar", 0) or 0)
     log.error("real trading disabled by kill switch: %s", reason)
+
+
+def _maybe_recover_kill_switch(pipeline: ProductionPipeline) -> None:
+    """Снять защёлку kill-switch, если включён авто-recovery и условия выполнены.
+
+    Безопасно по умолчанию: при ``kill_switch_auto_recovery_enabled = False``
+    (дефолт) ничего не делает — поведение прод сохраняется.
+
+    Условия снятия:
+      • прошёл cooldown в барах с момента защёлки;
+      • для equity-категорий (daily_loss / peak_drawdown) equity восстановилась —
+        остаточная просадка от пика ≤ recovery_max_drawdown_pct (0 = полное
+        восстановление до пика);
+      • операционные категории (desync / stale_feed / failed_orders / api / slippage)
+        снимаются по одному cooldown, с обнулением соответствующих счётчиков.
+    """
+    state = _kill_state(pipeline)
+    if state is None or not getattr(state, "disabled_reason", ""):
+        return
+    cfg = _live_config(pipeline)
+    if not bool(getattr(cfg, "kill_switch_auto_recovery_enabled", False)):
+        return
+
+    cooldown = int(getattr(cfg, "kill_switch_recovery_cooldown_bars", 0) or 0)
+    # ВНИМАНИЕ: не использовать `or` для дефолта — бар 0 ложный (0 or -1 == -1).
+    disabled_bar_raw = getattr(state, "disabled_bar", -1)
+    disabled_bar = int(disabled_bar_raw) if disabled_bar_raw is not None else -1
+    last_bar_raw = getattr(state, "last_seen_bar", 0)
+    last_bar = int(last_bar_raw) if last_bar_raw is not None else 0
+    if disabled_bar < 0 or (last_bar - disabled_bar) < cooldown:
+        return
+
+    kind = str(getattr(state, "disabled_kind", "") or "")
+    equity_kinds = {"daily_loss", "peak_drawdown"}
+    if kind in equity_kinds:
+        current = float(getattr(pipeline, "current_balance", 0.0) or 0.0)
+        if current <= 0:
+            return
+        residual_dd_pct = float(
+            getattr(cfg, "kill_switch_recovery_max_drawdown_pct", 0.0) or 0.0
+        )
+        if kind == "peak_drawdown":
+            peak = float(getattr(state, "peak_equity_usd", 0.0) or 0.0)
+            baseline = peak
+        else:  # daily_loss — база восстановления = стартовый капитал
+            baseline = float(getattr(pipeline, "initial_capital", 0.0) or 0.0)
+        if baseline <= 0:
+            return
+        recovery_target = baseline * (1.0 - residual_dd_pct / 100.0)
+        if current < recovery_target:
+            return
+
+    prev_reason = state.disabled_reason
+    state.disabled_reason = ""
+    if hasattr(state, "disabled_kind"):
+        state.disabled_kind = ""
+    if hasattr(state, "disabled_bar"):
+        state.disabled_bar = -1
+    # Сбрасываем транзиентные счётчики, чтобы не зациклить мгновенный повторный trip.
+    for attr in (
+        "consecutive_failed_orders",
+        "api_error_streak",
+        "exchange_desync_events",
+        "stale_feed_polls",
+    ):
+        if hasattr(state, attr):
+            setattr(state, attr, 0)
+    log.warning(
+        "kill switch auto-recovered (kind=%s) after cooldown; prior reason: %s",
+        kind or "unknown",
+        prev_reason,
+    )
 
 
 def _record_live_equity_peak(pipeline: ProductionPipeline, equity: float) -> None:
@@ -6136,8 +6218,18 @@ def _record_live_equity_peak(pipeline: ProductionPipeline, equity: float) -> Non
         state.peak_equity_usd = current
 
 
-def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
+def _kill_switch_reason(
+    pipeline: ProductionPipeline,
+    market: Optional[MarketSnapshot] = None,
+) -> str:
     state = _kill_state(pipeline)
+    if state is not None and market is not None and hasattr(state, "last_seen_bar"):
+        try:
+            state.last_seen_bar = int(market.bar)
+        except (TypeError, ValueError):
+            pass
+    # Авто-recovery защёлки (no-op, если выключено в конфиге).
+    _maybe_recover_kill_switch(pipeline)
     if state is not None and getattr(state, "disabled_reason", ""):
         return str(state.disabled_reason)
 
@@ -6153,7 +6245,7 @@ def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
                     f"max daily loss exceeded: current={current:.2f}, "
                     f"floor={floor:.2f}"
                 )
-                _set_kill_switch(pipeline, reason)
+                _set_kill_switch(pipeline, reason, kind="daily_loss")
                 return reason
     max_peak_drawdown_pct = float(
         getattr(cfg, "max_equity_peak_drawdown_pct", 0.0) or 0.0
@@ -6172,7 +6264,7 @@ def _kill_switch_reason(pipeline: ProductionPipeline) -> str:
                         f"current={current:.2f}, peak={peak:.2f}, "
                         f"drawdown={drawdown_pct:.2f}%, floor={floor:.2f}"
                     )
-                    _set_kill_switch(pipeline, reason)
+                    _set_kill_switch(pipeline, reason, kind="peak_drawdown")
                     return reason
     return ""
 
@@ -6277,6 +6369,7 @@ def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
         _set_kill_switch(
             pipeline,
             f"exchange desync events {state.exchange_desync_events} >= {limit}",
+            kind="exchange_desync",
         )
 
 
@@ -6302,7 +6395,11 @@ def _record_stale_feed_poll(pipeline: ProductionPipeline, idle_polls: int) -> No
     if state is not None:
         state.stale_feed_polls = int(idle_polls)
     if limit > 0 and idle_polls >= limit:
-        _set_kill_switch(pipeline, f"stale feed polls {idle_polls} >= {limit}")
+        _set_kill_switch(
+            pipeline,
+            f"stale feed polls {idle_polls} >= {limit}",
+            kind="stale_feed",
+        )
 
 
 def _reset_stale_feed(pipeline: ProductionPipeline) -> None:
@@ -6338,6 +6435,7 @@ def _record_order_success(
         _set_kill_switch(
             pipeline,
             f"excessive slippage {slippage_pct:.4f}% > {limit:.4f}%",
+            kind="slippage",
         )
 
 
@@ -6476,11 +6574,13 @@ def _record_order_failure(
                 f"consecutive failed orders "
                 f"{state.consecutive_failed_orders} >= {failed_limit}"
             ),
+            kind="failed_orders",
         )
     if api_limit > 0 and state.api_error_streak >= api_limit:
         _set_kill_switch(
             pipeline,
             f"API error storm {state.api_error_streak} >= {api_limit}",
+            kind="api_storm",
         )
 
 

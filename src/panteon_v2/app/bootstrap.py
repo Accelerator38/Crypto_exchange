@@ -108,6 +108,15 @@ class LiveExecutionConfig:
     max_slippage_pct: float = 0.0
     max_api_error_streak: int = 5
     pending_order_timeout_sec: float = 180.0
+    # Kill-switch auto-recovery (Phase 0 / A7). По умолчанию ВЫКЛЮЧЕНО —
+    # включение явно через конфиг, т.к. это safety-critical поведение.
+    # При включении защёлка kill-switch может сняться после восстановления
+    # equity и истечения cooldown (вместо вечного manage-only).
+    kill_switch_auto_recovery_enabled: bool = False
+    kill_switch_recovery_cooldown_bars: int = 0
+    # Максимальная остаточная просадка от пика (%), при которой допускается
+    # снятие equity-защёлки. 0 = требовать полного восстановления до пика/initial.
+    kill_switch_recovery_max_drawdown_pct: float = 0.0
     adopt_existing_positions_enabled: bool = False
     adopt_existing_position_symbols: tuple[str, ...] = ()
     adopt_existing_position_player: str = "PanteonFlashAdopted"
@@ -216,9 +225,12 @@ class LiveExecutionConfig:
             "max_stale_feed_polls",
             "max_api_error_streak",
             "genetics_probation_max_consecutive_failed_orders",
+            "kill_switch_recovery_cooldown_bars",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
+        if self.kill_switch_recovery_max_drawdown_pct < 0:
+            raise ValueError("kill_switch_recovery_max_drawdown_pct must be >= 0")
 
 
 @dataclass
@@ -229,6 +241,10 @@ class KillSwitchState:
     api_error_streak: int = 0
     exchange_desync_events: int = 0
     stale_feed_polls: int = 0
+    # Метаданные защёлки для авто-recovery (Phase 0 / A7)
+    disabled_bar: int = -1
+    disabled_kind: str = ""
+    last_seen_bar: int = 0
     genetics_probation_disabled_reason: str = ""
     genetics_probation_consecutive_failed_orders: int = 0
     genetics_probation_disabled_reasons_by_label: Dict[str, str] = field(default_factory=dict)

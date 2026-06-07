@@ -240,8 +240,26 @@ def save_v2_snapshot(
         snapshot["_shadow_player_positions"] = _json_safe_shadow_positions(
             shadow_positions
         )
-    with open(path, "w", encoding="utf-8") as f:
+    # Атомарная запись: пишем во временный файл, fsync, затем os.replace.
+    # Это предотвращает потерю всей памяти при креше/убийстве процесса
+    # посреди json.dump (см. аудит C1). os.replace атомарен и на Windows,
+    # и на POSIX. Перед заменой сохраняем предыдущий валидный файл в .bak.
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(snapshot, f, indent=2)
+        f.flush()
+        try:
+            os.fsync(f.fileno())
+        except (OSError, ValueError):
+            # fsync может быть недоступен на некоторых ФС/платформах — не фатально.
+            pass
+    if os.path.exists(path):
+        try:
+            os.replace(path, f"{path}.bak")
+        except OSError:
+            # Не блокируем сохранение, если .bak обновить не удалось.
+            pass
+    os.replace(tmp_path, path)
 
 
 def load_v2_snapshot(
@@ -253,12 +271,15 @@ def load_v2_snapshot(
     position_tracker = None,
     shadow_positions_target: Optional[dict] = None,
 ) -> bool:
-    """Загрузить PerformanceMemory snapshot из JSON. True если успешно."""
-    if not os.path.exists(path):
+    """Загрузить PerformanceMemory snapshot из JSON. True если успешно.
+
+    Если основной файл повреждён (например, креш во время старой не-атомарной
+    записи), пытаемся восстановиться из ``<path>.bak``.
+    """
+    snap = _load_snapshot_json(path)
+    if snap is None:
         return False
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            snap = json.load(f)
         perf.restore(snap)
         if real_perf is not None and isinstance(snap.get("_real_memory"), dict):
             real_perf.restore(snap["_real_memory"])
@@ -275,6 +296,34 @@ def load_v2_snapshot(
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("load_v2_snapshot failed (%s): %s", path, exc)
         return False
+
+
+def _load_snapshot_json(path: str) -> Optional[dict]:
+    """Прочитать snapshot JSON, при повреждении основного файла — из ``.bak``.
+
+    Возвращает dict либо None, если ни основной, ни backup-файл недоступны/валидны.
+    """
+    candidates = []
+    if os.path.exists(path):
+        candidates.append(path)
+    bak = f"{path}.bak"
+    if os.path.exists(bak):
+        candidates.append(bak)
+    for candidate in candidates:
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
+                snap = json.load(f)
+            if candidate != path:
+                log.warning(
+                    "load_v2_snapshot: primary %s unusable, recovered from backup %s",
+                    path,
+                    candidate,
+                )
+            return snap
+        except (json.JSONDecodeError, OSError) as exc:
+            log.warning("load_v2_snapshot: cannot read %s: %s", candidate, exc)
+            continue
+    return None
 
 
 def _json_safe_shadow_positions(
