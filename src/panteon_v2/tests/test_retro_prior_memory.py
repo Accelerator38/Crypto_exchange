@@ -157,6 +157,39 @@ class TestRetroPriorMemory(unittest.TestCase):
         )
         self.assertAlmostEqual(perf.get("NewAgent", Regime.BEARISH).pnl_pct, 1.0)
 
+    def test_merge_prior_rescales_pnl_to_live_trade_fraction(self):
+        # Phase 3 / C2: приор построен при trade_fraction=1.0, живая память — 0.10.
+        # PnL приора должен быть приведён к масштабу живого учёта (×0.10).
+        perf = PerformanceMemory(trade_fraction=0.10, exchange_scope="MEXC")
+        prior = {
+            "trade_fraction": 1.0,
+            "exchange_scope": "MEXC",
+            "state": {
+                "SeedAgent|bullish": {
+                    "closed_trades": 10,
+                    "entries": 10,
+                    "signals": 10,
+                    "wins": 7,
+                    "losses": 3,
+                    "pnl_pct": 5.0,
+                    "fee_pct": 1.0,
+                    "returns": [0.5, 0.5],
+                },
+            },
+        }
+
+        report = merge_retro_prior_into_memory(perf, prior, expected_exchange="MEXC")
+
+        self.assertEqual(report.applied_pairs, 1)
+        # 5.0 * (0.10 / 1.0) = 0.5
+        self.assertAlmostEqual(perf.get("SeedAgent", Regime.BULLISH).pnl_pct, 0.5)
+        # Счётчики не масштабируются.
+        self.assertEqual(perf.get("SeedAgent", Regime.BULLISH).closed_trades, 10)
+        self.assertTrue(
+            any("rescaled prior pnl" in w for w in report.warnings),
+            report.warnings,
+        )
+
     def test_startup_loads_mexc_retro_prior_next_to_snapshot_without_touching_real_perf(self):
         with tempfile.TemporaryDirectory() as td:
             snapshot_path = os.path.join(td, "mexc_snapshot.json")

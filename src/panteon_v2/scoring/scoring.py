@@ -228,6 +228,13 @@ def is_hopeless_in_all_regimes(
         if metrics.pnl_pct < worst_pnl:
             worst_pnl = metrics.pnl_pct
             worst_metrics = metrics
+
+    # Phase 3 / C3: явный защитный guard — агента с НЕОТРИЦАТЕЛЬНЫМ агрегатным
+    # PnL по всем режимам с данными никогда не считаем безнадёжным. Это
+    # кодифицирует намерение (не выбивать чистоприбыльных) и не даёт одному
+    # шумному убыточному режиму вычистить полезного агента из пула.
+    if any_data and sum(m.pnl_pct for m in data_metrics) >= 0.0:
+        return False
     # Keep meaningful positive regimes alive, but do not let a tiny positive
     # side sample mask a catastrophic loss in the dominant traded regime.
     dominant_loss = False

@@ -210,6 +210,24 @@ class TestIsHopelessInAllRegimes(unittest.TestCase):
         # worst=-0.10 > -0.30 (hard_neg threshold) → не hopeless
         self.assertFalse(is_hopeless_in_all_regimes(per))
 
+    def test_net_positive_agent_never_hopeless_despite_bad_regime(self):
+        # Phase 3 / C3: один режим глубоко минусовой с доминирующей долей сделок,
+        # но агрегатный PnL по режимам положителен → агента НЕ карантиним.
+        per = {
+            Regime.BEARISH: Metrics(pnl_pct=-1.0, closed_trades=8, wins=1, losses=7),
+            Regime.BULLISH: Metrics(pnl_pct=5.0, closed_trades=6, wins=6, losses=0),
+        }
+        # aggregate = +4.0 ≥ 0 → guard срабатывает.
+        self.assertFalse(is_hopeless_in_all_regimes(per))
+
+    def test_net_negative_with_dominant_loss_still_hopeless(self):
+        # Контроль: агрегат отрицательный и доминирующий убыток → всё ещё hopeless.
+        per = {
+            Regime.BEARISH: Metrics(pnl_pct=-2.0, closed_trades=9, wins=1, losses=8),
+            Regime.BULLISH: Metrics(pnl_pct=0.1, closed_trades=1, wins=1, losses=0),
+        }
+        self.assertTrue(is_hopeless_in_all_regimes(per))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -140,6 +140,21 @@ def merge_retro_prior_into_memory(
 
     snapshot = perf.snapshot()
     state = dict(snapshot.get("state") or {})
+
+    # Phase 3 / C2: приор может быть построен при ином trade_fraction (исторически
+    # 1.0), чем живая память (например 0.10). PnL-метрики приора нужно привести к
+    # масштабу живого учёта, иначе seed выглядит в (live/prior) раз крупнее и
+    # искажает scoring/quarantine. При равных fraction коэффициент = 1.0.
+    live_fraction = _float(snapshot.get("trade_fraction"), default=1.0)
+    prior_fraction = _float(prior_snapshot.get("trade_fraction"), default=1.0)
+    pnl_scale = 1.0
+    if prior_fraction > 0.0 and live_fraction > 0.0 and prior_fraction != live_fraction:
+        pnl_scale = live_fraction / prior_fraction
+        warnings.append(
+            f"rescaled prior pnl by {pnl_scale:.4g} "
+            f"(prior trade_fraction={prior_fraction:.4g} -> live={live_fraction:.4g})"
+        )
+
     applied = skipped_existing = skipped_invalid = 0
     for raw_key, raw_payload in incoming.items():
         key = str(raw_key)
@@ -150,6 +165,8 @@ def merge_retro_prior_into_memory(
         if payload is None:
             skipped_invalid += 1
             continue
+        if pnl_scale != 1.0:
+            payload = _rescale_payload_pnl(payload, pnl_scale)
         if fill_missing_only and _state_payload_has_data(state.get(key)):
             skipped_existing += 1
             continue
@@ -354,6 +371,35 @@ def _sanitize_state_payload(payload: Mapping[str, object]) -> dict | None:
         "pending_signals": _non_negative_int(payload.get("pending_signals")),
         "execution_failures": _non_negative_int(payload.get("execution_failures")),
     }
+
+
+def _rescale_payload_pnl(payload: dict, scale: float) -> dict:
+    """Привести pnl-пропорциональные поля приора к масштабу живого trade_fraction.
+
+    Масштабируются: pnl_pct, pnl_gross_pct, fee_pct, funding_pct, returns,
+    max_dd_pct. equity/peak/equity_curve пересобираются из нового pnl_pct, чтобы
+    остаться согласованными. Счётчики (closed/wins/...) не трогаем.
+    """
+    out = dict(payload)
+    try:
+        factor = float(scale)
+    except (TypeError, ValueError):
+        return out
+    if not _is_finite_number(factor) or factor <= 0.0 or factor == 1.0:
+        return out
+    for field in ("pnl_pct", "pnl_gross_pct", "fee_pct", "funding_pct", "max_dd_pct"):
+        if field in out:
+            out[field] = float(out[field]) * factor
+    if isinstance(out.get("returns"), list):
+        out["returns"] = [float(x) * factor for x in out["returns"] if _is_finite_number(x)]
+    # Пересобираем equity-инварианты из нового pnl_pct.
+    pnl_pct = float(out.get("pnl_pct", 0.0))
+    equity = max(0.01, 1.0 + pnl_pct / 100.0)
+    out["equity"] = equity
+    out["equity_curve"] = [100.0, equity * 100.0]
+    out["peak"] = max(1.0, equity)
+    out["max_dd_pct"] = max(0.0, float(out.get("max_dd_pct", 0.0)))
+    return out
 
 
 def _state_payload_has_data(payload: object) -> bool:
