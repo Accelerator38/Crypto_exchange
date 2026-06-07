@@ -231,3 +231,46 @@ Agent (стратегия)  →  Player/EnsemblePlayer (ансамбль аге�
 - `migration.py:243` — не-атомарная запись снапшота (C1)
 - `retro_prior.py:90` — `trade_fraction=1.0` vs лайв `0.10` (C2)
 - `retrodate_market_runner.py:4169` — ex-post «лучший компонент» (B7)
+
+---
+
+## Приложение 2. Статус реализации (ветка `Panteon_Opus`)
+
+Все правки сделаны фазами, каждая — отдельный коммит + юнит-тесты. Поведение,
+меняющее калибровку/торговлю, спрятано за флагами с дефолтом «как было», чтобы
+включать после ретро-валидации. Базлайн: 1 предсуществующее падение
+(`test_flash_can_promote_selected_legacy_agents_to_real_execution`), не связано с правками.
+
+| Фаза | Коммит | Что сделано | Находки |
+|------|--------|-------------|---------|
+| 0 | `0c67197` | Атомарная запись снапшота памяти (tmp+fsync+replace) + `.bak`-recovery; авто-recovery kill-switch (opt-in); защита секретов в gitignore | C1, A7, S1 |
+| 1 | `714cd60` | max-смещённая агрегация скоров (strategist + `_component_score`); взвешенные средние вместо сумм комиссий/pnl, усреднённая просадка; наследование допуска (суммарные счётчики); когерентный event-LCB (аддитивно) | B1, B2, B4, B3 |
+| 2 | `220d3d2` | Направленное голосование `WeightedConsensus(directional=True)` (opt-in); закрытие без блокировки пассивными HOLD; гейт по `pnl_per_trade` (opt-in) | A1, B5, A3 |
+| 3a | `79f1f96` | Guard: чистоприбыльный по агрегату агент не карантинится; пересчёт pnl retro-prior под живой trade_fraction | C3, A8, C2 |
+| 3b | `1dcdee6` | Bounded `returns` (opt-in кольцевой буфер) — рецентность + ограничение роста памяти | C6 |
+| 4 | `b29d915` | Реалистичный slippage в ретро-FakeExchange (`--slippage-pct`); видимые пустые прогоны (`panteon_did_not_trade`) | B7(part), C13 |
+| 5 | `39f45ff` | Тюнингуемая степень концентрации весов `PlayerComposer(weight_power=...)` | weights |
+
+### Флаги для включения после ретро-валидации (дефолт = старое поведение)
+- `WeightedConsensus(directional=True)` — направленное голосование (A1/B5).
+- `FlashAllocatorConfig.gate_pnl_per_trade_enabled=True` — гейт по per-trade (A3).
+- `LiveExecutionConfig.kill_switch_auto_recovery_enabled=True` (+ cooldown/equity) — A7.
+- `PerformanceMemory(max_returns_history=N)` — рецентность/bounded память (C6).
+- `RetrodateMarketConfig.slippage_pct` / `--slippage-pct` — реалистичные филлы (B7).
+- `StrategistConfig.ensemble_bootstrap_max_bias`, `FlashAllocatorConfig.component_score_max_bias`,
+  `PlayerComposer(weight_power=...)` — тюнинг агрегации/весов (B1/B2/Phase 5).
+- Когерентный LCB: `SoftShadowStats.pnl_per_trade_lcb_event_usd` (переключить гейт после рекалибровки, B3).
+
+### Осознанно отложено (нужны данные/дизайн)
+- B7 (часть): causal trailing-window «лучший компонент» вместо ex-post оракула —
+  смена методологии отчёта.
+- A6: полный decoupling current-actionability от eligibility (сейчас под флагом
+  `v3_current_actionable_gate_enabled`).
+- Полный EWMA half-life в скоринге (реализован bounded-returns как первый шаг).
+- Phase 5: affinity-floor для регим-специалистов и волатильность-адаптивные пороги.
+
+### Действия пользователя (вне кода)
+- **Ротировать ключ MEXC** — он лежал в открытом виде в `ключ мехс.txt` (теперь в gitignore).
+- Перенести 3 ГБ legacy-папку из репо-директории.
+- Прогнать ретро до/после на одном наборе лет и поэтапно включать флаги, сверяя
+  PnL / число сделок / alpha-vs-constituents / maxDD.
