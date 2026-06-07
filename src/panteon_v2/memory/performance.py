@@ -170,10 +170,17 @@ class PerformanceMemory:
         trade_fraction: float = _DEFAULT_TRADE_FRACTION,
         strict_close_action_family: bool = False,
         exchange_scope: str = _DEFAULT_EXCHANGE_SCOPE,
+        max_returns_history: int = 0,
     ):
         if not 0 < trade_fraction <= 1.0:
             raise ValueError(f"trade_fraction must be in (0, 1], got {trade_fraction}")
+        if max_returns_history < 0:
+            raise ValueError("max_returns_history must be >= 0")
         self._trade_fraction = float(trade_fraction)
+        # Phase 3 / C6: ограничение длины per-(label,regime) returns (0 = безлимит).
+        # При >0 Sharpe считается по последним N сделкам — bounded память +
+        # естественная рецентность (старые сделки выпадают из окна).
+        self._max_returns_history = int(max_returns_history)
         self._strict_close_action_family = bool(strict_close_action_family)
         self._exchange_scope = _normalize_exchange_scope(exchange_scope)
         # (label, regime) → state
@@ -769,6 +776,7 @@ class PerformanceMemory:
                 fee_pct=fee_total_pct * 100.0,
                 funding_pct=funding_total_pct * 100.0,
                 timestamp=close_timestamp,
+                max_returns=self._max_returns_history,
             )
         aggregate_curve = self._equity_curves.setdefault(label, [100.0])
         aggregate_curve.append(aggregate_curve[-1] * (1.0 + net_pnl))
@@ -1065,12 +1073,16 @@ def _apply_realized_close_to_state(
     fee_pct: float,
     funding_pct: float,
     timestamp: str = "",
+    max_returns: int = 0,
 ) -> None:
     state.pnl_pct += net_pnl_pct
     state.pnl_gross_pct += gross_pnl_pct
     state.fee_pct += fee_pct
     state.funding_pct += funding_pct
     state.returns.append(net_pnl_pct)
+    # Phase 3 / C6: bounded returns (0 = безлимит). Удерживаем последние N.
+    if max_returns > 0 and len(state.returns) > max_returns:
+        del state.returns[: len(state.returns) - max_returns]
     if net_pnl_pct > 0:
         state.wins += 1
     elif net_pnl_pct < 0:

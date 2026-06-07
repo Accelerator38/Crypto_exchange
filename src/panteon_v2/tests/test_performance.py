@@ -72,6 +72,34 @@ class TestPerformanceMemoryBasic(unittest.TestCase):
         with self.assertRaises(ValueError):
             PerformanceMemory(trade_fraction=1.5)
 
+    def test_invalid_max_returns_history(self):
+        with self.assertRaises(ValueError):
+            PerformanceMemory(max_returns_history=-1)
+
+    def test_bounded_returns_history_keeps_last_n(self):
+        # Phase 3 / C6: при max_returns_history=3 храним последние 3 returns.
+        perf = PerformanceMemory(trade_fraction=1.0, max_returns_history=3)
+        prices = [110.0, 95.0, 120.0, 90.0, 130.0]  # 5 закрытий
+        for i, exit_price in enumerate(prices):
+            os = _open_signal(2 * i + 1, "BTC", Regime.NEUTRAL, bar=2 * i + 1)
+            cs = _close_signal(2 * i + 2, "BTC", Regime.NEUTRAL, bar=2 * i + 2)
+            perf.update_from_trade(_open_trade(os), os)
+            perf.update_from_trade(_close_trade(os, cs, exit_price), cs)
+        state = perf._state[("AgentA", Regime.NEUTRAL)]
+        self.assertEqual(len(state.returns), 3)
+        # closed_trades счётчик не обрезается — это полная история.
+        self.assertEqual(perf.get("AgentA", regime=Regime.NEUTRAL).closed_trades, 5)
+
+    def test_unbounded_returns_history_by_default(self):
+        perf = PerformanceMemory(trade_fraction=1.0)  # default 0 = безлимит
+        for i in range(5):
+            os = _open_signal(2 * i + 1, "BTC", Regime.NEUTRAL, bar=2 * i + 1)
+            cs = _close_signal(2 * i + 2, "BTC", Regime.NEUTRAL, bar=2 * i + 2)
+            perf.update_from_trade(_open_trade(os), os)
+            perf.update_from_trade(_close_trade(os, cs, 110.0), cs)
+        state = perf._state[("AgentA", Regime.NEUTRAL)]
+        self.assertEqual(len(state.returns), 5)
+
     def test_signal_id_mismatch_rejected(self):
         perf = PerformanceMemory()
         sig = _open_signal(1, "BTC", Regime.BULLISH)
