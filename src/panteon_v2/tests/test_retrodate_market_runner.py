@@ -3176,7 +3176,9 @@ def test_component_benchmark_panteon_pnl_requires_live_session_field():
     }) == 4.0
 
 
-def test_component_benchmark_integration_skips_missing_panteon_pnl(tmp_path):
+def test_component_benchmark_emits_panteon_did_not_trade_when_pnl_missing(tmp_path):
+    # Phase 4 / C13: пустой прогон (Panteon не торговал) — валидный результат.
+    # Бенчмарк пишется с panteon=0.0 и явной пометкой, а не пропадает.
     step_errors = []
 
     path = runner._write_component_benchmark_report_from_status(
@@ -3190,10 +3192,9 @@ def test_component_benchmark_integration_skips_missing_panteon_pnl(tmp_path):
         step_errors=step_errors,
     )
 
-    assert path is None
-    assert step_errors == ["component_benchmark_failed: missing_panteon_pnl"]
-    assert not (tmp_path / "component_benchmark_report.json").exists()
-    assert not (tmp_path / "component_benchmark_report.md").exists()
+    assert path is not None
+    assert step_errors == ["component_benchmark_note: panteon_did_not_trade"]
+    assert (tmp_path / "component_benchmark_report.json").exists()
 
 
 def test_standalone_vs_flash_selected_report_compares_target_actors(tmp_path):

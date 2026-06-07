@@ -260,6 +260,11 @@ class RetrodateMarketConfig:
     stride_minutes: int = 60
     initial_capital: float = 1000.0
     risk_capital_fraction: float = 0.10
+    # Phase 4 / B7: реалистичный slippage в ретро-FakeExchange. 0.0 = старое
+    # поведение (идеальные филлы по close). На лайве есть спред/проскальзывание,
+    # поэтому нулевой slippage завышает PnL и сильнее раздувает частых акторов,
+    # чем редкий ансамбль. Задавайте напр. 0.0005 (5 б.п.) для сопоставимости.
+    slippage_pct: float = 0.0
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -536,6 +541,8 @@ class RetrodateMarketConfig:
             raise ValueError("initial_capital must be > 0")
         if not 0.0 < self.risk_capital_fraction <= 1.0:
             raise ValueError("risk_capital_fraction must be in (0, 1]")
+        if self.slippage_pct < 0.0:
+            raise ValueError("slippage_pct must be >= 0")
         if self.solo_agent_candidate_limit < 1:
             raise ValueError("solo_agent_candidate_limit must be >= 1")
         object.__setattr__(
@@ -1223,6 +1230,9 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         )
     registered_agents = tuple(registered_agent_labels)
     exchange = FakeExchange(name="RETRODATE_MARKET")
+    # Phase 4 / B7: применяем реалистичный slippage (0.0 = идеальные филлы).
+    if config.slippage_pct > 0.0:
+        exchange.set_slippage_pct(config.slippage_pct)
     strategist_config = _build_strategist_config(config)
     pipeline = build_production_pipeline(
         registry=registry,
@@ -1560,6 +1570,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         stride_minutes=args.stride_minutes,
         initial_capital=args.initial_capital,
         risk_capital_fraction=args.risk_capital_fraction,
+        slippage_pct=args.slippage_pct,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2186,6 +2197,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stride-minutes", type=int, default=60)
     parser.add_argument("--initial-capital", type=float, default=1000.0)
     parser.add_argument("--risk-capital-fraction", type=float, default=0.10)
+    parser.add_argument(
+        "--slippage-pct",
+        type=float,
+        default=0.0,
+        help="Per-fill slippage fraction for the retro FakeExchange (e.g. 0.0005 = 5bps). 0 = ideal fills.",
+    )
     parser.add_argument("--risk-max-leverage", type=int, default=5)
     parser.add_argument("--apply-risk-leverage-to-notional", action="store_true")
     parser.add_argument("--include-optional-agents", action="store_true")
@@ -4276,8 +4293,11 @@ def _write_component_benchmark_report_from_status(
 ) -> Path | None:
     panteon_pnl_usd = _live_session_panteon_pnl_usd(status)
     if panteon_pnl_usd is None:
-        step_errors.append("component_benchmark_failed: missing_panteon_pnl")
-        return None
+        # Phase 4 / C13: пустой прогон (Panteon не торговал) — это валидный
+        # результат, а не сбой отчёта. Пишем бенчмарк с 0.0 и явной пометкой,
+        # чтобы genuine empty runs были отличимы от ошибок и видны в отчёте.
+        step_errors.append("component_benchmark_note: panteon_did_not_trade")
+        panteon_pnl_usd = 0.0
     return write_component_benchmark_report(
         output_dir,
         panteon_pnl_usd=panteon_pnl_usd,
