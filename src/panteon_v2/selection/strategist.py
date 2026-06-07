@@ -73,6 +73,12 @@ class StrategistConfig:
     real_min_closed_trades: int = 3
     zero_score_uncertainty_penalty: float = 0.05
     execution_failure_score_penalty: float = 0.02
+    # Phase 1 / B1: при бутстрапе скора игрока из скоров его агентов используем
+    # max-смещённую агрегацию вместо чистого среднего, чтобы ансамбль не
+    # регрессировал к среднему слабых компонентов и не оказывался ниже своего
+    # лучшего агента. base = bias*max + (1-bias)*mean. 1.0 = чистый max,
+    # 0.0 = старое поведение (mean).
+    ensemble_bootstrap_max_bias: float = 0.70
     player_session_overlay_weight: float = 1.00
     player_session_underperformance_weight: float = 0.75
     player_session_stale_penalty: float = 0.15
@@ -196,6 +202,8 @@ class StrategistConfig:
             raise ValueError("zero_score_uncertainty_penalty must be >= 0")
         if self.execution_failure_score_penalty < 0:
             raise ValueError("execution_failure_score_penalty must be >= 0")
+        if not 0.0 <= self.ensemble_bootstrap_max_bias <= 1.0:
+            raise ValueError("ensemble_bootstrap_max_bias must be in [0, 1]")
         if self.player_session_overlay_weight < 0:
             raise ValueError("player_session_overlay_weight must be >= 0")
         if self.player_session_underperformance_weight < 0:
@@ -277,6 +285,22 @@ class StrategistConfig:
 
 
 DEFAULT_STRATEGIST = StrategistConfig()
+
+
+def _max_biased_aggregate(scores: Sequence[float], bias: float) -> float:
+    """max-смещённая агрегация скоров компонентов (Phase 1 / B1).
+
+    Возвращает ``bias*max + (1-bias)*mean``. При bias=0 — чистое среднее
+    (старое поведение), при bias=1 — чистый максимум. Это не даёт скору
+    ансамбля упасть ниже его лучшего компонента из-за слабых участников.
+    Корректно работает и для отрицательных скоров (max = наименее плохой).
+    """
+    values = [float(s) for s in scores]
+    if not values:
+        return 0.0
+    b = max(0.0, min(1.0, float(bias)))
+    mean = sum(values) / len(values)
+    return b * max(values) + (1.0 - b) * mean
 
 
 def _shadow_action_key(action: object) -> str:
@@ -2409,7 +2433,9 @@ class Strategist:
                 current_bar=current_bar,
                 market_tags=market_tags,
             )
-        base_score = sum(agent_scores) / len(agent_scores)
+        base_score = _max_biased_aggregate(
+            agent_scores, self._config.ensemble_bootstrap_max_bias
+        )
         if has_closed_experience:
             base_score = self._apply_affinity(player, regime, base_score)
         score = self._apply_real_overlay(player, regime, base_score)

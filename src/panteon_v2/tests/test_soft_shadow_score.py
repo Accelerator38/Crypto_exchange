@@ -154,3 +154,24 @@ def test_soft_shadow_stats_include_pnl_per_trade_lcb_inputs():
     assert payload["pnl_per_trade_mean_usd"] == 4.0
     assert payload["pnl_per_trade_std_usd"] == 2.0
     assert payload["pnl_per_trade_lcb_usd"] == 4.0 - 2.0 / (3 ** 0.5)
+    # 3 события по 1 сделке → samples == closed → когерентный LCB совпадает с legacy.
+    assert stats.pnl_per_trade_samples == 3
+    assert payload["pnl_per_trade_lcb_event_usd"] == 4.0 - 2.0 / (3 ** 0.5)
+
+
+def test_coherent_event_lcb_differs_when_events_have_many_trades():
+    # Phase 1 / B3: высокочастотный актор — мало событий, но много сделок в каждом.
+    # Legacy-LCB делит на √closed (переоценка уверенности), event-LCB — на √samples.
+    state = SoftShadowScoreState(window_bars=100, min_closed_trades=1)
+    state.update(bar=10, label="Busy", regime="bullish", pnl_usd=20.0, closed_trades=10)
+    state.update(bar=11, label="Busy", regime="bullish", pnl_usd=-10.0, closed_trades=10)
+
+    stats = state.stats(label="Busy", regime="bullish", current_bar=20)
+    # 2 события → samples == 2, closed == 20.
+    assert stats.closed_trades == 20
+    assert stats.pnl_per_trade_samples == 2
+    # event-LCB строго НИЖЕ (консервативнее) legacy-LCB, т.к. √2 < √20.
+    assert stats.pnl_per_trade_lcb_event_usd < stats.pnl_per_trade_lcb_usd
+    # Сходимость: при равном знаменателе значения совпали бы.
+    expected_event = stats.pnl_per_trade_mean_usd - stats.pnl_per_trade_std_usd / (2 ** 0.5)
+    assert abs(stats.pnl_per_trade_lcb_event_usd - expected_event) < 1e-9

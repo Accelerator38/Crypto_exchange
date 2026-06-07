@@ -2892,12 +2892,16 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(by_symbol["AVAX"].reason, "actor_signal_cap")
         self.assertIsNone(by_symbol["AVAX"].signal)
 
-    def test_component_score_weights_by_closed_trades_and_sums_pnl(self):
+    def test_component_score_weights_by_closed_trades_and_averages_pnl(self):
+        # Phase 1 / B1+B2: счётчики суммируются (наследование допуска), а pnl —
+        # трейд-взвешенное среднее (не сумма, чтобы не множить издержки ~N×).
+        # Скор — max-смещённый (ансамбль не ниже лучшего компонента).
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
         _add_perf(perf, "DeepHistory", Regime.BULLISH, 200, 1.0, start_id=1)
         _add_perf(perf, "TinyLucky", Regime.BULLISH, 3, 50.0, start_id=1000)
         allocator = FlashAllocator(perf=perf, qm=qm)
+        bias = allocator._config.component_score_max_bias
 
         metrics, score = allocator._component_score(
             ("DeepHistory", "TinyLucky"),
@@ -2929,17 +2933,27 @@ class TestFlashAllocator(unittest.TestCase):
             )(),
             Regime.BULLISH,
         )[1]
-        expected_score = (
-            deep_score * deep_metrics.closed_trades
-            + tiny_score * tiny_metrics.closed_trades
-        ) / metrics.closed_trades
+        w_deep = deep_metrics.closed_trades
+        w_tiny = tiny_metrics.closed_trades
+        wsum = w_deep + w_tiny
+        weighted_mean = (deep_score * w_deep + tiny_score * w_tiny) / wsum
+        expected_score = bias * max(deep_score, tiny_score) + (1.0 - bias) * weighted_mean
+        expected_pnl = (
+            deep_metrics.pnl_pct * w_deep + tiny_metrics.pnl_pct * w_tiny
+        ) / wsum
 
+        # Счётчики — суммы.
         self.assertEqual(metrics.closed_trades, 203)
-        self.assertAlmostEqual(
+        # pnl — трейд-взвешенное среднее, НЕ сумма.
+        self.assertAlmostEqual(metrics.pnl_pct, expected_pnl)
+        self.assertLess(
             metrics.pnl_pct,
             deep_metrics.pnl_pct + tiny_metrics.pnl_pct,
         )
+        # Скор max-смещён: не ниже взвешенного среднего и не выше лучшего компонента.
         self.assertAlmostEqual(score, expected_score)
+        self.assertGreaterEqual(score + 1e-9, weighted_mean)
+        self.assertLessEqual(score - 1e-9, max(deep_score, tiny_score))
 
     def test_no_trade_when_all_actors_are_inactive_for_symbol(self):
         perf = PerformanceMemory(trade_fraction=1.0)

@@ -219,6 +219,11 @@ class FlashAllocatorConfig:
     no_data_score: float = 0.0
     min_closed_trades_to_trade: int = 3
     min_pnl_pct_to_trade: float = 0.0
+    # Phase 1 / B1+B2: агрегация синтетических метрик ансамбля из компонентов.
+    # Счётчики (closed/signals/...) суммируются (наследование допуска, B4),
+    # а pnl/комиссии/просадка — трейд-взвешенные средние (не суммы, чтобы не
+    # умножать издержки ~N×). Скор — max-смещённый: bias*max + (1-bias)*wmean.
+    component_score_max_bias: float = 0.70
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -611,6 +616,8 @@ class FlashAllocatorConfig:
             raise ValueError("actionable_bonus must be >= 0")
         if self.min_closed_trades_to_trade < 0:
             raise ValueError("min_closed_trades_to_trade must be >= 0")
+        if not 0.0 <= self.component_score_max_bias <= 1.0:
+            raise ValueError("component_score_max_bias must be in [0, 1]")
         if self.shadow_confirmation_min_closed_trades < 0:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
@@ -3713,23 +3720,41 @@ class FlashAllocator:
                 scored.append((metrics, self._score_metrics(metrics, regime)))
         if not scored:
             return Metrics.empty(), float(self._config.no_data_score)
+        # Счётчики — суммы (наследование допуска от компонентов, B4; корректный
+        # win_rate из суммарных wins/losses).
         closed = sum(row[0].closed_trades for row in scored)
         signals = sum(row[0].signals for row in scored)
         entries = sum(row[0].entries for row in scored)
-        score_weight = sum(max(row[0].closed_trades, 0) for row in scored)
-        if score_weight > 0:
-            score = (
-                sum(row[1] * row[0].closed_trades for row in scored)
-                / score_weight
-            )
-        else:
-            score = sum(row[1] for row in scored) / len(scored)
-        pnl = sum(row[0].pnl_pct for row in scored)
-        pnl_gross = sum(float(getattr(row[0], "pnl_gross_pct", row[0].pnl_pct)) for row in scored)
-        fee_pct = sum(float(getattr(row[0], "fee_pct", 0.0)) for row in scored)
-        funding_pct = sum(float(getattr(row[0], "funding_pct", 0.0)) for row in scored)
         wins = sum(row[0].wins for row in scored)
         losses = sum(row[0].losses for row in scored)
+
+        # Трейд-взвешенное среднее: вес = closed_trades компонента (fallback —
+        # равные веса). Это делает синтетический ансамбль сопоставимым с одним
+        # актором и не умножает издержки ~N× (B2).
+        weights = [max(row[0].closed_trades, 0) for row in scored]
+        wsum = sum(weights)
+
+        def _wavg(values: List[float]) -> float:
+            if wsum > 0:
+                return sum(v * w for v, w in zip(values, weights)) / wsum
+            return sum(values) / len(values)
+
+        component_scores = [row[1] for row in scored]
+        score_mean = _wavg(component_scores)
+        bias = max(0.0, min(1.0, float(self._config.component_score_max_bias)))
+        # max-смещённый скор: ансамбль не ниже своего лучшего компонента (B1).
+        score = bias * max(component_scores) + (1.0 - bias) * score_mean
+
+        pnl = _wavg([row[0].pnl_pct for row in scored])
+        pnl_gross = _wavg(
+            [float(getattr(row[0], "pnl_gross_pct", row[0].pnl_pct)) for row in scored]
+        )
+        fee_pct = _wavg([float(getattr(row[0], "fee_pct", 0.0)) for row in scored])
+        funding_pct = _wavg(
+            [float(getattr(row[0], "funding_pct", 0.0)) for row in scored]
+        )
+        # Просадка — взвешенное среднее (репрезентативно), а не худшая по компонентам.
+        max_dd = _wavg([float(row[0].max_dd_pct) for row in scored])
         metrics = Metrics(
             pnl_pct=pnl,
             closed_trades=closed,
@@ -3737,7 +3762,7 @@ class FlashAllocator:
             signals=signals,
             wins=wins,
             losses=losses,
-            max_dd_pct=max(row[0].max_dd_pct for row in scored),
+            max_dd_pct=max_dd,
             pnl_gross_pct=pnl_gross,
             fee_pct=fee_pct,
             funding_pct=funding_pct,

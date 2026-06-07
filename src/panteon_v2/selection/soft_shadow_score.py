@@ -22,6 +22,11 @@ class SoftShadowStats:
     recent_downside_usd: float
     pnl_per_trade_mean_usd: float = 0.0
     pnl_per_trade_std_usd: float = 0.0
+    # Phase 1 / B3: число независимых наблюдений (событий-баров), по которым
+    # реально оценена дисперсия per-trade PnL. Дисперсия считается между
+    # событиями, поэтому статистически корректный знаменатель SE — √(samples),
+    # а не √(closed_trades). См. pnl_per_trade_lcb_event_usd.
+    pnl_per_trade_samples: int = 0
 
     @property
     def losing_trades(self) -> int:
@@ -35,11 +40,34 @@ class SoftShadowStats:
 
     @property
     def pnl_per_trade_lcb_usd(self) -> float:
+        """Legacy LCB: SE = std/√closed_trades.
+
+        Сохранено для обратной совместимости калиброванного гейта. Имеет
+        статистическую нестыковку (числитель дисперсии — по событиям,
+        знаменатель — по сделкам). Для нового кода — pnl_per_trade_lcb_event_usd.
+        """
         closed = max(0, int(self.closed_trades))
         if closed <= 0:
             return 0.0
         return float(self.pnl_per_trade_mean_usd) - (
             float(self.pnl_per_trade_std_usd) / math.sqrt(float(closed))
+        )
+
+    @property
+    def pnl_per_trade_lcb_event_usd(self) -> float:
+        """Когерентный LCB: SE = std/√(число событий-наблюдений) (Phase 1 / B3).
+
+        Дисперсия per-trade PnL оценивается между событиями (барами), поэтому
+        число независимых наблюдений — это число событий, а не суммарное число
+        сделок. Это устраняет переоценку уверенности у высокочастотных агентов
+        (много сделок в одном баре) и выравнивает сравнение с ансамблем, который
+        торгует реже, но крупнее.
+        """
+        samples = max(0, int(self.pnl_per_trade_samples))
+        if samples <= 0:
+            return 0.0
+        return float(self.pnl_per_trade_mean_usd) - (
+            float(self.pnl_per_trade_std_usd) / math.sqrt(float(samples))
         )
 
     def as_confirmation_payload(self) -> dict:
@@ -52,7 +80,9 @@ class SoftShadowStats:
             "recent_downside_usd": float(self.recent_downside_usd),
             "pnl_per_trade_mean_usd": float(self.pnl_per_trade_mean_usd),
             "pnl_per_trade_std_usd": float(self.pnl_per_trade_std_usd),
+            "pnl_per_trade_samples": int(self.pnl_per_trade_samples),
             "pnl_per_trade_lcb_usd": float(self.pnl_per_trade_lcb_usd),
+            "pnl_per_trade_lcb_event_usd": float(self.pnl_per_trade_lcb_event_usd),
         }
 
 
@@ -167,6 +197,9 @@ class SoftShadowScoreState:
             if event.bar > cutoff and event.pnl_usd < 0.0
         )
         pnl_mean, pnl_std = _weighted_pnl_per_trade_stats(previous_events)
+        n_samples = sum(
+            1 for event in previous_events if int(event.closed_trades) > 0
+        )
         return SoftShadowStats(
             score=float(recent_pnl),
             closed_trades=int(trades),
@@ -174,6 +207,7 @@ class SoftShadowScoreState:
             recent_downside_usd=float(recent_downside),
             pnl_per_trade_mean_usd=float(pnl_mean),
             pnl_per_trade_std_usd=float(pnl_std),
+            pnl_per_trade_samples=int(n_samples),
         )
 
 
