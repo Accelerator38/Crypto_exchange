@@ -265,6 +265,11 @@ class RetrodateMarketConfig:
     # поэтому нулевой slippage завышает PnL и сильнее раздувает частых акторов,
     # чем редкий ансамбль. Задавайте напр. 0.0005 (5 б.п.) для сопоставимости.
     slippage_pct: float = 0.0
+    # Phase 2/3 opt-in флаги для валидационных прогонов (default = как в лайве по
+    # умолчанию, т.е. выключено).
+    voting_directional: bool = False
+    flash_gate_pnl_per_trade_enabled: bool = False
+    perf_max_returns_history: int = 0
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1244,6 +1249,8 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         risk_config=_build_risk_config(config),
         flash_enabled=config.flash_enabled,
         flash_allocator_config=_build_flash_allocator_config(config),
+        perf_max_returns_history=int(config.perf_max_returns_history),
+        voting_directional=bool(config.voting_directional),
     )
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
@@ -1571,6 +1578,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         initial_capital=args.initial_capital,
         risk_capital_fraction=args.risk_capital_fraction,
         slippage_pct=args.slippage_pct,
+        voting_directional=args.voting_directional,
+        flash_gate_pnl_per_trade_enabled=args.flash_gate_pnl_per_trade,
+        perf_max_returns_history=args.perf_max_returns_history,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2203,6 +2213,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Per-fill slippage fraction for the retro FakeExchange (e.g. 0.0005 = 5bps). 0 = ideal fills.",
     )
+    parser.add_argument(
+        "--voting-directional",
+        action="store_true",
+        help="Phase 2/A1: directional WeightedConsensus for ensembles.",
+    )
+    parser.add_argument(
+        "--flash-gate-pnl-per-trade",
+        action="store_true",
+        help="Phase 2/A3: gate on per-trade pnl instead of cumulative pnl_pct.",
+    )
+    parser.add_argument(
+        "--perf-max-returns-history",
+        type=int,
+        default=0,
+        help="Phase 3/C6: cap per-(label,regime) returns ring buffer (0 = unlimited).",
+    )
     parser.add_argument("--risk-max-leverage", type=int, default=5)
     parser.add_argument("--apply-risk-leverage-to-notional", action="store_true")
     parser.add_argument("--include-optional-agents", action="store_true")
@@ -2798,6 +2824,7 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         no_data_score=config.flash_no_data_score,
         min_closed_trades_to_trade=config.flash_min_closed_trades_to_trade,
         min_pnl_pct_to_trade=config.flash_min_pnl_pct_to_trade,
+        gate_pnl_per_trade_enabled=config.flash_gate_pnl_per_trade_enabled,
         shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
         shadow_symbol_confirmation_enabled=(
             config.flash_symbol_shadow_confirmation_enabled

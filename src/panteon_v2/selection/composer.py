@@ -18,7 +18,7 @@ EnsemblePlayer, который собирается через PlayerComposer.co
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from ..domain.types import Regime
@@ -284,6 +284,7 @@ class PlayerComposer:
         selector: AgentSelector,
         *,
         weight_power: float = _DYNAMIC_WEIGHT_POWER,
+        voting_directional: bool = False,
     ):
         self._selector = selector
         # Phase 5: тюнингуемая степень концентрации весов. 1.0 = линейные веса
@@ -292,6 +293,9 @@ class PlayerComposer:
         if not math.isfinite(float(weight_power)) or float(weight_power) <= 0.0:
             raise ValueError("weight_power must be a positive finite number")
         self._weight_power = float(weight_power)
+        # Phase 2/A1: при True все WeightedConsensus-ансамбли строятся в
+        # направленном режиме (доминирующая сторона вместо net long−short).
+        self._voting_directional = bool(voting_directional)
 
     def compose_from_profile(
         self,
@@ -390,11 +394,14 @@ class PlayerComposer:
         else:
             weights = {lbl: w / total for lbl, w in raw.items()}
         agents = [sa.agent for sa in scored]
+        voting = profile.voting
+        if self._voting_directional and isinstance(voting, WeightedConsensus) and not voting.directional:
+            voting = replace(voting, directional=True)
         return EnsemblePlayer(
             label=profile.label,
             agents=agents,
             weights=weights,
-            voting=profile.voting,
+            voting=voting,
             thresholds=profile.thresholds,
             affinity=profile.affinity,
         )

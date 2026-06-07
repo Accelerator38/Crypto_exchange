@@ -200,6 +200,28 @@ class TestPlayerComposer(unittest.TestCase):
         with self.assertRaises(ValueError):
             PlayerComposer(_FixedScoreSelector(), weight_power=0.0)
 
+    def test_voting_directional_propagates_to_ensemble(self):
+        # Phase 2/A1: composer(voting_directional=True) строит ансамбли с
+        # направленным WeightedConsensus.
+        good = ScoredAgent(FakeAgent("Good"), score=4.0, metrics=Metrics.empty())
+        okay = ScoredAgent(FakeAgent("Okay"), score=1.0, metrics=Metrics.empty())
+        profile = PlayerProfile(
+            label="DirVote",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=2,
+            min_agents=2,
+        )
+        default_player = PlayerComposer(
+            _FixedScoreSelector(normal=(good, okay))
+        ).compose_from_profile(profile, Regime.NEUTRAL)
+        directional_player = PlayerComposer(
+            _FixedScoreSelector(normal=(good, okay)), voting_directional=True
+        ).compose_from_profile(profile, Regime.NEUTRAL)
+
+        self.assertFalse(default_player.voting.directional)
+        self.assertTrue(directional_player.voting.directional)
+
     def test_negative_fallback_weights_decay_by_score_severity(self):
         mild = ScoredAgent(FakeAgent("MildLoser"), score=-0.10, metrics=Metrics.empty())
         bad = ScoredAgent(FakeAgent("BadLoser"), score=-2.00, metrics=Metrics.empty())

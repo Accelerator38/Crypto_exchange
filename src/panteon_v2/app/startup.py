@@ -410,6 +410,27 @@ def _live_execution_config_from_settings(
             ),
             5.0,
         ),
+        kill_switch_auto_recovery_enabled=bool_any(
+            scoped_names(
+                "v2_kill_switch_auto_recovery_enabled",
+                "kill_switch_auto_recovery_enabled",
+            ),
+            False,
+        ),
+        kill_switch_recovery_cooldown_bars=int_any(
+            scoped_names(
+                "v2_kill_switch_recovery_cooldown_bars",
+                "kill_switch_recovery_cooldown_bars",
+            ),
+            0,
+        ),
+        kill_switch_recovery_max_drawdown_pct=num_any(
+            scoped_names(
+                "v2_kill_switch_recovery_max_drawdown_pct",
+                "kill_switch_recovery_max_drawdown_pct",
+            ),
+            0.0,
+        ),
         max_consecutive_failed_orders=int_any(
             scoped_names(
                 "v2_max_consecutive_failed_orders",
@@ -928,6 +949,15 @@ def _flash_allocator_config_from_settings(
                 "flash_min_pnl_pct_to_trade",
             ),
             0.0,
+        ),
+        gate_pnl_per_trade_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_gate_pnl_per_trade_enabled",
+                "v2_flash_gate_pnl_per_trade_enabled",
+                "flash_gate_pnl_per_trade_enabled",
+            ),
+            False,
         ),
         shadow_confirmation_enabled=_settings_bool(
             settings,
@@ -1955,6 +1985,32 @@ def _resolve_flash_enabled(exchange_name: str) -> bool:
     )
 
 
+def _resolve_voting_directional(exchange_name: str) -> bool:
+    """Phase 2/A1: directional WeightedConsensus для ансамблей (opt-in)."""
+    return _settings_bool(
+        _load_exchange_settings(exchange_name),
+        (
+            "panteon_voting_directional",
+            "v2_voting_directional",
+            "voting_directional",
+        ),
+        False,
+    )
+
+
+def _resolve_perf_max_returns_history(exchange_name: str) -> int:
+    """Phase 3/C6: ограничение длины returns (0 = безлимит)."""
+    return int(_settings_float(
+        _load_exchange_settings(exchange_name),
+        (
+            "panteon_perf_max_returns_history",
+            "v2_perf_max_returns_history",
+            "perf_max_returns_history",
+        ),
+        0.0,
+    ))
+
+
 def _resolve_flash_legacy_real_agents(exchange_name: str) -> tuple[bool, tuple[str, ...]]:
     settings = _load_exchange_settings(exchange_name)
     env_default = (
@@ -2937,6 +2993,8 @@ def start_production(
         flash_enabled=flash_enabled,
         flash_allocator_config=flash_allocator_config,
         perf_trade_fraction=trade_fraction,
+        perf_max_returns_history=_resolve_perf_max_returns_history(exchange),
+        voting_directional=_resolve_voting_directional(exchange),
         jsonl_event_log=jsonl_event_log,
     )
     if configure_pipeline is not None:

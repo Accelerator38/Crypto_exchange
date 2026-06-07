@@ -455,6 +455,9 @@ def build_production_pipeline(
     flash_allocator_config: Optional[FlashAllocatorConfig] = None,
     degradation_config: Optional[DegradationGateConfig] = None,
     perf_trade_fraction: float = 0.10,
+    perf_max_returns_history: int = 0,
+    composer_weight_power: Optional[float] = None,
+    voting_directional: bool = False,
     jsonl_event_log:    Optional[str] = None,
 ) -> ProductionPipeline:
     """Собрать полный production pipeline.
@@ -498,10 +501,12 @@ def build_production_pipeline(
     virtual_perf = PerformanceMemory(
         trade_fraction=perf_trade_fraction,
         exchange_scope=exchange_scope,
+        max_returns_history=int(perf_max_returns_history),
     )
     real_perf = PerformanceMemory(
         trade_fraction=perf_trade_fraction,
         exchange_scope=exchange_scope,
+        max_returns_history=int(perf_max_returns_history),
     )
     qm = QuarantineManager(
         seed=set(seed_quarantine),
@@ -516,7 +521,10 @@ def build_production_pipeline(
         config=scoring_config,
         session_overlay=SessionOverlayConfig(enabled=True),
     )
-    composer = PlayerComposer(selector)
+    composer_kwargs: Dict[str, object] = {"voting_directional": bool(voting_directional)}
+    if composer_weight_power is not None:
+        composer_kwargs["weight_power"] = float(composer_weight_power)
+    composer = PlayerComposer(selector, **composer_kwargs)
     health = SymbolHealthMonitor(config=health_config)
     risk_limits = RiskLimits(config=risk_config)
     position_tracker = PositionTracker()
