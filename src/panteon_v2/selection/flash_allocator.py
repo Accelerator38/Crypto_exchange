@@ -219,6 +219,13 @@ class FlashAllocatorConfig:
     no_data_score: float = 0.0
     min_closed_trades_to_trade: int = 3
     min_pnl_pct_to_trade: float = 0.0
+    # Phase 2 / A3: гейтить по СРЕДНЕМУ PnL на сделку, а не по кумулятивному
+    # pnl_pct. Кумулятив отвергает любой исторически-минусовой актор навсегда
+    # (одна ранняя серия убытков хоронит актора). pnl_per_trade сравнивает
+    # средний эдж за сделку с порогом min_pnl_pct_to_trade (что и подразумевалось
+    # в пресетах вида 0.10). Default False — поведение сохраняется; включать
+    # после ретро-валидации (Фаза 4).
+    gate_pnl_per_trade_enabled: bool = False
     # Phase 1 / B1+B2: агрегация синтетических метрик ансамбля из компонентов.
     # Счётчики (closed/signals/...) суммируются (наследование допуска, B4),
     # а pnl/комиссии/просадка — трейд-взвешенные средние (не суммы, чтобы не
@@ -1712,7 +1719,14 @@ class FlashAllocator:
                 reason = "insufficient_closed_trades"
             elif (
                 output.action.is_open
-                and metrics.pnl_pct < self._config.min_pnl_pct_to_trade
+                and (
+                    (
+                        metrics.pnl_per_trade
+                        if self._config.gate_pnl_per_trade_enabled
+                        else metrics.pnl_pct
+                    )
+                    < self._config.min_pnl_pct_to_trade
+                )
                 and not session_recovery_shadow_confirmed
                 and not shadow_recovery_admission
             ):

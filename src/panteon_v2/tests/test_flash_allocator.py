@@ -3067,6 +3067,37 @@ class TestFlashAllocator(unittest.TestCase):
         rejected = {row.label: row for row in decision.candidates if row.rejected}
         self.assertEqual(rejected["WeakAgent"].reason, "pnl_below_threshold")
 
+    def test_gate_pnl_per_trade_measures_per_trade_edge_not_cumulative(self):
+        # Phase 2 / A3: актор с многими сделками и малым per-trade эджем (+0.05)
+        # тривиально проходит кумулятивный гейт (cum=+2.5 ≥ 0.10), но корректно
+        # отсекается per-trade гейтом (0.05 < 0.10). Это делает порог сопоставимым
+        # между акторами с разным числом сделок.
+        strong = FakeAgent("ThinEdge", {"BTC": Action.FUT_LONG_FULL})
+
+        def _allocator(per_trade_gate: bool):
+            perf = PerformanceMemory(trade_fraction=1.0)
+            qm = QuarantineManager(seed=set())
+            _add_perf(perf, "ThinEdge", Regime.BULLISH, 50, 0.05, start_id=1)
+            return FlashAllocator(
+                perf=perf,
+                qm=qm,
+                config=FlashAllocatorConfig(
+                    min_closed_trades_to_trade=1,
+                    min_pnl_pct_to_trade=0.10,
+                    gate_pnl_per_trade_enabled=per_trade_gate,
+                ),
+            )
+
+        market = make_market(prices={"BTC": 100.0}, regime=Regime.BULLISH)
+        # Кумулятивный режим (старое поведение) — НЕ отсекает по pnl.
+        legacy = _allocator(False).decide(market, agents=[strong], players=[], signal_id_start=1)[0]
+        legacy_rows = {row.label: row for row in legacy.candidates}
+        self.assertNotEqual(legacy_rows["ThinEdge"].reason, "pnl_below_threshold")
+        # Per-trade режим — отсекает: средний эдж за сделку ниже порога.
+        per_trade = _allocator(True).decide(market, agents=[strong], players=[], signal_id_start=1)[0]
+        per_trade_rows = {row.label: row for row in per_trade.candidates}
+        self.assertEqual(per_trade_rows["ThinEdge"].reason, "pnl_below_threshold")
+
     def test_portfolio_actor_uses_symbol_regime_metrics_over_aggregate(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())

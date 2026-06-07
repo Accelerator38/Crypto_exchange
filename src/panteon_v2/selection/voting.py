@@ -109,6 +109,16 @@ class WeightedConsensus:
     """
 
     label: str = "WeightedConsensus"
+    # Phase 2 / A1+B5: направленное голосование.
+    #   • directional=False (дефолт) — старое поведение: net = long − short,
+    #     встречный голос вычитается, открытие при |net| ≥ open_thr.
+    #   • directional=True — открываем по доминирующей стороне:
+    #     dominant_score ≥ open_thr И dominant_score > opposing_score. Это не даёт
+    #     меньшинству встречных голосов гасить уверенное большинство (A1), а
+    #     закрытие не обязано «переголосовать» пассивные HOLD-голоса (B5):
+    #     open-голоса не вливаются в score_keep, close открывается при
+    #     score_close ≥ close_thr и score_close > score_oppose_open.
+    directional: bool = False
 
     def aggregate(
         self,
@@ -137,11 +147,14 @@ class WeightedConsensus:
                 action = agent_votes.get(sym, Action.HOLD)
                 if action.is_long_open:
                     score_long_open += weight
-                    score_keep += weight
+                    if not self.directional:
+                        # В legacy-режиме open-голоса вливаются в keep.
+                        score_keep += weight
                     agents_voting += 1
                 elif action.is_short_open:
                     score_short_open += weight
-                    score_keep += weight
+                    if not self.directional:
+                        score_keep += weight
                     agents_voting += 1
                 elif action.is_close:
                     score_close += weight
@@ -155,22 +168,44 @@ class WeightedConsensus:
             )
             open_thr = max(thresholds.open_floor, open_thr)
 
-            net = score_long_open - score_short_open
-            if abs(net) >= open_thr:
-                full = abs(net) >= max(open_thr, thresholds.open_single)
-                if net > 0:
-                    out[sym] = Action.FUT_LONG_FULL if full else Action.FUT_LONG_HALF
+            if self.directional:
+                # Доминирующая сторона должна пройти порог И строго превзойти
+                # встречную (ничья → не открываем, как в legacy).
+                if score_long_open >= score_short_open:
+                    dominant, opposing, is_long = score_long_open, score_short_open, True
                 else:
-                    out[sym] = Action.FUT_SHORT_FULL if full else Action.FUT_SHORT_HALF
-                continue
+                    dominant, opposing, is_long = score_short_open, score_long_open, False
+                if dominant >= open_thr and dominant > opposing:
+                    full = dominant >= max(open_thr, thresholds.open_single)
+                    if is_long:
+                        out[sym] = Action.FUT_LONG_FULL if full else Action.FUT_LONG_HALF
+                    else:
+                        out[sym] = Action.FUT_SHORT_FULL if full else Action.FUT_SHORT_HALF
+                    continue
+            else:
+                net = score_long_open - score_short_open
+                if abs(net) >= open_thr:
+                    full = abs(net) >= max(open_thr, thresholds.open_single)
+                    if net > 0:
+                        out[sym] = Action.FUT_LONG_FULL if full else Action.FUT_LONG_HALF
+                    else:
+                        out[sym] = Action.FUT_SHORT_FULL if full else Action.FUT_SHORT_HALF
+                    continue
 
             # Если не открыли — может быть close
             close_thr = (
                 thresholds.close_multi if n_agents >= 2
                 else thresholds.close_single
             )
-            if score_close >= close_thr and score_close > score_keep:
-                out[sym] = Action.FUT_CLOSE_ALL
+            if self.directional:
+                # Закрытие риска не должно требовать «переголосовать» пассивные
+                # HOLD: сравниваем только с весом противоположных open-голосов.
+                oppose_open = max(score_long_open, score_short_open)
+                if score_close >= close_thr and score_close > oppose_open:
+                    out[sym] = Action.FUT_CLOSE_ALL
+            else:
+                if score_close >= close_thr and score_close > score_keep:
+                    out[sym] = Action.FUT_CLOSE_ALL
 
         return out
 

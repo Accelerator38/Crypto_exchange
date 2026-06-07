@@ -106,6 +106,64 @@ class TestWeightedConsensus(unittest.TestCase):
         self.assertNotIn("BTC", out)
 
 
+class TestWeightedConsensusDirectional(unittest.TestCase):
+    """Phase 2 / A1+B5: направленное голосование."""
+
+    def setUp(self):
+        self.policy = WeightedConsensus(directional=True)
+        self.thresholds = ThresholdProfile()
+        self.market = make_market(prices={"BTC": 100.0})
+
+    def test_dominant_side_opens_despite_minority_opposition(self):
+        # long=0.30, short=0.05. agents_voting=2 → open_thr=open_multi=0.26.
+        # legacy: net=0.25 < 0.26 → НЕ открыл бы. directional: 0.30≥0.26 и >0.05 → long.
+        votes = {
+            "A": {"BTC": Action.FUT_LONG_HALF},
+            "B": {"BTC": Action.FUT_SHORT_HALF},
+        }
+        weights = {"A": 0.30, "B": 0.05}
+        legacy = WeightedConsensus().aggregate(votes, weights, self.thresholds, self.market)
+        out = self.policy.aggregate(votes, weights, self.thresholds, self.market)
+        self.assertNotIn("BTC", legacy)
+        self.assertIn(out.get("BTC"), (Action.FUT_LONG_FULL, Action.FUT_LONG_HALF))
+
+    def test_tie_still_does_not_open(self):
+        votes = {
+            "A": {"BTC": Action.FUT_LONG_FULL},
+            "B": {"BTC": Action.FUT_SHORT_FULL},
+        }
+        weights = {"A": 0.5, "B": 0.5}
+        out = self.policy.aggregate(votes, weights, self.thresholds, self.market)
+        self.assertNotIn("BTC", out)
+
+    def test_single_strong_long_opens_full(self):
+        votes = {"A": {"BTC": Action.FUT_LONG_FULL}}
+        weights = {"A": 1.0}
+        out = self.policy.aggregate(votes, weights, self.thresholds, self.market)
+        self.assertEqual(out.get("BTC"), Action.FUT_LONG_FULL)
+
+    def test_weak_signal_below_floor_no_open(self):
+        votes = {"A": {"BTC": Action.FUT_LONG_HALF}}
+        weights = {"A": 0.05}
+        out = self.policy.aggregate(votes, weights, self.thresholds, self.market)
+        self.assertNotIn("BTC", out)
+
+    def test_close_not_blocked_by_passive_hold(self):
+        # Позицию закрываем: один агент за close (0.30), другой HOLD (0.70).
+        # legacy: score_keep=0.70 > score_close=0.30 → close ЗАБЛОКИРОВАН.
+        # directional: нет противоположных open → close проходит.
+        votes = {
+            "A": {"BTC": Action.FUT_CLOSE_ALL},
+            "B": {"BTC": Action.HOLD},
+        }
+        weights = {"A": 0.30, "B": 0.70}
+        thresholds = ThresholdProfile(close_multi=0.22)
+        legacy = WeightedConsensus().aggregate(votes, weights, thresholds, self.market)
+        out = self.policy.aggregate(votes, weights, thresholds, self.market)
+        self.assertNotIn("BTC", legacy)
+        self.assertEqual(out.get("BTC"), Action.FUT_CLOSE_ALL)
+
+
 class TestStrongConsensus(unittest.TestCase):
     def setUp(self):
         self.policy = StrongConsensus()
