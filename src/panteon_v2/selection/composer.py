@@ -255,7 +255,7 @@ _DYNAMIC_WEIGHT_FLOOR = 1e-6
 _NEGATIVE_WEIGHT_DECAY = 1.0
 
 
-def _dynamic_score_weight(score: float) -> float:
+def _dynamic_score_weight(score: float, power: float = _DYNAMIC_WEIGHT_POWER) -> float:
     try:
         score = float(score)
     except (TypeError, ValueError):
@@ -263,7 +263,7 @@ def _dynamic_score_weight(score: float) -> float:
     if not math.isfinite(score):
         score = 0.0
     if score > 0.0:
-        return max(_DYNAMIC_WEIGHT_FLOOR, score ** _DYNAMIC_WEIGHT_POWER)
+        return max(_DYNAMIC_WEIGHT_FLOOR, score ** float(power))
     return _DYNAMIC_WEIGHT_FLOOR * math.exp(max(score, -20.0) * _NEGATIVE_WEIGHT_DECAY)
 
 
@@ -279,8 +279,19 @@ class PlayerComposer:
         post-selection (не влияет на сам отбор).
     """
 
-    def __init__(self, selector: AgentSelector):
+    def __init__(
+        self,
+        selector: AgentSelector,
+        *,
+        weight_power: float = _DYNAMIC_WEIGHT_POWER,
+    ):
         self._selector = selector
+        # Phase 5: тюнингуемая степень концентрации весов. 1.0 = линейные веса
+        # (мягче, ансамбль ближе к равновесному), >1 — концентрация на топ-агенте.
+        # Default = историческое значение 1.60 (поведение сохраняется).
+        if not math.isfinite(float(weight_power)) or float(weight_power) <= 0.0:
+            raise ValueError("weight_power must be a positive finite number")
+        self._weight_power = float(weight_power)
 
     def compose_from_profile(
         self,
@@ -368,7 +379,7 @@ class PlayerComposer:
         # Веса = score, но с biases добавляем
         raw: Dict[str, float] = {}
         for sa in scored:
-            base = _dynamic_score_weight(sa.score)
+            base = _dynamic_score_weight(sa.score, self._weight_power)
             bonus = float(profile.bias.get(sa.label, 0.0))
             raw[sa.label] = base + bonus
         total = sum(raw.values())

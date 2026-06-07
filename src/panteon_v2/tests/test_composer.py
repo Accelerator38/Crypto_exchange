@@ -167,6 +167,39 @@ class TestPlayerComposer(unittest.TestCase):
             good.score / okay.score,
         )
 
+    def test_weight_power_is_tunable(self):
+        # Phase 5: при power=1.0 веса линейны (отношение = отношению скоров);
+        # при power>1 — сильнее концентрируются на топ-агенте.
+        good = ScoredAgent(FakeAgent("Good"), score=4.0, metrics=Metrics.empty())
+        okay = ScoredAgent(FakeAgent("Okay"), score=1.0, metrics=Metrics.empty())
+        profile = PlayerProfile(
+            label="TunableWeights",
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+            max_agents=2,
+            min_agents=2,
+        )
+        linear = PlayerComposer(
+            _FixedScoreSelector(normal=(good, okay)), weight_power=1.0
+        ).compose_from_profile(profile, Regime.NEUTRAL)
+        concentrated = PlayerComposer(
+            _FixedScoreSelector(normal=(good, okay)), weight_power=3.0
+        ).compose_from_profile(profile, Regime.NEUTRAL)
+
+        # Линейный режим: отношение весов ≈ отношению скоров (4:1).
+        self.assertAlmostEqual(
+            linear.weights["Good"] / linear.weights["Okay"], 4.0, places=5
+        )
+        # Более высокая степень → большая концентрация на топ-агенте.
+        self.assertGreater(
+            concentrated.weights["Good"] / concentrated.weights["Okay"],
+            linear.weights["Good"] / linear.weights["Okay"],
+        )
+
+    def test_invalid_weight_power_rejected(self):
+        with self.assertRaises(ValueError):
+            PlayerComposer(_FixedScoreSelector(), weight_power=0.0)
+
     def test_negative_fallback_weights_decay_by_score_severity(self):
         mild = ScoredAgent(FakeAgent("MildLoser"), score=-0.10, metrics=Metrics.empty())
         bad = ScoredAgent(FakeAgent("BadLoser"), score=-2.00, metrics=Metrics.empty())
