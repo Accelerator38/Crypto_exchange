@@ -13,6 +13,7 @@ Component:
 from __future__ import annotations
 
 import copy
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping, Optional, Tuple
@@ -108,6 +109,68 @@ def _map_v1_actions(
 # ────────────────────────────────────────────────────────────────────
 
 
+_GENETICS_PRICE_HISTORY_TAIL_ITEMS = 18_000
+_GENETICS_VOLUME_HISTORY_TAIL_ITEMS = 18_000
+
+
+def _copy_genome_for_shadow(genome: Any) -> Any:
+    copy_fn = getattr(genome, "copy", None)
+    if callable(copy_fn):
+        try:
+            return copy_fn()
+        except Exception:
+            pass
+    return copy.deepcopy(genome)
+
+
+def _copy_runtime_history_series(value: Any, *, max_items: int) -> Any:
+    if max_items <= 0:
+        return copy.deepcopy(value)
+    source_maxlen = getattr(value, "maxlen", None)
+    target_maxlen = source_maxlen if isinstance(source_maxlen, int) and source_maxlen > 0 else None
+    limit = min(max_items, target_maxlen) if target_maxlen is not None else max_items
+    if isinstance(value, deque):
+        return deque(deque(value, maxlen=limit), maxlen=target_maxlen)
+    if isinstance(value, list):
+        return list(value[-limit:])
+    if isinstance(value, tuple):
+        return tuple(value[-limit:])
+    try:
+        tail = deque(value, maxlen=limit)
+    except TypeError:
+        return copy.deepcopy(value)
+    return deque(tail, maxlen=target_maxlen)
+
+
+def _copy_runtime_history_mapping(value: Any, *, max_items: int) -> Any:
+    if not isinstance(value, Mapping):
+        return _copy_runtime_history_series(value, max_items=max_items)
+    return {
+        key: _copy_runtime_history_series(series, max_items=max_items)
+        for key, series in value.items()
+    }
+
+
+def _copy_genetics_runtime_attr(attr: str, value: Any) -> Any:
+    if attr == "ph":
+        return _copy_runtime_history_mapping(
+            value,
+            max_items=_GENETICS_PRICE_HISTORY_TAIL_ITEMS,
+        )
+    if attr == "vh":
+        return _copy_runtime_history_mapping(
+            value,
+            max_items=_GENETICS_VOLUME_HISTORY_TAIL_ITEMS,
+        )
+    if attr in {"spot_qty", "spot_entry", "fut_qty", "fut_entry", "pos"} and isinstance(value, dict):
+        return dict(value)
+    if attr == "_regime_adaptive_output_bias_map" and isinstance(value, Mapping):
+        return dict(value)
+    if attr == "last_regime_adaptive_output_bias" and isinstance(value, Mapping):
+        return copy.deepcopy(dict(value))
+    return copy.deepcopy(value)
+
+
 def _clone_genetics_runtime_agent(agent: Any) -> Any:
     clone_fn = getattr(agent, "clone_for_shadow", None)
     if callable(clone_fn):
@@ -117,7 +180,7 @@ def _clone_genetics_runtime_agent(agent: Any) -> Any:
 
     genome = getattr(agent, "genome", None)
     if genome is not None:
-        genome_copy = copy.deepcopy(genome)
+        genome_copy = _copy_genome_for_shadow(genome)
         cloned = None
         try:
             cloned = type(agent)(genome=genome_copy)
@@ -148,7 +211,11 @@ def _clone_genetics_runtime_agent(agent: Any) -> Any:
             ):
                 if hasattr(agent, attr):
                     try:
-                        setattr(cloned, attr, copy.deepcopy(getattr(agent, attr)))
+                        setattr(
+                            cloned,
+                            attr,
+                            _copy_genetics_runtime_attr(attr, getattr(agent, attr)),
+                        )
                     except Exception:
                         pass
             return cloned

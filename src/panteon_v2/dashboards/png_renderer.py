@@ -100,7 +100,12 @@ def write_operator_pngs(
         players,
         panteon_pnl_pct=panteon_pnl_pct,
     )
-    _render_combined_regime_dashboard(paths[2], memory_agents, memory_players)
+    _render_combined_regime_dashboard(
+        paths[2],
+        memory_agents,
+        memory_players,
+        status=status_map,
+    )
     _render_memory_dashboard(paths[3], memory_agents, memory_players)
     return [str(p) for p in paths]
 
@@ -1261,6 +1266,8 @@ def _render_combined_regime_dashboard(
     path: Path,
     agents: List[Tuple[str, dict]],
     players: List[Tuple[str, dict]],
+    *,
+    status: Mapping[str, object] | None = None,
 ) -> None:
     plt = _setup_pyplot()
     fig_h = max(10.0, min(22.0, 4.0 + (len(players) + len(agents)) * 0.18))
@@ -1279,8 +1286,22 @@ def _render_combined_regime_dashboard(
     ax_agent_curve = fig.add_subplot(gs[1, 1])
     player_image = _draw_regime_heatmap(ax_player_heat, "Player Regime Efficiency", players)
     agent_image = _draw_regime_heatmap(ax_agent_heat, "Agent Regime Efficiency", agents)
-    _draw_equity_curves(ax_player_curve, "Player Equity Curves", players, PURPLE)
-    _draw_equity_curves(ax_agent_curve, "Agent Equity Curves", agents, BLUE)
+    _draw_equity_curves(
+        ax_player_curve,
+        "Player Equity Curves",
+        players,
+        PURPLE,
+        status=status,
+        include_panteon=True,
+    )
+    _draw_equity_curves(
+        ax_agent_curve,
+        "Agent Equity Curves",
+        agents,
+        BLUE,
+        status=status,
+        include_panteon=True,
+    )
     for ax, image in ((ax_player_heat, player_image), (ax_agent_heat, agent_image)):
         if image is None:
             continue
@@ -1540,8 +1561,13 @@ def _draw_equity_curves(
     title: str,
     rows: List[Tuple[str, dict]],
     fallback_color: str,
+    *,
+    status: Mapping[str, object] | None = None,
+    include_panteon: bool = False,
 ) -> None:
     _style_ax(ax, title)
+    status_map = dict(status or {})
+    timeline = _common_equity_timeline(status_map, rows)
     plotted = 0
     palette = None
     try:
@@ -1551,8 +1577,8 @@ def _draw_equity_curves(
     except Exception:
         palette = None
     for idx, (name, data) in enumerate(rows):
-        curve = _equity_curve(data)
-        if len(curve) < 2:
+        x_values, y_values = _dashboard_equity_curve_points(data, timeline)
+        if len(y_values) < 2:
             continue
         is_virtual_panteon = _is_virtual_panteon_name(name)
         color = MUTED if is_virtual_panteon else (
@@ -1568,31 +1594,332 @@ def _draw_equity_curves(
             else None
         )
         linestyle = (0, (2, 3)) if is_virtual_panteon else "-"
-        ax.plot(range(len(curve)), curve, color=color, linewidth=lw,
+        ax.plot(x_values, y_values, color=color, linewidth=lw,
                 alpha=alpha, linestyle=linestyle, label=label)
         plotted += 1
+    if include_panteon:
+        x_values, y_values = _panteon_equity_curve_points(status_map, timeline)
+        if len(y_values) >= 2:
+            ax.plot(
+                x_values,
+                y_values,
+                color=GOLD,
+                linewidth=2.3,
+                alpha=0.98,
+                linestyle="-",
+                label=f"Panteon {_pct(_panteon_pnl_pct(status_map))}",
+            )
+            plotted += 1
     if plotted == 0:
         ax.text(0.5, 0.5, "No equity history yet", transform=ax.transAxes,
                 ha="center", va="center", color=MUTED, fontsize=11)
         return
-    ax.set_xlabel("Bar", color=MUTED, fontsize=8)
-    ax.set_ylabel("Assets", color=MUTED, fontsize=8)
+    if timeline:
+        try:
+            import matplotlib.dates as mdates  # noqa: WPS433
+
+            ax.xaxis.set_major_formatter(
+                mdates.DateFormatter("%m/%d\n%H:%M", tz=timezone.utc)
+            )
+        except Exception:
+            pass
+        if len(timeline) >= 2:
+            ax.set_xlim(timeline[0], timeline[-1])
+        ax.set_xlabel("Time (UTC)", color=MUTED, fontsize=8)
+    else:
+        ax.set_xlabel("Sample", color=MUTED, fontsize=8)
+    ax.axhline(100.0, color=GRID, linewidth=0.8)
+    ax.set_ylabel("Indexed equity (first=100)", color=MUTED, fontsize=8)
     ax.legend(loc="upper left", fontsize=7, frameon=False, labelcolor=TEXT)
 
 
+def _dashboard_equity_curve_points(
+    data: Mapping[str, object],
+    timeline: List[datetime],
+) -> Tuple[List[object], List[float]]:
+    curve, key, embedded_timestamps = _equity_curve_with_source(
+        data,
+        (
+            "session_equity_curve",
+            "equity_curve",
+            "assets_curve",
+            "total_assets_curve",
+            "history",
+        ),
+    )
+    if len(curve) < 2:
+        return [], []
+    timestamps = _curve_timestamps_for_source(data, key, embedded_timestamps)
+    return _resample_curve(curve, timestamps, timeline)
+
+
+def _panteon_equity_curve_points(
+    status: Mapping[str, object],
+    timeline: List[datetime],
+) -> Tuple[List[object], List[float]]:
+    curve, key, embedded_timestamps = _equity_curve_with_source(
+        status,
+        (
+            "clean_panteon_equity_curve",
+            "panteon_equity_curve",
+            "equity_curve",
+            "assets_curve",
+            "total_assets_curve",
+            "history",
+        ),
+    )
+    if len(curve) < 2:
+        return [], []
+    timestamps = _curve_timestamps_for_source(status, key, embedded_timestamps)
+    return _resample_curve(curve, timestamps, timeline)
+
+
+def _common_equity_timeline(
+    status: Mapping[str, object],
+    rows: List[Tuple[str, dict]],
+) -> List[datetime]:
+    panteon_curve, panteon_key, embedded = _equity_curve_with_source(
+        status,
+        (
+            "clean_panteon_equity_curve",
+            "panteon_equity_curve",
+            "equity_curve",
+            "assets_curve",
+            "total_assets_curve",
+            "history",
+        ),
+    )
+    panteon_timestamps = _curve_timestamps_for_source(status, panteon_key, embedded)
+    interval = _timeframe_seconds(status.get("timeframe"))
+    if len(panteon_timestamps) >= 2:
+        return _complete_datetime_timeline(
+            panteon_timestamps,
+            max(len(panteon_curve), len(panteon_timestamps)),
+            interval,
+        )
+    length = len(panteon_curve) if len(panteon_curve) >= 2 else 0
+    if length <= 0:
+        length = max(
+            (
+                len(_dashboard_equity_curve_values(data))
+                for _name, data in rows
+            ),
+            default=0,
+        )
+    if length < 2:
+        return []
+    length = min(length, 720)
+    last_timestamp = _parse_datetime_value(
+        status.get("timestamp")
+        or status.get("timestamp_utc")
+        or status.get("time")
+    )
+    if last_timestamp is None:
+        last_timestamp = datetime.now(timezone.utc)
+    return [
+        last_timestamp - timedelta(seconds=(length - idx - 1) * interval)
+        for idx in range(length)
+    ]
+
+
+def _complete_datetime_timeline(
+    timestamps: List[datetime],
+    length: int,
+    interval_seconds: int,
+) -> List[datetime]:
+    clean = sorted(timestamp for timestamp in timestamps if isinstance(timestamp, datetime))
+    if not clean:
+        return []
+    length = max(2, min(720, int(length or len(clean))))
+    if len(clean) >= length:
+        return clean[-length:]
+    first = clean[0]
+    missing = length - len(clean)
+    prefix = [
+        first - timedelta(seconds=(missing - idx) * interval_seconds)
+        for idx in range(missing)
+    ]
+    return prefix + clean
+
+
+def _dashboard_equity_curve_values(data: Mapping[str, object]) -> List[float]:
+    curve, _key, _embedded = _equity_curve_with_source(
+        data,
+        (
+            "session_equity_curve",
+            "equity_curve",
+            "assets_curve",
+            "total_assets_curve",
+            "history",
+        ),
+    )
+    return curve
+
+
+def _resample_curve(
+    curve: List[float],
+    timestamps: List[datetime],
+    timeline: List[datetime],
+) -> Tuple[List[object], List[float]]:
+    values = _normalize_curve_to_100(curve)
+    if len(values) < 2:
+        return [], []
+    if not timeline:
+        if len(timestamps) >= 2:
+            aligned_values, aligned_timestamps = _align_values_and_timestamps(
+                values,
+                timestamps,
+            )
+            return aligned_timestamps, aligned_values
+        return list(range(len(values))), values
+    if len(timestamps) >= 2:
+        aligned_values, aligned_timestamps = _align_values_and_timestamps(
+            values,
+            timestamps,
+        )
+        if len(aligned_values) >= 2:
+            return timeline, _step_values_on_timeline(
+                aligned_values,
+                aligned_timestamps,
+                timeline,
+            )
+    if len(values) > len(timeline):
+        values = values[-len(timeline):]
+    if len(values) < len(timeline):
+        values = [values[0]] * (len(timeline) - len(values)) + values
+    return timeline, values
+
+
+def _align_values_and_timestamps(
+    values: List[float],
+    timestamps: List[datetime],
+) -> Tuple[List[float], List[datetime]]:
+    if len(timestamps) > len(values):
+        timestamps = timestamps[-len(values):]
+    elif len(timestamps) < len(values):
+        values = values[-len(timestamps):]
+    pairs = sorted(
+        (timestamp, value)
+        for timestamp, value in zip(timestamps, values)
+        if isinstance(timestamp, datetime)
+    )
+    return (
+        [value for _timestamp, value in pairs],
+        [timestamp for timestamp, _value in pairs],
+    )
+
+
+def _step_values_on_timeline(
+    values: List[float],
+    timestamps: List[datetime],
+    timeline: List[datetime],
+) -> List[float]:
+    if not values or not timestamps:
+        return []
+    out: List[float] = []
+    idx = 0
+    for point in timeline:
+        while idx + 1 < len(timestamps) and timestamps[idx + 1] <= point:
+            idx += 1
+        out.append(values[idx])
+    return out
+
+
+def _normalize_curve_to_100(curve: List[float]) -> List[float]:
+    first = next((float(item) for item in curve if float(item) > 0.0), None)
+    if first is None or first <= 0.0:
+        return []
+    return [round(float(item) / first * 100.0, 10) for item in curve if float(item) > 0.0]
+
+
+def _curve_timestamps_for_source(
+    data: Mapping[str, object],
+    source_key: str,
+    embedded_timestamps: List[datetime],
+) -> List[datetime]:
+    if len(embedded_timestamps) >= 2:
+        return embedded_timestamps
+    candidates = []
+    if source_key:
+        candidates.append(f"{source_key}_timestamps")
+    candidates.extend((
+        "curve_timestamps",
+        "equity_curve_timestamps",
+        "session_equity_curve_timestamps",
+        "timestamps",
+    ))
+    seen = set()
+    for key in candidates:
+        if key in seen:
+            continue
+        seen.add(key)
+        parsed = _parse_curve_timestamps(data.get(key))
+        if len(parsed) >= 2:
+            return parsed
+    return []
+
+
+def _parse_curve_timestamps(raw: object) -> List[datetime]:
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out: List[datetime] = []
+    for item in raw:
+        raw_timestamp = item
+        if isinstance(item, Mapping):
+            raw_timestamp = (
+                item.get("timestamp")
+                or item.get("timestamp_utc")
+                or item.get("time")
+            )
+        timestamp = _parse_datetime_value(raw_timestamp)
+        if timestamp is not None:
+            out.append(timestamp)
+    return out
+
+
 def _equity_curve(data: Mapping[str, object]) -> List[float]:
-    for key in ("equity_curve", "assets_curve", "total_assets_curve", "history"):
+    curve, _key, _timestamps = _equity_curve_with_source(
+        data,
+        ("equity_curve", "assets_curve", "total_assets_curve", "history"),
+    )
+    return curve
+
+
+def _equity_curve_with_source(
+    data: Mapping[str, object],
+    keys: Tuple[str, ...],
+) -> Tuple[List[float], str, List[datetime]]:
+    for key in keys:
         raw = data.get(key)
         if not isinstance(raw, (list, tuple)):
             continue
         out: List[float] = []
+        timestamps: List[datetime] = []
+        timestamps_complete = True
         for value in raw:
             parsed = _equity_curve_value(value)
             if parsed is not None:
                 out.append(parsed)
+                if isinstance(value, Mapping):
+                    timestamp = _parse_datetime_value(
+                        value.get("timestamp")
+                        or value.get("timestamp_utc")
+                        or value.get("time")
+                        or value.get("datetime")
+                    )
+                    if timestamp is None:
+                        timestamps_complete = False
+                    else:
+                        timestamps.append(timestamp)
+                else:
+                    timestamps_complete = False
         if len(out) >= 2:
-            return out
-    return []
+            return (
+                out,
+                key,
+                timestamps if timestamps_complete and len(timestamps) == len(out) else [],
+            )
+    return [], "", []
 
 
 def _equity_curve_value(value: object) -> Optional[float]:
@@ -1639,10 +1966,13 @@ def _float_value(value: object) -> float:
 def _panteon_pnl_pct(status: Mapping[str, object]) -> float:
     live_session = status.get("live_session")
     if isinstance(live_session, Mapping):
-        try:
-            return float(live_session.get("panteon_owned_pnl_pct", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            pass
+        for key in ("clean_panteon_pnl_pct", "panteon_owned_pnl_pct", "panteon_pnl_pct"):
+            if key not in live_session:
+                continue
+            try:
+                return float(live_session.get(key) or 0.0)
+            except (TypeError, ValueError):
+                continue
     try:
         return float(status.get("pnl_pct", 0.0) or 0.0)
     except (TypeError, ValueError):

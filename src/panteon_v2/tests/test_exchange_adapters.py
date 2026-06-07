@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from panteon_v2.domain import Action, Regime, Signal
 from panteon_v2.execution import Exchange, OrderStatus
@@ -250,6 +251,26 @@ class TestMexcExchangeAdapter(unittest.TestCase):
         self.assertAlmostEqual(pos.qty, 0.002)
         self.assertEqual(adapter.get_min_notional("BTC"), 5.0)
 
+    def test_reads_mexc_unrealized_from_mark_price_when_payload_pnl_is_zero(self):
+        from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
+
+        client = FakeMexcFuturesClient()
+        client.positions = [{
+            "symbol": "BTC_USDT",
+            "positionType": 1,
+            "holdVol": 2,
+            "openAvgPrice": 95.0,
+            "markPrice": 100.0,
+            "leverage": 2,
+            "unrealizedPnl": 0.0,
+        }]
+        adapter = MexcExchangeAdapter(order_client=client, read_client=client, leverage=2)
+
+        pos = adapter.get_position("BTC")
+
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.unrealized_pnl, 0.01)
+
     def test_reads_mexc_account_equity(self):
         from panteon_v2.app.mexc_adapter import MexcExchangeAdapter
 
@@ -337,6 +358,40 @@ class TestMexcExchangeAdapter(unittest.TestCase):
             snapshot["data_health"]["last_data_error_reason"],
             "cached_futures_assets",
         )
+
+    def test_v1_adapter_retries_mexc_rate_limit_code_once(self):
+        from panteon_v2.app.v1_futures_adapter import V1FuturesExchangeAdapter
+
+        class RateLimitedClient(FakeMexcFuturesClient):
+            def __init__(self):
+                super().__init__()
+                self.place_attempts = 0
+
+            def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
+                self.place_attempts += 1
+                if self.place_attempts == 1:
+                    return {
+                        "success": False,
+                        "code": 510,
+                        "msg": "Requests are too frequent, please try again later",
+                    }
+                return super().place_order(symbol, side, vol, leverage)
+
+        client = RateLimitedClient()
+        adapter = V1FuturesExchangeAdapter(
+            name="MEXC",
+            order_client=client,
+            read_client=client,
+            leverage=2,
+            rate_limit_retry_delay_sec=0.01,
+        )
+
+        with patch("panteon_v2.app.v1_futures_adapter.time.sleep") as sleep_mock:
+            result = adapter.send_order(_signal(Action.FUT_LONG_FULL), qty=0.003)
+
+        self.assertEqual(result.status, OrderStatus.FILLED)
+        self.assertEqual(client.place_attempts, 2)
+        sleep_mock.assert_called_once_with(0.01)
 
 
 class TestBitgetExchangeAdapter(unittest.TestCase):

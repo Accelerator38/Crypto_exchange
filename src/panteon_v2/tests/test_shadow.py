@@ -408,6 +408,64 @@ class TestGeneticsV2AgentAdapter(unittest.TestCase):
         self.assertEqual(neutral.synced, expected)
 
 
+class TestProductionShadowTournamentFilters(unittest.TestCase):
+    def test_include_filters_limit_shadow_agents_and_players(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        from panteon_v2.attribution import EventLog, ShadowActorUpdated
+        from panteon_v2.execution import RiskLimitsConfig
+        from panteon_v2.memory import PerformanceMemory
+        from panteon_v2.selection import EnsemblePlayer, ThresholdProfile, WeightedConsensus
+
+        registry = AgentRegistry()
+        registry.register(FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL}))
+        registry.register(FakeAgent("AgentB", {"BTC": Action.FUT_SHORT_FULL}))
+        event_log = EventLog()
+        tournament = ProductionShadowTournament(
+            registry=registry,
+            perf=PerformanceMemory(),
+            risk_config=RiskLimitsConfig(max_open_positions=10),
+            event_log=event_log,
+            agent_include_labels=("AgentA",),
+            player_include_labels=("PlayerA",),
+        )
+        market = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+        )
+        player_a = EnsemblePlayer(
+            label="PlayerA",
+            agents=[FakeAgent("AgentA", {"BTC": Action.FUT_LONG_FULL})],
+            weights={"AgentA": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.30, open_multi=0.20, open_floor=0.10),
+        )
+        player_b = EnsemblePlayer(
+            label="PlayerB",
+            agents=[FakeAgent("AgentB", {"BTC": Action.FUT_SHORT_FULL})],
+            weights={"AgentB": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(open_single=0.30, open_multi=0.20, open_floor=0.10),
+        )
+
+        summary = tournament.run_bar(
+            market,
+            players=(player_a, player_b),
+            balance_usd=1000.0,
+        )
+
+        labels = {
+            event.actor_label
+            for event in event_log.query(event_types=[ShadowActorUpdated])
+        }
+        self.assertEqual(labels, {"AgentA", "PlayerA"})
+        self.assertEqual(summary.actors, 2)
+        self.assertIn("AgentA", tournament.last_agent_signals())
+        self.assertIn("PlayerA", tournament.last_player_signals())
+        self.assertNotIn("AgentB", tournament.last_agent_signals())
+        self.assertNotIn("PlayerB", tournament.last_player_signals())
+
+
 class TestReplayFeed(unittest.TestCase):
     def test_empty_returns_none(self):
         feed = ReplayFeed()

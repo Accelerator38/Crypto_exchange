@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import os
+import sys
+import tempfile
 import unittest
+from unittest.mock import patch
+
+ROOT = os.fspath(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 
 class TestPanteonLegendProfile(unittest.TestCase):
@@ -44,6 +52,14 @@ class TestPanteonLegendProfile(unittest.TestCase):
             "AnchorFlowMomentum",
         ):
             self.assertIn(label, labels)
+
+    def test_v2_registry_still_exposes_legend_legacy_runtime_agents(self) -> None:
+        from panteon_v2.app.agent_bootstrap import known_labels
+
+        labels = set(known_labels())
+
+        self.assertIn("LiveAfterShock", labels)
+        self.assertIn("LiveMeanRev", labels)
 
     def test_runtime_configs_replace_flash_gates_with_soft_selector(self) -> None:
         from panteon_legend.runtime import (
@@ -126,13 +142,21 @@ class TestPanteonLegendProfile(unittest.TestCase):
 
         self.assertTrue(config.include_optional_agents)
         self.assertIn("GeneticsCore", config.optional_agent_labels)
+        self.assertIn("GeneticsBest", config.optional_agent_labels)
+        self.assertIn("GeneticsRiskTight", config.optional_agent_labels)
+        self.assertIn("GeneticsRegimeAdaptiveBias", config.optional_agent_labels)
         self.assertIn("GeneticsResearch", [profile.label for profile in config.player_profiles])
         self.assertIn(
             ("Legend_GeneticsCore", ("GeneticsCore",)),
             config.fixed_agent_player_sets,
         )
+        self.assertIn(
+            ("Legend_GeneticsRegimeAdaptiveBias", ("GeneticsRegimeAdaptiveBias",)),
+            config.fixed_agent_player_sets,
+        )
         self.assertIn("GeneticsResearch", config.soft_allocator_execution_allow_labels)
         self.assertIn("Legend_GeneticsCore", config.soft_allocator_execution_allow_labels)
+        self.assertIn("Legend_GeneticsRegimeAdaptiveBias", config.soft_allocator_execution_allow_labels)
         self.assertTrue(config.soft_allocator_realized_gate_enabled)
         self.assertTrue(config.soft_allocator_execution_deny_actor_symbols)
 
@@ -162,7 +186,7 @@ class TestPanteonLegendProfile(unittest.TestCase):
         self.assertEqual(config.soft_allocator_execution_allow_labels, ())
         self.assertIn("GeneticsResearch", [profile.label for profile in config.player_profiles])
         self.assertIn(
-            ("Legend_GeneticsBullish", ("GeneticsBullish",)),
+            ("Legend_GeneticsBest", ("GeneticsBest",)),
             config.fixed_agent_player_sets,
         )
 
@@ -190,6 +214,70 @@ class TestPanteonLegendProfile(unittest.TestCase):
         self.assertTrue(config.soft_allocator_execution_soft_only)
         self.assertFalse(config.soft_allocator_realized_gate_enabled)
         self.assertEqual(config.soft_allocator_execution_allow_labels, ())
+
+    def test_full_experiment_soft_top3_decayed_profile_matches_offline_policy(self) -> None:
+        from pathlib import Path
+
+        from tools.run_legend_full_experiment import build_config
+
+        config = build_config(
+            "soft_top3_decayed_only",
+            Path("Results") / "unit",
+            include_optional_agents=True,
+        )
+
+        policy = config.soft_allocator_execution_policy
+        self.assertIsNotNone(policy)
+        self.assertEqual(policy.name, "soft_top3_decayed")
+        self.assertEqual(policy.top_k, 3)
+        self.assertEqual(policy.cash_reserve_weight, 0.15)
+        self.assertEqual(policy.max_weight_per_leader, 0.45)
+        self.assertEqual(policy.min_closed_trades, 20)
+        self.assertEqual(policy.half_life_bars, 2160)
+        self.assertEqual(policy.drawdown_penalty, 0.15)
+        self.assertTrue(config.soft_allocator_execution_enabled)
+        self.assertTrue(config.soft_allocator_execution_soft_only)
+
+    def test_full_experiment_sets_default_genetics_manifest_envs(self) -> None:
+        from pathlib import Path
+
+        import tools.run_legend_full_experiment as full_experiment
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            specialists = root / "genetics_specialists_manifest.json"
+            adaptive = root / "regime_adaptive_output_bias_manifest.json"
+            specialists.write_text("{}", encoding="utf-8")
+            adaptive.write_text("{}", encoding="utf-8")
+
+            with patch.object(
+                full_experiment,
+                "DEFAULT_GENETICS_SPECIALISTS_MANIFEST",
+                specialists,
+            ), patch.object(
+                full_experiment,
+                "DEFAULT_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST",
+                adaptive,
+            ), patch.dict(
+                os.environ,
+                {
+                    "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST": "",
+                    "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST": "",
+                },
+                clear=False,
+            ):
+                os.environ.pop("PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST", None)
+                os.environ.pop("PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST", None)
+                full_experiment.configure_default_genetics_manifests()
+
+                self.assertEqual(
+                    os.environ["PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"],
+                    str(specialists),
+                )
+                self.assertEqual(
+                    os.environ["PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST"],
+                    str(adaptive),
+                )
 
 
 if __name__ == "__main__":

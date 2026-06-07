@@ -81,18 +81,12 @@ FLASH_LEGACY_REAL_AGENT_LABELS: Tuple[str, ...] = (
 OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
     ("GeneticsGenomeEnsemble", "agents_v2:GenomeEnsembleAgent"),
     ("GeneticsCore",        "crypto_genetics:GeneticsAgent"),
-    ("GeneticsBullish",     "crypto_genetics:GeneticsBullishAgent"),
-    ("GeneticsBearish",     "crypto_genetics:GeneticsBearishAgent"),
-    ("GeneticsNeutral",     "crypto_genetics:GeneticsNeutralAgent"),
 ]
 
 MANIFEST_GENETICS_AGENT_LABELS: Tuple[str, ...] = (
     "GeneticsBest",
     "GeneticsRiskTight",
     "GeneticsCrash",
-    "GeneticsBullish",
-    "GeneticsBearish",
-    "GeneticsNeutral",
 )
 MANIFEST_GENETICS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
 REGIME_ADAPTIVE_BIAS_ENV = "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST"

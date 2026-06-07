@@ -206,6 +206,10 @@ def _normalize_symbol_tuple(raw: object) -> tuple[str, ...]:
     return tuple(dict.fromkeys(symbols))
 
 
+def _normalize_actor_key_tuple(raw: object) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_normalize_string_tuple(raw)))
+
+
 @dataclass(frozen=True)
 class FlashAllocatorConfig:
     """Conservative scoring knobs for the first Flash kernel."""
@@ -227,6 +231,7 @@ class FlashAllocatorConfig:
     actor_switch_margin: float = 0.0
     anchor_actor_keys: Tuple[str, ...] = ()
     portfolio_actor_keys: Tuple[str, ...] = ()
+    range_low_vol_real_actor_allowlist: Tuple[str, ...] = ()
     portfolio_shadow_bootstrap_min_closed_enabled: bool = False
     anchor_min_score_to_trade: Optional[float] = None
     anchor_shadow_min_score: Optional[float] = None
@@ -248,6 +253,10 @@ class FlashAllocatorConfig:
     shadow_confirmation_pnl_per_trade_lcb_risk_min_mult: float = 0.25
     shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd: float = 0.0
     shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd: float = 1.0
+    shadow_recovery_admission_enabled: bool = False
+    shadow_recovery_actor_keys: Tuple[str, ...] = ()
+    shadow_recovery_min_score: Optional[float] = None
+    shadow_recovery_min_closed_trades: int = 0
     shadow_symbol_health_enabled: bool = False
     shadow_symbol_health_min_closed_trades: int = 0
     shadow_symbol_health_min_pnl_per_trade_lcb_usd: Optional[float] = None
@@ -346,6 +355,7 @@ class FlashAllocatorConfig:
     technical_atr_target_pct: float = 2.0
     technical_atr_min_pct: float = 0.25
     technical_atr_max_mult: float = 1.5
+    denied_actor_keys: Tuple[str, ...] = ()
     selected_subset_score_boosts: Tuple[str, ...] = ()
     selected_subset_context_score_boosts: Tuple[str, ...] = ()
     selected_subset_do_not_demote_signal_keys: Tuple[str, ...] = ()
@@ -358,28 +368,30 @@ class FlashAllocatorConfig:
         object.__setattr__(
             self,
             "denied_signal_keys",
-            tuple(
-                _normalize_signal_deny_key(key)
-                for key in self.denied_signal_keys
-                if str(key or "").strip()
+            (
+                _normalize_signal_deny_key_set(self.denied_signal_keys)
+                if self.denied_signal_keys
+                else ()
             ),
         )
         object.__setattr__(
             self,
             "terminal_denied_signal_keys",
-            tuple(
-                _normalize_signal_deny_key(key)
-                for key in self.terminal_denied_signal_keys
-                if str(key or "").strip()
+            (
+                _normalize_signal_deny_key_set(self.terminal_denied_signal_keys)
+                if self.terminal_denied_signal_keys
+                else ()
             ),
         )
         object.__setattr__(
             self,
             "terminal_denied_context_signal_keys",
-            tuple(
-                _normalize_signal_context_key(key)
-                for key in self.terminal_denied_context_signal_keys
-                if str(key or "").strip()
+            (
+                _normalize_signal_context_key_set(
+                    self.terminal_denied_context_signal_keys
+                )
+                if self.terminal_denied_context_signal_keys
+                else ()
             ),
         )
         object.__setattr__(
@@ -391,6 +403,11 @@ class FlashAllocatorConfig:
             self,
             "denied_open_symbols",
             _normalize_symbol_tuple(self.denied_open_symbols),
+        )
+        object.__setattr__(
+            self,
+            "denied_actor_keys",
+            _normalize_actor_key_tuple(self.denied_actor_keys),
         )
         promoted_actor_cap_overrides = tuple(
             str(item).strip()
@@ -420,6 +437,24 @@ class FlashAllocatorConfig:
             self,
             "shadow_base_fallback_actor_keys",
             base_fallback_keys,
+        )
+        raw_recovery_actor_keys = self.shadow_recovery_actor_keys
+        if isinstance(raw_recovery_actor_keys, str):
+            recovery_actor_keys = tuple(
+                item.strip()
+                for item in raw_recovery_actor_keys.split(",")
+                if item.strip()
+            )
+        else:
+            recovery_actor_keys = tuple(
+                str(item).strip()
+                for item in raw_recovery_actor_keys
+                if str(item or "").strip()
+            )
+        object.__setattr__(
+            self,
+            "shadow_recovery_actor_keys",
+            tuple(dict.fromkeys(recovery_actor_keys)),
         )
         raw_genetics_labels = self.genetics_confirmation_labels
         if isinstance(raw_genetics_labels, str):
@@ -511,6 +546,11 @@ class FlashAllocatorConfig:
                 if str(item or "").strip()
             )
         object.__setattr__(self, "portfolio_actor_keys", portfolio_keys)
+        object.__setattr__(
+            self,
+            "range_low_vol_real_actor_allowlist",
+            _normalize_actor_key_tuple(self.range_low_vol_real_actor_allowlist),
+        )
         selected_boosts = _normalize_string_tuple(self.selected_subset_score_boosts)
         selected_context_boosts = _normalize_string_tuple(
             self.selected_subset_context_score_boosts
@@ -613,6 +653,10 @@ class FlashAllocatorConfig:
             raise ValueError(
                 "shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd must be > 0"
             )
+        if self.shadow_recovery_min_score is not None and self.shadow_recovery_min_score < 0:
+            raise ValueError("shadow_recovery_min_score must be >= 0")
+        if self.shadow_recovery_min_closed_trades < 0:
+            raise ValueError("shadow_recovery_min_closed_trades must be >= 0")
         if self.shadow_symbol_health_min_closed_trades < 0:
             raise ValueError("shadow_symbol_health_min_closed_trades must be >= 0")
         if self.shadow_symbol_health_pnl_per_trade_lcb_penalty_weight < 0:
@@ -749,6 +793,7 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "genetics_confirmation_quality_gate_enabled",
     "genetics_confirmation_contra_no_backfill_enabled",
     "shadow_symbol_health_enabled",
+    "shadow_recovery_admission_enabled",
     "prefer_solo_player_wrappers_enabled",
     "prefer_proven_solo_player_wrappers_enabled",
     "portfolio_shadow_bootstrap_min_closed_enabled",
@@ -779,6 +824,7 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "actor_switch_margin": 0.25,
     "anchor_actor_keys": (),
     "portfolio_actor_keys": (),
+    "range_low_vol_real_actor_allowlist": (),
     "shadow_confirmation_enabled": False,
     "shadow_symbol_confirmation_enabled": False,
     "shadow_actor_fallback_confirmation_enabled": False,
@@ -793,6 +839,10 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "shadow_confirmation_pnl_per_trade_lcb_risk_min_mult": 0.25,
     "shadow_confirmation_pnl_per_trade_lcb_risk_floor_usd": 0.0,
     "shadow_confirmation_pnl_per_trade_lcb_risk_scale_usd": 1.0,
+    "shadow_recovery_admission_enabled": False,
+    "shadow_recovery_actor_keys": (),
+    "shadow_recovery_min_score": None,
+    "shadow_recovery_min_closed_trades": 0,
     "shadow_symbol_health_enabled": False,
     "shadow_symbol_health_min_closed_trades": 0,
     "shadow_symbol_health_min_pnl_per_trade_lcb_usd": None,
@@ -918,6 +968,7 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     promotion_manifest_enabled=True,
     actor_risk_sizing_enabled=True,
     shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled=True,
+    shadow_recovery_admission_enabled=True,
     genetics_confirmation_overlay_enabled=True,
     genetics_confirmation_quality_gate_enabled=True,
     genetics_confirmation_contra_no_backfill_enabled=True,
@@ -1389,21 +1440,21 @@ class FlashAllocator:
             fallback_min_base_score = self._actor_fallback_min_base_score_for(output)
             shadow_min_score = self._shadow_min_score_for(output)
             session_recovery_override = self._session_recovery_override_active(output)
-            if session_recovery_override or fallback_min_base_score <= 0.0:
+            shadow_recovery_candidate = self._shadow_recovery_candidate_active(
+                output,
+                actionable,
+            )
+            if (
+                session_recovery_override
+                or shadow_recovery_candidate
+                or fallback_min_base_score <= 0.0
+            ):
                 actor_fallback_base_allowed = True
             else:
                 actor_fallback_base_allowed = base_score >= fallback_min_base_score
             symbol_shadow_not_bad = (
                 shadow.closed_trades <= 0
                 or shadow.score >= shadow_min_score
-            )
-            shadow_bootstrap_evidence = (
-                portfolio_actor
-                and self._config.portfolio_shadow_bootstrap_min_closed_enabled
-                and self._config.shadow_confirmation_enabled
-                and shadow.closed_trades
-                >= self._config.shadow_confirmation_min_closed_trades
-                and shadow.score > shadow_min_score
             )
             fallback_allowed = (
                 self._config.shadow_confirmation_enabled
@@ -1465,6 +1516,23 @@ class FlashAllocator:
                 )
                 shadow_source = "portfolio_base_fallback"
                 shadow_confirmed_by_base = True
+            shadow_recovery_admission = self._shadow_recovery_admission_active(
+                output,
+                actionable,
+                shadow,
+                shadow_min_score=shadow_min_score,
+            )
+            shadow_bootstrap_evidence = (
+                (
+                    portfolio_actor
+                    and self._config.portfolio_shadow_bootstrap_min_closed_enabled
+                    and self._config.shadow_confirmation_enabled
+                    and shadow.closed_trades
+                    >= self._config.shadow_confirmation_min_closed_trades
+                    and shadow.score > shadow_min_score
+                )
+                or shadow_recovery_admission
+            )
             session_recovery_shadow_confirmed = (
                 session_recovery_override
                 and output.action.is_open
@@ -1610,6 +1678,13 @@ class FlashAllocator:
             elif self._is_open_symbol_denied(output, symbol):
                 rejected = True
                 reason = "denied_open_symbol"
+            elif self._is_range_low_vol_actor_denied(
+                output,
+                local_regime,
+                probation_admission=probation_admission,
+            ):
+                rejected = True
+                reason = "range_low_vol_actor_not_allowed"
             elif self._is_open_symbol_degraded(output, symbol, degraded_open_symbols):
                 rejected = True
                 reason = "flash_symbol_degraded"
@@ -1632,6 +1707,7 @@ class FlashAllocator:
                 output.action.is_open
                 and metrics.pnl_pct < self._config.min_pnl_pct_to_trade
                 and not session_recovery_shadow_confirmed
+                and not shadow_recovery_admission
             ):
                 rejected = True
                 reason = "pnl_below_threshold"
@@ -1741,6 +1817,9 @@ class FlashAllocator:
             elif output.action.is_open and self._is_actor_degraded(output, degraded_actor_keys):
                 rejected = True
                 reason = "flash_actor_degraded"
+            elif output.action.is_open and self._is_actor_denied(output):
+                rejected = True
+                reason = "flash_actor_deny_key"
             elif (
                 output.action.is_open
                 and
@@ -2976,6 +3055,12 @@ class FlashAllocator:
         key = _signal_deny_key(output.actor_key, symbol, output.action)
         return key in self._config.denied_signal_keys
 
+    def _is_actor_denied(self, output: _ActorSignal) -> bool:
+        if not self._config.denied_actor_keys:
+            return False
+        denied = set(self._config.denied_actor_keys)
+        return output.actor_key in denied or output.label in denied
+
     def _is_signal_terminal_denied(
         self,
         output: _ActorSignal,
@@ -3069,6 +3154,22 @@ class FlashAllocator:
         denied = set(self._config.denied_open_symbols)
         return output.action.is_open and (normalized in denied or base in denied)
 
+    def _is_range_low_vol_actor_denied(
+        self,
+        output: _ActorSignal,
+        regime: Regime,
+        *,
+        probation_admission: bool,
+    ) -> bool:
+        allowed = set(self._config.range_low_vol_real_actor_allowlist)
+        if not allowed or not output.action.is_open:
+            return False
+        if regime != Regime.RANGE_LOW_VOL:
+            return False
+        if output.actor_key in allowed or output.label in allowed:
+            return False
+        return not probation_admission
+
     @staticmethod
     def _is_open_symbol_degraded(
         output: _ActorSignal,
@@ -3125,6 +3226,83 @@ class FlashAllocator:
         if floor <= 0.0 or not _is_shadow_position_replay_output(output):
             return True
         return actor_shadow.score >= floor
+
+    def _shadow_recovery_candidate_active(
+        self,
+        output: _ActorSignal,
+        actionable: set[str],
+    ) -> bool:
+        if not (
+            self._config.shadow_recovery_admission_enabled
+            and output.action.is_open
+            and self._config.shadow_confirmation_enabled
+        ):
+            return False
+        if not self._shadow_recovery_actor_allowed(output):
+            return False
+        actionable_labels = {
+            str(label or "").strip()
+            for label in actionable or set()
+            if str(label or "").strip()
+        }
+        if not actionable_labels:
+            return False
+        actor_labels = set(_solo_label_lookup_sequence(output.label))
+        actor_labels.add(output.label)
+        actor_labels.add(output.actor_key)
+        raw_label = _raw_agent_label_from_solo(output.label)
+        if raw_label:
+            actor_labels.add(raw_label)
+        else:
+            solo_label = f"Solo_{str(output.label or '').strip()}"
+            if solo_label.strip() != "Solo_":
+                actor_labels.add(solo_label)
+        return any(label in actionable_labels for label in actor_labels)
+
+    def _shadow_recovery_actor_allowed(self, output: _ActorSignal) -> bool:
+        allowed = {
+            str(item or "").strip()
+            for item in self._config.shadow_recovery_actor_keys
+            if str(item or "").strip()
+        }
+        if not allowed:
+            return True
+        aliases = set(_solo_label_lookup_sequence(output.label))
+        aliases.add(output.label)
+        aliases.add(output.actor_key)
+        if not _raw_agent_label_from_solo(output.label):
+            solo_label = f"Solo_{str(output.label or '').strip()}"
+            if solo_label.strip() != "Solo_":
+                aliases.add(solo_label)
+                aliases.add(_actor_key("ensemble", solo_label))
+        for label in tuple(aliases):
+            aliases.add(_actor_key(output.actor_type, label))
+            raw_label = _raw_agent_label_from_solo(label)
+            if raw_label:
+                aliases.add(raw_label)
+                aliases.add(_actor_key("agent", raw_label))
+        return bool(aliases & allowed)
+
+    def _shadow_recovery_admission_active(
+        self,
+        output: _ActorSignal,
+        actionable: set[str],
+        shadow: _ShadowConfirmation,
+        *,
+        shadow_min_score: float,
+    ) -> bool:
+        if not self._shadow_recovery_candidate_active(output, actionable):
+            return False
+        min_closed = int(self._config.shadow_recovery_min_closed_trades or 0)
+        if min_closed <= 0:
+            min_closed = int(self._config.shadow_confirmation_min_closed_trades)
+        min_score = self._config.shadow_recovery_min_score
+        if min_score is None:
+            min_score = float(shadow_min_score)
+        return (
+            int(shadow.closed_trades or 0) >= max(0, min_closed)
+            and float(shadow.score or 0.0) > float(min_score)
+        )
 
     def _session_recovery_override_active(self, output: _ActorSignal) -> bool:
         record_for = getattr(self._qm, "record_for", None)
@@ -4059,6 +4237,48 @@ def _normalize_signal_deny_key(raw: object) -> str:
     return f"{parts[0]}|{parts[1].upper()}|{parts[2].upper()}"
 
 
+def _signal_symbol_aliases(symbol: object) -> Tuple[str, ...]:
+    clean = str(symbol or "").strip().upper()
+    if not clean:
+        return ()
+    aliases: list[str] = [clean]
+    if "/" in clean:
+        base, quote = clean.split("/", 1)
+        if base:
+            aliases.append(base)
+        if base and quote:
+            aliases.append(f"{base}{quote}")
+    elif clean.endswith("USDT") and len(clean) > 4:
+        base = clean[:-4]
+        aliases.append(base)
+        aliases.append(f"{base}/USDT")
+    else:
+        aliases.append(f"{clean}/USDT")
+    return tuple(dict.fromkeys(alias for alias in aliases if alias))
+
+
+def _normalize_signal_deny_key_variants(raw: object) -> Tuple[str, ...]:
+    parts = [part.strip() for part in str(raw or "").split("|")]
+    if len(parts) != 3 or not all(parts):
+        raise ValueError(
+            "Flash signal deny key must use 'actor_key|symbol|action' format"
+        )
+    actor_key, symbol, action = parts
+    return tuple(
+        _normalize_signal_deny_key(f"{actor_key}|{alias}|{action}")
+        for alias in _signal_symbol_aliases(symbol)
+    )
+
+
+def _normalize_signal_deny_key_set(raw_keys: Iterable[object]) -> Tuple[str, ...]:
+    keys: list[str] = []
+    for raw in raw_keys:
+        if not str(raw or "").strip():
+            continue
+        keys.extend(_normalize_signal_deny_key_variants(raw))
+    return tuple(dict.fromkeys(keys))
+
+
 def _normalize_signal_context_key(raw: object) -> str:
     parts = [part.strip() for part in str(raw or "").split("|")]
     if len(parts) != 4 or not all(parts):
@@ -4068,6 +4288,28 @@ def _normalize_signal_context_key(raw: object) -> str:
     signal_key = _normalize_signal_deny_key("|".join(parts[:3]))
     regime = _normalize_regime_value(parts[3]).label
     return f"{signal_key}|{regime}"
+
+
+def _normalize_signal_context_key_variants(raw: object) -> Tuple[str, ...]:
+    parts = [part.strip() for part in str(raw or "").split("|")]
+    if len(parts) != 4 or not all(parts):
+        raise ValueError(
+            "Flash signal context key must use 'actor_key|symbol|action|regime' format"
+        )
+    regime = _normalize_regime_value(parts[3]).label
+    return tuple(
+        f"{signal_key}|{regime}"
+        for signal_key in _normalize_signal_deny_key_variants("|".join(parts[:3]))
+    )
+
+
+def _normalize_signal_context_key_set(raw_keys: Iterable[object]) -> Tuple[str, ...]:
+    keys: list[str] = []
+    for raw in raw_keys:
+        if not str(raw or "").strip():
+            continue
+        keys.extend(_normalize_signal_context_key_variants(raw))
+    return tuple(dict.fromkeys(keys))
 
 
 def _blocked_flash_decision(decision: FlashDecision, *, reason: str) -> FlashDecision:

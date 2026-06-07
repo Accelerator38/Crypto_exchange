@@ -135,7 +135,7 @@ class TestNewStrategyAgents(unittest.TestCase):
         )
         self.assertEqual(
             tuple(legacy_flash_real_agent_labels()),
-            ("CarryFlowAgentV2", "CandlePatternAgent"),
+            ("CarryFlowAgentV2",),
         )
         for label in promoted:
             with self.subTest(label=label):
@@ -207,9 +207,7 @@ class TestExperimentalFlashAgents(unittest.TestCase):
         registry.register(StaticAgent("MomentumScalper"))
         registry.register(StaticAgent("VolBreakoutHunter"))
         registry.register(StaticAgent("LiveCrashHunter"))
-        registry.register(StaticAgent("LiveAfterShock"))
         registry.register(StaticAgent("LiveTrendFollow"))
-        registry.register(StaticAgent("LiveMeanRev"))
 
         registered = register_experimental_flash_agents(registry)
 
@@ -226,9 +224,7 @@ class TestExperimentalFlashAgents(unittest.TestCase):
                 "MomentumScalperSpotPullbackOnly",
                 "CrashHunterStrict",
                 "VolBreakoutFundingAware",
-                "AfterShockRegimeOnly",
                 "LiveTrendFollowBullOnly",
-                "LiveMeanRevNeutralOnly",
             ),
         )
         for label in registered:
@@ -240,9 +236,7 @@ class TestExperimentalFlashAgents(unittest.TestCase):
 
         self.assertIn("CrashHunterStrict", labels)
         self.assertIn("VolBreakoutFundingAware", labels)
-        self.assertIn("AfterShockRegimeOnly", labels)
         self.assertIn("LiveTrendFollowBullOnly", labels)
-        self.assertIn("LiveMeanRevNeutralOnly", labels)
 
 
 class TestGenomeEnsembleAgent(unittest.TestCase):

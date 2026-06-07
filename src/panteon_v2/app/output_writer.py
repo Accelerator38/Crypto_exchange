@@ -56,8 +56,8 @@ def _is_external_player(label: object) -> bool:
 
 
 def _is_adopted_player(label: object, pipeline: object = None) -> bool:
-    adopted_player, _ = adopted_position_labels(pipeline)
-    return str(label or "") == adopted_player
+    adopted_player, adopted_agent = adopted_position_labels(pipeline)
+    return str(label or "") in {adopted_player, adopted_agent}
 
 
 def _configured_dynamic_player_labels(pipeline: object) -> set[str]:
@@ -124,6 +124,65 @@ def _safe_float_or_none(value: object) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _object_float_attr(obj: object, *names: str) -> Optional[float]:
+    if obj is None:
+        return None
+    for name in names:
+        value = getattr(obj, name, None)
+        parsed = _safe_float_or_none(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _position_unrealized_pnl(
+    tracked_pos: object,
+    exchange_pos: object = None,
+    *,
+    current_prices: Optional[Dict[str, float]] = None,
+) -> float:
+    exchange_unrealized = _object_float_attr(exchange_pos, "unrealized_pnl")
+    symbol = str(
+        getattr(exchange_pos, "sym", "")
+        or getattr(tracked_pos, "sym", "")
+        or ""
+    ).upper()
+    side = str(
+        getattr(exchange_pos, "side", "")
+        or getattr(tracked_pos, "side", "")
+        or ""
+    ).lower()
+    entry = _object_float_attr(exchange_pos, "entry", "entry_price")
+    if entry is None or entry <= 0.0:
+        entry = _object_float_attr(tracked_pos, "entry_price", "entry")
+    qty = _object_float_attr(exchange_pos, "qty")
+    if qty is None or qty <= 0.0:
+        qty = _object_float_attr(tracked_pos, "qty")
+
+    computed: Optional[float] = None
+    if (
+        current_prices
+        and symbol
+        and side in {"long", "short"}
+        and entry is not None
+        and entry > 0.0
+        and qty is not None
+        and qty > 0.0
+    ):
+        price = _safe_float_or_none(current_prices.get(symbol))
+        if price is not None and price > 0.0:
+            if side == "long":
+                computed = (price - entry) * qty
+            else:
+                computed = (entry - price) * qty
+
+    if computed is not None and (
+        exchange_unrealized is None or abs(exchange_unrealized) <= 1e-12
+    ):
+        return computed
+    return float(exchange_unrealized or 0.0)
 
 
 def _clean_regimes_by_symbol(value: object) -> Dict[str, str]:
@@ -241,6 +300,7 @@ class OutputWriter:
         self._panteon_realized_equity_history: List[float] = []
         self._clean_panteon_equity_history: List[float] = []
         self._clean_panteon_realized_equity_history: List[float] = []
+        self._equity_history_timestamps: List[str] = []
         self._price_history: List[Dict[str, object]] = []
         self._shadow_session_counts = {
             "signals": 0,
@@ -440,6 +500,7 @@ class OutputWriter:
                 self._config.compact_causal_entry_selected_only
                 and not row.get("flash_decisions")
                 and not row.get("shadow_position_diagnostics")
+                and not self._has_soft_allocator_execution(row)
             ):
                 return
         row.setdefault("bar", step.bar)
@@ -585,6 +646,23 @@ class OutputWriter:
         return out
 
     @staticmethod
+    def _has_soft_allocator_execution(row: Dict[str, Any]) -> bool:
+        soft = row.get("soft_allocator")
+        if not isinstance(soft, dict) or not bool(soft.get("enabled")):
+            return False
+        for key in ("executable_signals", "guarded_signals", "raw_signals"):
+            value = row.get(key)
+            if isinstance(value, list) and value:
+                return True
+        for key in ("executable_signal_count", "raw_signal_count"):
+            try:
+                if int(row.get(key) or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+
+    @staticmethod
     def _compact_flash_decision(
         decision: Any,
         *,
@@ -704,17 +782,19 @@ class OutputWriter:
         realized_pnl = self._pipeline.ledger.total_realized_pnl
         account_snapshot = self._refresh_account_view(realized_pnl=realized_pnl)
         total_assets = float(account_snapshot.get("total_assets", self._current_balance) or self._current_balance)
+        timestamps = _utc_msk_timestamps()
 
         pnl_pct = (
             (total_assets - self._initial_capital) / self._initial_capital * 100.0
             if self._initial_capital > 0 else 0.0
         )
         self._assets_history = self._append_curve_value(self._assets_history, total_assets)
+        self._equity_history_timestamps = self._append_curve_timestamp(
+            self._equity_history_timestamps,
+            timestamps["timestamp_utc"],
+        )
 
         # Открытые позиции
-        open_positions = self._tracked_open_positions()
-        position_counts = self._position_counts(tracked_count=len(open_positions))
-
         uptime_sec = time.time() - self._start_time
         h = int(uptime_sec // 3600)
         m = int((uptime_sec % 3600) // 60)
@@ -727,6 +807,8 @@ class OutputWriter:
             regime=regime,
             market_view=market_view,
         )
+        open_positions = self._tracked_open_positions(current_prices=current_prices)
+        position_counts = self._position_counts(tracked_count=len(open_positions))
         n_signals = step.n_signals if step is not None else 0
         n_filled = step.n_filled if step is not None else 0
         n_rejected = step.n_rejected if step is not None else 0
@@ -751,7 +833,10 @@ class OutputWriter:
             "closed_trades": 0,
             "win_rate": 0.0,
         }
-        position_pnl = self._position_pnl_summary(leader=leader)
+        position_pnl = self._position_pnl_summary(
+            leader=leader,
+            current_prices=current_prices,
+        )
         player_pnl = self._pipeline.ledger.total_pnl_by_player()
         external_realized_pnl = sum(
             pnl for player, pnl in player_pnl.items()
@@ -918,8 +1003,6 @@ class OutputWriter:
             shadow_session=shadow_session,
             blocked_reasons=blocked_reasons,
         )
-        timestamps = _utc_msk_timestamps()
-
         data = {
             "version":          "v2",
             "timestamp":        timestamps["timestamp_utc"],
@@ -954,18 +1037,30 @@ class OutputWriter:
             "spot_assets_usd": account_snapshot.get("spot_assets", 0.0),
             "total_assets_usd": total_assets,
             "assets_curve":     list(self._assets_history),
+            "assets_curve_timestamps": list(self._equity_history_timestamps),
             "equity_curve":     list(self._panteon_equity_history),
+            "equity_curve_timestamps": list(self._equity_history_timestamps),
             "panteon_equity_usd": panteon_equity,
             "panteon_realized_equity_usd": panteon_realized_equity,
             "panteon_equity_curve": list(self._panteon_equity_history),
+            "panteon_equity_curve_timestamps": list(self._equity_history_timestamps),
             "panteon_realized_equity_curve": list(self._panteon_realized_equity_history),
+            "panteon_realized_equity_curve_timestamps": list(
+                self._equity_history_timestamps
+            ),
             "panteon_max_drawdown_pct": panteon_max_dd_pct,
             "panteon_realized_max_drawdown_pct": panteon_realized_max_dd_pct,
             "clean_panteon_equity_usd": clean_panteon_equity,
             "clean_panteon_realized_equity_usd": clean_panteon_realized_equity,
             "clean_panteon_equity_curve": list(self._clean_panteon_equity_history),
+            "clean_panteon_equity_curve_timestamps": list(
+                self._equity_history_timestamps
+            ),
             "clean_panteon_realized_equity_curve": list(
                 self._clean_panteon_realized_equity_history
+            ),
+            "clean_panteon_realized_equity_curve_timestamps": list(
+                self._equity_history_timestamps
             ),
             "clean_panteon_max_drawdown_pct": clean_panteon_max_dd_pct,
             "clean_panteon_realized_max_drawdown_pct": clean_panteon_realized_max_dd_pct,
@@ -1210,7 +1305,11 @@ class OutputWriter:
         self._pipeline.account_snapshot = snapshot
         return snapshot
 
-    def _tracked_open_positions(self) -> Dict[str, dict]:
+    def _tracked_open_positions(
+        self,
+        *,
+        current_prices: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, dict]:
         open_positions: Dict[str, dict] = {}
         tracker = getattr(getattr(self._pipeline, "executor", None), "_tracker", None)
         if tracker is None or not hasattr(tracker, "all_open"):
@@ -1222,7 +1321,11 @@ class OutputWriter:
         exchange_positions = self._exchange_positions()
         for sym, pos in tracked.items():
             exchange_pos = exchange_positions.get(str(sym).upper())
-            unrealized = float(getattr(exchange_pos, "unrealized_pnl", 0.0) or 0.0)
+            unrealized = _position_unrealized_pnl(
+                pos,
+                exchange_pos,
+                current_prices=current_prices,
+            )
             open_positions[sym] = {
                 "side":  pos.side,
                 "qty":   pos.qty,
@@ -1238,6 +1341,16 @@ class OutputWriter:
     def _append_curve_value(history: List[float], value: float, *, limit: int = 720) -> List[float]:
         out = list(history)
         out.append(float(value))
+        if len(out) > limit:
+            out = out[-limit:]
+        return out
+
+    @staticmethod
+    def _append_curve_timestamp(history: List[str], value: str, *, limit: int = 720) -> List[str]:
+        out = list(history)
+        timestamp = str(value or "").strip()
+        if timestamp:
+            out.append(timestamp)
         if len(out) > limit:
             out = out[-limit:]
         return out
@@ -1322,7 +1435,12 @@ class OutputWriter:
                 max_dd = dd
         return max_dd
 
-    def _position_pnl_summary(self, *, leader: Optional[str]) -> Dict[str, float]:
+    def _position_pnl_summary(
+        self,
+        *,
+        leader: Optional[str],
+        current_prices: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, float]:
         summary = {
             "panteon_owned_unrealized_pnl_usd": 0.0,
             "clean_panteon_unrealized_pnl_usd": 0.0,
@@ -1347,7 +1465,11 @@ class OutputWriter:
         for sym, pos in tracked.items():
             owner = getattr(pos, "by_player", "")
             exchange_pos = exchange_positions.get(str(sym).upper())
-            unrealized = float(getattr(exchange_pos, "unrealized_pnl", 0.0) or 0.0)
+            unrealized = _position_unrealized_pnl(
+                pos,
+                exchange_pos,
+                current_prices=current_prices,
+            )
             if _is_external_player(owner):
                 summary["external_unrealized_pnl_usd"] += unrealized
                 summary["external_positions_count"] += 1
@@ -1645,6 +1767,55 @@ class OutputWriter:
             return []
         return curve if len(curve) > 1 else []
 
+    def _actor_equity_curve_timestamps(self, label: str) -> List[str]:
+        getter = getattr(
+            getattr(self._pipeline, "perf", None),
+            "equity_curve_timestamps",
+            None,
+        )
+        if not callable(getter):
+            return []
+        try:
+            return [str(item) for item in getter(label) if str(item or "").strip()]
+        except Exception:
+            return []
+
+    def _actor_session_equity_curve(self, label: str) -> List[float]:
+        curve = self._actor_equity_curve(label)
+        if len(curve) < 2:
+            return []
+        metrics = self._pipeline.perf.get(label)
+        baseline = self._session_perf_baseline.get(label, {})
+        session_closed = max(
+            0,
+            int(metrics.closed_trades) - int(baseline.get("closed_trades", 0)),
+        )
+        if session_closed <= 0:
+            return []
+        current_closed = max(0, int(metrics.closed_trades))
+        baseline_closed = max(0, int(baseline.get("closed_trades", 0)))
+        if len(curve) >= current_closed + 1:
+            start = min(baseline_closed, len(curve) - 2)
+        else:
+            start = max(0, len(curve) - (session_closed + 1))
+        session_curve = curve[start:]
+        if len(session_curve) < 2:
+            return []
+        first = float(session_curve[0] or 0.0)
+        if first <= 0.0:
+            return []
+        return [round(float(item) / first * 100.0, 10) for item in session_curve]
+
+    def _actor_session_equity_curve_timestamps(self, label: str) -> List[str]:
+        curve = self._actor_session_equity_curve(label)
+        if len(curve) < 2:
+            return []
+        timestamps = self._actor_equity_curve_timestamps(label)
+        if not timestamps:
+            return []
+        needed = len(curve)
+        return timestamps[-needed:] if len(timestamps) >= needed else timestamps
+
     def _exchange_positions_count(self) -> int:
         return len(self._exchange_positions())
 
@@ -1725,6 +1896,11 @@ class OutputWriter:
                 "pnl_pct":        metrics_agg.pnl_pct,
                 "session_pnl_pct": session["pnl_pct"],
                 "equity_curve":   self._actor_equity_curve(label),
+                "equity_curve_timestamps": self._actor_equity_curve_timestamps(label),
+                "session_equity_curve": self._actor_session_equity_curve(label),
+                "session_equity_curve_timestamps": (
+                    self._actor_session_equity_curve_timestamps(label)
+                ),
                 "closed_trades":  metrics_agg.closed_trades,
                 "session_closed_trades": session["closed_trades"],
                 "entries":        metrics_agg.entries,
@@ -1785,6 +1961,11 @@ class OutputWriter:
                 "pnl_pct":          metrics_agg.pnl_pct,
                 "session_pnl_pct":  session["pnl_pct"],
                 "equity_curve":     self._actor_equity_curve(label),
+                "equity_curve_timestamps": self._actor_equity_curve_timestamps(label),
+                "session_equity_curve": self._actor_session_equity_curve(label),
+                "session_equity_curve_timestamps": (
+                    self._actor_session_equity_curve_timestamps(label)
+                ),
                 "closed_trades":    metrics_agg.closed_trades,
                 "session_closed_trades": session["closed_trades"],
                 "entries":          metrics_agg.entries,

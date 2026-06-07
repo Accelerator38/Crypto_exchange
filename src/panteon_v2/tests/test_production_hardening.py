@@ -36,6 +36,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PANTEON_RUNTIME = PROJECT_ROOT / "src" / "panteon_runtime"
 
 
+def _read_project_settings() -> dict[str, str]:
+    settings: dict[str, str] = {}
+    for raw in (PROJECT_ROOT / "settings.txt").read_text(
+        encoding="utf-8",
+        errors="replace",
+    ).splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        settings[key.strip().lower()] = value.strip()
+    return settings
+
+
 def _signal(action: Action, *, sid: int = 1, sym: str = "BTC", price: float = 100.0) -> Signal:
     return Signal(
         id=sid,
@@ -460,6 +474,131 @@ class TestShadowAttribution(unittest.TestCase):
 
 
 class TestStartupFailClosed(unittest.TestCase):
+    def test_mexc_live_genetics_core_daily_limit_is_micro_probation(self):
+        from panteon_v2.app.startup import _live_execution_config_from_settings
+
+        cfg = _live_execution_config_from_settings(_read_project_settings(), exchange_name="MEXC")
+        core_daily_limit = cfg.genetics_probation_max_daily_trades_by_label.get(
+            "GeneticsCore",
+            cfg.genetics_probation_max_daily_trades,
+        )
+        core_real_limit = cfg.genetics_probation_max_real_trades_by_label.get(
+            "GeneticsCore",
+            cfg.genetics_probation_max_real_trades,
+        )
+
+        self.assertEqual(core_daily_limit, 1)
+        self.assertLessEqual(core_daily_limit, core_real_limit)
+
+    def test_mexc_live_quarantine_override_does_not_force_neutral_liquidity(self):
+        from panteon_v2.app.startup import _quarantine_override_labels_from_settings
+
+        self.assertNotIn(
+            "NeutralLiquiditySweep",
+            _quarantine_override_labels_from_settings(_read_project_settings(), "MEXC"),
+        )
+
+    def test_mexc_live_raw_genetics_variants_are_not_broad_real_probation(self):
+        from panteon_v2.app.startup import _live_execution_config_from_settings
+
+        cfg = _live_execution_config_from_settings(_read_project_settings(), exchange_name="MEXC")
+
+        self.assertEqual(cfg.genetics_probation_labels, ("GeneticsCore",))
+        self.assertNotIn("GeneticsRiskTight", cfg.genetics_probation_labels)
+        self.assertNotIn("GeneticsBest", cfg.genetics_probation_labels)
+        self.assertNotIn("GeneticsRegimeAdaptiveBias", cfg.genetics_probation_labels)
+        self.assertLessEqual(
+            cfg.genetics_probation_risk_mult_by_label["GeneticsCore"],
+            0.10,
+        )
+        self.assertEqual(
+            cfg.genetics_probation_max_daily_trades_by_label["GeneticsCore"],
+            1,
+        )
+
+    def test_live_range_low_vol_uses_profile_allowlist_and_micro_genetics(self):
+        from panteon_v2.app.startup import (
+            _flash_allocator_config_from_settings,
+            _flash_stale_position_exit_config_from_settings,
+            _live_execution_config_from_settings,
+        )
+
+        settings = _read_project_settings()
+        stale_exit = _flash_stale_position_exit_config_from_settings(settings)
+        mexc_flash = _flash_allocator_config_from_settings(
+            settings,
+            exchange_name="MEXC",
+        )
+        bitget_flash = _flash_allocator_config_from_settings(
+            settings,
+            exchange_name="BITGET",
+        )
+        mexc_live = _live_execution_config_from_settings(
+            settings,
+            exchange_name="MEXC",
+        )
+        bitget_live = _live_execution_config_from_settings(
+            settings,
+            exchange_name="BITGET",
+        )
+
+        self.assertTrue(stale_exit["enabled"])
+        self.assertFalse(stale_exit["require_nonpositive_unrealized"])
+        for label in (
+            "Legend_Consensus",
+            "DefaultEnsemble",
+            "CarryFlowAgentV2",
+            "NeutralLiquiditySweep",
+        ):
+            self.assertIn(label, mexc_flash.range_low_vol_real_actor_allowlist)
+            self.assertIn(label, bitget_flash.range_low_vol_real_actor_allowlist)
+        self.assertNotIn(
+            "GeneticsCore",
+            mexc_flash.range_low_vol_real_actor_allowlist,
+        )
+        self.assertIn(
+            "LiveOIBreakout",
+            bitget_flash.range_low_vol_real_actor_allowlist,
+        )
+        self.assertNotIn(
+            "LiveOIBreakout",
+            mexc_flash.range_low_vol_real_actor_allowlist,
+        )
+
+        self.assertTrue(mexc_live.genetics_probation_execution_enabled)
+        self.assertEqual(mexc_live.genetics_probation_labels, ("GeneticsCore",))
+        self.assertNotIn(
+            "GeneticsRegimeAdaptiveBias",
+            mexc_live.genetics_probation_labels,
+        )
+        self.assertEqual(mexc_live.genetics_probation_risk_mult, 0.08)
+        self.assertEqual(
+            mexc_live.genetics_probation_max_daily_trades_by_label["GeneticsCore"],
+            1,
+        )
+        self.assertEqual(
+            mexc_live.genetics_probation_max_consecutive_failed_orders_by_label[
+                "GeneticsCore"
+            ],
+            1,
+        )
+        self.assertLessEqual(
+            mexc_live.genetics_probation_max_realized_loss_pct_by_label[
+                "GeneticsCore"
+            ],
+            0.01,
+        )
+        self.assertTrue(mexc_live.genetics_probation_require_shadow_confirmation)
+        self.assertTrue(
+            all(
+                "GeneticsCore" in key
+                for key in mexc_live.genetics_probation_allowed_signal_keys
+            )
+        )
+
+        self.assertFalse(bitget_live.genetics_probation_execution_enabled)
+        self.assertEqual(bitget_live.genetics_probation_labels, ("GeneticsCore",))
+
     def test_live_bridge_failure_fails_closed_without_explicit_fallback(self):
         from panteon_v2.app.startup import _should_fail_closed_after_bridge_error
 
@@ -671,6 +810,38 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertTrue(cfg.genetics_probation_bypass_min_closed_enabled)
         self.assertTrue(cfg.genetics_probation_bypass_trend_gate_enabled)
 
+    def test_flash_shadow_recovery_admission_prefers_exchange_scoped_settings(self):
+        from panteon_v2.app.startup import _flash_allocator_config_from_settings
+
+        settings = {
+            "v2_flash_shadow_recovery_admission_enabled": "off",
+            "mexc_v2_flash_shadow_recovery_admission_enabled": "on",
+            "bitget_v2_flash_shadow_recovery_admission_enabled": "off",
+            "mexc_v2_flash_shadow_recovery_actor_keys": (
+                "ensemble:Solo_LiveTrendFollow,ensemble:Solo_PlayerFunding"
+            ),
+            "mexc_v2_flash_shadow_recovery_min_score": "4.0",
+            "mexc_v2_flash_shadow_recovery_min_closed_trades": "8",
+        }
+
+        mexc_cfg = _flash_allocator_config_from_settings(
+            settings,
+            exchange_name="MEXC",
+        )
+        bitget_cfg = _flash_allocator_config_from_settings(
+            settings,
+            exchange_name="BITGET",
+        )
+
+        self.assertTrue(mexc_cfg.shadow_recovery_admission_enabled)
+        self.assertEqual(
+            mexc_cfg.shadow_recovery_actor_keys,
+            ("ensemble:Solo_LiveTrendFollow", "ensemble:Solo_PlayerFunding"),
+        )
+        self.assertEqual(mexc_cfg.shadow_recovery_min_score, 4.0)
+        self.assertEqual(mexc_cfg.shadow_recovery_min_closed_trades, 8)
+        self.assertFalse(bitget_cfg.shadow_recovery_admission_enabled)
+
     def test_risk_max_open_positions_is_resolved_from_settings(self):
         from panteon_v2.app.startup import _risk_config_from_settings
 
@@ -681,6 +852,17 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertEqual(cfg.capital_fraction, 0.06)
         self.assertEqual(cfg.max_open_positions, 8)
         self.assertTrue(cfg.floor_to_exchange_min_notional)
+
+    def test_risk_max_open_positions_prefers_exchange_scoped_override(self):
+        from panteon_v2.app.startup import _risk_config_from_settings
+
+        cfg = _risk_config_from_settings({
+            "v2_risk_max_open_positions": "8",
+            "mexc_v2_risk_max_open_positions": "10",
+            "bitget_v2_risk_max_open_positions": "6",
+        }, trade_fraction=0.06, exchange_name="MEXC")
+
+        self.assertEqual(cfg.max_open_positions, 10)
 
     def test_executable_soft_top1_strategy_is_resolved_from_settings(self):
         from panteon_v2.app.startup import _strategist_config_from_settings
@@ -818,6 +1000,31 @@ class TestKillSwitches(unittest.TestCase):
             _exchange_health_open_block_reason(pipeline),
             "cached_futures_assets",
         )
+
+    def test_mexc_transient_assets_exception_does_not_block_with_reliable_snapshot(self):
+        from panteon_v2.app.main_loop import _exchange_health_open_block_reason
+
+        class Exchange:
+            name = "MEXC"
+
+            def positions_snapshot_reliable(self):
+                return True
+
+        pipeline = types.SimpleNamespace(
+            executor=types.SimpleNamespace(_exchange=Exchange()),
+            account_snapshot={
+                "current_balance": 120.0,
+                "futures_equity": 120.0,
+                "available_balance": 118.0,
+                "total_assets": 120.0,
+                "data_health": {
+                    "recent_data_error": "futures_assets_exception:ConnectionError",
+                    "snapshot_age_sec": 1.0,
+                },
+            },
+        )
+
+        self.assertEqual(_exchange_health_open_block_reason(pipeline), "")
 
     def test_genetics_probation_failed_orders_disable_only_probation(self):
         from panteon_v2.app.bootstrap import KillSwitchState, LiveExecutionConfig

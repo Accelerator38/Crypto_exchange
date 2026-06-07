@@ -112,7 +112,6 @@ PROFILE_TREND_RESEARCH = PlayerProfile(
     min_agents=2,
     bias={
         "LiveTrendFollow":     0.15,
-        "LiveAfterShock":      0.10,
         "LiveCrashHunter":     0.10,
         "LiveOIBreakout":      0.10,
     },
@@ -129,7 +128,6 @@ PROFILE_MEAN_REV_RESEARCH = PlayerProfile(
     max_agents=5,
     min_agents=3,
     bias={
-        "LiveMeanRev":         0.20,
         "LiveVolCompress":     0.15,
         "LiveRegimePullback":  0.10,
         "NeutralRangeScalper": 0.05,

@@ -7,9 +7,9 @@ import json
 import os
 import shutil
 import tempfile
-import threading
 import unittest
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from panteon_v2.app import (
@@ -839,6 +839,10 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_actor_switch_margin": "0.45",
             "v2_flash_anchor_actor_keys": "ensemble:Solo_MomentumScalper",
             "v2_flash_portfolio_actor_keys": "ensemble:Solo_MomentumScalper,ensemble:Solo_LiveCrashHunter",
+            "v2_flash_range_low_vol_real_actor_allowlist": (
+                "Legend_Consensus,DefaultEnsemble,CarryFlowAgentV2,"
+                "NeutralLiquiditySweep"
+            ),
             "v2_flash_portfolio_shadow_bootstrap_min_closed_enabled": "true",
             "v2_flash_anchor_min_score_to_trade": "1.5",
             "v2_flash_anchor_shadow_min_score": "-0.1",
@@ -900,6 +904,9 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_technical_atr_target_pct": "1.8",
             "v2_flash_technical_atr_min_pct": "0.3",
             "v2_flash_technical_atr_max_mult": "1.4",
+            "v2_flash_denied_actor_keys": (
+                "agent:PlayerFunding,ensemble:DefaultEnsemble"
+            ),
             "v2_flash_denied_signal_keys": (
                 "ensemble:Solo_A|btc/usdt|fut_long_full,"
                 "agent:LiveB|ETH/USDT|SPOT_BUY_FULL"
@@ -960,6 +967,15 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(
             cfg.portfolio_actor_keys,
             ("ensemble:Solo_MomentumScalper", "ensemble:Solo_LiveCrashHunter"),
+        )
+        self.assertEqual(
+            cfg.range_low_vol_real_actor_allowlist,
+            (
+                "Legend_Consensus",
+                "DefaultEnsemble",
+                "CarryFlowAgentV2",
+                "NeutralLiquiditySweep",
+            ),
         )
         self.assertTrue(cfg.portfolio_shadow_bootstrap_min_closed_enabled)
         self.assertEqual(cfg.anchor_min_score_to_trade, 1.5)
@@ -1029,15 +1045,27 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(cfg.technical_atr_min_pct, 0.3)
         self.assertEqual(cfg.technical_atr_max_mult, 1.4)
         self.assertEqual(
+            cfg.denied_actor_keys,
+            ("agent:PlayerFunding", "ensemble:DefaultEnsemble"),
+        )
+        self.assertEqual(
             cfg.denied_signal_keys,
             (
                 "ensemble:Solo_A|BTC/USDT|FUT_LONG_FULL",
+                "ensemble:Solo_A|BTC|FUT_LONG_FULL",
+                "ensemble:Solo_A|BTCUSDT|FUT_LONG_FULL",
                 "agent:LiveB|ETH/USDT|SPOT_BUY_FULL",
+                "agent:LiveB|ETH|SPOT_BUY_FULL",
+                "agent:LiveB|ETHUSDT|SPOT_BUY_FULL",
             ),
         )
         self.assertEqual(
             cfg.terminal_denied_signal_keys,
-            ("ensemble:Solo_C|ATOM/USDT|FUT_SHORT_FULL",),
+            (
+                "ensemble:Solo_C|ATOM/USDT|FUT_SHORT_FULL",
+                "ensemble:Solo_C|ATOM|FUT_SHORT_FULL",
+                "ensemble:Solo_C|ATOMUSDT|FUT_SHORT_FULL",
+            ),
         )
         self.assertEqual(cfg.denied_open_symbols, ("ATOM/USDT", "FIL/USDT"))
         self.assertEqual(cfg.denied_open_regimes, (Regime.NEUTRAL, Regime.CRASH))
@@ -8018,14 +8046,12 @@ class TestMainLoop(unittest.TestCase):
     def test_production_pipeline_exposes_antonius_strategy_default(self):
         reg = AgentRegistry()
         for label in (
-            "LiveAfterShock",
             "FundingArb",
             "LiveCrashHunter",
             "RichardDennis",
             "LiveOIBreakout",
             "ResearchValidatorAgent",
             "GeneticsCore",
-            "LiveMeanRev",
             "MomentumScalper",
             "VolBreakoutHunter",
             "CrashPanicShortAgent",
@@ -8057,9 +8083,6 @@ class TestMainLoop(unittest.TestCase):
                 "bearish": "GeneticsCore",
                 "crash": "GeneticsCore",
             },
-            "Perfect_MeanRev": {
-                "neutral": "LiveMeanRev",
-            },
         }
         actual = dict(pipeline.regime_switch_player_sets)
         self.assertNotIn("Antonius_strategy", actual)
@@ -8084,7 +8107,6 @@ class TestMainLoop(unittest.TestCase):
         self.assertIn("Optimal_StaticRotator", pipeline.qm.protected_labels)
         self.assertIn("Antonius_conservative", pipeline.qm.protected_labels)
         self.assertNotIn("Perfect_NeutralValidator", pipeline.qm.protected_labels)
-        self.assertNotIn("Perfect_MeanRev", pipeline.qm.protected_labels)
         self.assertNotIn("Antonius_strategy", pipeline.qm.protected_labels)
 
     def test_external_exchange_positions_do_not_trip_desync_kill_switch(self):
@@ -8469,6 +8491,128 @@ class TestMainLoop(unittest.TestCase):
         )
 
         self.assertEqual(signals, [])
+
+    def test_flash_stale_position_guard_closes_old_profitable_adopted_position_when_allowed(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("Idle"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=7,
+            sym="UNI",
+            side="short",
+            entry_price=10.0,
+            qty=5.0,
+            fee_open=0.0,
+            by_player="PanteonFlashAdopted",
+            by_agent="AdoptedExchangePosition",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=10,
+            open_action="FUT_SHORT_FULL",
+        ))
+
+        signals = _flash_stale_position_close_signals(
+            pipeline,
+            make_market_snapshot(
+                bar=180,
+                prices={"UNI": 9.5},
+                regime="range_low_vol",
+            ),
+            signal_id_start=100,
+            max_age_bars=168,
+            require_nonpositive_unrealized=False,
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].action, Action.FUT_CLOSE_ALL)
+        self.assertEqual(signals[0].sym, "UNI")
+        self.assertEqual(signals[0].by_agent, "StalePositionGuard")
+
+    def test_flash_stale_position_guard_uses_opened_at_for_recovered_adopted_position(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("Idle"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=0,
+            sym="BTC",
+            side="short",
+            entry_price=100.0,
+            qty=1.0,
+            fee_open=0.0,
+            by_player="PanteonFlashAdopted",
+            by_agent="AdoptedExchangePosition",
+            opened_at=datetime.now(timezone.utc) - timedelta(hours=6),
+            opened_bar=0,
+            open_action="FUT_SHORT_FULL",
+        ))
+
+        signals = _flash_stale_position_close_signals(
+            pipeline,
+            make_market_snapshot(
+                bar=28696,
+                prices={"BTC": 95.0},
+                regime="range_low_vol",
+            ),
+            signal_id_start=100,
+            max_age_bars=168,
+            require_nonpositive_unrealized=False,
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].action, Action.FUT_CLOSE_ALL)
+        self.assertEqual(signals[0].sym, "BTC")
+
+    def test_flash_stale_position_guard_closes_recovered_adopted_position_outside_market_universe(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("Idle"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=1000.0,
+            profiles=[],
+            flash_enabled=True,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=0,
+            sym="UNI",
+            side="short",
+            entry_price=3.368,
+            qty=3.8,
+            fee_open=0.0,
+            by_player="PanteonFlashAdopted",
+            by_agent="AdoptedExchangePosition",
+            opened_at=datetime.now(timezone.utc) - timedelta(hours=6),
+            opened_bar=0,
+            open_action="FUT_SHORT_FULL",
+        ))
+
+        signals = _flash_stale_position_close_signals(
+            pipeline,
+            make_market_snapshot(
+                bar=5779,
+                prices={"BTC": 104000.0, "ETH": 2500.0},
+                regime="range_low_vol",
+            ),
+            signal_id_start=100,
+            max_age_bars=168,
+            require_nonpositive_unrealized=False,
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].action, Action.FUT_CLOSE_ALL)
+        self.assertEqual(signals[0].sym, "UNI")
+        self.assertEqual(signals[0].price, 3.368)
 
     def test_flash_path_executes_stale_position_guard_close(self):
         reg = AgentRegistry()
@@ -8960,6 +9104,106 @@ class TestOutputWriter(unittest.TestCase):
         self.assertIn("notional $1.74 < min $5.10 x2", trading_log)
         self.assertNotIn("assets=", trading_log)
 
+    def test_status_uses_market_price_unrealized_fallback_and_adopted_alias(self):
+        class LiveExchange(FakeExchange):
+            def get_account_snapshot(self):
+                return {
+                    "current_balance": 100.0,
+                    "futures_equity": 100.0,
+                    "available_balance": 90.0,
+                    "total_assets": 100.0,
+                    "unrealized_pnl": 0.0,
+                }
+
+            def get_all_positions(self):
+                return {
+                    "BNB": ExchangePosition(
+                        sym="BNB",
+                        side="short",
+                        qty=0.02,
+                        entry=576.8,
+                        unrealized_pnl=0.0,
+                    ),
+                    "LINK": ExchangePosition(
+                        sym="LINK",
+                        side="long",
+                        qty=0.6,
+                        entry=9.724,
+                        unrealized_pnl=0.0,
+                    ),
+                }
+
+        reg = AgentRegistry()
+        reg.register(FakeAgent("GeneticsCore"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=LiveExchange(name="MEXC"),
+            initial_capital=100.0,
+        )
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=1,
+            sym="BNB",
+            side="short",
+            entry_price=576.8,
+            qty=0.02,
+            fee_open=0.0,
+            by_player="DefaultEnsemble",
+            by_agent="GeneticsCore",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=1,
+            open_action="FUT_SHORT_FULL",
+            open_regime="neutral",
+        ))
+        pipeline.executor._tracker.force_set(TrackedPosition(
+            open_signal_id=2,
+            sym="LINK",
+            side="long",
+            entry_price=9.724,
+            qty=0.6,
+            fee_open=0.0,
+            by_player="AdoptedExchangePosition",
+            by_agent="",
+            opened_at=datetime.now(timezone.utc),
+            opened_bar=1,
+            open_action="FUT_LONG_FULL",
+            open_regime="neutral",
+        ))
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            writer.write(StepResult(
+                bar=2,
+                regime=Regime.NEUTRAL,
+                leader="DefaultEnsemble",
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                causal_decision={
+                    "regime": "neutral",
+                    "prices": {"BNB": 574.0, "LINK": 7.404},
+                },
+            ))
+            with open(os.path.join(writer.output_dir, "status.json"), "r", encoding="utf-8") as f:
+                status = json.load(f)
+            writer.close()
+
+        self.assertAlmostEqual(
+            status["open_positions"]["BNB"]["unrealized_pnl_usd"],
+            0.056,
+        )
+        self.assertAlmostEqual(
+            status["open_positions"]["LINK"]["unrealized_pnl_usd"],
+            -1.392,
+        )
+        live = status["live_session"]
+        self.assertEqual(live["clean_panteon_positions_count"], 1)
+        self.assertEqual(live["adopted_positions_count"], 1)
+        self.assertAlmostEqual(live["clean_panteon_unrealized_pnl_usd"], 0.056)
+        self.assertAlmostEqual(live["adopted_unrealized_pnl_usd"], -1.392)
+        self.assertAlmostEqual(live["panteon_owned_unrealized_pnl_usd"], -1.336)
+
     def test_status_and_dashboard_show_real_actors_separate_from_shadow(self):
         class LiveExchange(FakeExchange):
             def get_all_positions(self):
@@ -9176,6 +9420,74 @@ class TestOutputWriter(unittest.TestCase):
             writer.close()
 
         self.assertEqual(players["V_CurveAgent"]["equity_curve"], [100.0, 101.0])
+
+    def test_leaderboard_rows_include_session_equity_curve_timestamps(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("CurveAgent", {"BTC": Action.HOLD}))
+        pipeline = build_dryrun_pipeline(registry=reg, initial_capital=100.0)
+        closed_at = datetime(2026, 6, 6, 10, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(pipeline, results_root=td)
+            os1 = Signal(
+                id=1,
+                bar=1,
+                sym="BTC",
+                action=Action.FUT_LONG_FULL,
+                price=100.0,
+                regime=Regime.BULLISH,
+                by_player="CurvePlayer",
+                by_agent="CurveAgent",
+            )
+            cs1 = Signal(
+                id=2,
+                bar=2,
+                sym="BTC",
+                action=Action.FUT_CLOSE_ALL,
+                price=110.0,
+                regime=Regime.BULLISH,
+                by_player="CurvePlayer",
+                by_agent="CurveAgent",
+                timestamp=closed_at,
+            )
+            pipeline.perf.update_from_trade(
+                Trade(
+                    signal_id=1,
+                    bar=1,
+                    sym="BTC",
+                    side="long",
+                    qty=1.0,
+                    fill_price=100.0,
+                    fee=0.0,
+                ),
+                os1,
+            )
+            pipeline.perf.update_from_trade(
+                Trade(
+                    signal_id=2,
+                    bar=2,
+                    sym="BTC",
+                    side="long",
+                    qty=1.0,
+                    fill_price=110.0,
+                    fee=0.0,
+                ),
+                cs1,
+            )
+            writer._write_leaderboards()
+            with open(
+                os.path.join(writer.output_dir, "leaderboard_players.json"),
+                encoding="utf-8",
+            ) as fh:
+                players = json.load(fh)["players"]
+            writer.close()
+
+        row = players["V_CurveAgent"]
+        self.assertEqual(row["session_equity_curve"], [100.0, 101.0])
+        self.assertEqual(
+            row["session_equity_curve_timestamps"],
+            [closed_at.isoformat(), closed_at.isoformat()],
+        )
 
     def test_status_and_trading_log_include_selected_executed_fallback_debug(self):
         reg = AgentRegistry()
@@ -9578,6 +9890,61 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(len(decisions), 1)
         self.assertEqual(decisions[0]["selected_actor"], "Alpha")
         self.assertEqual(decisions[0]["signal"]["id"], 101)
+
+    def test_writer_keeps_soft_allocator_selected_only_causal_rows(self):
+        reg = AgentRegistry()
+        reg.register(FakeAgent("AgentA"))
+        pipeline = build_production_pipeline(
+            registry=reg,
+            exchange=FakeExchange(name="REAL"),
+            initial_capital=100.0,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            writer = OutputWriter.for_session(
+                pipeline,
+                results_root=td,
+                compact_causal_entry_decisions=True,
+                compact_causal_entry_selected_only=True,
+            )
+            writer.write(StepResult(
+                bar=12,
+                regime=Regime.BULLISH,
+                leader="PanteonSoft:soft_top3_decayed",
+                leader_changed=False,
+                n_signals=1,
+                n_filled=1,
+                n_rejected=0,
+                n_blocked=0,
+                selected_leader="PanteonSoft:soft_top3_decayed",
+                executed_leader="PanteonSoft:soft_top3_decayed",
+                causal_decision={
+                    "bar": 12,
+                    "soft_allocator": {
+                        "enabled": True,
+                        "policy_name": "soft_top3_decayed",
+                        "selected_labels": ("Solo_Alpha",),
+                    },
+                    "executable_signals": [
+                        {
+                            "id": 201,
+                            "sym": "BTC/USDT",
+                            "action": "FUT_LONG_FULL",
+                            "by_player": "PanteonSoft:soft_top3_decayed",
+                            "by_agent": "Alpha",
+                        }
+                    ],
+                },
+            ))
+            path = os.path.join(writer.output_dir, "causal_entry_decisions.jsonl")
+            with open(path, "r", encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            writer.close()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["bar"], 12)
+        self.assertEqual(rows[0]["soft_allocator"]["policy_name"], "soft_top3_decayed")
+        self.assertEqual(rows[0]["executable_signals"][0]["id"], 201)
 
     def test_writer_skips_empty_selected_only_causal_rows_without_diagnostics(self):
         reg = AgentRegistry()
@@ -10524,6 +10891,14 @@ class TestOutputWriter(unittest.TestCase):
         self.assertEqual(status["panteon_equity_usd"], 105.0)
         self.assertEqual(status["panteon_realized_equity_curve"][-3:], [100.0, 120.0, 105.0])
         self.assertEqual(status["panteon_equity_curve"][-3:], [100.0, 120.0, 105.0])
+        self.assertEqual(
+            len(status["panteon_equity_curve_timestamps"]),
+            len(status["panteon_equity_curve"]),
+        )
+        self.assertEqual(
+            len(status["clean_panteon_equity_curve_timestamps"]),
+            len(status["clean_panteon_equity_curve"]),
+        )
         self.assertAlmostEqual(status["panteon_realized_max_drawdown_pct"], 12.5)
         self.assertAlmostEqual(status["panteon_max_drawdown_pct"], 12.5)
         self.assertAlmostEqual(

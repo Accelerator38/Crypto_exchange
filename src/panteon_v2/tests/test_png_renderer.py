@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -68,6 +69,18 @@ class TestPngRenderer(unittest.TestCase):
         self.assertIn("Real W/L/Open", axis.texts)
         self.assertIn("1 / 1 / 2", axis.texts)
 
+    def test_panteon_pnl_prefers_clean_live_scope_for_dashboards(self):
+        from panteon_v2.dashboards import png_renderer
+
+        value = png_renderer._panteon_pnl_pct({
+            "live_session": {
+                "clean_panteon_pnl_pct": -0.17,
+                "panteon_owned_pnl_pct": -1.34,
+            },
+        })
+
+        self.assertAlmostEqual(value, -0.17)
+
     def test_write_operator_pngs_uses_combined_visual_dashboards(self):
         from panteon_v2.dashboards import png_renderer
 
@@ -79,8 +92,8 @@ class TestPngRenderer(unittest.TestCase):
         def fake_shadow(path, agents, players, *, panteon_pnl_pct):
             captured.append(("shadow", path.name, len(agents), len(players), panteon_pnl_pct))
 
-        def fake_regime(path, agents, players):
-            captured.append(("regime", path.name, len(agents), len(players)))
+        def fake_regime(path, agents, players, *, status=None):
+            captured.append(("regime", path.name, len(agents), len(players), status))
 
         def fake_memory(path, agents, players):
             captured.append(("memory", path.name, len(agents), len(players)))
@@ -112,7 +125,7 @@ class TestPngRenderer(unittest.TestCase):
         )
         self.assertIn(("operator", "dashboard_latest.png", 2.75), captured)
         self.assertIn(("shadow", "shadow_dashboard.png", 1, 1, 2.75), captured)
-        self.assertIn(("regime", "regime_dashboard.png", 1, 1), captured)
+        self.assertIn(("regime", "regime_dashboard.png", 1, 1, {"pnl_pct": 2.75}), captured)
         self.assertIn(("memory", "memory_dashboard.png", 1, 1), captured)
 
     def test_entries_prefer_session_pnl_for_operator_comparison(self):
@@ -278,7 +291,7 @@ class TestPngRenderer(unittest.TestCase):
         def fake_shadow(path, agents, players, *, panteon_pnl_pct):
             pass
 
-        def fake_regime(path, agents, players):
+        def fake_regime(path, agents, players, *, status=None):
             pass
 
         def fake_memory(path, agents, players):
@@ -614,6 +627,61 @@ class TestPngRenderer(unittest.TestCase):
             png_renderer._equity_curve({"equity_curve": [100.0, 98.0, 101.0]}),
             [100.0, 98.0, 101.0],
         )
+
+    def test_equity_curves_use_common_utc_timeline_and_panteon(self):
+        from panteon_v2.dashboards import png_renderer
+
+        status = {
+            "timestamp": "2026-06-06T10:00:10+00:00",
+            "timeframe": "bridge_poll",
+            "clean_panteon_equity_curve": [200.0, 202.0, 204.0],
+        }
+        timeline = png_renderer._common_equity_timeline(
+            status,
+            [("ShortActor", {"session_equity_curve": [100.0, 103.0]})],
+        )
+
+        self.assertEqual(
+            [item.isoformat() for item in timeline],
+            [
+                "2026-06-06T10:00:00+00:00",
+                "2026-06-06T10:00:05+00:00",
+                "2026-06-06T10:00:10+00:00",
+            ],
+        )
+        x_values, y_values = png_renderer._dashboard_equity_curve_points(
+            {"session_equity_curve": [100.0, 103.0]},
+            timeline,
+        )
+        self.assertEqual(x_values, timeline)
+        self.assertEqual(y_values, [100.0, 100.0, 103.0])
+
+        p_x, p_y = png_renderer._panteon_equity_curve_points(status, timeline)
+        self.assertEqual(p_x, timeline)
+        self.assertEqual(p_y, [100.0, 101.0, 102.0])
+
+    def test_timestamped_equity_curve_is_step_aligned_to_timeline(self):
+        from panteon_v2.dashboards import png_renderer
+
+        timeline = [
+            datetime(2026, 6, 6, 10, 0, tzinfo=timezone.utc),
+            datetime(2026, 6, 6, 10, 0, 5, tzinfo=timezone.utc),
+            datetime(2026, 6, 6, 10, 0, 10, tzinfo=timezone.utc),
+        ]
+
+        x_values, y_values = png_renderer._dashboard_equity_curve_points(
+            {
+                "session_equity_curve": [100.0, 110.0],
+                "session_equity_curve_timestamps": [
+                    "2026-06-06T10:00:05+00:00",
+                    "2026-06-06T10:00:10+00:00",
+                ],
+            },
+            timeline,
+        )
+
+        self.assertEqual(x_values, timeline)
+        self.assertEqual(y_values, [100.0, 100.0, 110.0])
 
 
 if __name__ == "__main__":

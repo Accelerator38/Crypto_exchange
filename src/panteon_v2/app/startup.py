@@ -47,6 +47,7 @@ from .migration import (
     migrate_from_v1_memory_files,
     save_v2_snapshot,
 )
+from ..memory.retro_prior import load_retro_prior_file_into_memory
 from .output_writer import OutputWriter, OutputWriterConfig
 from .shadow_tournament import ProductionShadowTournament
 
@@ -127,7 +128,14 @@ def _risk_config_from_settings(
     settings: dict,
     *,
     trade_fraction: float,
+    exchange_name: str = "",
 ) -> RiskLimitsConfig:
+    def scoped_names(*base_names: str) -> tuple[str, ...]:
+        out: list[str] = []
+        for base in base_names:
+            out.extend(_exchange_scoped_setting_names(exchange_name, base))
+        return tuple(dict.fromkeys(out))
+
     def int_any(names: Sequence[str], default: int) -> int:
         for name in names:
             if name in settings:
@@ -140,7 +148,7 @@ def _risk_config_from_settings(
     return _risk_config_from_trade_fraction(
         trade_fraction,
         max_open_positions=int_any(
-            (
+            scoped_names(
                 "v2_risk_max_open_positions",
                 "v2_max_open_positions",
                 "risk_max_open_positions",
@@ -155,6 +163,7 @@ def _resolve_risk_config(exchange_name: str, trade_fraction: float) -> RiskLimit
     return _risk_config_from_settings(
         _load_exchange_settings(exchange_name),
         trade_fraction=trade_fraction,
+        exchange_name=exchange_name,
     )
 
 
@@ -725,6 +734,37 @@ def _quarantine_override_labels_from_settings(
     )
 
 
+DEFAULT_MANUAL_QUARANTINE_LABELS: tuple[str, ...] = (
+    "Optimal_StaticRotator",
+    "RichardDennis",
+    "LiveCrashHunter",
+    "CandlePatternAgent",
+    "LiveVolCompress",
+    "AnchorFlowMomentum",
+    "PlayerFunding",
+    "FundingArb",
+    "NeutralRangeScalper",
+    "LiveTrendFollow",
+    "GeneticsGenomeEnsemble",
+)
+
+
+def _manual_quarantine_labels_from_settings(
+    settings: dict,
+    exchange_name: str,
+) -> tuple[str, ...]:
+    names = _exchange_scoped_setting_names(
+        exchange_name,
+        "v2_manual_quarantine_labels",
+    ) + _exchange_scoped_setting_names(
+        exchange_name,
+        "manual_quarantine_labels",
+    )
+    if any(name in settings for name in names):
+        return _settings_csv_tuple(settings, names)
+    return DEFAULT_MANUAL_QUARANTINE_LABELS
+
+
 def _quarantine_recovery_config_from_settings(
     settings: dict,
     exchange_name: str,
@@ -833,7 +873,16 @@ def _flash_legacy_real_agent_labels_from_settings(
     return labels or tuple(legacy_flash_real_agent_labels())
 
 
-def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfig:
+def _flash_allocator_config_from_settings(
+    settings: dict,
+    exchange_name: str = "",
+) -> FlashAllocatorConfig:
+    def scoped_names(*base_names: str) -> tuple[str, ...]:
+        out: list[str] = []
+        for base in base_names:
+            out.extend(_exchange_scoped_setting_names(exchange_name, base))
+        return tuple(dict.fromkeys(out))
+
     return FlashAllocatorConfig(
         min_score_to_trade=_settings_float(
             settings,
@@ -965,6 +1014,14 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
                 "panteon_flash_portfolio_actor_keys",
                 "v2_flash_portfolio_actor_keys",
                 "flash_portfolio_actor_keys",
+            ),
+        ),
+        range_low_vol_real_actor_allowlist=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "panteon_flash_range_low_vol_real_actor_allowlist",
+                "v2_flash_range_low_vol_real_actor_allowlist",
+                "flash_range_low_vol_real_actor_allowlist",
             ),
         ),
         portfolio_shadow_bootstrap_min_closed_enabled=_settings_bool(
@@ -1156,6 +1213,41 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             1.0,
         ),
+        shadow_recovery_admission_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "panteon_flash_shadow_recovery_admission_enabled",
+                "v2_flash_shadow_recovery_admission_enabled",
+                "flash_shadow_recovery_admission_enabled",
+            ),
+            False,
+        ),
+        shadow_recovery_actor_keys=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "panteon_flash_shadow_recovery_actor_keys",
+                "v2_flash_shadow_recovery_actor_keys",
+                "flash_shadow_recovery_actor_keys",
+            ),
+        ),
+        shadow_recovery_min_score=_settings_optional_float(
+            settings,
+            scoped_names(
+                "panteon_flash_shadow_recovery_min_score",
+                "v2_flash_shadow_recovery_min_score",
+                "flash_shadow_recovery_min_score",
+            ),
+            None,
+        ),
+        shadow_recovery_min_closed_trades=int(_settings_float(
+            settings,
+            scoped_names(
+                "panteon_flash_shadow_recovery_min_closed_trades",
+                "v2_flash_shadow_recovery_min_closed_trades",
+                "flash_shadow_recovery_min_closed_trades",
+            ),
+            0.0,
+        )),
         shadow_symbol_health_enabled=_settings_bool(
             settings,
             (
@@ -1592,6 +1684,14 @@ def _flash_allocator_config_from_settings(settings: dict) -> FlashAllocatorConfi
             ),
             0.1,
         ),
+        denied_actor_keys=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "panteon_flash_denied_actor_keys",
+                "v2_flash_denied_actor_keys",
+                "flash_denied_actor_keys",
+            ),
+        ),
         denied_signal_keys=_settings_csv_tuple(
             settings,
             (
@@ -1871,7 +1971,10 @@ def _resolve_flash_legacy_real_agents(exchange_name: str) -> tuple[bool, tuple[s
 
 
 def _resolve_flash_allocator_config(exchange_name: str) -> FlashAllocatorConfig:
-    return _flash_allocator_config_from_settings(_load_exchange_settings(exchange_name))
+    return _flash_allocator_config_from_settings(
+        _load_exchange_settings(exchange_name),
+        exchange_name=exchange_name,
+    )
 
 
 def _flash_stale_position_exit_config_from_settings(settings: dict) -> dict[str, object]:
@@ -2133,6 +2236,91 @@ def _normalize_migration_paths(
     return [str(path) for path in migrate_from_v1]
 
 
+def _retro_prior_disabled() -> bool:
+    return str(os.getenv("PANTEON_V2_DISABLE_RETRO_PRIOR_MEMORY") or "").strip().upper() in {
+        "1",
+        "ON",
+        "TRUE",
+        "YES",
+        "Y",
+    }
+
+
+def _default_retro_prior_memory_path(
+    *,
+    snapshot_path: Optional[str],
+    exchange_name: str,
+) -> Optional[str]:
+    if _retro_prior_disabled():
+        return None
+    name = str(exchange_name or "").strip().upper()
+    env_path = (
+        os.getenv(f"PANTEON_V2_{name}_RETRO_PRIOR_MEMORY_PATH")
+        or os.getenv("PANTEON_V2_RETRO_PRIOR_MEMORY_PATH")
+    )
+    if env_path:
+        return str(env_path)
+    if name != "MEXC" or not snapshot_path:
+        return None
+    candidate = Path(snapshot_path).with_name("mexc_retro_prior_memory.json")
+    return str(candidate) if candidate.exists() else None
+
+
+def _apply_retro_prior_memory(
+    *,
+    perf,
+    snapshot_path: Optional[str],
+    exchange_name: str,
+    real_perf=None,
+    order_ledger=None,
+    position_tracker=None,
+    shadow_positions_target: Optional[dict] = None,
+) -> None:
+    prior_path = _default_retro_prior_memory_path(
+        snapshot_path=snapshot_path,
+        exchange_name=exchange_name,
+    )
+    if not prior_path:
+        return
+    report = load_retro_prior_file_into_memory(
+        perf,
+        prior_path,
+        expected_exchange=exchange_name,
+        fill_missing_only=True,
+    )
+    for warning in report.warnings[:5]:
+        log.warning("[%s] retro prior memory: %s", exchange_name, warning)
+    if report.applied_pairs <= 0:
+        if report.total_pairs:
+            log.info(
+                "[%s] retro prior memory loaded from %s, no missing pairs applied "
+                "(existing=%d invalid=%d)",
+                exchange_name,
+                prior_path,
+                report.skipped_existing_pairs,
+                report.skipped_invalid_pairs,
+            )
+        return
+    log.info(
+        "[%s] retro prior memory applied from %s: applied=%d existing=%d invalid=%d",
+        exchange_name,
+        prior_path,
+        report.applied_pairs,
+        report.skipped_existing_pairs,
+        report.skipped_invalid_pairs,
+    )
+    if snapshot_path:
+        save_v2_snapshot(
+            perf,
+            snapshot_path,
+            real_perf=real_perf,
+            order_ledger=order_ledger,
+            position_tracker=position_tracker,
+            shadow_positions=shadow_positions_target,
+        )
+        log.info("[%s] Saved v2-snapshot after retro prior merge -> %s", exchange_name, snapshot_path)
+
+
 def _load_or_migrate_state(
     *,
     perf,
@@ -2157,6 +2345,15 @@ def _load_or_migrate_state(
         if loaded:
             if _perf_has_state(perf):
                 log.info("Loaded v2-snapshot from %s", snapshot_path)
+                _apply_retro_prior_memory(
+                    perf=perf,
+                    snapshot_path=snapshot_path,
+                    exchange_name=exchange_name,
+                    real_perf=real_perf,
+                    order_ledger=order_ledger,
+                    position_tracker=position_tracker,
+                    shadow_positions_target=shadow_positions_target,
+                )
                 return
             log.warning(
                 "Loaded v2-snapshot from %s, but it has no ratings; "
@@ -2171,6 +2368,15 @@ def _load_or_migrate_state(
     if not paths:
         if not loaded:
             log.info("[%s] no v1 memory files found for migration", exchange_name)
+        _apply_retro_prior_memory(
+            perf=perf,
+            snapshot_path=snapshot_path,
+            exchange_name=exchange_name,
+            real_perf=real_perf,
+            order_ledger=order_ledger,
+            position_tracker=position_tracker,
+            shadow_positions_target=shadow_positions_target,
+        )
         return
 
     report = migrate_from_v1_memory_files(paths, perf)
@@ -2191,11 +2397,29 @@ def _load_or_migrate_state(
                 shadow_positions=shadow_positions_target,
             )
             log.info("Saved migrated v2-snapshot -> %s", snapshot_path)
+        _apply_retro_prior_memory(
+            perf=perf,
+            snapshot_path=snapshot_path,
+            exchange_name=exchange_name,
+            real_perf=real_perf,
+            order_ledger=order_ledger,
+            position_tracker=position_tracker,
+            shadow_positions_target=shadow_positions_target,
+        )
     else:
         log.warning(
             "[%s] v1 memory migration found no ratings in: %s",
             exchange_name,
             ", ".join(paths),
+        )
+        _apply_retro_prior_memory(
+            perf=perf,
+            snapshot_path=snapshot_path,
+            exchange_name=exchange_name,
+            real_perf=real_perf,
+            order_ledger=order_ledger,
+            position_tracker=position_tracker,
+            shadow_positions_target=shadow_positions_target,
         )
     for warning in report.warnings[:5]:
         log.warning("[%s] v1 migration: %s", exchange_name, warning)
@@ -2514,7 +2738,7 @@ def start_production(
     exchange:           str,
     mode:               str = "live_futures",
     initial_capital:    Optional[float] = None,
-    seed_quarantine:    Sequence[str] = ("FundingArb", "RichardDennis", "MomentumScalper"),
+    seed_quarantine:    Sequence[str] = (),
     profiles:           Optional[Sequence[PlayerProfile]] = None,
     polling_session_dir: Optional[str] = None,
     snapshot_path:      Optional[str] = None,
@@ -2754,11 +2978,16 @@ def start_production(
         exchange_settings,
         exchange,
     )
+    manual_quarantine_labels = _manual_quarantine_labels_from_settings(
+        exchange_settings,
+        exchange,
+    )
     quarantine_recovery_config = _quarantine_recovery_config_from_settings(
         exchange_settings,
         exchange,
     )
     pipeline.quarantine_override_labels = quarantine_override_labels
+    pipeline.manual_quarantine_labels = manual_quarantine_labels
     pipeline.quarantine_recovery_enabled = bool(
         quarantine_recovery_config["enabled"]
     )
@@ -2774,11 +3003,29 @@ def start_production(
             reason="startup_release_override",
             bar=0,
         )
+    manual_allowlist = {str(label).strip() for label in quarantine_override_labels}
+    forced_manual = []
+    for label in manual_quarantine_labels:
+        clean = str(label or "").strip()
+        if not clean or clean in manual_allowlist:
+            continue
+        pipeline.qm.force_quarantine(
+            clean,
+            reason="manual_allowlist_required",
+            bar=0,
+        )
+        forced_manual.append(clean)
     if quarantine_override_labels:
         log.warning(
             "[%s] quarantine release override active: %s",
             exchange,
             ", ".join(quarantine_override_labels),
+        )
+    if forced_manual:
+        log.warning(
+            "[%s] manual quarantine active: %s",
+            exchange,
+            ", ".join(forced_manual),
         )
 
     # 4. Загрузка persisted state

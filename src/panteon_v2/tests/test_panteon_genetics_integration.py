@@ -36,9 +36,9 @@ class TestPanteonGeneticsIntegration(unittest.TestCase):
         labels = set(optional_labels())
 
         self.assertIn("GeneticsCore", labels)
-        self.assertIn("GeneticsBullish", labels)
-        self.assertIn("GeneticsBearish", labels)
-        self.assertIn("GeneticsNeutral", labels)
+        self.assertNotIn("GeneticsBullish", labels)
+        self.assertNotIn("GeneticsBearish", labels)
+        self.assertNotIn("GeneticsNeutral", labels)
         self.assertIn("GeneticsGenomeEnsemble", labels)
         self.assertIn("GeneticsRegimeRouter", labels)
 

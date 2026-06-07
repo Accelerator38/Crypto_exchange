@@ -56,6 +56,7 @@ class _LabelRegimeState:
     peak:          float = 1.0
     max_dd_pct:    float = 0.0          # максимальная просадка в %
     equity_curve:  List[float] = field(default_factory=lambda: [100.0])
+    equity_curve_timestamps: List[str] = field(default_factory=list)
     blocked_signals: int = 0
     rejected_signals: int = 0
     pending_signals: int = 0
@@ -189,6 +190,7 @@ class PerformanceMemory:
         self._aggregate_cache: Dict[str, Metrics] = {}
         self._context_aggregate_cache: Dict[Tuple[str, str, str], Metrics] = {}
         self._equity_curves: Dict[str, List[float]] = {}
+        self._equity_curve_timestamps: Dict[str, List[str]] = {}
 
     # ── Обновление ──────────────────────────────────────────────────
 
@@ -398,6 +400,26 @@ class PerformanceMemory:
             curve = curve[-int(limit):]
         return [round(float(item), 10) for item in curve]
 
+    def equity_curve_timestamps(
+        self,
+        label: str,
+        regime: Optional[Regime] = None,
+        *,
+        limit: Optional[int] = None,
+    ) -> List[str]:
+        if not label:
+            return []
+        if regime is not None:
+            state = self._state.get((label, regime))
+            if state is None and _uses_neutral_seed(regime):
+                state = self._state.get((label, Regime.NEUTRAL))
+            timestamps = list(state.equity_curve_timestamps) if state is not None else []
+        else:
+            timestamps = list(self._equity_curve_timestamps.get(label) or [])
+        if limit is not None and int(limit) > 0:
+            timestamps = timestamps[-int(limit):]
+        return [str(item) for item in timestamps if str(item or "").strip()]
+
     def all_labels(self) -> List[str]:
         labels = {label for (label, _) in self._state.keys()}
         labels.update(label for (_, _, _, label) in self._context_state.keys())
@@ -482,6 +504,10 @@ class PerformanceMemory:
                 label: list(curve)
                 for label, curve in sorted(self._equity_curves.items())
             },
+            "equity_curve_timestamps": {
+                label: list(timestamps)
+                for label, timestamps in sorted(self._equity_curve_timestamps.items())
+            },
         }
 
     def restore(self, snapshot: dict) -> None:
@@ -517,6 +543,17 @@ class PerformanceMemory:
             str(label): [float(item) for item in curve]
             for label, curve in dict(snapshot.get("equity_curves") or {}).items()
             if isinstance(curve, list)
+        }
+        self._equity_curve_timestamps = {
+            str(label): [
+                str(item)
+                for item in timestamps
+                if str(item or "").strip()
+            ]
+            for label, timestamps in dict(
+                snapshot.get("equity_curve_timestamps") or {}
+            ).items()
+            if isinstance(timestamps, list)
         }
         if not self._equity_curves:
             self._equity_curves = self._aggregate_equity_curves_from_states()
@@ -719,6 +756,7 @@ class PerformanceMemory:
             * self._trade_fraction
         )
         net_pnl = gross_pnl - fee_total_pct - funding_total_pct
+        close_timestamp = _timestamp_text(getattr(signal, "timestamp", ""))
         net_pnl_pct = net_pnl * 100.0  # переводим в %
 
         # Обновляем cumulative PnL и returns
@@ -730,9 +768,15 @@ class PerformanceMemory:
                 gross_pnl_pct=gross_pnl * 100.0,
                 fee_pct=fee_total_pct * 100.0,
                 funding_pct=funding_total_pct * 100.0,
+                timestamp=close_timestamp,
             )
         aggregate_curve = self._equity_curves.setdefault(label, [100.0])
         aggregate_curve.append(aggregate_curve[-1] * (1.0 + net_pnl))
+        _append_equity_timestamp(
+            self._equity_curve_timestamps.setdefault(label, []),
+            curve_len=len(aggregate_curve),
+            timestamp=close_timestamp,
+        )
         # Wins+Losses == closed_trades (плюс ноль). Ноль не считаем ни win, ни loss
         # — это редкий случай idealized fill.
 
@@ -944,6 +988,7 @@ def _state_to_dict(s: _LabelRegimeState) -> dict:
         "returns":       list(s.returns),
         "equity":        s.equity,
         "equity_curve":  list(s.equity_curve),
+        "equity_curve_timestamps": list(s.equity_curve_timestamps),
         "peak":          s.peak,
         "max_dd_pct":    s.max_dd_pct,
         "blocked_signals": s.blocked_signals,
@@ -986,6 +1031,31 @@ def _context_key_from_text(key: str) -> Tuple[str, str, str, Regime]:
     )
 
 
+def _timestamp_text(value: object) -> str:
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return str(isoformat())
+        except Exception:
+            return str(value or "").strip()
+    return str(value or "").strip()
+
+
+def _append_equity_timestamp(
+    timestamps: List[str],
+    *,
+    curve_len: int,
+    timestamp: str,
+) -> None:
+    if not timestamp:
+        return
+    if not timestamps and curve_len <= 2:
+        timestamps.append(timestamp)
+    timestamps.append(timestamp)
+    if len(timestamps) > curve_len:
+        del timestamps[: len(timestamps) - curve_len]
+
+
 def _apply_realized_close_to_state(
     state: _LabelRegimeState,
     *,
@@ -994,6 +1064,7 @@ def _apply_realized_close_to_state(
     gross_pnl_pct: float,
     fee_pct: float,
     funding_pct: float,
+    timestamp: str = "",
 ) -> None:
     state.pnl_pct += net_pnl_pct
     state.pnl_gross_pct += gross_pnl_pct
@@ -1006,6 +1077,11 @@ def _apply_realized_close_to_state(
         state.losses += 1
     state.equity *= (1.0 + net_pnl)
     state.equity_curve.append(state.equity * 100.0)
+    _append_equity_timestamp(
+        state.equity_curve_timestamps,
+        curve_len=len(state.equity_curve),
+        timestamp=timestamp,
+    )
     if state.equity > state.peak:
         state.peak = state.equity
     dd = (state.peak - state.equity) / max(state.peak, 1e-12) * 100.0
@@ -1097,6 +1173,13 @@ def _state_from_dict(d: dict) -> _LabelRegimeState:
         s.equity_curve = values
     elif abs(s.equity - 1.0) > 1e-12:
         s.equity_curve = [100.0, s.equity * 100.0]
+    curve_timestamps = d.get("equity_curve_timestamps")
+    if isinstance(curve_timestamps, list):
+        s.equity_curve_timestamps = [
+            str(item)
+            for item in curve_timestamps
+            if str(item or "").strip()
+        ]
     s.peak          = float(d.get("peak", 1.0))
     s.max_dd_pct    = float(d.get("max_dd_pct", 0.0))
     s.blocked_signals = int(d.get("blocked_signals", 0))

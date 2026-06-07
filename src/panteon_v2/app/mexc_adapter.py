@@ -45,4 +45,6 @@ class MexcExchangeAdapter(V1FuturesExchangeAdapter):
             default_min_notional=5.0,
             default_fee_rate=0.0002,
             close_via_place_order=True,
+            order_pacing_interval_sec=1.05,
+            rate_limit_retry_delay_sec=1.25,
         )

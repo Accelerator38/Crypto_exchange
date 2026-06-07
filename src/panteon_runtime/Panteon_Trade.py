@@ -1054,9 +1054,9 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
 
 # --- panteon_agents: индивидуальные агенты ---
     try:
-        from panteon import (MomentumScalper, FundingArb, LiveAfterShock,
+        from panteon import (MomentumScalper, FundingArb,
                              LiveCrashHunter, LiveRegimePullback,
-                             LiveMeanRev, LiveTrendFollow,
+                             LiveTrendFollow,
                              LiveVolCompress, LiveOIBreakout, CarryFlowAgentV2,
                              VolBreakoutHunter,
                              BullRotationAgent, BearReliefFadeAgent,
@@ -1067,10 +1067,8 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
         agent_classes = [
             ("V_MomentumScalper",  MomentumScalper),
             ("V_FundingArb",       FundingArb),
-            ("V_LiveAfterShock",   LiveAfterShock),
             ("V_LiveCrashHunter",  LiveCrashHunter),
             ("V_LiveRegimePullback", LiveRegimePullback),
-            ("V_LiveMeanRev",      LiveMeanRev),
             ("V_LiveTrendFollow",  LiveTrendFollow),
             ("V_LiveVolCompress",  LiveVolCompress),
             ("V_LiveOIBreakout",   LiveOIBreakout),
@@ -1117,22 +1115,6 @@ def _create_shadow_agents(initial_capital: float) -> Dict[str, tuple]:
         pass
     except Exception as e:
         log.debug("  PanteonNextResearch shadow skip: %s", e)
-
-    # --- Генетические агенты ---
-    try:
-        from crypto_genetics import GeneticsBullishAgent, GeneticsBearishAgent, GeneticsNeutralAgent
-        from panteon_agents import make_genetics_panteon_agent
-        for name, cls in [("V_GeneticsBullish", GeneticsBullishAgent),
-                          ("V_GeneticsBearish", GeneticsBearishAgent),
-                          ("V_GeneticsNeutral", GeneticsNeutralAgent)]:
-            try:
-                agent = make_genetics_panteon_agent(cls)
-                vp = VirtualPortfolio(initial_capital, LEVERAGE, TRADE_FRACTION, FUTURES_FEE)
-                shadows[name] = (agent, vp)
-            except Exception as e:
-                log.debug("  %s skip: %s", name, e)
-    except ImportError:
-        pass
 
     log.info("  Shadow-агенты создано: %d  →  %s", len(shadows), list(shadows.keys()))
     return shadows
@@ -3837,9 +3819,7 @@ def _reset_player_subagents_for_live(player, bar_index: int):
         sub_attrs = [
             ('_ms',  'MomentumScalper'),
             ('_fa',  'FundingArb'),
-            ('_las', 'LiveAfterShock'),
             ('_lch', 'LiveCrashHunter'),
-            ('_gb',  'GeneticsBullish'),
         ]
         for attr, name in sub_attrs:
             agent = getattr(player, attr, None)

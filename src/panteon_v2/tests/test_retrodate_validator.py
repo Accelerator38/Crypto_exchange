@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import panteon_v2.analysis.retrodate_validator as validator
 from panteon_v2.analysis.retrodate_validator import (
     RetrodateValidationError,
     ensure_retrodate_dir_valid,
@@ -113,3 +114,24 @@ def test_ensure_retrodate_dir_valid_blocks_invalid_directory(tmp_path):
 
     assert "crypto_1m_2026_all_symbols.csv" in str(exc.value)
     assert "year_mismatch" in str(exc.value)
+
+
+def test_validate_retrodate_dir_reuses_cache_for_unchanged_files(tmp_path, monkeypatch):
+    _write_rows(
+        tmp_path / "crypto_1m_2025_all_symbols.csv",
+        [_row(1735689600000, "2025-01-01 00:00:00+00:00")],
+    )
+
+    first = validate_retrodate_dir(tmp_path)
+    assert first.is_valid is True
+
+    def fail_scan(path):
+        raise AssertionError(f"cache miss for {path}")
+
+    monkeypatch.setattr(validator, "_scan_retrodate_file", fail_scan)
+
+    second = validate_retrodate_dir(tmp_path)
+
+    assert second.is_valid is True
+    assert second.files[0].rows == 1
+    assert second.files[0].first_datetime == "2025-01-01 00:00:00+00:00"

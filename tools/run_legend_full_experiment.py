@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from dataclasses import replace
@@ -19,31 +20,60 @@ from panteon_v2.analysis.retrodate_market_runner import run_retrodate_market_ben
 from panteon_v2.selection.composer import PROFILE_GENETICS_RESEARCH
 
 DEFAULT_RESULTS_ROOT = ROOT / "Results" / "PanteonLegend_experiments_dynamic_memory_20260531_full"
+GENETICS_SPECIALISTS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
+GENETICS_REGIME_ADAPTIVE_BIAS_ENV = "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST"
+DEFAULT_GENETICS_SPECIALISTS_MANIFEST = (
+    ROOT
+    / "Results"
+    / "neiro_genetics"
+    / "live_active_shadow_20260604"
+    / "genetics_specialists_manifest.json"
+)
+DEFAULT_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST = (
+    ROOT
+    / "Results"
+    / "neiro_genetics"
+    / "BITGET"
+    / "h4h6_regime_adaptive_runtime_20260603"
+    / "regime_adaptive_output_bias_manifest_live_shadow_boost_0p5.json"
+)
 LATEST_OPTIONAL_AGENT_LABELS = (
     "GeneticsGenomeEnsemble",
     "GeneticsCore",
-    "GeneticsBullish",
-    "GeneticsBearish",
-    "GeneticsNeutral",
-    "GeneticsRegimeRouter",
+    "GeneticsBest",
+    "GeneticsRiskTight",
+    "GeneticsRegimeAdaptiveBias",
 )
 LATEST_GENETICS_FIXED_AGENT_PLAYER_SETS = (
     ("Legend_GeneticsGenome", ("GeneticsGenomeEnsemble",)),
     ("Legend_GeneticsCore", ("GeneticsCore",)),
-    ("Legend_GeneticsBullish", ("GeneticsBullish",)),
-    ("Legend_GeneticsBearish", ("GeneticsBearish",)),
-    ("Legend_GeneticsNeutral", ("GeneticsNeutral",)),
-    ("Legend_GeneticsRegimeRouter", ("GeneticsRegimeRouter",)),
+    ("Legend_GeneticsBest", ("GeneticsBest",)),
+    ("Legend_GeneticsRiskTight", ("GeneticsRiskTight",)),
+    ("Legend_GeneticsRegimeAdaptiveBias", ("GeneticsRegimeAdaptiveBias",)),
 )
 LATEST_GENETICS_EXECUTION_ALLOW_LABELS = (
     "GeneticsResearch",
     "Legend_GeneticsGenome",
     "Legend_GeneticsCore",
-    "Legend_GeneticsBullish",
-    "Legend_GeneticsBearish",
-    "Legend_GeneticsNeutral",
-    "Legend_GeneticsRegimeRouter",
+    "Legend_GeneticsBest",
+    "Legend_GeneticsRiskTight",
+    "Legend_GeneticsRegimeAdaptiveBias",
 )
+
+
+def configure_default_genetics_manifests() -> None:
+    defaults = (
+        (GENETICS_SPECIALISTS_ENV, DEFAULT_GENETICS_SPECIALISTS_MANIFEST),
+        (
+            GENETICS_REGIME_ADAPTIVE_BIAS_ENV,
+            DEFAULT_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST,
+        ),
+    )
+    for env_name, path in defaults:
+        if os.environ.get(env_name):
+            continue
+        if path.exists():
+            os.environ[env_name] = str(path)
 
 
 def _expanded_allowlist() -> tuple[str, ...]:
@@ -527,6 +557,24 @@ def _build_config(
             soft_allocator_execution_allow_labels=_positive_soft_allowlist(),
             **_realized_gate_kwargs(),
         )
+    if profile == "soft_top3_decayed_only":
+        return replace(
+            base,
+            soft_allocator_execution_enabled=True,
+            soft_allocator_execution_soft_only=True,
+            soft_allocator_execution_policy=SoftAllocatorPolicy(
+                name="soft_top3_decayed",
+                top_k=3,
+                cash_reserve_weight=0.15,
+                max_weight_per_leader=0.45,
+                min_closed_trades=20,
+                half_life_bars=2160,
+                drawdown_penalty=0.15,
+            ),
+            max_new_opens_per_bar=3,
+            current_actionable_candidate_layer_enabled=True,
+            v3_candidate_allow_labels=_expanded_allowlist(),
+        )
     if profile == "baseline":
         return base
     raise ValueError(f"unknown profile: {profile}")
@@ -552,17 +600,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             "soft_regime_top2_w72_m10_cap55_cash10_only_core",
             "soft_regime_top1_w48_m8_cap100_cash0_only_core",
             "soft_regime_top3_w144_m20_cap45_cash15_only_positive_dyn",
+            "soft_top3_decayed_only",
             "baseline",
         ),
         default="confirmed_current_gate_expanded",
     )
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS_ROOT)
     parser.add_argument("--max-bars", type=int, default=None)
+    parser.add_argument("--shadow-parallel-workers", type=int, default=1)
     parser.add_argument("--include-optional-agents", action="store_true")
     parser.add_argument("--optional-agent-labels", default="")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
+    configure_default_genetics_manifests()
     optional_labels = _csv_labels(args.optional_agent_labels)
     config = build_config(
         args.profile,
@@ -572,6 +623,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.max_bars is not None:
         config = replace(config, max_bars=max(1, int(args.max_bars)))
+    if args.shadow_parallel_workers > 1:
+        config = replace(
+            config,
+            shadow_parallel_workers=max(1, int(args.shadow_parallel_workers)),
+        )
     if args.dry_run:
         print(
             {
@@ -596,6 +652,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     else ""
                 ),
                 "max_bars": config.max_bars,
+                "shadow_parallel_workers": config.shadow_parallel_workers,
             },
             flush=True,
         )

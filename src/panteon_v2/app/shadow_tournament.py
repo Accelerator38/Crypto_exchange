@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import copy
 import logging
+import threading
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, replace
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..attribution import AgentVoteFailed, EventLog, PlayerVoteFailed, ShadowActorUpdated
 from ..domain.types import Action, MarketSnapshot, Signal
@@ -156,6 +158,9 @@ class ProductionShadowTournament:
         virtual_balance_floor: float = 1000.0,
         event_log: Optional[EventLog] = None,
         runtime_event_logs_enabled: bool = True,
+        agent_include_labels: Sequence[str] = (),
+        player_include_labels: Sequence[str] = (),
+        parallel_workers: int = 1,
     ) -> None:
         self._source_registry = registry
         self._registry = AgentRegistry()
@@ -164,6 +169,12 @@ class ProductionShadowTournament:
         self._balance_floor = float(virtual_balance_floor)
         self._event_log = event_log
         self._runtime_event_logs_enabled = bool(runtime_event_logs_enabled)
+        self._agent_include_labels = _normalize_label_filter(agent_include_labels)
+        self._player_include_labels = _normalize_label_filter(player_include_labels)
+        self._parallel_workers = max(1, int(parallel_workers or 1))
+        self._state_lock = threading.Lock()
+        self._signal_lock = threading.Lock()
+        self._perf_lock = threading.Lock()
         self._runtimes: Dict[str, _VirtualActorRuntime] = {}
         self._source_agents: Dict[str, Agent] = {}
         self._player_agent_clones: Dict[Tuple[str, str], Agent] = {}
@@ -238,12 +249,16 @@ class ProductionShadowTournament:
             player_filled=player_summary["filled"],
             player_rejected=player_summary["rejected"],
             player_blocked=player_summary["blocked"],
-            actors=len(self._registry.all_labels()) + len(players),
+            actors=len(self._registry.all_labels())
+            + sum(1 for player in players if self._player_is_included(player.label)),
         )
 
     def _run_agents(self, market: MarketSnapshot, *, balance_usd: float) -> Dict[str, int]:
+        agents = tuple(self._registry.all_agents())
+        if self._parallel_workers > 1 and len(agents) > 1:
+            return self._run_agents_parallel(agents, market, balance_usd=balance_usd)
         counts = _empty_counts()
-        for agent in self._registry.all_agents():
+        for agent in agents:
             signals = self._signals_from_agent(agent, market)
             runtime = self._runtime(f"agent:{agent.label}")
             signals = _filter_position_aware_signals(
@@ -275,6 +290,55 @@ class ProductionShadowTournament:
             )
         return counts
 
+    def _run_agents_parallel(
+        self,
+        agents: Sequence[Agent],
+        market: MarketSnapshot,
+        *,
+        balance_usd: float,
+    ) -> Dict[str, int]:
+        counts = _empty_counts()
+        with ThreadPoolExecutor(max_workers=self._parallel_workers) as pool:
+            futures = [
+                pool.submit(self._run_single_agent, agent, market, balance_usd)
+                for agent in agents
+            ]
+            for future in as_completed(futures):
+                _add_count_totals(counts, future.result())
+        return counts
+
+    def _run_single_agent(
+        self,
+        agent: Agent,
+        market: MarketSnapshot,
+        balance_usd: float,
+    ) -> Dict[str, int]:
+        counts = _empty_counts()
+        signals = self._signals_from_agent(agent, market)
+        runtime = self._runtime(f"agent:{agent.label}")
+        signals = _filter_position_aware_signals(
+            signals,
+            runtime.open_positions(),
+            self._risk_config.max_open_positions,
+        )
+        counts["signals"] += len(signals)
+        with self._perf_lock:
+            results = runtime.execute_many(signals, balance_usd=balance_usd)
+            _sync_actor_from_results(agent, results)
+        filled_signals = tuple(result.signal for result in results if result.is_success)
+        if filled_signals:
+            with self._state_lock:
+                self._last_agent_signals[agent.label] = filled_signals
+        _add_execution_counts(counts, results)
+        self._emit_shadow_actor_updated(
+            market,
+            actor_type="agent",
+            actor_label=agent.label,
+            signals=len(signals),
+            results=results,
+        )
+        return counts
+
     def _run_players(
         self,
         market: MarketSnapshot,
@@ -282,8 +346,17 @@ class ProductionShadowTournament:
         *,
         balance_usd: float,
     ) -> Dict[str, int]:
+        included_players = tuple(
+            player for player in players if self._player_is_included(player.label)
+        )
+        if self._parallel_workers > 1 and len(included_players) > 1:
+            return self._run_players_parallel(
+                market,
+                included_players,
+                balance_usd=balance_usd,
+            )
         counts = _empty_counts()
-        for player in players:
+        for player in included_players:
             shadow_player = self._shadow_player_for(player)
             if shadow_player is None:
                 continue
@@ -341,6 +414,82 @@ class ProductionShadowTournament:
             )
         return counts
 
+    def _run_players_parallel(
+        self,
+        market: MarketSnapshot,
+        players: Sequence[Player],
+        *,
+        balance_usd: float,
+    ) -> Dict[str, int]:
+        counts = _empty_counts()
+        with ThreadPoolExecutor(max_workers=self._parallel_workers) as pool:
+            futures = [
+                pool.submit(self._run_single_player, player, market, balance_usd)
+                for player in players
+            ]
+            for future in as_completed(futures):
+                _add_count_totals(counts, future.result())
+        return counts
+
+    def _run_single_player(
+        self,
+        player: Player,
+        market: MarketSnapshot,
+        balance_usd: float,
+    ) -> Dict[str, int]:
+        counts = _empty_counts()
+        shadow_player = self._shadow_player_for(player)
+        if shadow_player is None:
+            return counts
+        try:
+            raw_signals, vote_errors = normalize_vote_result(
+                shadow_player.vote(
+                    market,
+                    signal_id_start=self._reserve_signal_id_block(),
+                )
+            )
+        except Exception as exc:
+            log.debug("shadow player vote failed for %s", player.label, exc_info=True)
+            self._record_player_failure(player.label, market, exc)
+            raw_signals = []
+            vote_errors = []
+        self._record_player_agent_failures(
+            player.label,
+            shadow_player,
+            market,
+            errors=vote_errors,
+        )
+        signals = [
+            replace(
+                signal,
+                position_scope=f"shadow:player:{player.label}",
+            )
+            for signal in raw_signals
+        ]
+        runtime = self._runtime(f"player:{player.label}")
+        signals = _filter_position_aware_signals(
+            signals,
+            runtime.open_positions(),
+            self._risk_config.max_open_positions,
+        )
+        counts["signals"] += len(signals)
+        with self._perf_lock:
+            results = runtime.execute_many(signals, balance_usd=balance_usd)
+            _sync_actor_from_results(shadow_player, results)
+        filled_signals = tuple(result.signal for result in results if result.is_success)
+        if filled_signals:
+            with self._state_lock:
+                self._last_player_signals[player.label] = filled_signals
+        _add_execution_counts(counts, results)
+        self._emit_shadow_actor_updated(
+            market,
+            actor_type="player",
+            actor_label=player.label,
+            signals=len(signals),
+            results=results,
+        )
+        return counts
+
     def _signals_from_agent(self, agent: Agent, market: MarketSnapshot) -> List[Signal]:
         try:
             actions = agent.act(market)
@@ -391,6 +540,8 @@ class ProductionShadowTournament:
 
     def _refresh_shadow_agents(self) -> None:
         for source in self._source_registry.all_agents():
+            if not self._agent_is_included(source.label):
+                continue
             self._source_agents[source.label] = source
             if self._registry.has(source.label):
                 continue
@@ -407,48 +558,49 @@ class ProductionShadowTournament:
                 )
 
     def _shadow_player_for(self, player: Player) -> Optional[Player]:
-        if isinstance(player, EnsemblePlayer):
-            agents: List[Agent] = []
-            for source in player.agents:
-                key = (player.label, source.label)
-                clone = self._player_agent_clones.get(key)
-                if clone is None:
-                    clone = self._clone_agent(
-                        source,
-                        owner=f"player:{player.label}:{source.label}",
-                    )
+        with self._state_lock:
+            if isinstance(player, EnsemblePlayer):
+                agents: List[Agent] = []
+                for source in player.agents:
+                    key = (player.label, source.label)
+                    clone = self._player_agent_clones.get(key)
                     if clone is None:
-                        continue
-                    self._player_agent_clones[key] = clone
-                agents.append(clone)
-            if not agents:
-                return None
-            weights = {
-                agent.label: float(player.weights.get(agent.label, 0.0))
-                for agent in agents
-            }
-            total = sum(weights.values())
-            if total <= 0:
-                equal = 1.0 / len(agents)
-                weights = {agent.label: equal for agent in agents}
-            elif abs(total - 1.0) > 1e-6:
-                weights = {label: value / total for label, value in weights.items()}
-            return EnsemblePlayer(
-                label=player.label,
-                agents=agents,
-                weights=weights,
-                voting=player.voting,
-                thresholds=player.thresholds,
-                affinity=player.affinity,
-            )
+                        clone = self._clone_agent(
+                            source,
+                            owner=f"player:{player.label}:{source.label}",
+                        )
+                        if clone is None:
+                            continue
+                        self._player_agent_clones[key] = clone
+                    agents.append(clone)
+                if not agents:
+                    return None
+                weights = {
+                    agent.label: float(player.weights.get(agent.label, 0.0))
+                    for agent in agents
+                }
+                total = sum(weights.values())
+                if total <= 0:
+                    equal = 1.0 / len(agents)
+                    weights = {agent.label: equal for agent in agents}
+                elif abs(total - 1.0) > 1e-6:
+                    weights = {label: value / total for label, value in weights.items()}
+                return EnsemblePlayer(
+                    label=player.label,
+                    agents=agents,
+                    weights=weights,
+                    voting=player.voting,
+                    thresholds=player.thresholds,
+                    affinity=player.affinity,
+                )
 
-        clone = self._player_clones.get(player.label)
-        if clone is None:
-            clone = self._clone_actor(player, owner=f"player:{player.label}")
+            clone = self._player_clones.get(player.label)
             if clone is None:
-                return None
-            self._player_clones[player.label] = clone
-        return clone
+                clone = self._clone_actor(player, owner=f"player:{player.label}")
+                if clone is None:
+                    return None
+                self._player_clones[player.label] = clone
+            return clone
 
     def _clone_agent(self, agent: Agent, *, owner: str) -> Optional[Agent]:
         clone = self._clone_actor(agent, owner=owner)
@@ -475,21 +627,35 @@ class ProductionShadowTournament:
             return None
 
     def _next_signal_id(self) -> int:
-        signal_id = self._signal_id
-        self._signal_id += 1
-        return signal_id
+        with self._signal_lock:
+            signal_id = self._signal_id
+            self._signal_id += 1
+            return signal_id
+
+    def _reserve_signal_id_block(self, size: int = 10_000) -> int:
+        with self._signal_lock:
+            signal_id = self._signal_id
+            self._signal_id += max(1, int(size))
+            return signal_id
+
+    def _agent_is_included(self, label: str) -> bool:
+        return not self._agent_include_labels or str(label) in self._agent_include_labels
+
+    def _player_is_included(self, label: str) -> bool:
+        return not self._player_include_labels or str(label) in self._player_include_labels
 
     def _runtime(self, actor_key: str) -> _VirtualActorRuntime:
-        runtime = self._runtimes.get(actor_key)
-        if runtime is None:
-            runtime = _VirtualActorRuntime(
-                actor_label=actor_key,
-                perf=self._perf,
-                risk_config=self._risk_config,
-                event_log_enabled=self._runtime_event_logs_enabled,
-            )
-            self._runtimes[actor_key] = runtime
-        return runtime
+        with self._state_lock:
+            runtime = self._runtimes.get(actor_key)
+            if runtime is None:
+                runtime = _VirtualActorRuntime(
+                    actor_label=actor_key,
+                    perf=self._perf,
+                    risk_config=self._risk_config,
+                    event_log_enabled=self._runtime_event_logs_enabled,
+                )
+                self._runtimes[actor_key] = runtime
+            return runtime
 
     def _record_player_agent_failures(
         self,
@@ -510,7 +676,8 @@ class ProductionShadowTournament:
                 reason=reason,
                 market=market,
             )
-            self._perf.record_actor_failure(label, market.regime)
+            with self._perf_lock:
+                self._perf.record_actor_failure(label, market.regime)
 
     def _record_agent_failure(
         self,
@@ -527,7 +694,8 @@ class ProductionShadowTournament:
             reason=reason,
             market=market,
         )
-        self._perf.record_actor_failure(agent_label, market.regime)
+        with self._perf_lock:
+            self._perf.record_actor_failure(agent_label, market.regime)
 
     def _record_player_failure(
         self,
@@ -543,7 +711,8 @@ class ProductionShadowTournament:
                 player_label=player_label,
                 reason=reason,
             ))
-        self._perf.record_actor_failure(player_label, market.regime)
+        with self._perf_lock:
+            self._perf.record_actor_failure(player_label, market.regime)
 
     def _emit_agent_failure(
         self,
@@ -597,13 +766,23 @@ class ProductionShadowTournament:
             symbol_outcomes=_symbol_outcome_counts(results),
             symbol_action_outcomes=_symbol_action_outcome_counts(results),
         )
-        self._last_updates.append(event)
+        with self._state_lock:
+            self._last_updates.append(event)
         if self._event_log is not None:
             self._event_log.emit(event)
 
 
 def _empty_counts() -> Dict[str, int]:
     return {"signals": 0, "filled": 0, "rejected": 0, "blocked": 0}
+
+
+def _add_count_totals(target: Dict[str, int], source: Mapping[str, int]) -> None:
+    for key in ("signals", "filled", "rejected", "blocked"):
+        target[key] += int(source.get(key, 0) or 0)
+
+
+def _normalize_label_filter(labels: Sequence[str]) -> frozenset[str]:
+    return frozenset(str(label).strip() for label in labels if str(label).strip())
 
 
 def _sync_actor_from_results(actor, results: Sequence[ExecutionResult]) -> None:

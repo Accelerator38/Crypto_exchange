@@ -168,9 +168,7 @@ def test_manifest_specialists_register_shadow_only_from_neiro_genetics_manifest(
     paths = {
         "GeneticsBest": _write_genome(run_dir / "overall.npy", 3),
         "GeneticsCrash": _write_genome(run_dir / "crash.npy", 4),
-        "GeneticsBullish": _write_genome(run_dir / "bullish.npy", 1),
-        "GeneticsBearish": _write_genome(run_dir / "bearish.npy", 4),
-        "GeneticsNeutral": _write_genome(run_dir / "neutral.npy", 0),
+        "GeneticsRiskTight": _write_genome(run_dir / "risk_tight.npy", 2),
     }
     manifest_path = run_dir / "genetics_specialists_manifest.json"
     manifest_path.write_text(

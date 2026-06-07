@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional
@@ -85,6 +86,8 @@ class V1FuturesExchangeAdapter:
         default_fee_rate: float = 0.0006,
         close_via_place_order: bool = False,
         fail_closed_on_metadata_error: bool = True,
+        order_pacing_interval_sec: float = 0.0,
+        rate_limit_retry_delay_sec: float = 0.0,
     ) -> None:
         self.name = name
         self._order_client = order_client
@@ -94,6 +97,9 @@ class V1FuturesExchangeAdapter:
         self._default_fee_rate = float(default_fee_rate)
         self._close_via_place_order = bool(close_via_place_order)
         self._fail_closed_on_metadata_error = bool(fail_closed_on_metadata_error)
+        self._order_pacing_interval_sec = max(0.0, float(order_pacing_interval_sec or 0.0))
+        self._rate_limit_retry_delay_sec = max(0.0, float(rate_limit_retry_delay_sec or 0.0))
+        self._last_order_send_monotonic = 0.0
         self._pending_orders: Dict[str, _PendingOrderContext] = {}
         self._last_positions_snapshot_reliable = True
         self._last_positions_error = ""
@@ -275,7 +281,7 @@ class V1FuturesExchangeAdapter:
             return self._rejected(signal, f"qty {qty} is below contract minimum")
         sent_qty = self._qty_for_contracts(signal.sym, vol)
         try:
-            raw = self._order_client.place_order(
+            raw = self._place_order_with_retry(
                 signal.sym,
                 v1_side,
                 vol,
@@ -300,7 +306,7 @@ class V1FuturesExchangeAdapter:
                 return self._rejected(signal, f"qty {qty} is below contract minimum")
             v1_side = 4 if close_side == "long" else 2
             try:
-                raw = self._order_client.place_order(
+                raw = self._place_order_with_retry(
                     signal.sym,
                     v1_side,
                     vol,
@@ -325,6 +331,46 @@ class V1FuturesExchangeAdapter:
         result = self._result_from_raw(signal, raw, qty=qty, side=close_side)
         self._remember_pending(result, signal=signal, qty=qty, side=close_side)
         return result
+
+    def _place_order_with_retry(
+        self,
+        symbol: str,
+        side: int,
+        vol: int,
+        leverage: int,
+    ) -> dict:
+        attempts = 2 if self._rate_limit_retry_delay_sec > 0.0 else 1
+        raw: Any = {}
+        for attempt in range(attempts):
+            self._pace_order_submission()
+            raw = self._order_client.place_order(symbol, side, vol, leverage)
+            if not self._raw_rate_limited(raw):
+                return raw
+            if attempt + 1 < attempts:
+                time.sleep(self._rate_limit_retry_delay_sec)
+        return raw if isinstance(raw, dict) else {}
+
+    def _pace_order_submission(self) -> None:
+        interval = self._order_pacing_interval_sec
+        if interval <= 0.0:
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_order_send_monotonic
+        if self._last_order_send_monotonic > 0.0 and elapsed < interval:
+            time.sleep(interval - elapsed)
+        self._last_order_send_monotonic = time.monotonic()
+
+    @staticmethod
+    def _raw_rate_limited(raw: Any) -> bool:
+        if not isinstance(raw, dict):
+            return False
+        try:
+            if int(raw.get("code", 0) or 0) == 510:
+                return True
+        except (TypeError, ValueError):
+            pass
+        text = str(raw.get("msg") or raw.get("message") or raw.get("error") or "").lower()
+        return "too frequent" in text or "rate limit" in text
 
     def _result_from_raw(
         self,
@@ -709,6 +755,21 @@ class V1FuturesExchangeAdapter:
             "profit",
             default=0.0,
         )
+        if abs(pnl) <= 1e-12 and entry > 0.0 and qty > 0.0:
+            mark = self._first_float(
+                raw,
+                "markPrice",
+                "fairPrice",
+                "lastPrice",
+                "indexPrice",
+                "marketPrice",
+                "current_price",
+                "price",
+                default=0.0,
+            )
+            if mark > 0.0:
+                direction = 1.0 if side == "long" else -1.0
+                pnl = qty * (mark - entry) * direction
         return ExchangePosition(
             sym=sym,
             side=side,

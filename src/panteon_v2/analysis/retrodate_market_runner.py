@@ -272,6 +272,9 @@ class RetrodateMarketConfig:
     shadow_audit_events_enabled: bool = True
     step_result_retention_enabled: bool = True
     compact_causal_entry_selected_only: bool = False
+    shadow_agent_include_labels: tuple[str, ...] = ()
+    shadow_player_include_labels: tuple[str, ...] = ()
+    shadow_parallel_workers: int = 1
     shadow_position_diagnostic_bars: tuple[int, ...] = ()
     shadow_position_diagnostic_labels: tuple[str, ...] = ()
     solo_agent_candidate_limit: int = 3
@@ -700,6 +703,16 @@ class RetrodateMarketConfig:
             "optional_agent_labels",
             tuple(str(label) for label in self.optional_agent_labels),
         )
+        object.__setattr__(
+            self,
+            "shadow_agent_include_labels",
+            _normalize_label_tuple(self.shadow_agent_include_labels),
+        )
+        object.__setattr__(
+            self,
+            "shadow_player_include_labels",
+            _normalize_label_tuple(self.shadow_player_include_labels),
+        )
         raw_genetics_confirmation_labels = self.flash_genetics_confirmation_labels
         genetics_confirmation_labels = (
             raw_genetics_confirmation_labels.split(",")
@@ -764,6 +777,8 @@ class RetrodateMarketConfig:
             raise ValueError("real_promotion_max_drawdown_pct must be >= 0")
         if self.max_new_opens_per_bar < 0:
             raise ValueError("max_new_opens_per_bar must be >= 0")
+        if self.shadow_parallel_workers < 1:
+            raise ValueError("shadow_parallel_workers must be >= 1")
         if self.risk_max_open_positions < 0:
             raise ValueError("risk_max_open_positions must be >= 0")
         if self.risk_max_leverage < 1:
@@ -1029,11 +1044,19 @@ def load_retrodate_year_snapshots(
     *,
     stride_minutes: int,
     state: RetrodateSnapshotState,
+    max_snapshots: Optional[int] = None,
 ) -> list[MarketSnapshot]:
     """Load one yearly CSV into chronological multi-symbol market snapshots."""
     if stride_minutes <= 0:
         raise ValueError("stride_minutes must be > 0")
     stride_ms = int(stride_minutes) * 60 * 1000
+    snapshot_limit = (
+        max(0, int(max_snapshots))
+        if max_snapshots is not None
+        else None
+    )
+    if snapshot_limit == 0:
+        return []
     prices_by_ts: dict[int, dict[str, float]] = {}
     candles_by_ts: dict[int, dict[str, tuple[float, float, float]]] = {}
     volumes_by_ts: dict[int, dict[str, float]] = {}
@@ -1047,6 +1070,12 @@ def load_retrodate_year_snapshots(
                 continue
             if timestamp % stride_ms != 0:
                 continue
+            if (
+                snapshot_limit is not None
+                and len(prices_by_ts) >= snapshot_limit
+                and timestamp not in prices_by_ts
+            ):
+                break
             symbol = str(row.get("symbol") or "").strip().upper()
             if not symbol:
                 continue
@@ -1320,6 +1349,9 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         risk_config=pipeline.risk_config,
         event_log=shadow_event_log,
         runtime_event_logs_enabled=bool(config.shadow_audit_events_enabled),
+        agent_include_labels=config.shadow_agent_include_labels,
+        player_include_labels=config.shadow_player_include_labels,
+        parallel_workers=config.shadow_parallel_workers,
     )
 
     writer = OutputWriter(
@@ -1354,6 +1386,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
                 file_report.path,
                 stride_minutes=config.stride_minutes,
                 state=state,
+                max_snapshots=remaining,
             )
             if remaining is not None:
                 snapshots = snapshots[:remaining]
@@ -1541,6 +1574,13 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         shadow_audit_events_enabled=not args.disable_shadow_audit_events,
         step_result_retention_enabled=not args.disable_step_result_retention,
         compact_causal_entry_selected_only=args.compact_causal_entry_selected_only,
+        shadow_agent_include_labels=_normalize_label_tuple(
+            args.shadow_agent_include_label
+        ),
+        shadow_player_include_labels=_normalize_label_tuple(
+            args.shadow_player_include_label
+        ),
+        shadow_parallel_workers=args.shadow_parallel_workers,
         shadow_position_diagnostic_bars=tuple(
             int(bar)
             for bar in args.shadow_position_diagnostic_bar
@@ -2189,6 +2229,33 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "When compact causal JSONL is enabled, write only selected Flash "
             "decisions with real signals. This keeps attribution/context rows "
             "available for gate runs while avoiding huge NoTrade payloads."
+        ),
+    )
+    parser.add_argument(
+        "--shadow-agent-include-label",
+        action="append",
+        default=[],
+        help=(
+            "Limit shadow solo-agent execution to this label. Can be repeated. "
+            "Empty default keeps all agents."
+        ),
+    )
+    parser.add_argument(
+        "--shadow-player-include-label",
+        action="append",
+        default=[],
+        help=(
+            "Limit shadow player execution to this label. Can be repeated. "
+            "Empty default keeps all players."
+        ),
+    )
+    parser.add_argument(
+        "--shadow-parallel-workers",
+        type=int,
+        default=1,
+        help=(
+            "Experimental offline-only thread parallelism inside the shadow "
+            "tournament. Default 1 preserves deterministic sequential behavior."
         ),
     )
     parser.add_argument(
@@ -3364,6 +3431,23 @@ def _parse_optional_agent_labels(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in str(raw or "").split(",") if part.strip())
 
 
+def _normalize_label_tuple(raw: object) -> tuple[str, ...]:
+    parts: list[str] = []
+    if isinstance(raw, str):
+        values = raw.replace(";", ",").split(",")
+    else:
+        try:
+            values = list(raw or ())
+        except TypeError:
+            values = [raw]
+    for value in values:
+        for part in str(value or "").replace(";", ",").split(","):
+            label = part.strip()
+            if label and label not in parts:
+                parts.append(label)
+    return tuple(parts)
+
+
 def _merge_hard_policy_deny_labels(raw_labels: Sequence[str]) -> tuple[str, ...]:
     labels: list[str] = []
     for label in tuple(DEFAULT_RETRO_HARD_POLICY_DENY_LABELS) + tuple(raw_labels or ()):
@@ -3571,6 +3655,7 @@ def write_flash_attribution_summary(
         "selected_without_signal": 0,
         "executable_selected_signals": 0,
         "selected_filtered_before_execution": 0,
+        "soft_allocator_signals": 0,
         "filled_signals": 0,
         "blocked_signals": 0,
         "rejected_signals": 0,
@@ -3661,6 +3746,57 @@ def write_flash_attribution_summary(
                 bucket["executable_selected_signals"] += 1
                 context_bucket["executable_selected_signals"] += 1
                 summary["executable_selected_signals"] += 1
+                executable_selected_signal_ids.add(signal_id)
+        if isinstance(row.get("soft_allocator"), dict):
+            for signal in (
+                executable_payloads if isinstance(executable_payloads, list) else ()
+            ):
+                if not isinstance(signal, dict):
+                    continue
+                signal_id = _safe_int(signal.get("id"), default=-1)
+                if signal_id < 0 or signal_id in signal_index:
+                    continue
+                actor_label = str(
+                    signal.get("by_player")
+                    or row.get("executed_leader")
+                    or row.get("selected_leader")
+                    or "PanteonSoft"
+                )
+                actor_key = f"soft:{actor_label}"
+                actor_type = "soft_allocator"
+                symbol = str(signal.get("sym") or "").upper()
+                action = str(signal.get("action") or "")
+                regime = _flash_context_regime(row.get("regime") or signal.get("regime"))
+                key = (actor_key, symbol, action)
+                bucket = buckets.setdefault(
+                    key,
+                    _new_flash_attribution_bucket(
+                        actor_key=actor_key,
+                        actor_label=actor_label,
+                        actor_type=actor_type,
+                        symbol=symbol,
+                        action=action,
+                    ),
+                )
+                context_key = (actor_key, symbol, action, regime)
+                context_bucket = context_buckets.setdefault(
+                    context_key,
+                    _new_flash_attribution_bucket(
+                        actor_key=actor_key,
+                        actor_label=actor_label,
+                        actor_type=actor_type,
+                        symbol=symbol,
+                        action=action,
+                        regime=regime,
+                    ),
+                )
+                _accumulate_soft_allocator_selected_bucket(bucket, signal)
+                _accumulate_soft_allocator_selected_bucket(context_bucket, signal)
+                signal_index[signal_id] = key
+                signal_context_index[signal_id] = context_key
+                summary["selected_signals"] += 1
+                summary["executable_selected_signals"] += 1
+                summary["soft_allocator_signals"] += 1
                 executable_selected_signal_ids.add(signal_id)
 
     executed_signal_ids: set[int] = set()
@@ -4720,6 +4856,19 @@ def _accumulate_flash_selected_bucket(
     else:
         bucket["selected_subset_risk_mult_sum"] += 1.0
         bucket["risk_mult_sum"] += 1.0
+
+
+def _accumulate_soft_allocator_selected_bucket(
+    bucket: dict[str, Any],
+    signal: Mapping[str, Any],
+) -> None:
+    bucket["selected_signals"] += 1
+    bucket["executable_selected_signals"] += 1
+    risk_mult = _finite_float_or_none(signal.get("risk_mult"))
+    if risk_mult is None:
+        risk_mult = 1.0
+    bucket["risk_mult_sum"] += risk_mult
+    bucket["selected_subset_risk_mult_sum"] += risk_mult
 
 
 def _flash_context_regime(raw: object) -> str:
@@ -5984,6 +6133,9 @@ def _write_run_summary(
         "compact_causal_entry_selected_only": bool(
             config.compact_causal_entry_selected_only
         ),
+        "shadow_agent_include_labels": list(config.shadow_agent_include_labels),
+        "shadow_player_include_labels": list(config.shadow_player_include_labels),
+        "shadow_parallel_workers": int(config.shadow_parallel_workers),
         "shadow_position_diagnostic_bars": list(
             config.shadow_position_diagnostic_bars
         ),

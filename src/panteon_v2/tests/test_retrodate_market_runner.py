@@ -133,6 +133,27 @@ def test_load_retrodate_year_snapshots_builds_stride_multi_symbol_bars(tmp_path)
     assert snapshots[1].prices["BTC/USDT"] == 110.0
 
 
+def test_load_retrodate_year_snapshots_stops_after_max_snapshots(tmp_path):
+    csv_path = tmp_path / "crypto_1m_2025_all_symbols.csv"
+    start_ts = 1735689600000
+    rows = []
+    for index in range(5):
+        timestamp = start_ts + index * 60 * 60 * 1000
+        rows.append(_row(timestamp, 100.0 + index, "BTC/USDT"))
+        rows.append(_row(timestamp, 10.0 + index, "ETH/USDT"))
+    _write_rows(csv_path, rows)
+
+    snapshots = load_retrodate_year_snapshots(
+        csv_path,
+        stride_minutes=60,
+        state=RetrodateSnapshotState(),
+        max_snapshots=2,
+    )
+
+    assert [snap.bar for snap in snapshots] == [1, 2]
+    assert [snap.prices["BTC/USDT"] for snap in snapshots] == [100.0, 101.0]
+
+
 def test_load_retrodate_year_snapshots_populates_lookback_returns(tmp_path):
     csv_path = tmp_path / "crypto_1m_2025_all_symbols.csv"
     start_ts = 1735689600000
@@ -694,13 +715,21 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert config.step_result_retention_enabled is False
     assert flash_config.denied_signal_keys == (
         "agent:MomentumScalper|ATOM/USDT|SPOT_BUY_FULL",
+        "agent:MomentumScalper|ATOM|SPOT_BUY_FULL",
+        "agent:MomentumScalper|ATOMUSDT|SPOT_BUY_FULL",
         "agent:MomentumScalper|MATIC/USDT|SPOT_BUY_FULL",
+        "agent:MomentumScalper|MATIC|SPOT_BUY_FULL",
+        "agent:MomentumScalper|MATICUSDT|SPOT_BUY_FULL",
     )
     assert flash_config.terminal_denied_signal_keys == (
         "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
+        "ensemble:Solo_LiveCrashHunter|ATOM|FUT_SHORT_FULL",
+        "ensemble:Solo_LiveCrashHunter|ATOMUSDT|FUT_SHORT_FULL",
     )
     assert flash_config.terminal_denied_context_signal_keys == (
         "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
+        "ensemble:Solo_MomentumScalper|APT|FUT_LONG_FULL|bullish",
+        "ensemble:Solo_MomentumScalper|APTUSDT|FUT_LONG_FULL|bullish",
     )
     assert flash_config.denied_open_symbols == ("ATOM/USDT",)
     assert flash_config.denied_open_regimes == (Regime.NEUTRAL,)
@@ -2424,6 +2453,79 @@ def test_flash_attribution_summary_splits_guard_filtered_from_missing_execution(
     by_symbol = {row["symbol"]: row for row in data["rows"]}
     assert by_symbol["ETH/USDT"]["selected_filtered_before_execution"] == 1
     assert by_symbol["SOL/USDT"]["executable_selected_signals"] == 1
+
+
+def test_flash_attribution_summary_attributes_soft_allocator_execution(tmp_path):
+    causal_path = tmp_path / "causal_entry_decisions.jsonl"
+    causal_path.write_text(
+        json.dumps(
+            {
+                "bar": 5,
+                "regime": "neutral",
+                "selected_leader": "PanteonSoft:soft_top3_decayed",
+                "executed_leader": "PanteonSoft:soft_top3_decayed",
+                "soft_allocator": {
+                    "enabled": True,
+                    "policy_name": "soft_top3_decayed",
+                    "selected_labels": ["Solo_Alpha"],
+                    "weights": {"Solo_Alpha": 0.45},
+                },
+                "executable_signals": [
+                    {
+                        "id": 21,
+                        "sym": "BTC/USDT",
+                        "action": "FUT_LONG_FULL",
+                        "by_player": "PanteonSoft:soft_top3_decayed",
+                        "by_agent": "Alpha",
+                        "risk_mult": 0.45,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    path = runner.write_flash_attribution_summary(
+        tmp_path,
+        execution_events=[
+            ExecutionAttributed(
+                bar=5,
+                signal_id=21,
+                sym="BTC/USDT",
+                action="FUT_LONG_FULL",
+                status="filled",
+            ),
+        ],
+        position_closed_events=[
+            PositionClosed(
+                bar=9,
+                open_signal_id=21,
+                close_signal_id=22,
+                sym="BTC/USDT",
+                side="long",
+                realized_pnl=4.5,
+                by_player="PanteonSoft:soft_top3_decayed",
+                by_agent="Alpha",
+            )
+        ],
+    )
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    summary = data["summary"]
+    assert summary["soft_allocator_signals"] == 1
+    assert summary["selected_signals"] == 1
+    assert summary["filled_signals"] == 1
+    assert summary["closed_trades"] == 1
+    assert summary["realized_pnl_usd"] == 4.5
+    assert summary["unattributed_execution_events"] == 0
+    assert summary["unattributed_closed_trades"] == 0
+
+    row = data["rows"][0]
+    assert row["actor_key"] == "soft:PanteonSoft:soft_top3_decayed"
+    assert row["actor_type"] == "soft_allocator"
+    assert row["symbol"] == "BTC/USDT"
+    assert row["avg_risk_mult"] == 0.45
 
 
 def test_signal_key_shadow_report_groups_symbol_action_outcomes(tmp_path):

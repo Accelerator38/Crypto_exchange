@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime, timezone
 import unittest
 
 from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
@@ -132,6 +134,41 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
         restored = PerformanceMemory(trade_fraction=1.0)
         restored.restore(perf.snapshot())
         self.assertEqual(restored.equity_curve("AgentA"), [100.0, 110.0, 104.5])
+
+    def test_equity_curve_timestamps_record_close_times(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        ts1 = datetime(2026, 6, 6, 10, 0, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 6, 6, 10, 5, tzinfo=timezone.utc)
+        os1 = _open_signal(1, "BTC", Regime.BULLISH, price=100.0)
+        cs1 = replace(
+            _close_signal(2, "BTC", Regime.BULLISH, price=110.0, bar=2),
+            timestamp=ts1,
+        )
+        os2 = _open_signal(3, "BTC", Regime.BEARISH, price=100.0, bar=3)
+        cs2 = replace(
+            _close_signal(4, "BTC", Regime.BEARISH, price=95.0, bar=4),
+            timestamp=ts2,
+        )
+
+        perf.update_from_trade(_open_trade(os1), os1)
+        perf.update_from_trade(_close_trade(os1, cs1, 110.0), cs1)
+        perf.update_from_trade(_open_trade(os2), os2)
+        perf.update_from_trade(_close_trade(os2, cs2, 95.0), cs2)
+
+        self.assertEqual(
+            perf.equity_curve_timestamps("AgentA"),
+            [ts1.isoformat(), ts1.isoformat(), ts2.isoformat()],
+        )
+        self.assertEqual(
+            perf.equity_curve_timestamps("AgentA", Regime.BULLISH),
+            [ts1.isoformat(), ts1.isoformat()],
+        )
+        restored = PerformanceMemory(trade_fraction=1.0)
+        restored.restore(perf.snapshot())
+        self.assertEqual(
+            restored.equity_curve_timestamps("AgentA"),
+            [ts1.isoformat(), ts1.isoformat(), ts2.isoformat()],
+        )
 
     def test_new_regimes_seed_scoring_from_neutral_memory(self):
         perf = PerformanceMemory(trade_fraction=1.0)

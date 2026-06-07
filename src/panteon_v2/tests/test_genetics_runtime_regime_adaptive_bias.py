@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -221,6 +222,34 @@ def test_genetics_v2_adapter_symbol_local_clone_preserves_warm_runtime_state():
         "raw_regime": "bearish",
         "open_output_bias": 0.90,
     }
+
+
+def test_genetics_runtime_clone_keeps_bounded_tail_of_warm_history():
+    from panteon_v2.shadow.adapters import _clone_genetics_runtime_agent
+
+    class WarmHistoryAgent:
+        def __init__(self, genome=None):
+            self.genome = np.array(genome if genome is not None else [1.0, 2.0])
+            self.ph = {"BTC": deque(range(42_000), maxlen=42_000)}
+            self.vh = {"BTC": deque(range(18_000), maxlen=18_000)}
+            self.spot_qty = {"BTC": 0.0}
+            self.spot_entry = {"BTC": 0.0}
+            self.fut_qty = {"BTC": 0.0}
+            self.fut_entry = {"BTC": 0.0}
+            self.pos = {"BTC": None}
+            self.t = 27_292
+
+    legacy = WarmHistoryAgent()
+
+    clone = _clone_genetics_runtime_agent(legacy)
+
+    assert clone is not legacy
+    assert list(clone.ph["BTC"]) == list(range(24_000, 42_000))
+    assert list(clone.vh["BTC"]) == list(range(18_000))
+    assert clone.ph["BTC"].maxlen == 42_000
+    assert clone.vh["BTC"].maxlen == 18_000
+    assert clone.ph["BTC"] is not legacy.ph["BTC"]
+    assert clone.vh["BTC"] is not legacy.vh["BTC"]
 
 
 def test_shadow_agent_signal_records_regime_adaptive_bias_trace():

@@ -22,7 +22,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from ..attribution import (
@@ -4312,27 +4312,31 @@ def _flash_stale_position_close_signals(
     for sym, pos in sorted(open_positions.items()):
         if is_external_position(pos):
             continue
-        opened_bar = _safe_nonnegative_int(getattr(pos, "opened_bar", 0))
-        if opened_bar is None or opened_bar <= 0:
+        age_bars = _stale_position_age_bars(pos, market)
+        if age_bars is None:
             continue
-        age_bars = max(0, int(market.bar) - opened_bar)
         if age_bars < max_age:
-            continue
-        symbol = str(getattr(pos, "sym", sym) or sym).upper()
-        price = float(market.prices.get(symbol, 0.0) or 0.0)
-        if price <= 0:
             continue
         side = str(getattr(pos, "side", "") or "").lower()
         entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
         qty = float(getattr(pos, "qty", 0.0) or 0.0)
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        market_price = float(market.prices.get(symbol, 0.0) or 0.0)
         if require_nonpositive_unrealized:
+            if market_price <= 0:
+                continue
             if side == "long":
-                unrealized = (price - entry_price) * qty
+                unrealized = (market_price - entry_price) * qty
             elif side == "short":
-                unrealized = (entry_price - price) * qty
+                unrealized = (entry_price - market_price) * qty
             else:
                 continue
             if unrealized > 0:
+                continue
+            price = market_price
+        else:
+            price = market_price if market_price > 0 else _stale_position_reference_price(pos)
+            if price <= 0:
                 continue
         signals.append(Signal(
             id=sid,
@@ -4347,6 +4351,58 @@ def _flash_stale_position_close_signals(
         ))
         sid += 1
     return signals
+
+
+def _stale_position_reference_price(pos: object) -> float:
+    for key in ("current_price", "mark_price", "last_price", "price", "entry_price", "entry"):
+        if isinstance(pos, Mapping):
+            raw = pos.get(key)
+        else:
+            raw = getattr(pos, key, None)
+        value = _safe_float_or_none(raw)
+        if value is not None and value > 0.0:
+            return float(value)
+    return 0.0
+
+
+def _stale_position_age_bars(
+    pos: object,
+    market: MarketSnapshot,
+) -> Optional[int]:
+    opened_bar = _safe_nonnegative_int(getattr(pos, "opened_bar", 0))
+    if opened_bar is not None and opened_bar > 0:
+        return max(0, int(market.bar) - opened_bar)
+
+    opened_at = _coerce_utc_datetime(getattr(pos, "opened_at", None))
+    if opened_at is None:
+        return None
+    market_time = _coerce_utc_datetime(getattr(market, "timestamp", None))
+    if market_time is None:
+        market_time = datetime.now(timezone.utc)
+    age_seconds = max(0.0, (market_time - opened_at).total_seconds())
+    return int(age_seconds // 60)
+
+
+def _coerce_utc_datetime(value: object) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _find_actionable_candidate_from_shadow_registry(
@@ -6136,6 +6192,13 @@ def _exchange_health_open_block_reason(pipeline: ProductionPipeline) -> str:
         or ""
     ).strip()
     if reason:
+        if _mexc_transient_assets_exception_is_recoverable(
+            pipeline,
+            snapshot=snapshot,
+            health=health,
+            reason=reason,
+        ):
+            return ""
         return reason
 
     if bool(health.get("uses_cached_balance") or health.get("cached_equity")):
@@ -6151,6 +6214,42 @@ def _exchange_health_open_block_reason(pipeline: ProductionPipeline) -> str:
     if snapshot_healthy is False:
         return "snapshot unhealthy"
     return ""
+
+
+def _mexc_transient_assets_exception_is_recoverable(
+    pipeline: ProductionPipeline,
+    *,
+    snapshot: Dict[str, Any],
+    health: Dict[str, Any],
+    reason: str,
+) -> bool:
+    reason_l = str(reason or "").strip().lower()
+    if not reason_l.startswith("futures_assets_exception:"):
+        return False
+    if not any(token in reason_l for token in ("connection", "timeout")):
+        return False
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    exchange_name = str(
+        getattr(exchange, "name", "")
+        or getattr(pipeline, "exchange_name", "")
+        or ""
+    ).strip().upper()
+    if exchange_name != "MEXC":
+        return False
+    if bool(health.get("uses_cached_balance") or health.get("cached_equity")):
+        return False
+    if health.get("snapshot_healthy") is False:
+        return False
+    balance = _snapshot_balance(snapshot)
+    if balance is None or balance <= 0.0:
+        return False
+    reliable = getattr(exchange, "positions_snapshot_reliable", None)
+    if not callable(reliable):
+        return False
+    try:
+        return bool(reliable())
+    except Exception:
+        return False
 
 
 def _record_exchange_desync(pipeline: ProductionPipeline, summary: Any) -> None:
