@@ -117,10 +117,19 @@ class _VirtualActorRuntime:
         perf: PerformanceMemory,
         risk_config: RiskLimitsConfig,
         event_log_enabled: bool = True,
+        fee_rate: Optional[float] = None,
+        slippage_pct: Optional[float] = None,
     ) -> None:
         self.actor_label = actor_label
+        shadow_exchange = FakeExchange(name=f"SHADOW-{actor_label}")
+        # Fee/slippage паритет с реальным путём — иначе shadow-составляющие
+        # выглядят прибыльнее Пантеона лишь потому, что им не начисляют издержки.
+        if fee_rate is not None:
+            shadow_exchange.set_fee_rate(float(fee_rate))
+        if slippage_pct is not None:
+            shadow_exchange.set_slippage_pct(float(slippage_pct))
         self._executor = TradeExecutor(
-            exchange=FakeExchange(name=f"SHADOW-{actor_label}"),
+            exchange=shadow_exchange,
             health=SymbolHealthMonitor(),
             risk_limits=RiskLimits(config=risk_config),
             position_tracker=PositionTracker(),
@@ -161,12 +170,16 @@ class ProductionShadowTournament:
         agent_include_labels: Sequence[str] = (),
         player_include_labels: Sequence[str] = (),
         parallel_workers: int = 1,
+        fee_rate: Optional[float] = None,
+        slippage_pct: Optional[float] = None,
     ) -> None:
         self._source_registry = registry
         self._registry = AgentRegistry()
         self._perf = perf
         self._risk_config = risk_config
         self._balance_floor = float(virtual_balance_floor)
+        self._fee_rate = fee_rate
+        self._slippage_pct = slippage_pct
         self._event_log = event_log
         self._runtime_event_logs_enabled = bool(runtime_event_logs_enabled)
         self._agent_include_labels = _normalize_label_filter(agent_include_labels)
@@ -653,6 +666,8 @@ class ProductionShadowTournament:
                     perf=self._perf,
                     risk_config=self._risk_config,
                     event_log_enabled=self._runtime_event_logs_enabled,
+                    fee_rate=self._fee_rate,
+                    slippage_pct=self._slippage_pct,
                 )
                 self._runtimes[actor_key] = runtime
             return runtime

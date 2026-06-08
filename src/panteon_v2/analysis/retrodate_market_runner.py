@@ -267,6 +267,9 @@ class RetrodateMarketConfig:
     # поэтому нулевой slippage завышает PnL и сильнее раздувает частых акторов,
     # чем редкий ансамбль. Задавайте напр. 0.0005 (5 б.п.) для сопоставимости.
     slippage_pct: float = 0.0
+    # Roadmap #2: комиссия за филл (доля notional) на real+shadow путях.
+    # None = дефолт FakeExchange (0.0006). Live MEXC futures ≈ 0.0002.
+    fee_rate: Optional[float] = None
     # Phase 2/3 opt-in флаги для валидационных прогонов (default = как в лайве по
     # умолчанию, т.е. выключено).
     voting_directional: bool = False
@@ -1270,6 +1273,10 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     # Phase 4 / B7: применяем реалистичный slippage (0.0 = идеальные филлы).
     if config.slippage_pct > 0.0:
         exchange.set_slippage_pct(config.slippage_pct)
+    # Roadmap #2: реалистичная комиссия на ОБОИХ путях (real + shadow), иначе
+    # shadow-составляющие выглядят прибыльнее Пантеона лишь из-за fee-blindness.
+    if config.fee_rate is not None:
+        exchange.set_fee_rate(float(config.fee_rate))
     strategist_config = _build_strategist_config(config)
     pipeline = build_production_pipeline(
         registry=registry,
@@ -1402,6 +1409,8 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         agent_include_labels=config.shadow_agent_include_labels,
         player_include_labels=config.shadow_player_include_labels,
         parallel_workers=config.shadow_parallel_workers,
+        fee_rate=config.fee_rate,
+        slippage_pct=(config.slippage_pct if config.slippage_pct > 0.0 else None),
     )
 
     writer = OutputWriter(
@@ -1612,6 +1621,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         initial_capital=args.initial_capital,
         risk_capital_fraction=args.risk_capital_fraction,
         slippage_pct=args.slippage_pct,
+        fee_rate=args.fee_rate,
         voting_directional=args.voting_directional,
         flash_gate_pnl_per_trade_enabled=args.flash_gate_pnl_per_trade,
         perf_max_returns_history=args.perf_max_returns_history,
@@ -2260,6 +2270,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.0,
         help="Per-fill slippage fraction for the retro FakeExchange (e.g. 0.0005 = 5bps). 0 = ideal fills.",
+    )
+    parser.add_argument(
+        "--fee-rate",
+        type=float,
+        default=None,
+        help="Per-fill fee fraction applied on real AND shadow paths (e.g. 0.0002 = live MEXC futures). Default = FakeExchange 0.0006.",
     )
     parser.add_argument(
         "--voting-directional",
