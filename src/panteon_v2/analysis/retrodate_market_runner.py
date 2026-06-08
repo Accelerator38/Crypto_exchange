@@ -36,6 +36,7 @@ from ..attribution import (
 )
 from ..domain.types import MarketSnapshot, Regime
 from ..execution import FakeExchange, RiskLimitsConfig
+from ..app.regime_detector import PriceRegimeDetector
 from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import AgentRegistry, FlashAllocatorConfig, StrategistConfig
 from ..selection.promotion_manifest import (
@@ -285,6 +286,9 @@ class RetrodateMarketConfig:
     flash_regime_edge_gate_enabled: bool = False
     flash_regime_edge_min_pnl_per_trade_pct: float = 0.0
     flash_regime_edge_min_closed_trades: int = 10
+    # Regime fidelity: использовать живой 8-режимный PriceRegimeDetector в ретро
+    # (вместо примитивного BTC-24-bar 4-режимного), чтобы тест был репрезентативен.
+    use_live_regime_detector: bool = False
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1005,6 +1009,8 @@ class RetrodateSnapshotState:
     btc_closes: Deque[float] = field(default_factory=lambda: deque(maxlen=24))
     symbol_closes: dict[str, Deque[float]] = field(default_factory=dict)
     technicals: TechnicalIndicatorState = field(default_factory=TechnicalIndicatorState)
+    # Опциональный живой детектор режимов (8 типов, per-symbol, volatility-aware).
+    regime_detector: Optional[PriceRegimeDetector] = None
 
 
 @dataclass(frozen=True)
@@ -1072,6 +1078,7 @@ def load_retrodate_year_snapshots(
     stride_minutes: int,
     state: RetrodateSnapshotState,
     max_snapshots: Optional[int] = None,
+    use_live_regime_detector: bool = False,
 ) -> list[MarketSnapshot]:
     """Load one yearly CSV into chronological multi-symbol market snapshots."""
     if stride_minutes <= 0:
@@ -1136,12 +1143,21 @@ def load_retrodate_year_snapshots(
             )
             for symbol in prices
         }
-        regime, confidence = _classify_regime(prices, state)
-        regimes_by_symbol = _classify_symbol_regimes(
-            prices,
-            state,
-            fallback=regime,
-        )
+        if use_live_regime_detector:
+            if state.regime_detector is None:
+                state.regime_detector = PriceRegimeDetector(exchange_name="RETRODATE")
+            regime = state.regime_detector.update(prices, volumes=volumes)
+            confidence = float(state.regime_detector.confidence)
+            regimes_by_symbol = dict(state.regime_detector.symbol_regimes)
+            if not regimes_by_symbol:
+                regimes_by_symbol = {sym: regime for sym in prices}
+        else:
+            regime, confidence = _classify_regime(prices, state)
+            regimes_by_symbol = _classify_symbol_regimes(
+                prices,
+                state,
+                fallback=regime,
+            )
         dt = datetime.fromtimestamp(timestamp / 1000.0, timezone.utc)
         snapshots.append(
             MarketSnapshot(
@@ -1420,6 +1436,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
                 stride_minutes=config.stride_minutes,
                 state=state,
                 max_snapshots=remaining,
+                use_live_regime_detector=config.use_live_regime_detector,
             )
             if remaining is not None:
                 snapshots = snapshots[:remaining]
@@ -1609,6 +1626,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         flash_regime_edge_gate_enabled=args.flash_regime_edge_gate,
         flash_regime_edge_min_pnl_per_trade_pct=args.flash_regime_edge_min_pnl_per_trade_pct,
         flash_regime_edge_min_closed_trades=args.flash_regime_edge_min_closed_trades,
+        use_live_regime_detector=args.use_live_regime_detector,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2274,6 +2292,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Selector min eligible score (recalibrate when using per-trade scoring).",
     )
+    parser.add_argument("--use-live-regime-detector", action="store_true",
+                        help="Use the live 8-regime PriceRegimeDetector instead of the crude BTC-24bar classifier.")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-regime-edge-min-pnl-per-trade-pct", type=float, default=0.0)
