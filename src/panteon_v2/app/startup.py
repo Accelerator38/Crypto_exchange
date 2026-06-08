@@ -987,6 +987,33 @@ def _flash_allocator_config_from_settings(
             ),
             50.0,
         )),
+        regime_edge_gate_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_regime_edge_gate_enabled",
+                "v2_flash_regime_edge_gate_enabled",
+                "flash_regime_edge_gate_enabled",
+            ),
+            False,
+        ),
+        regime_edge_min_pnl_per_trade_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_regime_edge_min_pnl_per_trade_pct",
+                "v2_flash_regime_edge_min_pnl_per_trade_pct",
+                "flash_regime_edge_min_pnl_per_trade_pct",
+            ),
+            0.0,
+        ),
+        regime_edge_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_regime_edge_min_closed_trades",
+                "v2_flash_regime_edge_min_closed_trades",
+                "flash_regime_edge_min_closed_trades",
+            ),
+            10.0,
+        )),
         shadow_confirmation_enabled=_settings_bool(
             settings,
             (
