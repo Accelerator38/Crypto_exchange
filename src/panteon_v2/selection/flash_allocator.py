@@ -231,6 +231,16 @@ class FlashAllocatorConfig:
     # а pnl/комиссии/просадка — трейд-взвешенные средние (не суммы, чтобы не
     # умножать издержки ~N×). Скор — max-смещённый: bias*max + (1-bias)*wmean.
     component_score_max_bias: float = 0.70
+    # Selection fix: вето по ГЛОБАЛЬНОМУ здоровью актора. Per-(symbol,regime)
+    # скоринг прячет катастрофичный агрегат: глобально-убыточный высокочастотный
+    # актор (напр. PlayerFunding −29% за 2528 сделок) выигрывает узкие срезы и
+    # переселектируется. Гейт отклоняет открытие, если агрегатный (по всем
+    # режимам) кумулятивный PnL ниже порога ИЛИ просадка выше порога — при
+    # достаточной выборке. Default off (поведение сохраняется).
+    global_health_gate_enabled: bool = False
+    global_health_min_cum_pnl_pct: float = -5.0
+    global_health_max_drawdown_pct: float = 100.0
+    global_health_min_closed_trades: int = 50
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -625,6 +635,8 @@ class FlashAllocatorConfig:
             raise ValueError("min_closed_trades_to_trade must be >= 0")
         if not 0.0 <= self.component_score_max_bias <= 1.0:
             raise ValueError("component_score_max_bias must be in [0, 1]")
+        if self.global_health_min_closed_trades < 0:
+            raise ValueError("global_health_min_closed_trades must be >= 0")
         if self.shadow_confirmation_min_closed_trades < 0:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
@@ -1705,6 +1717,9 @@ class FlashAllocator:
             elif output.action.is_open and not metrics.has_data:
                 rejected = True
                 reason = "no_evidence"
+            elif output.action.is_open and self._global_health_rejected(output.label):
+                rejected = True
+                reason = "global_health_veto"
             elif (
                 output.action.is_open
                 and
@@ -3803,6 +3818,30 @@ class FlashAllocator:
             if raw is not None:
                 return _shadow_confirmation_from_raw(raw)
         return _ShadowConfirmation()
+
+    def _global_health_rejected(self, label: str) -> bool:
+        """Вето селекции по агрегатному (по всем режимам) здоровью актора.
+
+        Возвращает True, если глобально актор катастрофичен (кумулятивный PnL
+        ниже порога или просадка выше порога) при достаточной выборке. Это не
+        даёт глобально-убыточному актору выигрывать узкие (symbol,regime)-срезы.
+        """
+        cfg = self._config
+        if not cfg.global_health_gate_enabled:
+            return False
+        agg: Optional[Metrics] = None
+        for lookup_label in _solo_label_lookup_sequence(label):
+            candidate = self._perf.get(lookup_label)
+            if candidate.has_data:
+                agg = candidate
+                break
+        if agg is None or agg.closed_trades < cfg.global_health_min_closed_trades:
+            return False
+        if agg.pnl_pct <= cfg.global_health_min_cum_pnl_pct:
+            return True
+        if abs(agg.max_dd_pct) >= cfg.global_health_max_drawdown_pct:
+            return True
+        return False
 
     def _metrics_for_label(
         self,

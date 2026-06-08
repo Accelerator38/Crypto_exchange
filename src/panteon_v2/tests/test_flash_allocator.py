@@ -3049,6 +3049,48 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertFalse(rows["FreshCloser"].rejected)
         self.assertEqual(rows["FreshCloser"].reason, "eligible")
 
+    def test_global_health_veto_rejects_globally_catastrophic_actor(self):
+        # Selection fix: актор, локально-ок в (symbol,regime), но глобально
+        # катастрофичный (большой отрицательный кумулятив по всем режимам),
+        # вето́ируется при включённом global_health_gate.
+        bad = FakeAgent("GlobalLoser", {"BTC": Action.FUT_LONG_FULL})
+        # Локально (BULLISH) актор выглядит ок (+ положительно, мало сделок)...
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "GlobalLoser", Regime.BULLISH, 3, 1.0, start_id=1)
+        # ...но в BEARISH у него катастрофа → агрегат глубоко отрицательный.
+        _add_perf(perf, "GlobalLoser", Regime.BEARISH, 80, -0.5, start_id=100)
+
+        cfg = FlashAllocatorConfig(
+            min_closed_trades_to_trade=1,
+            min_pnl_pct_to_trade=-999.0,
+            min_score_to_trade=-999.0,
+            global_health_gate_enabled=True,
+            global_health_min_cum_pnl_pct=-5.0,
+            global_health_min_closed_trades=50,
+        )
+        allocator = FlashAllocator(perf=perf, qm=qm, config=cfg)
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}, regime=Regime.BULLISH),
+            agents=[bad], players=[], signal_id_start=1,
+        )[0]
+        rows = {r.label: r for r in decision.candidates}
+        self.assertEqual(rows["GlobalLoser"].reason, "global_health_veto")
+
+        # Без гейта (default off) — актор НЕ вето́ируется по этой причине.
+        cfg_off = FlashAllocatorConfig(
+            min_closed_trades_to_trade=1,
+            min_pnl_pct_to_trade=-999.0,
+            min_score_to_trade=-999.0,
+        )
+        allocator_off = FlashAllocator(perf=perf, qm=qm, config=cfg_off)
+        decision_off = allocator_off.decide(
+            make_market(prices={"BTC": 100.0}, regime=Regime.BULLISH),
+            agents=[bad], players=[], signal_id_start=1,
+        )[0]
+        rows_off = {r.label: r for r in decision_off.candidates}
+        self.assertNotEqual(rows_off["GlobalLoser"].reason, "global_health_veto")
+
     def test_no_trade_when_active_actor_has_negative_pnl(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())

@@ -274,6 +274,9 @@ class RetrodateMarketConfig:
     use_per_trade_pnl_score: bool = False
     per_trade_pnl_scale: float = 1.0
     min_eligible_score: float = 0.0
+    flash_global_health_gate_enabled: bool = False
+    flash_global_health_min_cum_pnl_pct: float = -5.0
+    flash_global_health_min_closed_trades: int = 50
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1589,6 +1592,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         use_per_trade_pnl_score=args.use_per_trade_pnl_score,
         per_trade_pnl_scale=args.per_trade_pnl_scale,
         min_eligible_score=args.min_eligible_score,
+        flash_global_health_gate_enabled=args.flash_global_health_gate,
+        flash_global_health_min_cum_pnl_pct=args.flash_global_health_min_cum_pnl_pct,
+        flash_global_health_min_closed_trades=args.flash_global_health_min_closed_trades,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2254,6 +2260,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Selector min eligible score (recalibrate when using per-trade scoring).",
     )
+    parser.add_argument(
+        "--flash-global-health-gate",
+        action="store_true",
+        help="Selection fix: veto actors whose AGGREGATE cumulative pnl is catastrophic.",
+    )
+    parser.add_argument(
+        "--flash-global-health-min-cum-pnl-pct",
+        type=float,
+        default=-5.0,
+        help="Aggregate cumulative pnl%% below this vetoes the actor (with --flash-global-health-gate).",
+    )
+    parser.add_argument(
+        "--flash-global-health-min-closed-trades",
+        type=int,
+        default=50,
+        help="Min aggregate closed trades before the global-health veto applies.",
+    )
     parser.add_argument("--risk-max-leverage", type=int, default=5)
     parser.add_argument("--apply-risk-leverage-to-notional", action="store_true")
     parser.add_argument("--include-optional-agents", action="store_true")
@@ -2862,6 +2885,9 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         min_closed_trades_to_trade=config.flash_min_closed_trades_to_trade,
         min_pnl_pct_to_trade=config.flash_min_pnl_pct_to_trade,
         gate_pnl_per_trade_enabled=config.flash_gate_pnl_per_trade_enabled,
+        global_health_gate_enabled=config.flash_global_health_gate_enabled,
+        global_health_min_cum_pnl_pct=config.flash_global_health_min_cum_pnl_pct,
+        global_health_min_closed_trades=config.flash_global_health_min_closed_trades,
         shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
         shadow_symbol_confirmation_enabled=(
             config.flash_symbol_shadow_confirmation_enabled
