@@ -26,6 +26,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Union
 
 from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
+from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import AgentRegistry, FlashAllocatorConfig, PlayerProfile, StrategistConfig
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
@@ -1985,6 +1986,41 @@ def _resolve_flash_enabled(exchange_name: str) -> bool:
     )
 
 
+def _resolve_scoring_config(exchange_name: str) -> ScoringConfig:
+    """Live no-trade fix: per-trade PnL в regime_score (opt-in через settings)."""
+    settings = _load_exchange_settings(exchange_name)
+    use_per_trade = _settings_bool(
+        settings,
+        (
+            "panteon_use_per_trade_pnl_score",
+            "v2_use_per_trade_pnl_score",
+            "use_per_trade_pnl_score",
+        ),
+        False,
+    )
+    if not use_per_trade:
+        return DEFAULT_SCORING
+    scale = _settings_float(
+        settings,
+        (
+            "panteon_per_trade_pnl_scale",
+            "v2_per_trade_pnl_scale",
+            "per_trade_pnl_scale",
+        ),
+        1.0,
+    )
+    min_eligible = _settings_float(
+        settings,
+        ("v2_min_eligible_score", "min_eligible_score"),
+        DEFAULT_SCORING.min_eligible_score,
+    )
+    return ScoringConfig(
+        use_per_trade_pnl=True,
+        per_trade_pnl_scale=scale,
+        min_eligible_score=min_eligible,
+    )
+
+
 def _resolve_voting_directional(exchange_name: str) -> bool:
     """Phase 2/A1: directional WeightedConsensus для ансамблей (opt-in)."""
     return _settings_bool(
@@ -2992,6 +3028,7 @@ def start_production(
         live_execution_config=live_execution_config,
         flash_enabled=flash_enabled,
         flash_allocator_config=flash_allocator_config,
+        scoring_config=_resolve_scoring_config(exchange),
         perf_trade_fraction=trade_fraction,
         perf_max_returns_history=_resolve_perf_max_returns_history(exchange),
         voting_directional=_resolve_voting_directional(exchange),

@@ -220,6 +220,29 @@ class TestIsHopelessInAllRegimes(unittest.TestCase):
         # aggregate = +4.0 ≥ 0 → guard срабатывает.
         self.assertFalse(is_hopeless_in_all_regimes(per))
 
+    def test_per_trade_pnl_mode_does_not_punish_breakeven_high_count_actor(self):
+        # Live no-trade fix: актор с 652 сделками и cum −6.75% (= −0.0104%/сделку,
+        # по сути безубыток-минус-комиссии). В кумулятивном режиме score глубоко
+        # отрицательный; в per-trade — около нуля.
+        from panteon_v2.scoring import ScoringConfig, regime_score
+        m = Metrics(pnl_pct=-6.75, closed_trades=652, wins=320, losses=332, sharpe=0.0)
+        cum = regime_score(m, Regime.NEUTRAL, config=ScoringConfig())
+        per = regime_score(
+            m, Regime.NEUTRAL, config=ScoringConfig(use_per_trade_pnl=True)
+        )
+        self.assertLess(cum, -3.0)            # кумулятив: катастрофа
+        self.assertGreater(per, -0.5)         # per-trade: около нуля
+        self.assertGreater(per, cum)
+
+    def test_per_trade_pnl_mode_rewards_real_edge(self):
+        from panteon_v2.scoring import ScoringConfig, regime_score
+        # +0.4%/сделку, 100 сделок, win 58% → должен быть заметно положительным.
+        m = Metrics(pnl_pct=40.0, closed_trades=100, wins=58, losses=42, sharpe=1.2)
+        per = regime_score(
+            m, Regime.NEUTRAL, config=ScoringConfig(use_per_trade_pnl=True)
+        )
+        self.assertGreater(per, 0.3)
+
     def test_net_negative_with_dominant_loss_still_hopeless(self):
         # Контроль: агрегат отрицательный и доминирующий убыток → всё ещё hopeless.
         per = {

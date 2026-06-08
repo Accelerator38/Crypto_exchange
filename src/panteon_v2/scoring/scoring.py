@@ -44,6 +44,17 @@ class ScoringConfig:
     activity_weight:   float = 0.008
     win_bonus_divisor: float = 18.0  # (win_rate - 50) / divisor
 
+    # Per-trade PnL компонента (live no-trade fix). При True pnl_component берётся
+    # из СРЕДНЕГО PnL на сделку, а не кумулятивного pnl_pct. Это убирает перекос,
+    # где безубыточный актор с сотнями сделок (cum≈−6.75% = −0.01%/сделку) получает
+    # огромный отрицательный score и навсегда блокируется гейтом. Default False —
+    # сохраняет историческую калибровку (min_score_to_trade и т.п.). Включать
+    # вместе с рекалибровкой порогов и ретро-валидацией.
+    use_per_trade_pnl: bool = False
+    # Множитель шкалы для per-trade pnl (per-trade ~ в 100x меньше кумулятива).
+    # Приводит per-trade компоненту к сопоставимому со sharpe/win_bonus масштабу.
+    per_trade_pnl_scale: float = 1.0
+
     # Cap-ы для активности (чтобы не давать мега-бонус за shotgun-стрельбу)
     activity_signals_cap: int = 30
 
@@ -138,7 +149,12 @@ def regime_score(
     # собственные ворота (closed >= 2 / closed >= 3), но pnl и просадка
     # учитываются всегда. Это снимает немонотонность в pnl_pct при closed < 2.
 
-    pnl_component     = metrics.pnl_pct * config.pnl_weight
+    if config.use_per_trade_pnl:
+        pnl_component = (
+            metrics.pnl_per_trade * config.per_trade_pnl_scale * config.pnl_weight
+        )
+    else:
+        pnl_component = metrics.pnl_pct * config.pnl_weight
     sharpe_component  = (
         metrics.sharpe * config.sharpe_weight
         if metrics.closed_trades >= 2

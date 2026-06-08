@@ -36,6 +36,7 @@ from ..attribution import (
 )
 from ..domain.types import MarketSnapshot, Regime
 from ..execution import FakeExchange, RiskLimitsConfig
+from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import AgentRegistry, FlashAllocatorConfig, StrategistConfig
 from ..selection.promotion_manifest import (
     PromotionManifestConfig,
@@ -270,6 +271,9 @@ class RetrodateMarketConfig:
     voting_directional: bool = False
     flash_gate_pnl_per_trade_enabled: bool = False
     perf_max_returns_history: int = 0
+    use_per_trade_pnl_score: bool = False
+    per_trade_pnl_scale: float = 1.0
+    min_eligible_score: float = 0.0
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1249,6 +1253,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         risk_config=_build_risk_config(config),
         flash_enabled=config.flash_enabled,
         flash_allocator_config=_build_flash_allocator_config(config),
+        scoring_config=_build_scoring_config(config),
         perf_max_returns_history=int(config.perf_max_returns_history),
         voting_directional=bool(config.voting_directional),
     )
@@ -1581,6 +1586,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         voting_directional=args.voting_directional,
         flash_gate_pnl_per_trade_enabled=args.flash_gate_pnl_per_trade,
         perf_max_returns_history=args.perf_max_returns_history,
+        use_per_trade_pnl_score=args.use_per_trade_pnl_score,
+        per_trade_pnl_scale=args.per_trade_pnl_scale,
+        min_eligible_score=args.min_eligible_score,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2229,6 +2237,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0,
         help="Phase 3/C6: cap per-(label,regime) returns ring buffer (0 = unlimited).",
     )
+    parser.add_argument(
+        "--use-per-trade-pnl-score",
+        action="store_true",
+        help="Live no-trade fix: regime_score uses per-trade pnl instead of cumulative.",
+    )
+    parser.add_argument(
+        "--per-trade-pnl-scale",
+        type=float,
+        default=1.0,
+        help="Scale factor for the per-trade pnl score component.",
+    )
+    parser.add_argument(
+        "--min-eligible-score",
+        type=float,
+        default=0.0,
+        help="Selector min eligible score (recalibrate when using per-trade scoring).",
+    )
     parser.add_argument("--risk-max-leverage", type=int, default=5)
     parser.add_argument("--apply-risk-leverage-to-notional", action="store_true")
     parser.add_argument("--include-optional-agents", action="store_true")
@@ -2815,6 +2840,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Disable non-Flash strategist hard-policy vetoes for legacy-like runs.",
     )
     return parser
+
+
+def _build_scoring_config(config: RetrodateMarketConfig) -> ScoringConfig:
+    if not config.use_per_trade_pnl_score:
+        if config.min_eligible_score != DEFAULT_SCORING.min_eligible_score:
+            return ScoringConfig(min_eligible_score=config.min_eligible_score)
+        return DEFAULT_SCORING
+    return ScoringConfig(
+        use_per_trade_pnl=True,
+        per_trade_pnl_scale=config.per_trade_pnl_scale,
+        min_eligible_score=config.min_eligible_score,
+    )
 
 
 def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocatorConfig:
