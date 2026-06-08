@@ -241,6 +241,14 @@ class FlashAllocatorConfig:
     global_health_min_cum_pnl_pct: float = -5.0
     global_health_max_drawdown_pct: float = 100.0
     global_health_min_closed_trades: int = 50
+    # Agent-quality fix: regime-edge gate. Открывать актором только в режиме, где
+    # у него доказанный положительный per-trade эдж (с достаточной выборкой).
+    # Эдж регим-специфичен: LiveMeanRev прибылен в bearish (+7.97%), но бьётся в
+    # neutral (−1.35%). Гейт не даёт торговать агентом в режиме, где он не зарабатывает.
+    # Default off.
+    regime_edge_gate_enabled: bool = False
+    regime_edge_min_pnl_per_trade_pct: float = 0.0
+    regime_edge_min_closed_trades: int = 10
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -637,6 +645,8 @@ class FlashAllocatorConfig:
             raise ValueError("component_score_max_bias must be in [0, 1]")
         if self.global_health_min_closed_trades < 0:
             raise ValueError("global_health_min_closed_trades must be >= 0")
+        if self.regime_edge_min_closed_trades < 0:
+            raise ValueError("regime_edge_min_closed_trades must be >= 0")
         if self.shadow_confirmation_min_closed_trades < 0:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
@@ -1720,6 +1730,9 @@ class FlashAllocator:
             elif output.action.is_open and self._global_health_rejected(output.label):
                 rejected = True
                 reason = "global_health_veto"
+            elif output.action.is_open and self._regime_edge_rejected(output.label, local_regime):
+                rejected = True
+                reason = "regime_edge_veto"
             elif (
                 output.action.is_open
                 and
@@ -3842,6 +3855,24 @@ class FlashAllocator:
         if abs(agg.max_dd_pct) >= cfg.global_health_max_drawdown_pct:
             return True
         return False
+
+    def _regime_edge_rejected(self, label: str, regime: Regime) -> bool:
+        """Вето открытия, если у актора нет положительного per-trade эджа в ТЕКУЩЕМ
+        режиме (при достаточной выборке). Эдж регим-специфичен — не торгуем
+        агентом там, где он исторически не зарабатывает.
+        """
+        cfg = self._config
+        if not cfg.regime_edge_gate_enabled:
+            return False
+        metrics: Optional[Metrics] = None
+        for lookup_label in _solo_label_lookup_sequence(label):
+            candidate = self._perf.get(lookup_label, regime=regime)
+            if candidate.has_data:
+                metrics = candidate
+                break
+        if metrics is None or metrics.closed_trades < cfg.regime_edge_min_closed_trades:
+            return False
+        return metrics.pnl_per_trade <= cfg.regime_edge_min_pnl_per_trade_pct
 
     def _metrics_for_label(
         self,

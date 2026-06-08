@@ -3091,6 +3091,35 @@ class TestFlashAllocator(unittest.TestCase):
         rows_off = {r.label: r for r in decision_off.candidates}
         self.assertNotEqual(rows_off["GlobalLoser"].reason, "global_health_veto")
 
+    def test_regime_edge_veto_blocks_actor_in_losing_regime_allows_winning(self):
+        # Agent-quality: актор с +эджем в BEARISH, но −эджем в NEUTRAL.
+        # Гейт пускает его в bearish и вето́ирует в neutral.
+        agent = FakeAgent("RegimeSpec", {"BTC": Action.FUT_LONG_FULL})
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RegimeSpec", Regime.BEARISH, 20, 0.5, start_id=1)     # +edge
+        _add_perf(perf, "RegimeSpec", Regime.NEUTRAL, 20, -0.3, start_id=100)  # -edge
+        cfg = FlashAllocatorConfig(
+            min_closed_trades_to_trade=1, min_pnl_pct_to_trade=-999.0,
+            min_score_to_trade=-999.0,
+            regime_edge_gate_enabled=True,
+            regime_edge_min_pnl_per_trade_pct=0.0,
+            regime_edge_min_closed_trades=10,
+        )
+        allocator = FlashAllocator(perf=perf, qm=qm, config=cfg)
+        # BEARISH → пропуск (не regime_edge_veto)
+        dec_b = allocator.decide(
+            make_market(prices={"BTC": 100.0}, regime=Regime.BEARISH),
+            agents=[agent], players=[], signal_id_start=1)[0]
+        rb = {r.label: r for r in dec_b.candidates}["RegimeSpec"]
+        self.assertNotEqual(rb.reason, "regime_edge_veto")
+        # NEUTRAL → вето
+        dec_n = allocator.decide(
+            make_market(prices={"BTC": 100.0}, regime=Regime.NEUTRAL),
+            agents=[agent], players=[], signal_id_start=1)[0]
+        rn = {r.label: r for r in dec_n.candidates}["RegimeSpec"]
+        self.assertEqual(rn.reason, "regime_edge_veto")
+
     def test_no_trade_when_active_actor_has_negative_pnl(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
