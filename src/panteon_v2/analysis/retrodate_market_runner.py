@@ -286,6 +286,7 @@ class RetrodateMarketConfig:
     flash_regime_edge_gate_enabled: bool = False
     flash_regime_edge_min_pnl_per_trade_pct: float = 0.0
     flash_regime_edge_min_closed_trades: int = 10
+    flash_stable_pool_ranking_enabled: bool = False
     # Regime fidelity: использовать живой 8-режимный PriceRegimeDetector в ретро
     # (вместо примитивного BTC-24-bar 4-режимного), чтобы тест был репрезентативен.
     use_live_regime_detector: bool = False
@@ -1626,6 +1627,7 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         flash_regime_edge_gate_enabled=args.flash_regime_edge_gate,
         flash_regime_edge_min_pnl_per_trade_pct=args.flash_regime_edge_min_pnl_per_trade_pct,
         flash_regime_edge_min_closed_trades=args.flash_regime_edge_min_closed_trades,
+        flash_stable_pool_ranking_enabled=args.flash_stable_pool_ranking,
         use_live_regime_detector=args.use_live_regime_detector,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
@@ -2296,6 +2298,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Use the live 8-regime PriceRegimeDetector instead of the crude BTC-24bar classifier.")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
+    parser.add_argument("--flash-stable-pool-ranking", action="store_true",
+                        help="Rank actors by stable per-regime edge instead of volatile per-symbol score (anti-chasing).")
     parser.add_argument("--flash-regime-edge-min-pnl-per-trade-pct", type=float, default=0.0)
     parser.add_argument("--flash-regime-edge-min-closed-trades", type=int, default=10)
     parser.add_argument("--scoring-pnl-weight", type=float, default=0.62)
@@ -2940,6 +2944,7 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         regime_edge_gate_enabled=config.flash_regime_edge_gate_enabled,
         regime_edge_min_pnl_per_trade_pct=config.flash_regime_edge_min_pnl_per_trade_pct,
         regime_edge_min_closed_trades=config.flash_regime_edge_min_closed_trades,
+        stable_pool_ranking_enabled=config.flash_stable_pool_ranking_enabled,
         shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
         shadow_symbol_confirmation_enabled=(
             config.flash_symbol_shadow_confirmation_enabled

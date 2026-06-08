@@ -249,6 +249,11 @@ class FlashAllocatorConfig:
     regime_edge_gate_enabled: bool = False
     regime_edge_min_pnl_per_trade_pct: float = 0.0
     regime_edge_min_closed_trades: int = 10
+    # Stable-pool ранжирование: выбирать актора по СТАБИЛЬНОМУ per-regime эджу
+    # (pnl_per_trade по всем символам режима), а не по волатильному
+    # per-(symbol,regime) score. Это устраняет анти-предиктивный performance-
+    # chasing (score пиково растёт после выигрыша → вход на реверсию). Default off.
+    stable_pool_ranking_enabled: bool = False
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -1031,6 +1036,9 @@ class FlashCandidateAudit:
     base_score: float = 0.0
     effective_score: float = 0.0
     gate_score: float = 0.0
+    # Стабильный per-regime эдж (pnl_per_trade по всем символам режима) — для
+    # stable-pool ранжирования вместо волатильного per-(symbol,regime) score.
+    stable_edge: float = 0.0
     rank: int = 0
     rejected: bool = False
     reason: str = ""
@@ -1927,6 +1935,7 @@ class FlashAllocator:
                 base_score=base_score,
                 effective_score=effective_score,
                 gate_score=gate_score,
+                stable_edge=self._stable_regime_edge(output.label, local_regime),
                 action=output.action,
                 rejected=rejected,
                 reason=reason,
@@ -1991,15 +2000,29 @@ class FlashAllocator:
                 ),
             ))
 
-        rows.sort(
-            key=lambda row: (
-                row.rejected,
-                not row.action.is_close,
-                -row.score,
-                -row.closed_trades,
-                _stable_candidate_tiebreak(row, market.bar),
+        if self._config.stable_pool_ranking_enabled:
+            # Ранжируем по стабильному per-regime эджу (не по волатильному score):
+            # закреплённый актор торгует свой полный поток, а не реверсивную подвыборку.
+            rows.sort(
+                key=lambda row: (
+                    row.rejected,
+                    not row.action.is_close,
+                    -row.stable_edge,
+                    -row.closed_trades,
+                    -row.score,
+                    _stable_candidate_tiebreak(row, market.bar),
+                )
             )
-        )
+        else:
+            rows.sort(
+                key=lambda row: (
+                    row.rejected,
+                    not row.action.is_close,
+                    -row.score,
+                    -row.closed_trades,
+                    _stable_candidate_tiebreak(row, market.bar),
+                )
+            )
         ranked = tuple(replace(row, rank=i + 1) for i, row in enumerate(rows))
         terminal_denied = self._terminal_denied_top_candidate(ranked, market.bar)
         if terminal_denied is not None:
@@ -3855,6 +3878,16 @@ class FlashAllocator:
         if abs(agg.max_dd_pct) >= cfg.global_health_max_drawdown_pct:
             return True
         return False
+
+    def _stable_regime_edge(self, label: str, regime: Regime) -> float:
+        """Стабильный per-regime эдж актора = pnl_per_trade по всем символам
+        режима (медленно меняется, не шумит как per-symbol score).
+        """
+        for lookup_label in _solo_label_lookup_sequence(label):
+            metrics = self._perf.get(lookup_label, regime=regime)
+            if metrics.has_data:
+                return float(metrics.pnl_per_trade)
+        return 0.0
 
     def _regime_edge_rejected(self, label: str, regime: Regime) -> bool:
         """Вето открытия, если у актора нет положительного per-trade эджа в ТЕКУЩЕМ
