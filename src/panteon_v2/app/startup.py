@@ -960,6 +960,33 @@ def _flash_allocator_config_from_settings(
             ),
             False,
         ),
+        global_health_gate_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_global_health_gate_enabled",
+                "v2_flash_global_health_gate_enabled",
+                "flash_global_health_gate_enabled",
+            ),
+            False,
+        ),
+        global_health_min_cum_pnl_pct=_settings_float(
+            settings,
+            (
+                "panteon_flash_global_health_min_cum_pnl_pct",
+                "v2_flash_global_health_min_cum_pnl_pct",
+                "flash_global_health_min_cum_pnl_pct",
+            ),
+            -5.0,
+        ),
+        global_health_min_closed_trades=int(_settings_float(
+            settings,
+            (
+                "panteon_flash_global_health_min_closed_trades",
+                "v2_flash_global_health_min_closed_trades",
+                "flash_global_health_min_closed_trades",
+            ),
+            50.0,
+        )),
         shadow_confirmation_enabled=_settings_bool(
             settings,
             (
@@ -1987,7 +2014,7 @@ def _resolve_flash_enabled(exchange_name: str) -> bool:
 
 
 def _resolve_scoring_config(exchange_name: str) -> ScoringConfig:
-    """Live no-trade fix: per-trade PnL в regime_score (opt-in через settings)."""
+    """Scoring overrides из settings: per-trade PnL + consistency-tilt веса."""
     settings = _load_exchange_settings(exchange_name)
     use_per_trade = _settings_bool(
         settings,
@@ -1998,24 +2025,40 @@ def _resolve_scoring_config(exchange_name: str) -> ScoringConfig:
         ),
         False,
     )
-    if not use_per_trade:
+    pnl_w = _settings_float(
+        settings, ("v2_scoring_pnl_weight", "scoring_pnl_weight"),
+        DEFAULT_SCORING.pnl_weight,
+    )
+    sharpe_w = _settings_float(
+        settings, ("v2_scoring_sharpe_weight", "scoring_sharpe_weight"),
+        DEFAULT_SCORING.sharpe_weight,
+    )
+    win_div = _settings_float(
+        settings, ("v2_scoring_win_bonus_divisor", "scoring_win_bonus_divisor"),
+        DEFAULT_SCORING.win_bonus_divisor,
+    )
+    min_eligible = _settings_float(
+        settings, ("v2_min_eligible_score", "min_eligible_score"),
+        DEFAULT_SCORING.min_eligible_score,
+    )
+    if (
+        not use_per_trade
+        and pnl_w == DEFAULT_SCORING.pnl_weight
+        and sharpe_w == DEFAULT_SCORING.sharpe_weight
+        and win_div == DEFAULT_SCORING.win_bonus_divisor
+        and min_eligible == DEFAULT_SCORING.min_eligible_score
+    ):
         return DEFAULT_SCORING
     scale = _settings_float(
         settings,
-        (
-            "panteon_per_trade_pnl_scale",
-            "v2_per_trade_pnl_scale",
-            "per_trade_pnl_scale",
-        ),
+        ("panteon_per_trade_pnl_scale", "v2_per_trade_pnl_scale", "per_trade_pnl_scale"),
         1.0,
     )
-    min_eligible = _settings_float(
-        settings,
-        ("v2_min_eligible_score", "min_eligible_score"),
-        DEFAULT_SCORING.min_eligible_score,
-    )
     return ScoringConfig(
-        use_per_trade_pnl=True,
+        pnl_weight=pnl_w,
+        sharpe_weight=sharpe_w,
+        win_bonus_divisor=win_div,
+        use_per_trade_pnl=use_per_trade,
         per_trade_pnl_scale=scale,
         min_eligible_score=min_eligible,
     )

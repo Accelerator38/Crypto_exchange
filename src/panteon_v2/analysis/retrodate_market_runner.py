@@ -274,6 +274,11 @@ class RetrodateMarketConfig:
     use_per_trade_pnl_score: bool = False
     per_trade_pnl_scale: float = 1.0
     min_eligible_score: float = 0.0
+    # Consistency-tilted scoring: сместить вес с PnL (реверсит) на win-rate/sharpe
+    # (стабильные предикторы). Defaults = текущие значения ScoringConfig.
+    scoring_pnl_weight: float = 0.62
+    scoring_sharpe_weight: float = 0.34
+    scoring_win_bonus_divisor: float = 18.0
     flash_global_health_gate_enabled: bool = False
     flash_global_health_min_cum_pnl_pct: float = -5.0
     flash_global_health_min_closed_trades: int = 50
@@ -1592,6 +1597,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         use_per_trade_pnl_score=args.use_per_trade_pnl_score,
         per_trade_pnl_scale=args.per_trade_pnl_scale,
         min_eligible_score=args.min_eligible_score,
+        scoring_pnl_weight=args.scoring_pnl_weight,
+        scoring_sharpe_weight=args.scoring_sharpe_weight,
+        scoring_win_bonus_divisor=args.scoring_win_bonus_divisor,
         flash_global_health_gate_enabled=args.flash_global_health_gate,
         flash_global_health_min_cum_pnl_pct=args.flash_global_health_min_cum_pnl_pct,
         flash_global_health_min_closed_trades=args.flash_global_health_min_closed_trades,
@@ -2260,6 +2268,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Selector min eligible score (recalibrate when using per-trade scoring).",
     )
+    parser.add_argument("--scoring-pnl-weight", type=float, default=0.62)
+    parser.add_argument("--scoring-sharpe-weight", type=float, default=0.34)
+    parser.add_argument("--scoring-win-bonus-divisor", type=float, default=18.0)
     parser.add_argument(
         "--flash-global-health-gate",
         action="store_true",
@@ -2866,12 +2877,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _build_scoring_config(config: RetrodateMarketConfig) -> ScoringConfig:
-    if not config.use_per_trade_pnl_score:
-        if config.min_eligible_score != DEFAULT_SCORING.min_eligible_score:
-            return ScoringConfig(min_eligible_score=config.min_eligible_score)
+    # Если ничего не переопределено — отдаём дефолтный синглтон.
+    if (
+        not config.use_per_trade_pnl_score
+        and config.min_eligible_score == DEFAULT_SCORING.min_eligible_score
+        and config.scoring_pnl_weight == DEFAULT_SCORING.pnl_weight
+        and config.scoring_sharpe_weight == DEFAULT_SCORING.sharpe_weight
+        and config.scoring_win_bonus_divisor == DEFAULT_SCORING.win_bonus_divisor
+    ):
         return DEFAULT_SCORING
     return ScoringConfig(
-        use_per_trade_pnl=True,
+        pnl_weight=config.scoring_pnl_weight,
+        sharpe_weight=config.scoring_sharpe_weight,
+        win_bonus_divisor=config.scoring_win_bonus_divisor,
+        use_per_trade_pnl=config.use_per_trade_pnl_score,
         per_trade_pnl_scale=config.per_trade_pnl_scale,
         min_eligible_score=config.min_eligible_score,
     )
