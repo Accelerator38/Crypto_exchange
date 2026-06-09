@@ -1638,6 +1638,21 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         flash_regime_edge_min_pnl_per_trade_pct=args.flash_regime_edge_min_pnl_per_trade_pct,
         flash_regime_edge_min_closed_trades=args.flash_regime_edge_min_closed_trades,
         flash_stable_pool_ranking_enabled=args.flash_stable_pool_ranking,
+        soft_allocator_execution_enabled=bool(args.enable_soft_allocator_execution),
+        soft_allocator_execution_policy=(
+            SoftAllocatorPolicy(
+                name="cli_regime_portfolio",
+                score_scope=args.soft_allocator_score_scope,
+                score_mode="top",
+                top_k=args.soft_allocator_top_k,
+                half_life_bars=args.soft_allocator_half_life_bars,
+                min_closed_trades=args.soft_allocator_min_closed,
+                cash_reserve_weight=args.soft_allocator_cash_reserve,
+                max_weight_per_leader=args.soft_allocator_max_weight_per_leader,
+            )
+            if args.enable_soft_allocator_execution
+            else None
+        ),
         use_live_regime_detector=args.use_live_regime_detector,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
@@ -2316,6 +2331,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-stable-pool-ranking", action="store_true",
                         help="Rank actors by stable per-regime edge instead of volatile per-symbol score (anti-chasing).")
+    # Roadmap #1: портфельная аллокация (OnlineSoftAllocator) — торговать полные
+    # потоки нескольких проверенных агентов с весами на режим (а не winner-take-all).
+    parser.add_argument("--enable-soft-allocator-execution", action="store_true",
+                        help="Portfolio mode: trade weighted full streams of top-k regime-proven agents.")
+    parser.add_argument("--soft-allocator-score-scope", default="regime", choices=("regime", "global"))
+    parser.add_argument("--soft-allocator-top-k", type=int, default=3)
+    parser.add_argument("--soft-allocator-half-life-bars", type=int, default=2160)
+    parser.add_argument("--soft-allocator-min-closed", type=int, default=20)
+    parser.add_argument("--soft-allocator-cash-reserve", type=float, default=0.15)
+    parser.add_argument("--soft-allocator-max-weight-per-leader", type=float, default=0.45)
     parser.add_argument("--flash-regime-edge-min-pnl-per-trade-pct", type=float, default=0.0)
     parser.add_argument("--flash-regime-edge-min-closed-trades", type=int, default=10)
     parser.add_argument("--scoring-pnl-weight", type=float, default=0.62)
