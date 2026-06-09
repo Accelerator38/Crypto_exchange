@@ -293,6 +293,8 @@ class RetrodateMarketConfig:
     # Regime fidelity: использовать живой 8-режимный PriceRegimeDetector в ретро
     # (вместо примитивного BTC-24-bar 4-режимного), чтобы тест был репрезентативен.
     use_live_regime_detector: bool = False
+    # Гибрид: режимы (имена), в которых использовать strategist-путь вместо flash.
+    hybrid_strategist_regimes: tuple[str, ...] = ()
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1292,6 +1294,16 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         perf_max_returns_history=int(config.perf_max_returns_history),
         voting_directional=bool(config.voting_directional),
     )
+    # Гибрид: режимы, где используется strategist-путь вместо flash.
+    _hybrid_regimes = []
+    for name in config.hybrid_strategist_regimes:
+        key = str(name or "").strip().upper()
+        if key:
+            try:
+                _hybrid_regimes.append(Regime[key])
+            except KeyError:
+                pass
+    pipeline.hybrid_strategist_regimes = tuple(_hybrid_regimes)
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
@@ -1654,6 +1666,9 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             else None
         ),
         use_live_regime_detector=args.use_live_regime_detector,
+        hybrid_strategist_regimes=tuple(
+            r.strip() for r in str(args.hybrid_strategist_regimes or "").split(",") if r.strip()
+        ),
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2327,6 +2342,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--use-live-regime-detector", action="store_true",
                         help="Use the live 8-regime PriceRegimeDetector instead of the crude BTC-24bar classifier.")
+    parser.add_argument("--hybrid-strategist-regimes", default="",
+                        help="Comma-separated regimes to route to the aggressive strategist path instead of flash (e.g. bullish,crash,choppy_up).")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-stable-pool-ranking", action="store_true",

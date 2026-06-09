@@ -673,7 +673,13 @@ def _run_one_bar(
             kill_reason=kill_reason,
         )
 
-    if bool(getattr(pipeline, "flash_enabled", False)):
+    use_flash = bool(getattr(pipeline, "flash_enabled", False))
+    # Гибрид: в трендовых режимах используем агрессивный strategist-путь
+    # (он кратно лучше ловит тренды), в остальных — консервативный flash.
+    hybrid_regimes = getattr(pipeline, "hybrid_strategist_regimes", ()) or ()
+    if use_flash and hybrid_regimes and market.regime in hybrid_regimes:
+        use_flash = False
+    if use_flash:
         return _run_flash_decision_path(
             pipeline,
             market,

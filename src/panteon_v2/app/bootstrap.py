@@ -432,6 +432,9 @@ class ProductionPipeline:
     kill_switch: KillSwitchState = field(default_factory=KillSwitchState)
     flash_enabled: bool = False
     shadow_agent_labels: tuple[str, ...] = ()
+    # Гибрид: в этих режимах используется агрессивный strategist-путь вместо flash
+    # (strategist кратно лучше ловит тренды, flash консервативнее в choppy).
+    hybrid_strategist_regimes: tuple[Regime, ...] = ()
 
 
 # ────────────────────────────────────────────────────────────────────
