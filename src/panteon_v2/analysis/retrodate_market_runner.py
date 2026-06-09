@@ -298,6 +298,12 @@ class RetrodateMarketConfig:
     # Период-уровневый триггер тренда (правильный): окно и порог трейлинг BTC-return.
     hybrid_trend_window_bars: int = 0
     hybrid_trend_threshold_pct: float = 15.0
+    # Медленный переключатель пути (#1): меняет путь только flat + после dwell.
+    hybrid_slow_switch_enabled: bool = False
+    hybrid_min_dwell_bars: int = 720
+    # #4: порог согласия символов для директивного режима (ниже 0.50 → меньше mixed).
+    regime_min_directional_consensus: float = 0.50
+    flash_min_regime_confidence_to_open: float = 0.0
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1088,6 +1094,7 @@ def load_retrodate_year_snapshots(
     state: RetrodateSnapshotState,
     max_snapshots: Optional[int] = None,
     use_live_regime_detector: bool = False,
+    regime_min_directional_consensus: float = 0.50,
 ) -> list[MarketSnapshot]:
     """Load one yearly CSV into chronological multi-symbol market snapshots."""
     if stride_minutes <= 0:
@@ -1154,7 +1161,10 @@ def load_retrodate_year_snapshots(
         }
         if use_live_regime_detector:
             if state.regime_detector is None:
-                state.regime_detector = PriceRegimeDetector(exchange_name="RETRODATE")
+                state.regime_detector = PriceRegimeDetector(
+                    exchange_name="RETRODATE",
+                    min_directional_consensus=regime_min_directional_consensus,
+                )
             regime = state.regime_detector.update(prices, volumes=volumes)
             confidence = float(state.regime_detector.confidence)
             regimes_by_symbol = dict(state.regime_detector.symbol_regimes)
@@ -1309,6 +1319,8 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     pipeline.hybrid_strategist_regimes = tuple(_hybrid_regimes)
     pipeline.hybrid_trend_window_bars = int(config.hybrid_trend_window_bars)
     pipeline.hybrid_trend_threshold_pct = float(config.hybrid_trend_threshold_pct)
+    pipeline.hybrid_slow_switch_enabled = bool(config.hybrid_slow_switch_enabled)
+    pipeline.hybrid_min_dwell_bars = int(config.hybrid_min_dwell_bars)
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
@@ -1464,6 +1476,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
                 state=state,
                 max_snapshots=remaining,
                 use_live_regime_detector=config.use_live_regime_detector,
+                regime_min_directional_consensus=config.regime_min_directional_consensus,
             )
             if remaining is not None:
                 snapshots = snapshots[:remaining]
@@ -1676,6 +1689,10 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         hybrid_trend_window_bars=args.hybrid_trend_window_bars,
         hybrid_trend_threshold_pct=args.hybrid_trend_threshold_pct,
+        hybrid_slow_switch_enabled=args.hybrid_slow_switch,
+        hybrid_min_dwell_bars=args.hybrid_min_dwell_bars,
+        regime_min_directional_consensus=args.regime_min_directional_consensus,
+        flash_min_regime_confidence_to_open=args.flash_min_regime_confidence_to_open,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2355,6 +2372,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Period-level trend trigger: window for trailing BTC return (0=off). E.g. 720 = 30d hourly.")
     parser.add_argument("--hybrid-trend-threshold-pct", type=float, default=15.0,
                         help="If |trailing BTC return| over the window >= this %%, use aggressive strategist path.")
+    parser.add_argument("--hybrid-slow-switch", action="store_true",
+                        help="#1: switch flash<->strategist only when flat + after dwell (no mid-run corruption).")
+    parser.add_argument("--hybrid-min-dwell-bars", type=int, default=720,
+                        help="Min bars a path stays active before a switch is allowed.")
+    parser.add_argument("--regime-min-directional-consensus", type=float, default=0.50,
+                        help="#4: symbol consensus for a directional regime (lower = less mixed_rotational).")
+    parser.add_argument("--flash-min-regime-confidence-to-open", type=float, default=0.0,
+                        help="#3: do not open when regime confidence is below this (0=off).")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-stable-pool-ranking", action="store_true",
@@ -3013,6 +3038,7 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         regime_edge_gate_enabled=config.flash_regime_edge_gate_enabled,
         regime_edge_min_pnl_per_trade_pct=config.flash_regime_edge_min_pnl_per_trade_pct,
         regime_edge_min_closed_trades=config.flash_regime_edge_min_closed_trades,
+        min_regime_confidence_to_open=config.flash_min_regime_confidence_to_open,
         stable_pool_ranking_enabled=config.flash_stable_pool_ranking_enabled,
         shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
         shadow_symbol_confirmation_enabled=(

@@ -441,6 +441,11 @@ class ProductionPipeline:
     # период-уровневое, не бар-уровневое).
     hybrid_trend_window_bars: int = 0
     hybrid_trend_threshold_pct: float = 15.0
+    # Медленный переключатель пути (#1): меняет flash↔strategist ТОЛЬКО когда flat
+    # (нет открытых позиций) и после dwell-периода → strategist работает непрерывно
+    # между сменами (без коррупции эджа от mid-run чередования). Default off.
+    hybrid_slow_switch_enabled: bool = False
+    hybrid_min_dwell_bars: int = 720
 
 
 # ────────────────────────────────────────────────────────────────────

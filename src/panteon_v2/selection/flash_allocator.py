@@ -254,6 +254,10 @@ class FlashAllocatorConfig:
     # per-(symbol,regime) score. Это устраняет анти-предиктивный performance-
     # chasing (score пиково растёт после выигрыша → вход на реверсию). Default off.
     stable_pool_ranking_enabled: bool = False
+    # #3 (предиктивный вход, non-ML): не открывать, когда уверенность режима ниже
+    # порога — неуверенные (mixed/переходные) рынки = зона кровотечения. Мягко
+    # предиктивно: уверенные режимы устойчивее. Default 0.0 = off.
+    min_regime_confidence_to_open: float = 0.0
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -1741,6 +1745,14 @@ class FlashAllocator:
             elif output.action.is_open and self._regime_edge_rejected(output.label, local_regime):
                 rejected = True
                 reason = "regime_edge_veto"
+            elif (
+                output.action.is_open
+                and self._config.min_regime_confidence_to_open > 0.0
+                and float(getattr(market, "regime_confidence", 1.0))
+                < self._config.min_regime_confidence_to_open
+            ):
+                rejected = True
+                reason = "low_regime_confidence"
             elif (
                 output.action.is_open
                 and

@@ -78,6 +78,7 @@ class PriceRegimeDetector:
         choppy_volatility_percentile: float = 0.80,
         regime_thresholds: Mapping[str, Mapping[str, float]] | None = None,
         use_builtin_regime_thresholds: bool = True,
+        min_directional_consensus: float = 0.50,
     ) -> None:
         self.exchange_name = str(exchange_name or "").strip().upper()
         self.lookback = max(2, int(lookback or 2))
@@ -99,6 +100,9 @@ class PriceRegimeDetector:
             0.0,
             min(1.0, float(choppy_volatility_percentile)),
         )
+        # #4: порог согласия символов для директивного режима (vs mixed_rotational).
+        # Ниже 0.50 → меньше mixed_rotational, больше bullish/bearish/choppy.
+        self.min_directional_consensus = max(0.0, min(1.0, float(min_directional_consensus)))
         threshold_source: Dict[str, Mapping[str, float]] = {}
         if use_builtin_regime_thresholds:
             threshold_source.update(_BUILTIN_REGIME_THRESHOLDS)
@@ -266,11 +270,11 @@ class PriceRegimeDetector:
         if n_pos and n_neg:
             return Regime.MIXED_ROTATIONAL, self._agreement_confidence(max(n_pos, n_neg), len(regimes))
         if n_pos:
-            if n_pos / len(regimes) >= 0.50:
+            if n_pos / len(regimes) >= self.min_directional_consensus:
                 return self._dominant_trend_regime(regimes, positives), self._agreement_confidence(n_pos, len(regimes))
             return Regime.MIXED_ROTATIONAL, self._agreement_confidence(n_pos, len(regimes))
         if n_neg:
-            if n_neg / len(regimes) >= 0.50:
+            if n_neg / len(regimes) >= self.min_directional_consensus:
                 return self._dominant_trend_regime(regimes, negatives), self._agreement_confidence(n_neg, len(regimes))
             return Regime.MIXED_ROTATIONAL, self._agreement_confidence(n_neg, len(regimes))
 

@@ -673,17 +673,7 @@ def _run_one_bar(
             kill_reason=kill_reason,
         )
 
-    use_flash = bool(getattr(pipeline, "flash_enabled", False))
-    # Гибрид: переключаем на агрессивный strategist-путь, когда рынок трендит.
-    if use_flash:
-        if _hybrid_market_trending(pipeline, market):
-            # Период-уровневый триггер (правильный): сильный трейлинг-тренд.
-            use_flash = False
-        else:
-            # Бар-уровневый триггер (legacy, по умолчанию выключен).
-            hybrid_regimes = getattr(pipeline, "hybrid_strategist_regimes", ()) or ()
-            if hybrid_regimes and market.regime in hybrid_regimes:
-                use_flash = False
+    use_flash = _hybrid_resolve_use_flash(pipeline, market)
     if use_flash:
         return _run_flash_decision_path(
             pipeline,
@@ -6112,6 +6102,56 @@ def _record_player_vote_failure(
         reason=reason,
     ))
     getattr(pipeline, "real_perf", pipeline.perf).record_actor_failure(player_label, market.regime)
+
+
+def _hybrid_open_position_count(pipeline: ProductionPipeline) -> int:
+    tracker = getattr(pipeline, "position_tracker", None)
+    if tracker is None:
+        return 0
+    try:
+        oc = getattr(tracker, "open_count", None)
+        if callable(oc):
+            return int(oc())
+        all_open = getattr(tracker, "all_open", None)
+        if callable(all_open):
+            return len(all_open() or {})
+    except Exception:
+        return 0
+    return 0
+
+
+def _hybrid_resolve_use_flash(pipeline: ProductionPipeline, market: MarketSnapshot) -> bool:
+    """Решает, использовать ли flash-путь (vs агрессивный strategist).
+
+    Режимы:
+      • slow switch (#1, рекомендуемый): меняет путь ТОЛЬКО когда flat и после
+        dwell — strategist работает непрерывно, без коррупции эджа.
+      • legacy per-bar (по умолчанию выключен): мгновенный период/бар-триггер
+        (доказанно коррумпирует strategist — оставлено для совместимости).
+    """
+    if not bool(getattr(pipeline, "flash_enabled", False)):
+        return False
+    trending = _hybrid_market_trending(pipeline, market)
+
+    if bool(getattr(pipeline, "hybrid_slow_switch_enabled", False)):
+        desired = "strategist" if trending else "flash"
+        current = str(getattr(pipeline, "_hybrid_active_path", "flash") or "flash")
+        if current != desired:
+            flat = _hybrid_open_position_count(pipeline) == 0
+            since = int(getattr(pipeline, "_hybrid_path_since_bar", 0) or 0)
+            dwell = int(getattr(pipeline, "hybrid_min_dwell_bars", 720) or 0)
+            if flat and (int(market.bar) - since) >= dwell:
+                pipeline._hybrid_active_path = desired
+                pipeline._hybrid_path_since_bar = int(market.bar)
+        return str(getattr(pipeline, "_hybrid_active_path", "flash") or "flash") == "flash"
+
+    # legacy per-bar (off by default)
+    if trending:
+        return False
+    hybrid_regimes = getattr(pipeline, "hybrid_strategist_regimes", ()) or ()
+    if hybrid_regimes and market.regime in hybrid_regimes:
+        return False
+    return True
 
 
 def _hybrid_market_trending(pipeline: ProductionPipeline, market: MarketSnapshot) -> bool:
