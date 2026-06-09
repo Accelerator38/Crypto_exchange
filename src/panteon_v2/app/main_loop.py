@@ -674,11 +674,16 @@ def _run_one_bar(
         )
 
     use_flash = bool(getattr(pipeline, "flash_enabled", False))
-    # Гибрид: в трендовых режимах используем агрессивный strategist-путь
-    # (он кратно лучше ловит тренды), в остальных — консервативный flash.
-    hybrid_regimes = getattr(pipeline, "hybrid_strategist_regimes", ()) or ()
-    if use_flash and hybrid_regimes and market.regime in hybrid_regimes:
-        use_flash = False
+    # Гибрид: переключаем на агрессивный strategist-путь, когда рынок трендит.
+    if use_flash:
+        if _hybrid_market_trending(pipeline, market):
+            # Период-уровневый триггер (правильный): сильный трейлинг-тренд.
+            use_flash = False
+        else:
+            # Бар-уровневый триггер (legacy, по умолчанию выключен).
+            hybrid_regimes = getattr(pipeline, "hybrid_strategist_regimes", ()) or ()
+            if hybrid_regimes and market.regime in hybrid_regimes:
+                use_flash = False
     if use_flash:
         return _run_flash_decision_path(
             pipeline,
@@ -6107,6 +6112,44 @@ def _record_player_vote_failure(
         reason=reason,
     ))
     getattr(pipeline, "real_perf", pipeline.perf).record_actor_failure(player_label, market.regime)
+
+
+def _hybrid_market_trending(pipeline: ProductionPipeline, market: MarketSnapshot) -> bool:
+    """Период-уровневый триггер тренда: |трейлинг BTC-return| за окно ≥ порога.
+
+    Преимущество strategist-пути — период-уровневое (он выигрывает в трендовые
+    периоды целиком), поэтому переключаем путь по медленному трейлинг-тренду, а
+    не по бар-режиму. window=0 → выключено (всегда False).
+    """
+    window = int(getattr(pipeline, "hybrid_trend_window_bars", 0) or 0)
+    if window <= 0:
+        return False
+    prices = getattr(market, "prices", {}) or {}
+    btc = prices.get("BTC/USDT") or prices.get("BTCUSDT") or prices.get("BTC")
+    if btc is None:
+        return False
+    try:
+        btc = float(btc)
+    except (TypeError, ValueError):
+        return False
+    if btc <= 0:
+        return False
+    hist = getattr(pipeline, "_hybrid_trend_prices", None)
+    if hist is None:
+        from collections import deque as _deque
+        hist = _deque(maxlen=window)
+        pipeline._hybrid_trend_prices = hist
+    elif hist.maxlen != window:
+        from collections import deque as _deque
+        hist = _deque(hist, maxlen=window)
+        pipeline._hybrid_trend_prices = hist
+    anchor = float(hist[0]) if len(hist) >= window and hist[0] else 0.0
+    hist.append(btc)
+    if anchor <= 0:
+        return False
+    ret_pct = (btc / anchor - 1.0) * 100.0
+    threshold = float(getattr(pipeline, "hybrid_trend_threshold_pct", 15.0) or 15.0)
+    return abs(ret_pct) >= threshold
 
 
 def _live_config(pipeline: ProductionPipeline) -> Any:

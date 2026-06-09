@@ -295,6 +295,9 @@ class RetrodateMarketConfig:
     use_live_regime_detector: bool = False
     # Гибрид: режимы (имена), в которых использовать strategist-путь вместо flash.
     hybrid_strategist_regimes: tuple[str, ...] = ()
+    # Период-уровневый триггер тренда (правильный): окно и порог трейлинг BTC-return.
+    hybrid_trend_window_bars: int = 0
+    hybrid_trend_threshold_pct: float = 15.0
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -1304,6 +1307,8 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             except KeyError:
                 pass
     pipeline.hybrid_strategist_regimes = tuple(_hybrid_regimes)
+    pipeline.hybrid_trend_window_bars = int(config.hybrid_trend_window_bars)
+    pipeline.hybrid_trend_threshold_pct = float(config.hybrid_trend_threshold_pct)
     pipeline.mode = "retrodate_market"
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
@@ -1669,6 +1674,8 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         hybrid_strategist_regimes=tuple(
             r.strip() for r in str(args.hybrid_strategist_regimes or "").split(",") if r.strip()
         ),
+        hybrid_trend_window_bars=args.hybrid_trend_window_bars,
+        hybrid_trend_threshold_pct=args.hybrid_trend_threshold_pct,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -2344,6 +2351,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="Use the live 8-regime PriceRegimeDetector instead of the crude BTC-24bar classifier.")
     parser.add_argument("--hybrid-strategist-regimes", default="",
                         help="Comma-separated regimes to route to the aggressive strategist path instead of flash (e.g. bullish,crash,choppy_up).")
+    parser.add_argument("--hybrid-trend-window-bars", type=int, default=0,
+                        help="Period-level trend trigger: window for trailing BTC return (0=off). E.g. 720 = 30d hourly.")
+    parser.add_argument("--hybrid-trend-threshold-pct", type=float, default=15.0,
+                        help="If |trailing BTC return| over the window >= this %%, use aggressive strategist path.")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-stable-pool-ranking", action="store_true",

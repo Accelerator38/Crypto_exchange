@@ -435,6 +435,12 @@ class ProductionPipeline:
     # Гибрид: в этих режимах используется агрессивный strategist-путь вместо flash
     # (strategist кратно лучше ловит тренды, flash консервативнее в choppy).
     hybrid_strategist_regimes: tuple[Regime, ...] = ()
+    # Период-уровневый триггер: если |трейлинг BTC-return| за окно ≥ порога —
+    # рынок «трендит» → агрессивный strategist-путь; иначе консервативный flash.
+    # window=0 выключает. Это правильный триггер (преимущество strategist —
+    # период-уровневое, не бар-уровневое).
+    hybrid_trend_window_bars: int = 0
+    hybrid_trend_threshold_pct: float = 15.0
 
 
 # ────────────────────────────────────────────────────────────────────
