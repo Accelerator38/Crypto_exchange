@@ -1011,6 +1011,30 @@ def _flash_allocator_config_from_settings(
             ),
             50.0,
         )),
+        real_loss_gate_enabled=_settings_bool(
+            settings, ("v2_flash_real_loss_gate_enabled", "flash_real_loss_gate_enabled"), False,
+        ),
+        real_loss_gate_min_pnl_pct=_settings_float(
+            settings, ("v2_flash_real_loss_gate_min_pnl_pct", "flash_real_loss_gate_min_pnl_pct"), -0.5,
+        ),
+        real_loss_gate_min_closed_trades=int(_settings_float(
+            settings, ("v2_flash_real_loss_gate_min_closed_trades", "flash_real_loss_gate_min_closed_trades"), 5.0,
+        )),
+        fee_aware_admission_enabled=_settings_bool(
+            settings, ("v2_flash_fee_aware_admission_enabled", "flash_fee_aware_admission_enabled"), False,
+        ),
+        fee_aware_round_trip_cost_pct=_settings_float(
+            settings, ("v2_flash_fee_aware_round_trip_cost_pct", "flash_fee_aware_round_trip_cost_pct"), 0.06,
+        ),
+        churn_cooldown_bars=int(_settings_float(
+            settings, ("v2_flash_churn_cooldown_bars", "flash_churn_cooldown_bars"), 0.0,
+        )),
+        churn_max_opens_per_day=int(_settings_float(
+            settings, ("v2_flash_churn_max_opens_per_day", "flash_churn_max_opens_per_day"), 0.0,
+        )),
+        churn_anti_flip_enabled=_settings_bool(
+            settings, ("v2_flash_churn_anti_flip_enabled", "flash_churn_anti_flip_enabled"), False,
+        ),
         regime_edge_gate_enabled=_settings_bool(
             settings,
             (
