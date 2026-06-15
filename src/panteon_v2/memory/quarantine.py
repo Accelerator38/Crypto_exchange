@@ -117,6 +117,24 @@ class QuarantineManager:
         with self._lock:
             return frozenset(self._dynamic)
 
+    def snapshot(self) -> list:
+        """Persistent-quarantine (#4): рантайм-карантин (без seed) для snapshot.
+
+        Сохраняем только динамически добавленные лейблы — seed приходит из конфига.
+        """
+        with self._lock:
+            return sorted(self._dynamic - set(self._seed))
+
+    def restore(self, labels) -> None:
+        """Восстановить рантайм-карантин из snapshot (переживает рестарт)."""
+        if not labels:
+            return
+        with self._lock:
+            for label in labels:
+                clean = str(label or "").strip()
+                if clean:
+                    self._dynamic.add(clean)
+
     def release_override_labels(self) -> FrozenSet[str]:
         """Labels allowed to stay out of old-memory hopeless quarantine."""
         with self._lock:

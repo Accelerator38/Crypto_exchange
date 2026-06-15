@@ -226,6 +226,7 @@ def save_v2_snapshot(
     order_ledger = None,
     position_tracker = None,
     shadow_positions: Optional[Mapping[str, Sequence[Mapping[str, object]]]] = None,
+    qm = None,
 ) -> None:
     """Сохранить PerformanceMemory snapshot в JSON."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -240,6 +241,11 @@ def save_v2_snapshot(
         snapshot["_shadow_player_positions"] = _json_safe_shadow_positions(
             shadow_positions
         )
+    if qm is not None and hasattr(qm, "snapshot"):
+        try:
+            snapshot["_quarantine"] = list(qm.snapshot())
+        except Exception:
+            pass
     # Атомарная запись: пишем во временный файл, fsync, затем os.replace.
     # Это предотвращает потерю всей памяти при креше/убийстве процесса
     # посреди json.dump (см. аудит C1). os.replace атомарен и на Windows,
@@ -270,6 +276,7 @@ def load_v2_snapshot(
     order_ledger = None,
     position_tracker = None,
     shadow_positions_target: Optional[dict] = None,
+    qm = None,
 ) -> bool:
     """Загрузить PerformanceMemory snapshot из JSON. True если успешно.
 
@@ -292,6 +299,11 @@ def load_v2_snapshot(
             shadow_positions_target.update(
                 _restore_shadow_positions(snap.get("_shadow_player_positions") or {})
             )
+        if qm is not None and hasattr(qm, "restore"):
+            try:
+                qm.restore(snap.get("_quarantine") or [])
+            except Exception:
+                pass
         return True
     except (json.JSONDecodeError, OSError) as exc:
         log.warning("load_v2_snapshot failed (%s): %s", path, exc)

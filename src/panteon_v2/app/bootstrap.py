@@ -130,6 +130,9 @@ class LiveExecutionConfig:
     genetics_probation_max_real_trades: int = 20
     genetics_probation_max_daily_trades: int = 0
     genetics_probation_require_shadow_confirmation: bool = True
+    flash_genetics_core_primary_enabled: bool = False
+    flash_genetics_core_primary_labels: tuple[str, ...] = ("GeneticsCore",)
+    flash_genetics_core_primary_bypass_shadow_confirmation_enabled: bool = False
     genetics_probation_max_consecutive_failed_orders: int = 2
     genetics_probation_max_realized_loss_pct: float = 0.25
     genetics_probation_risk_mult_by_label: Dict[str, float] = field(default_factory=dict)
@@ -197,6 +200,7 @@ class LiveExecutionConfig:
             "genetics_probation_labels",
             "genetics_probation_allowed_regimes",
             "genetics_probation_allowed_signal_keys",
+            "flash_genetics_core_primary_labels",
             "adopt_existing_position_symbols",
         ):
             value = getattr(self, name)
@@ -555,6 +559,7 @@ def build_production_pipeline(
         qm=qm,
         config=flash_allocator_config,
         scoring_config=scoring_config,
+        real_perf=real_perf,
     )
     executor = TradeExecutor(
         exchange=exchange,

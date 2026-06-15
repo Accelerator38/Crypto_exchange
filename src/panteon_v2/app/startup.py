@@ -554,6 +554,30 @@ def _live_execution_config_from_settings(
             ),
             True,
         ),
+        flash_genetics_core_primary_enabled=bool_any(
+            scoped_names(
+                "panteon_flash_genetics_core_primary_enabled",
+                "v2_flash_genetics_core_primary_enabled",
+                "flash_genetics_core_primary_enabled",
+            ),
+            False,
+        ),
+        flash_genetics_core_primary_labels=tuple_any(
+            scoped_names(
+                "panteon_flash_genetics_core_primary_labels",
+                "v2_flash_genetics_core_primary_labels",
+                "flash_genetics_core_primary_labels",
+            ),
+            ("GeneticsCore",),
+        ),
+        flash_genetics_core_primary_bypass_shadow_confirmation_enabled=bool_any(
+            scoped_names(
+                "panteon_flash_genetics_core_primary_bypass_shadow_confirmation_enabled",
+                "v2_flash_genetics_core_primary_bypass_shadow_confirmation_enabled",
+                "flash_genetics_core_primary_bypass_shadow_confirmation_enabled",
+            ),
+            False,
+        ),
         genetics_probation_max_consecutive_failed_orders=int_any(
             scoped_names(
                 "v2_genetics_probation_max_consecutive_failed_orders",
@@ -1109,6 +1133,23 @@ def _flash_allocator_config_from_settings(
                 "flash_range_low_vol_real_actor_allowlist",
             ),
         ),
+        flash_genetics_core_primary_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "panteon_flash_genetics_core_primary_enabled",
+                "v2_flash_genetics_core_primary_enabled",
+                "flash_genetics_core_primary_enabled",
+            ),
+            False,
+        ),
+        flash_genetics_core_primary_labels=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "panteon_flash_genetics_core_primary_labels",
+                "v2_flash_genetics_core_primary_labels",
+                "flash_genetics_core_primary_labels",
+            ),
+        ) or ("GeneticsCore",),
         portfolio_shadow_bootstrap_min_closed_enabled=_settings_bool(
             settings,
             (
@@ -1513,6 +1554,33 @@ def _flash_allocator_config_from_settings(
             ),
             False,
         ),
+        genetics_probation_bypass_terminal_deny_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_genetics_probation_bypass_terminal_deny_enabled",
+                "v2_flash_genetics_probation_bypass_terminal_deny_enabled",
+                "flash_genetics_probation_bypass_terminal_deny_enabled",
+            ),
+            False,
+        ),
+        genetics_probation_bypass_regime_edge_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_genetics_probation_bypass_regime_edge_enabled",
+                "v2_flash_genetics_probation_bypass_regime_edge_enabled",
+                "flash_genetics_probation_bypass_regime_edge_enabled",
+            ),
+            False,
+        ),
+        genetics_probation_bypass_pnl_enabled=_settings_bool(
+            settings,
+            (
+                "panteon_flash_genetics_probation_bypass_pnl_enabled",
+                "v2_flash_genetics_probation_bypass_pnl_enabled",
+                "flash_genetics_probation_bypass_pnl_enabled",
+            ),
+            False,
+        ),
         technical_overlay_enabled=_settings_bool(
             settings,
             (
@@ -1811,7 +1879,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_guard_enabled=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_guard_enabled",
                 "v2_flash_degradation_guard_enabled",
                 "flash_degradation_guard_enabled",
@@ -1820,7 +1888,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_actor_guard_enabled=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_actor_guard_enabled",
                 "v2_flash_degradation_actor_guard_enabled",
                 "flash_degradation_actor_guard_enabled",
@@ -1829,7 +1897,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_actor_scope=_settings_str(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_actor_scope",
                 "v2_flash_degradation_actor_scope",
                 "flash_degradation_actor_scope",
@@ -1838,7 +1906,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_signal_cooldown_bars=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_signal_cooldown_bars",
                 "v2_flash_degradation_signal_cooldown_bars",
                 "flash_degradation_signal_cooldown_bars",
@@ -1847,7 +1915,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_actor_cooldown_bars=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_actor_cooldown_bars",
                 "v2_flash_degradation_actor_cooldown_bars",
                 "flash_degradation_actor_cooldown_bars",
@@ -1856,7 +1924,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_symbol_guard_enabled=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_guard_enabled",
                 "v2_flash_degradation_symbol_guard_enabled",
                 "flash_degradation_symbol_guard_enabled",
@@ -1865,7 +1933,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_symbol_cooldown_bars=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_cooldown_bars",
                 "v2_flash_degradation_symbol_cooldown_bars",
                 "flash_degradation_symbol_cooldown_bars",
@@ -1874,7 +1942,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_symbol_lookback_bars=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_lookback_bars",
                 "v2_flash_degradation_symbol_lookback_bars",
                 "flash_degradation_symbol_lookback_bars",
@@ -1883,7 +1951,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_symbol_window_closed_trades=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_window_closed_trades",
                 "v2_flash_degradation_symbol_window_closed_trades",
                 "flash_degradation_symbol_window_closed_trades",
@@ -1892,7 +1960,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_symbol_min_closed_trades=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_min_closed_trades",
                 "v2_flash_degradation_symbol_min_closed_trades",
                 "flash_degradation_symbol_min_closed_trades",
@@ -1901,7 +1969,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_symbol_max_recent_pnl_usd=_settings_optional_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_symbol_max_recent_pnl_usd",
                 "v2_flash_degradation_symbol_max_recent_pnl_usd",
                 "flash_degradation_symbol_max_recent_pnl_usd",
@@ -1910,7 +1978,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_window_closed_trades=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_window_closed_trades",
                 "v2_flash_degradation_window_closed_trades",
                 "flash_degradation_window_closed_trades",
@@ -1919,7 +1987,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_min_closed_trades=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_min_closed_trades",
                 "v2_flash_degradation_min_closed_trades",
                 "flash_degradation_min_closed_trades",
@@ -1928,7 +1996,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_max_recent_pnl_usd=_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_max_recent_pnl_usd",
                 "v2_flash_degradation_max_recent_pnl_usd",
                 "flash_degradation_max_recent_pnl_usd",
@@ -1937,7 +2005,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_signal_min_pnl_per_trade_lcb_usd=_settings_optional_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_signal_min_pnl_per_trade_lcb_usd",
                 "v2_flash_degradation_signal_min_pnl_per_trade_lcb_usd",
                 "flash_degradation_signal_min_pnl_per_trade_lcb_usd",
@@ -1946,7 +2014,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_pnl_per_trade_lcb_z=_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_pnl_per_trade_lcb_z",
                 "v2_flash_degradation_pnl_per_trade_lcb_z",
                 "flash_degradation_pnl_per_trade_lcb_z",
@@ -1955,7 +2023,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_signal_risk_sizing_enabled=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_signal_risk_sizing_enabled",
                 "v2_flash_degradation_signal_risk_sizing_enabled",
                 "flash_degradation_signal_risk_sizing_enabled",
@@ -1964,7 +2032,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_signal_risk_mult=_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_signal_risk_mult",
                 "v2_flash_degradation_signal_risk_mult",
                 "flash_degradation_signal_risk_mult",
@@ -1973,7 +2041,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_reserve_actor_cap=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_reserve_actor_cap",
                 "v2_flash_degradation_reserve_actor_cap",
                 "flash_degradation_reserve_actor_cap",
@@ -1982,7 +2050,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_recovery_enabled=_settings_bool(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_recovery_enabled",
                 "v2_flash_degradation_recovery_enabled",
                 "flash_degradation_recovery_enabled",
@@ -1991,7 +2059,7 @@ def _flash_allocator_config_from_settings(
         ),
         degradation_recovery_min_closed_trades=int(_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_recovery_min_closed_trades",
                 "v2_flash_degradation_recovery_min_closed_trades",
                 "flash_degradation_recovery_min_closed_trades",
@@ -2000,7 +2068,7 @@ def _flash_allocator_config_from_settings(
         )),
         degradation_recovery_min_recent_pnl_usd=_settings_float(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_degradation_recovery_min_recent_pnl_usd",
                 "v2_flash_degradation_recovery_min_recent_pnl_usd",
                 "flash_degradation_recovery_min_recent_pnl_usd",
@@ -2487,6 +2555,7 @@ def _load_or_migrate_state(
     *,
     perf,
     real_perf=None,
+    qm=None,
     order_ledger=None,
     position_tracker=None,
     shadow_positions_target: Optional[dict] = None,
@@ -2503,6 +2572,7 @@ def _load_or_migrate_state(
             order_ledger=order_ledger,
             position_tracker=position_tracker,
             shadow_positions_target=shadow_positions_target,
+            qm=qm,
         )
         if loaded:
             if _perf_has_state(perf):
@@ -2557,6 +2627,7 @@ def _load_or_migrate_state(
                 order_ledger=order_ledger,
                 position_tracker=position_tracker,
                 shadow_positions=shadow_positions_target,
+                qm=qm,
             )
             log.info("Saved migrated v2-snapshot -> %s", snapshot_path)
         _apply_retro_prior_memory(
@@ -3196,6 +3267,7 @@ def start_production(
     # 4. Загрузка persisted state
     restored_shadow_positions: Dict[str, tuple] = {}
     _load_or_migrate_state(
+        qm=pipeline.qm,
         perf=pipeline.perf,
         real_perf=pipeline.real_perf,
         order_ledger=pipeline.order_ledger,

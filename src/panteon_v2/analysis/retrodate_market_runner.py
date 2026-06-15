@@ -304,6 +304,14 @@ class RetrodateMarketConfig:
     # #4: порог согласия символов для директивного режима (ниже 0.50 → меньше mixed).
     regime_min_directional_consensus: float = 0.50
     flash_min_regime_confidence_to_open: float = 0.0
+    flash_real_loss_gate_enabled: bool = False
+    flash_real_loss_gate_min_pnl_pct: float = -0.5
+    flash_real_loss_gate_min_closed_trades: int = 5
+    flash_fee_aware_admission_enabled: bool = False
+    flash_fee_aware_round_trip_cost_pct: float = 0.06
+    flash_churn_cooldown_bars: int = 0
+    flash_churn_max_opens_per_day: int = 0
+    flash_churn_anti_flip_enabled: bool = False
     include_optional_agents: bool = False
     optional_agent_labels: tuple[str, ...] = ()
     invalid_policy: str = "exclude"
@@ -405,6 +413,9 @@ class RetrodateMarketConfig:
     flash_mixed_rotational_symbol_local_shadow_min_closed_trades: int = 5
     flash_genetics_probation_bypass_min_closed_enabled: bool = False
     flash_genetics_probation_bypass_trend_gate_enabled: bool = False
+    flash_genetics_probation_bypass_terminal_deny_enabled: bool = False
+    flash_genetics_probation_bypass_regime_edge_enabled: bool = False
+    flash_genetics_probation_bypass_pnl_enabled: bool = False
     flash_technical_overlay_enabled: bool = False
     flash_technical_hard_gate_enabled: bool = False
     flash_technical_score_bonus: float = 0.10
@@ -1693,6 +1704,14 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         hybrid_min_dwell_bars=args.hybrid_min_dwell_bars,
         regime_min_directional_consensus=args.regime_min_directional_consensus,
         flash_min_regime_confidence_to_open=args.flash_min_regime_confidence_to_open,
+        flash_real_loss_gate_enabled=args.flash_real_loss_gate,
+        flash_real_loss_gate_min_pnl_pct=args.flash_real_loss_min_pnl_pct,
+        flash_real_loss_gate_min_closed_trades=args.flash_real_loss_min_closed,
+        flash_fee_aware_admission_enabled=args.flash_fee_aware_admission,
+        flash_fee_aware_round_trip_cost_pct=args.flash_fee_aware_cost_pct,
+        flash_churn_cooldown_bars=args.flash_churn_cooldown_bars,
+        flash_churn_max_opens_per_day=args.flash_churn_max_opens_per_day,
+        flash_churn_anti_flip_enabled=args.flash_churn_anti_flip,
         risk_max_leverage=args.risk_max_leverage,
         apply_risk_leverage_to_notional=args.apply_risk_leverage_to_notional,
         include_optional_agents=args.include_optional_agents,
@@ -1928,6 +1947,15 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         flash_genetics_probation_bypass_trend_gate_enabled=(
             args.enable_flash_genetics_probation_bypass_trend_gate
+        ),
+        flash_genetics_probation_bypass_terminal_deny_enabled=(
+            args.enable_flash_genetics_probation_bypass_terminal_deny
+        ),
+        flash_genetics_probation_bypass_regime_edge_enabled=(
+            args.enable_flash_genetics_probation_bypass_regime_edge
+        ),
+        flash_genetics_probation_bypass_pnl_enabled=(
+            args.enable_flash_genetics_probation_bypass_pnl
         ),
         flash_technical_overlay_enabled=args.enable_flash_technical_overlay,
         flash_technical_hard_gate_enabled=args.enable_flash_technical_hard_gate,
@@ -2380,6 +2408,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                         help="#4: symbol consensus for a directional regime (lower = less mixed_rotational).")
     parser.add_argument("--flash-min-regime-confidence-to-open", type=float, default=0.0,
                         help="#3: do not open when regime confidence is below this (0=off).")
+    parser.add_argument("--flash-real-loss-gate", action="store_true", help="Veto actors losing in REAL execution.")
+    parser.add_argument("--flash-real-loss-min-pnl-pct", type=float, default=-0.5)
+    parser.add_argument("--flash-real-loss-min-closed", type=int, default=5)
+    parser.add_argument("--flash-fee-aware-admission", action="store_true", help="Reject opens whose expected edge < round-trip cost.")
+    parser.add_argument("--flash-fee-aware-cost-pct", type=float, default=0.06)
+    parser.add_argument("--flash-churn-cooldown-bars", type=int, default=0)
+    parser.add_argument("--flash-churn-max-opens-per-day", type=int, default=0)
+    parser.add_argument("--flash-churn-anti-flip", action="store_true")
     parser.add_argument("--flash-regime-edge-gate", action="store_true",
                         help="Agent-quality: only open in regimes where the actor has positive per-trade edge.")
     parser.add_argument("--flash-stable-pool-ranking", action="store_true",
@@ -2659,6 +2695,18 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--enable-flash-genetics-probation-bypass-trend-gate",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-probation-bypass-terminal-deny",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-probation-bypass-regime-edge",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--enable-flash-genetics-probation-bypass-pnl",
         action="store_true",
     )
     parser.add_argument("--enable-flash-technical-overlay", action="store_true")
@@ -3039,6 +3087,14 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         regime_edge_min_pnl_per_trade_pct=config.flash_regime_edge_min_pnl_per_trade_pct,
         regime_edge_min_closed_trades=config.flash_regime_edge_min_closed_trades,
         min_regime_confidence_to_open=config.flash_min_regime_confidence_to_open,
+        real_loss_gate_enabled=config.flash_real_loss_gate_enabled,
+        real_loss_gate_min_pnl_pct=config.flash_real_loss_gate_min_pnl_pct,
+        real_loss_gate_min_closed_trades=config.flash_real_loss_gate_min_closed_trades,
+        fee_aware_admission_enabled=config.flash_fee_aware_admission_enabled,
+        fee_aware_round_trip_cost_pct=config.flash_fee_aware_round_trip_cost_pct,
+        churn_cooldown_bars=config.flash_churn_cooldown_bars,
+        churn_max_opens_per_day=config.flash_churn_max_opens_per_day,
+        churn_anti_flip_enabled=config.flash_churn_anti_flip_enabled,
         stable_pool_ranking_enabled=config.flash_stable_pool_ranking_enabled,
         shadow_confirmation_enabled=config.flash_shadow_confirmation_enabled,
         shadow_symbol_confirmation_enabled=(
@@ -3202,6 +3258,15 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         ),
         genetics_probation_bypass_trend_gate_enabled=(
             config.flash_genetics_probation_bypass_trend_gate_enabled
+        ),
+        genetics_probation_bypass_terminal_deny_enabled=(
+            config.flash_genetics_probation_bypass_terminal_deny_enabled
+        ),
+        genetics_probation_bypass_regime_edge_enabled=(
+            config.flash_genetics_probation_bypass_regime_edge_enabled
+        ),
+        genetics_probation_bypass_pnl_enabled=(
+            config.flash_genetics_probation_bypass_pnl_enabled
         ),
         technical_overlay_enabled=config.flash_technical_overlay_enabled,
         technical_hard_gate_enabled=config.flash_technical_hard_gate_enabled,
@@ -6609,6 +6674,15 @@ def _write_run_summary(
         ),
         "flash_genetics_probation_bypass_trend_gate_enabled": (
             config.flash_genetics_probation_bypass_trend_gate_enabled
+        ),
+        "flash_genetics_probation_bypass_terminal_deny_enabled": (
+            config.flash_genetics_probation_bypass_terminal_deny_enabled
+        ),
+        "flash_genetics_probation_bypass_regime_edge_enabled": (
+            config.flash_genetics_probation_bypass_regime_edge_enabled
+        ),
+        "flash_genetics_probation_bypass_pnl_enabled": (
+            config.flash_genetics_probation_bypass_pnl_enabled
         ),
         "flash_technical_overlay_enabled": config.flash_technical_overlay_enabled,
         "flash_technical_hard_gate_enabled": config.flash_technical_hard_gate_enabled,

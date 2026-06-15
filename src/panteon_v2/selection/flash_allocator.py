@@ -258,6 +258,21 @@ class FlashAllocatorConfig:
     # порога — неуверенные (mixed/переходные) рынки = зона кровотечения. Мягко
     # предиктивно: уверенные режимы устойчивее. Default 0.0 = off.
     min_regime_confidence_to_open: float = 0.0
+    # ── Live-audit fixes (real-aware execution) ───────────────────────────
+    # Real-PnL gate: вето открытия, если REAL realized PnL актора ниже порога
+    # при достаточной выборке real-сделок. Чинит корень: shadow≠real.
+    real_loss_gate_enabled: bool = False
+    real_loss_gate_min_pnl_pct: float = -0.5
+    real_loss_gate_min_closed_trades: int = 5
+    # Fee-aware admission: не открывать, если ожидаемый per-trade edge меньше
+    # round-trip издержек (fee+spread+slippage) × safety_mult.
+    fee_aware_admission_enabled: bool = False
+    fee_aware_round_trip_cost_pct: float = 0.06  # 2×fee + спред/slippage, %
+    fee_aware_safety_mult: float = 1.5
+    # Churn limiter: cooldown между открытиями по символу, дневной лимит, anti-flip.
+    churn_cooldown_bars: int = 0
+    churn_max_opens_per_day: int = 0
+    churn_anti_flip_enabled: bool = False
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -271,6 +286,8 @@ class FlashAllocatorConfig:
     anchor_actor_keys: Tuple[str, ...] = ()
     portfolio_actor_keys: Tuple[str, ...] = ()
     range_low_vol_real_actor_allowlist: Tuple[str, ...] = ()
+    flash_genetics_core_primary_enabled: bool = False
+    flash_genetics_core_primary_labels: Tuple[str, ...] = ("GeneticsCore",)
     portfolio_shadow_bootstrap_min_closed_enabled: bool = False
     anchor_min_score_to_trade: Optional[float] = None
     anchor_shadow_min_score: Optional[float] = None
@@ -381,6 +398,9 @@ class FlashAllocatorConfig:
     counter_trend_min_pnl_pct: float = 1.0
     genetics_probation_bypass_min_closed_enabled: bool = False
     genetics_probation_bypass_trend_gate_enabled: bool = False
+    genetics_probation_bypass_terminal_deny_enabled: bool = False
+    genetics_probation_bypass_regime_edge_enabled: bool = False
+    genetics_probation_bypass_pnl_enabled: bool = False
     technical_overlay_enabled: bool = False
     technical_hard_gate_enabled: bool = False
     technical_score_bonus: float = 0.10
@@ -590,6 +610,11 @@ class FlashAllocatorConfig:
             "range_low_vol_real_actor_allowlist",
             _normalize_actor_key_tuple(self.range_low_vol_real_actor_allowlist),
         )
+        object.__setattr__(
+            self,
+            "flash_genetics_core_primary_labels",
+            _normalize_actor_key_tuple(self.flash_genetics_core_primary_labels),
+        )
         selected_boosts = _normalize_string_tuple(self.selected_subset_score_boosts)
         selected_context_boosts = _normalize_string_tuple(
             self.selected_subset_context_score_boosts
@@ -656,6 +681,14 @@ class FlashAllocatorConfig:
             raise ValueError("global_health_min_closed_trades must be >= 0")
         if self.regime_edge_min_closed_trades < 0:
             raise ValueError("regime_edge_min_closed_trades must be >= 0")
+        if self.real_loss_gate_min_closed_trades < 0:
+            raise ValueError("real_loss_gate_min_closed_trades must be >= 0")
+        if self.churn_cooldown_bars < 0:
+            raise ValueError("churn_cooldown_bars must be >= 0")
+        if self.churn_max_opens_per_day < 0:
+            raise ValueError("churn_max_opens_per_day must be >= 0")
+        if self.fee_aware_round_trip_cost_pct < 0:
+            raise ValueError("fee_aware_round_trip_cost_pct must be >= 0")
         if self.shadow_confirmation_min_closed_trades < 0:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
@@ -860,6 +893,10 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "technical_atr_risk_sizing_enabled",
     "genetics_probation_bypass_min_closed_enabled",
     "genetics_probation_bypass_trend_gate_enabled",
+    "genetics_probation_bypass_terminal_deny_enabled",
+    "genetics_probation_bypass_regime_edge_enabled",
+    "genetics_probation_bypass_pnl_enabled",
+    "flash_genetics_core_primary_enabled",
 )
 
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
@@ -870,6 +907,8 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "anchor_actor_keys": (),
     "portfolio_actor_keys": (),
     "range_low_vol_real_actor_allowlist": (),
+    "flash_genetics_core_primary_enabled": False,
+    "flash_genetics_core_primary_labels": ("GeneticsCore",),
     "shadow_confirmation_enabled": False,
     "shadow_symbol_confirmation_enabled": False,
     "shadow_actor_fallback_confirmation_enabled": False,
@@ -967,6 +1006,9 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "counter_trend_min_pnl_pct": 1.0,
     "genetics_probation_bypass_min_closed_enabled": False,
     "genetics_probation_bypass_trend_gate_enabled": False,
+    "genetics_probation_bypass_terminal_deny_enabled": False,
+    "genetics_probation_bypass_regime_edge_enabled": False,
+    "genetics_probation_bypass_pnl_enabled": False,
     "technical_overlay_enabled": False,
     "technical_hard_gate_enabled": False,
     "technical_score_bonus": 0.10,
@@ -1024,6 +1066,10 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     technical_atr_risk_sizing_enabled=True,
     genetics_probation_bypass_min_closed_enabled=True,
     genetics_probation_bypass_trend_gate_enabled=True,
+    genetics_probation_bypass_terminal_deny_enabled=True,
+    genetics_probation_bypass_regime_edge_enabled=True,
+    genetics_probation_bypass_pnl_enabled=True,
+    flash_genetics_core_primary_enabled=True,
     funding_score_weight=1.0,
     funding_risk_mult_weight=1.0,
     no_trade_default_fee_bps=5.0,
@@ -1246,8 +1292,16 @@ class FlashAllocator:
         config: FlashAllocatorConfig = FlashAllocatorConfig(),
         scoring_config: ScoringConfig = DEFAULT_SCORING,
         scoring_per_regime: Optional[Mapping[Regime, ScoringConfig]] = None,
+        real_perf: Optional[PerformanceMemory] = None,
     ) -> None:
         self._perf = perf
+        # Live-audit fix: реальная память для real-aware гейтинга (shadow лжёт).
+        self._real_perf = real_perf
+        # Churn-limiter state: последний бар открытия и сторона по символу.
+        self._last_open_bar_by_symbol: Dict[str, int] = {}
+        self._last_open_side_by_symbol: Dict[str, str] = {}
+        self._opens_today_count: int = 0
+        self._opens_today_day: int = -1
         self._qm = qm
         self._config = config
         self._scoring = scoring_config
@@ -1406,6 +1460,11 @@ class FlashAllocator:
             )
             if decision.signal is not None:
                 next_signal_id += 1
+                # Churn-limiter: учитываем фактическое открытие по символу.
+                sig_action = getattr(decision.signal, "action", None)
+                if sig_action is not None and getattr(sig_action, "is_open", False):
+                    side = "long" if getattr(sig_action, "is_long_open", False) else "short"
+                    self._churn_record_open(symbol, side, market.bar)
             decisions.append(decision)
         capped = self._apply_mixed_rotational_exposure_cap(market, tuple(decisions))
         return self._apply_actor_signal_cap(capped)
@@ -1436,6 +1495,17 @@ class FlashAllocator:
         rows: List[FlashCandidateAudit] = []
         signal_by_actor_key: dict[str, Signal] = {}
         metrics_by_actor_key: dict[str, Metrics] = {}
+        admissible_solo_wrapper_keys = (
+            self._admissible_solo_wrapper_keys_for_suppression(
+                outputs,
+                market=market,
+                symbol=symbol,
+                regime=local_regime,
+                degraded_actor_keys=degraded_actor_keys,
+                degraded_open_symbols=degraded_open_symbols,
+                promoted_signal_keys=promoted_signal_keys,
+            )
+        )
         for output in outputs:
             if output.symbol != symbol:
                 continue
@@ -1714,6 +1784,11 @@ class FlashAllocator:
                     symbol,
                     active_solo_wrapper_keys,
                 )
+                and self._raw_agent_has_active_solo_wrapper(
+                    output.label,
+                    symbol,
+                    admissible_solo_wrapper_keys,
+                )
             ):
                 rejected = True
                 reason = "raw_suppressed_by_solo"
@@ -1742,7 +1817,14 @@ class FlashAllocator:
             elif output.action.is_open and self._global_health_rejected(output.label):
                 rejected = True
                 reason = "global_health_veto"
-            elif output.action.is_open and self._regime_edge_rejected(output.label, local_regime):
+            elif (
+                output.action.is_open
+                and self._regime_edge_rejected(output.label, local_regime)
+                and not (
+                    probation_admission
+                    and self._config.genetics_probation_bypass_regime_edge_enabled
+                )
+            ):
                 rejected = True
                 reason = "regime_edge_veto"
             elif (
@@ -1753,6 +1835,15 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "low_regime_confidence"
+            elif output.action.is_open and self._real_loss_rejected(output.label):
+                rejected = True
+                reason = "real_loss_veto"
+            elif output.action.is_open and self._fee_aware_rejected(metrics):
+                rejected = True
+                reason = "expected_edge_below_cost"
+            elif output.action.is_open and self._churn_rejected(output, symbol, market.bar):
+                rejected = True
+                reason = "churn_limited"
             elif (
                 output.action.is_open
                 and
@@ -1777,6 +1868,10 @@ class FlashAllocator:
                 )
                 and not session_recovery_shadow_confirmed
                 and not shadow_recovery_admission
+                and not (
+                    probation_admission
+                    and self._config.genetics_probation_bypass_pnl_enabled
+                )
             ):
                 rejected = True
                 reason = "pnl_below_threshold"
@@ -1897,7 +1992,13 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "flash_signal_degraded"
-            elif self._is_signal_terminal_denied(output, symbol, local_regime):
+            elif (
+                self._is_signal_terminal_denied(output, symbol, local_regime)
+                and not (
+                    probation_admission
+                    and self._config.genetics_probation_bypass_terminal_deny_enabled
+                )
+            ):
                 rejected = True
                 reason = "flash_signal_terminal_deny_key"
             elif self._is_signal_denied(output, symbol):
@@ -3065,6 +3166,77 @@ class FlashAllocator:
                 add_if_active(clean_label, getattr(signal, "sym", ""), action)
         return keys
 
+    def _admissible_solo_wrapper_keys_for_suppression(
+        self,
+        outputs: Sequence[_ActorSignal],
+        *,
+        market: MarketSnapshot,
+        symbol: str,
+        regime: Regime,
+        degraded_actor_keys: set[str],
+        degraded_open_symbols: set[str],
+        promoted_signal_keys: set[str],
+    ) -> set[tuple[str, str]]:
+        keys: set[tuple[str, str]] = set()
+        clean_symbol = str(symbol or "").strip().upper()
+        if not clean_symbol:
+            return keys
+        for output in outputs:
+            if output.symbol != clean_symbol or output.actor_type != "ensemble":
+                continue
+            raw_label = _raw_agent_label_from_solo(output.label)
+            if not raw_label or output.action.is_hold:
+                continue
+            if self._qm.is_quarantined(output.label):
+                continue
+            metrics, _base_score = self._score_actor(output, market)
+            if output.action.is_open and not metrics.has_data:
+                continue
+            if self._is_open_regime_denied(output, regime):
+                continue
+            if self._is_open_symbol_denied(output, clean_symbol):
+                continue
+            if self._is_range_low_vol_actor_denied(
+                output,
+                regime,
+                probation_admission=False,
+            ):
+                continue
+            if self._is_open_symbol_degraded(output, clean_symbol, degraded_open_symbols):
+                continue
+            if output.action.is_open and self._global_health_rejected(output.label):
+                continue
+            if output.action.is_open and self._regime_edge_rejected(output.label, regime):
+                continue
+            if (
+                output.action.is_open
+                and metrics.closed_trades < self._config.min_closed_trades_to_trade
+            ):
+                continue
+            pnl_gate_value = (
+                metrics.pnl_per_trade
+                if self._config.gate_pnl_per_trade_enabled
+                else metrics.pnl_pct
+            )
+            if output.action.is_open and pnl_gate_value < self._config.min_pnl_pct_to_trade:
+                continue
+            if output.action.is_open and self._is_actor_degraded(output, degraded_actor_keys):
+                continue
+            if output.action.is_open and self._is_actor_denied(output):
+                continue
+            if self._is_signal_terminal_denied(output, clean_symbol, regime):
+                continue
+            if self._is_signal_denied(output, clean_symbol):
+                continue
+            if (
+                self._config.promotion_manifest_enabled
+                and output.action.is_open
+                and not self._is_signal_promoted(output, clean_symbol, promoted_signal_keys)
+            ):
+                continue
+            keys.add((raw_label, clean_symbol))
+        return keys
+
     @staticmethod
     def _raw_agent_has_active_solo_wrapper(
         raw_label: str,
@@ -3250,9 +3422,29 @@ class FlashAllocator:
             return False
         if regime != Regime.RANGE_LOW_VOL:
             return False
+        if self._is_flash_genetics_core_primary_actor(output):
+            return False
         if output.actor_key in allowed or output.label in allowed:
             return False
         return not probation_admission
+
+    def _is_flash_genetics_core_primary_actor(self, output: _ActorSignal) -> bool:
+        if not bool(self._config.flash_genetics_core_primary_enabled):
+            return False
+        primary_labels = set(self._config.flash_genetics_core_primary_labels)
+        if not primary_labels:
+            return False
+        variants: set[str] = set()
+        for raw in (output.label, output.actor_key):
+            clean = str(raw or "").strip()
+            if not clean:
+                continue
+            variants.add(clean)
+            suffix = clean.split(":", 1)[1] if ":" in clean else clean
+            variants.add(suffix)
+            if suffix.startswith("Solo_"):
+                variants.add(suffix.removeprefix("Solo_"))
+        return bool(variants & primary_labels)
 
     @staticmethod
     def _is_open_symbol_degraded(
@@ -3890,6 +4082,69 @@ class FlashAllocator:
         if abs(agg.max_dd_pct) >= cfg.global_health_max_drawdown_pct:
             return True
         return False
+
+    def _real_loss_rejected(self, label: str) -> bool:
+        """Вето открытия по РЕАЛЬНОЙ realized убыточности актора (root fix: shadow≠real)."""
+        cfg = self._config
+        if not cfg.real_loss_gate_enabled or self._real_perf is None:
+            return False
+        agg: Optional[Metrics] = None
+        for lookup_label in _solo_label_lookup_sequence(label):
+            candidate = self._real_perf.get(lookup_label)
+            if candidate.has_data:
+                agg = candidate
+                break
+        if agg is None or agg.closed_trades < cfg.real_loss_gate_min_closed_trades:
+            return False
+        return agg.pnl_pct <= cfg.real_loss_gate_min_pnl_pct
+
+    def _fee_aware_rejected(self, metrics: Metrics) -> bool:
+        """Fee-aware admission: ожидаемый per-trade edge < round-trip издержек × safety."""
+        cfg = self._config
+        if not cfg.fee_aware_admission_enabled:
+            return False
+        if not metrics.has_data or metrics.closed_trades <= 0:
+            return False
+        expected_edge = float(metrics.pnl_per_trade)
+        min_edge = cfg.fee_aware_round_trip_cost_pct * cfg.fee_aware_safety_mult
+        return expected_edge < min_edge
+
+    def _churn_rejected(self, output: object, symbol: str, bar: int) -> bool:
+        """Churn limiter: cooldown по символу, дневной лимит открытий, anti-flip."""
+        cfg = self._config
+        if cfg.churn_cooldown_bars <= 0 and cfg.churn_max_opens_per_day <= 0 and not cfg.churn_anti_flip_enabled:
+            return False
+        sym = str(symbol or "").upper()
+        action = getattr(output, "action", None)
+        side = "long" if getattr(action, "is_long_open", False) else "short"
+        bar = int(bar)
+        last_bar = self._last_open_bar_by_symbol.get(sym)
+        # Cooldown между открытиями по символу.
+        if cfg.churn_cooldown_bars > 0 and last_bar is not None and (bar - last_bar) < cfg.churn_cooldown_bars:
+            return True
+        # Anti-flip: запрет немедленной смены стороны по символу.
+        if cfg.churn_anti_flip_enabled and last_bar is not None and (bar - last_bar) < max(1, cfg.churn_cooldown_bars):
+            if self._last_open_side_by_symbol.get(sym) not in (None, side):
+                return True
+        # Дневной лимит открытий (день = bar // 24 при часовом страйде).
+        if cfg.churn_max_opens_per_day > 0:
+            day = bar // 24
+            if day != self._opens_today_day:
+                self._opens_today_day = day
+                self._opens_today_count = 0
+            if self._opens_today_count >= cfg.churn_max_opens_per_day:
+                return True
+        return False
+
+    def _churn_record_open(self, symbol: str, side: str, bar: int) -> None:
+        sym = str(symbol or "").upper()
+        self._last_open_bar_by_symbol[sym] = int(bar)
+        self._last_open_side_by_symbol[sym] = side
+        day = int(bar) // 24
+        if day != self._opens_today_day:
+            self._opens_today_day = day
+            self._opens_today_count = 0
+        self._opens_today_count += 1
 
     def _stable_regime_edge(self, label: str, regime: Regime) -> float:
         """Стабильный per-regime эдж актора = pnl_per_trade по всем символам
