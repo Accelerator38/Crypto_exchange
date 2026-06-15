@@ -911,6 +911,39 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(probation_row.reason, "genetics_probation_admission")
         self.assertEqual(probation.signal.action, Action.FUT_SHORT_FULL)
 
+    def test_range_low_vol_allowlist_allows_primary_genetics_core_without_probation_key(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "GeneticsCore", Regime.RANGE_LOW_VOL, 10, 8.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                flash_genetics_core_primary_enabled=True,
+                flash_genetics_core_primary_labels=("GeneticsCore",),
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"BTC": 100.0},
+            ),
+            agents=[FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "GeneticsCore"
+        ]
+        self.assertFalse(row.rejected)
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+
     def test_quarantine_rejects_actor_before_scoring(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed={"StarAgent"})
@@ -1320,6 +1353,47 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertFalse(rows["GeneticsCore"].rejected)
         self.assertTrue(rows["Solo_GeneticsCore"].rejected)
         self.assertEqual(rows["Solo_GeneticsCore"].reason, "insufficient_closed_trades")
+
+    def test_prefer_solo_player_wrappers_keeps_raw_when_solo_fails_range_low_vol_gate(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"XRP": Action.FUT_SHORT_FULL})
+        solo_player = EnsemblePlayer(
+            label="Solo_GeneticsCore",
+            agents=[agent],
+            weights={"GeneticsCore": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        _add_perf(perf, "GeneticsCore", Regime.RANGE_LOW_VOL, 10, 4.0, start_id=1)
+        _add_perf(perf, "Solo_GeneticsCore", Regime.RANGE_LOW_VOL, 10, 4.0, start_id=100)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                prefer_solo_player_wrappers_enabled=True,
+                range_low_vol_real_actor_allowlist=(
+                    "GeneticsCore",
+                    "agent:GeneticsCore",
+                ),
+            ),
+        )
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"XRP": 0.5}),
+            agents=[agent],
+            players=[solo_player],
+            signal_id_start=1,
+        )[0]
+
+        rows = {row.label: row for row in decision.candidates}
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertFalse(rows["GeneticsCore"].rejected)
+        self.assertTrue(rows["Solo_GeneticsCore"].rejected)
+        self.assertEqual(
+            rows["Solo_GeneticsCore"].reason,
+            "range_low_vol_actor_not_allowed",
+        )
 
     def test_solo_shadow_player_replay_uses_raw_agent_memory(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -2001,6 +2075,54 @@ class TestFlashAllocator(unittest.TestCase):
             rejected["BlockedAgent"].reason,
             "flash_signal_terminal_deny_key",
         )
+
+    def test_probation_terminal_signal_deny_bypass_requires_explicit_flag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.BULLISH, 10, 2.0, start_id=1)
+        key = "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+        market = make_market(regime=Regime.BULLISH, prices={"BTC": 100.0})
+
+        strict = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                terminal_denied_signal_keys=(key,),
+            ),
+        )
+        strict_decision = strict.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+
+        self.assertEqual(strict_decision.selected_actor, "NoTrade")
+        self.assertEqual(strict_decision.reason, "flash_signal_terminal_deny_key")
+
+        probation = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                terminal_denied_signal_keys=(key,),
+                genetics_probation_bypass_terminal_deny_enabled=True,
+            ),
+        )
+        probation_decision = probation.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        probation_row = next(
+            item for item in probation_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
+        self.assertEqual(probation_row.reason, "genetics_probation_admission")
 
     def test_terminal_context_signal_deny_key_matches_regime_only(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -3120,6 +3242,28 @@ class TestFlashAllocator(unittest.TestCase):
         rn = {r.label: r for r in dec_n.candidates}["RegimeSpec"]
         self.assertEqual(rn.reason, "regime_edge_veto")
 
+    def test_live_real_actor_whitelist_blocks_non_whitelisted_opens(self):
+        # #1 single-agent: только whitelisted актор может открывать; остальные → veto.
+        good = FakeAgent("KeepMe", {"BTC": Action.FUT_LONG_FULL})
+        other = FakeAgent("BlockMe", {"ETH": Action.FUT_LONG_FULL})
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "KeepMe", Regime.BULLISH, 10, 1.0, start_id=1)
+        _add_perf(perf, "BlockMe", Regime.BULLISH, 10, 1.0, start_id=100)
+        cfg = FlashAllocatorConfig(
+            min_closed_trades_to_trade=1, min_pnl_pct_to_trade=-999.0,
+            min_score_to_trade=-999.0,
+            live_real_actor_whitelist=("KeepMe",),
+        )
+        allocator = FlashAllocator(perf=perf, qm=qm, config=cfg)
+        decisions = allocator.decide(
+            make_market(prices={"BTC": 100.0, "ETH": 50.0}, regime=Regime.BULLISH),
+            agents=[good, other], players=[], signal_id_start=1)
+        by_sym = {d.symbol: d for d in decisions}
+        rows = {r.label: r for d in decisions for r in d.candidates}
+        self.assertEqual(rows["BlockMe"].reason, "not_in_live_whitelist")
+        self.assertNotEqual(rows["KeepMe"].reason, "not_in_live_whitelist")
+
     def test_no_trade_when_active_actor_has_negative_pnl(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -3747,6 +3891,136 @@ class TestFlashAllocator(unittest.TestCase):
             agents=[agent],
             players=[],
             signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        probation_row = next(
+            item for item in probation_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
+        self.assertEqual(probation_row.reason, "genetics_probation_admission")
+
+    def test_probation_regime_edge_bypass_requires_explicit_flag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"TRX": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.RANGE_LOW_VOL, 10, -0.25, start_id=1)
+        market = make_market(regime=Regime.RANGE_LOW_VOL, prices={"TRX": 0.25})
+        key = "agent:GeneticsCore|TRX|FUT_SHORT_FULL"
+
+        strict = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                regime_edge_gate_enabled=True,
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=-100.0,
+                min_score_to_trade=-100.0,
+                selected_subset_score_boosts=(f"{key}=10.0",),
+            ),
+        )
+        strict_decision = strict.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        strict_row = next(
+            item for item in strict_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(strict_decision.selected_actor, "NoTrade")
+        self.assertEqual(strict_row.reason, "regime_edge_veto")
+
+        probation = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                regime_edge_gate_enabled=True,
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=-100.0,
+                min_score_to_trade=-100.0,
+                selected_subset_score_boosts=(f"{key}=10.0",),
+                genetics_probation_bypass_regime_edge_enabled=True,
+            ),
+        )
+        probation_decision = probation.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            probation_signal_keys=(key,),
+        )[0]
+        probation_row = next(
+            item for item in probation_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
+        self.assertEqual(probation_row.reason, "genetics_probation_admission")
+
+    def test_probation_pnl_gate_bypass_requires_explicit_flag(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"TRX": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.RANGE_LOW_VOL, 10, -0.25, start_id=1)
+        market = make_market(regime=Regime.RANGE_LOW_VOL, prices={"TRX": 0.25})
+        key = "agent:GeneticsCore|TRX|FUT_SHORT_FULL"
+        shadow = {
+            "GeneticsCore": {
+                "score": 6.0,
+                "closed_trades": 20,
+                "winning_trades": 15,
+                "win_rate_pct": 75.0,
+            },
+        }
+
+        strict = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=10,
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=0.0,
+                min_score_to_trade=0.3,
+            ),
+        )
+        strict_decision = strict.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            shadow_confirmation=shadow,
+            probation_signal_keys=(key,),
+        )[0]
+        strict_row = next(
+            item for item in strict_decision.candidates if item.label == "GeneticsCore"
+        )
+
+        self.assertEqual(strict_decision.selected_actor, "NoTrade")
+        self.assertEqual(strict_row.reason, "pnl_below_threshold")
+
+        probation = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=10,
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=0.0,
+                min_score_to_trade=0.3,
+                genetics_probation_bypass_pnl_enabled=True,
+            ),
+        )
+        probation_decision = probation.decide(
+            market,
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            shadow_confirmation=shadow,
             probation_signal_keys=(key,),
         )[0]
         probation_row = next(

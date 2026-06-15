@@ -273,6 +273,11 @@ class FlashAllocatorConfig:
     churn_cooldown_bars: int = 0
     churn_max_opens_per_day: int = 0
     churn_anti_flip_enabled: bool = False
+    # Single-agent whitelist (#1): если задан, ТОЛЬКО эти акторы могут открывать
+    # реальные позиции; всё остальное (включая ансамбли) → shadow-only. Убирает
+    # shadow-mirage селекции и ensemble-churn. Имена матчатся по чистому лейблу
+    # и actor_key (agent:X / ensemble:X / Solo_X).
+    live_real_actor_whitelist: Tuple[str, ...] = ()
     shadow_confirmation_enabled: bool = False
     shadow_symbol_confirmation_enabled: bool = False
     shadow_actor_fallback_confirmation_enabled: bool = False
@@ -1841,6 +1846,9 @@ class FlashAllocator:
             elif output.action.is_open and self._fee_aware_rejected(metrics):
                 rejected = True
                 reason = "expected_edge_below_cost"
+            elif output.action.is_open and self._not_in_live_whitelist(output):
+                rejected = True
+                reason = "not_in_live_whitelist"
             elif output.action.is_open and self._churn_rejected(output, symbol, market.bar):
                 rejected = True
                 reason = "churn_limited"
@@ -4082,6 +4090,26 @@ class FlashAllocator:
         if abs(agg.max_dd_pct) >= cfg.global_health_max_drawdown_pct:
             return True
         return False
+
+    def _not_in_live_whitelist(self, output: object) -> bool:
+        """Single-agent whitelist (#1): не открывать реально, если актор не в списке.
+
+        Матчит по чистому лейблу, actor_key и solo-lookup-последовательности.
+        """
+        wl = self._config.live_real_actor_whitelist
+        if not wl:
+            return False
+        allowed = {str(w or "").strip() for w in wl if str(w or "").strip()}
+        if not allowed:
+            return False
+        label = str(getattr(output, "label", "") or "")
+        actor_key = str(getattr(output, "actor_key", "") or "")
+        candidates = {label, actor_key}
+        for lk in _solo_label_lookup_sequence(label):
+            candidates.add(str(lk))
+        # Также сравниваем «голые» имена без префиксов agent:/ensemble:.
+        bare = {c.split(":", 1)[-1] for c in candidates if c}
+        return not (candidates & allowed or bare & allowed or {b for b in bare} & {a.split(":",1)[-1] for a in allowed})
 
     def _real_loss_rejected(self, label: str) -> bool:
         """Вето открытия по РЕАЛЬНОЙ realized убыточности актора (root fix: shadow≠real)."""

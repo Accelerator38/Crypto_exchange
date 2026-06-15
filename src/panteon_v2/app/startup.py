@@ -1035,6 +1035,14 @@ def _flash_allocator_config_from_settings(
         churn_anti_flip_enabled=_settings_bool(
             settings, ("v2_flash_churn_anti_flip_enabled", "flash_churn_anti_flip_enabled"), False,
         ),
+        live_real_actor_whitelist=_settings_csv_tuple(
+            settings,
+            (
+                "panteon_flash_live_real_actor_whitelist",
+                "v2_flash_live_real_actor_whitelist",
+                "flash_live_real_actor_whitelist",
+            ),
+        ),
         regime_edge_gate_enabled=_settings_bool(
             settings,
             (

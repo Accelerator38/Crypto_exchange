@@ -2992,15 +2992,35 @@ def _apply_genetics_probation_execution_overlay(
             changed = True
             details.append(f"genetics_signal_key_blocked:{sym}:{agent_label}")
             continue
-        if require_shadow_confirmation and not _shadow_confirms_signal(
-            pipeline,
-            probation_label,
-            signal,
-        ):
-            dropped += 1
-            changed = True
-            details.append(f"genetics_shadow_unconfirmed:{sym}:{agent_label}")
-            continue
+        if require_shadow_confirmation:
+            shadow_confirmed = _shadow_confirms_signal(
+                pipeline,
+                probation_label,
+                signal,
+            )
+            primary_shadow_bypass = (
+                not shadow_confirmed
+                and bool(getattr(
+                    cfg,
+                    "flash_genetics_core_primary_bypass_shadow_confirmation_enabled",
+                    False,
+                ))
+                and _is_flash_genetics_core_primary_signal(
+                    cfg,
+                    probation_label,
+                    signal,
+                )
+            )
+            if not shadow_confirmed and not primary_shadow_bypass:
+                dropped += 1
+                changed = True
+                details.append(f"genetics_shadow_unconfirmed:{sym}:{agent_label}")
+                continue
+            if primary_shadow_bypass:
+                changed = True
+                details.append(
+                    f"flash_genetics_core_primary_shadow_bypass:{sym}:{agent_label}"
+                )
         old_risk_mult = max(0.0, float(signal.risk_mult or 0.0))
         new_risk_mult = min(old_risk_mult, max_risk_mult)
         min_executable_risk_mult = _genetics_probation_min_executable_risk_mult(
@@ -3728,6 +3748,40 @@ def _genetics_probation_signal_keys(
         for sym in symbols
         for actor_type in ("agent", "ensemble")
     }
+
+
+def _is_flash_genetics_core_primary_signal(
+    cfg,
+    probation_label: str,
+    signal: Signal,
+) -> bool:
+    if not bool(getattr(cfg, "flash_genetics_core_primary_enabled", False)):
+        return False
+    primary_labels = set(_string_tuple(
+        getattr(cfg, "flash_genetics_core_primary_labels", ("GeneticsCore",)),
+    ))
+    if not primary_labels:
+        return False
+    variants: set[str] = set()
+    for raw in (
+        probation_label,
+        getattr(signal, "by_agent", ""),
+        getattr(signal, "by_player", ""),
+    ):
+        clean = str(raw or "").strip()
+        if not clean:
+            continue
+        variants.add(clean)
+        suffix = clean.split(":", 1)[1] if ":" in clean else clean
+        variants.add(suffix)
+        variants.add(f"agent:{suffix}")
+        variants.add(f"ensemble:{suffix}")
+        if suffix.startswith("Solo_"):
+            solo_base = suffix.removeprefix("Solo_")
+            variants.add(solo_base)
+            variants.add(f"agent:{solo_base}")
+            variants.add(f"ensemble:{solo_base}")
+    return bool(variants & primary_labels)
 
 
 def _shadow_confirms_signal(
@@ -6358,7 +6412,26 @@ def _kill_switch_reason(
     return ""
 
 
+def _is_exchange_open_capability_error(reason: str) -> bool:
+    """True для биржевых кодов запрета открытий (MEXC 8950/6026 и эквиваленты)."""
+    text = str(reason or "").lower()
+    if "8950" in text or "6026" in text:
+        return True
+    return (
+        ("open" in text)
+        and (
+            "unavailable" in text
+            or "not allowed" in text
+            or "risk control" in text
+            or "region" in text
+            or "country" in text
+        )
+    )
+
+
 def _exchange_health_open_block_reason(pipeline: ProductionPipeline) -> str:
+    if bool(getattr(pipeline, "exchange_open_capability_blocked", False)):
+        return "exchange_open_capability_blocked (8950/6026): close-only"
     snapshot = getattr(pipeline, "account_snapshot", None) or {}
     if not isinstance(snapshot, dict):
         return ""
@@ -6648,6 +6721,19 @@ def _record_order_failure(
     state = _kill_state(pipeline)
     cfg = _live_config(pipeline)
     if state is None:
+        return
+    # ExchangeCapabilityGuard (#2): биржевые коды 8950/6026 = «открытия запрещены
+    # (регион/risk-control)». Это НЕ деградация бота — переводим биржу в close-only
+    # и НЕ копим consecutive_failed_orders (иначе доходим до kill switch впустую).
+    if _is_exchange_open_capability_error(reason):
+        pipeline.exchange_open_capability_blocked = True
+        if not getattr(pipeline, "_exchange_capability_logged", False):
+            log.error(
+                "ExchangeCapabilityGuard: exchange returned open-capability error "
+                "(8950/6026); switching to CLOSE-ONLY, suppressing open retries. reason=%s",
+                reason,
+            )
+            pipeline._exchange_capability_logged = True
         return
     state.consecutive_failed_orders += 1
     if _looks_like_api_error(reason):
