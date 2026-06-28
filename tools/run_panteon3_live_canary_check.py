@@ -375,9 +375,31 @@ def _fail_reasons(
         reasons.append("health_warnings")
     if owned_open_position_count > 0:
         reasons.append("open_positions_not_flat")
-    if str(status.get("feed_status") or "").strip().lower() not in ("", "active", "ok", "healthy"):
+    if _feed_not_active_is_failure(status, owned_open_position_count=owned_open_position_count):
         reasons.append("feed_not_active")
     return reasons
+
+
+def _feed_not_active_is_failure(
+    status: Mapping[str, Any],
+    *,
+    owned_open_position_count: int,
+) -> bool:
+    feed_status = str(status.get("feed_status") or "").strip().lower()
+    if feed_status in ("", "active", "ok", "healthy"):
+        return False
+
+    # A bounded paper/shadow canary is expected to close its feed after the run.
+    # Keep this strict for real live workers, where an inactive feed is unsafe.
+    mode = str(status.get("mode") or "").strip().lower()
+    run_state = str(status.get("run_state") or "").strip().lower()
+    if (
+        mode in ("paper", "paper_live_feed", "shadow_live_feed")
+        and run_state in ("stopped", "finished", "completed")
+        and owned_open_position_count <= 0
+    ):
+        return False
+    return True
 
 
 def _write_summary_files(report_root: Path, now: datetime, summary: Mapping[str, Any]) -> None:

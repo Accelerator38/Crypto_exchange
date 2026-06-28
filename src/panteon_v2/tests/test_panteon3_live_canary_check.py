@@ -119,6 +119,53 @@ def test_canary_summary_passes_with_positive_fills_and_clean_reconcile(tmp_path)
     assert exchange["fail_reasons"] == []
 
 
+def test_canary_summary_passes_completed_flat_paper_canary_with_closed_feed(tmp_path):
+    module = _load_tool()
+    session = tmp_path / "Results" / "BITGET" / "run"
+    _write_json(
+        session / "status.json",
+        {
+            "timestamp_utc": "2026-06-27T10:00:00+00:00",
+            "exchange": "BITGET",
+            "mode": "paper_live_feed",
+            "run_state": "stopped",
+            "feed_status": "closed",
+            "live_state_sync": {"reconcile_ok": True, "warnings": []},
+            "open_positions": {},
+        },
+    )
+    _write_jsonl(
+        session / "causal_entry_decisions.jsonl",
+        [
+            {
+                "timestamp": "2026-06-27T10:01:00+00:00",
+                "raw_signal_count": 1,
+                "executable_signal_count": 1,
+                "n_orders": 1,
+                "n_filled": 1,
+                "realized_pnl_usd": 0.42,
+                "fees_usd": 0.05,
+                "funding_usd": -0.01,
+                "slippage_usd": 0.02,
+            },
+        ],
+    )
+
+    summary = module.build_canary_summary(
+        results_root=tmp_path / "Results",
+        reports_dir=tmp_path / "Reports" / "Panteon3Canary",
+        exchanges=("BITGET",),
+        now=module._parse_time("2026-06-27T10:05:00+00:00"),
+    )
+
+    exchange = summary["exchanges"]["BITGET"]
+    assert summary["passed"] is True
+    assert exchange["passed"] is True
+    assert exchange["feed_status"] == "closed"
+    assert exchange["run_state"] == "stopped"
+    assert exchange["fail_reasons"] == []
+
+
 def test_canary_summary_counts_order_fill_events_and_nested_trade_costs(tmp_path):
     module = _load_tool()
     session = tmp_path / "Results" / "MEXC" / "run"
