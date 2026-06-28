@@ -52,7 +52,9 @@ def test_v3_launcher_spawns_itself_as_exchange_worker(tmp_path):
         launcher,
         "_lock_is_held",
         return_value=False,
-    ), patch.object(launcher, "_spawn_child", return_value=12345) as spawn:
+    ), patch.dict(os.environ, {"BITGET_TRADING_MODE": "paper"}), patch.object(
+        launcher, "_spawn_child", return_value=12345
+    ) as spawn:
         result = launcher._launch_exchange(
             "BITGET",
             dry_run=False,
@@ -62,6 +64,28 @@ def test_v3_launcher_spawns_itself_as_exchange_worker(tmp_path):
     spawn.assert_called_once_with("BITGET", "python-test")
     assert result.status == "launched"
     assert result.pid == 12345
+
+
+def test_v3_launcher_blocks_live_futures_when_preflight_fails(tmp_path):
+    launcher = _load_launcher()
+    lock_path = tmp_path / "panteon_v2_mexc.lock"
+
+    with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
+        launcher,
+        "_lock_is_held",
+        return_value=False,
+    ), patch.dict(os.environ, {"MEXC_TRADING_MODE": "live_futures"}), patch.object(
+        launcher, "_spawn_child"
+    ) as spawn:
+        result = launcher._launch_exchange(
+            "MEXC",
+            dry_run=False,
+            python_executable="python-test",
+        )
+
+    spawn.assert_not_called()
+    assert result.status == "preflight_failed"
+    assert "live preflight failed" in result.message
 
 
 def test_v3_worker_args_do_not_use_v2_entrypoint_scripts():
@@ -102,7 +126,9 @@ def test_v3_launcher_reports_spawn_failure(tmp_path):
         launcher,
         "_lock_is_held",
         return_value=False,
-    ), patch.object(launcher, "_spawn_child", side_effect=RuntimeError("boom")):
+    ), patch.dict(os.environ, {"MEXC_TRADING_MODE": "paper"}), patch.object(
+        launcher, "_spawn_child", side_effect=RuntimeError("boom")
+    ):
         result = launcher._launch_exchange("MEXC", python_executable="python-test")
 
     assert result.status == "failed"

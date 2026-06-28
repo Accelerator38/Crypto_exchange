@@ -1,0 +1,508 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence
+
+
+DEFAULT_EXCHANGES = ("MEXC", "BITGET")
+
+
+def build_canary_summary(
+    *,
+    results_root: str | Path,
+    reports_dir: str | Path,
+    exchanges: Sequence[str] = DEFAULT_EXCHANGES,
+    now: datetime | None = None,
+    lookback_minutes: float = 360.0,
+) -> dict[str, Any]:
+    current = _aware_utc(now)
+    root = Path(results_root)
+    report_root = Path(reports_dir)
+    exchange_payloads: dict[str, dict[str, Any]] = {}
+    for exchange in exchanges:
+        exchange_key = str(exchange or "").strip().upper()
+        if not exchange_key:
+            continue
+        exchange_payloads[exchange_key] = _build_exchange_canary(
+            root,
+            exchange_key,
+            now=current,
+            lookback_minutes=lookback_minutes,
+        )
+
+    summary = {
+        "generated_at": current.isoformat(),
+        "passed": bool(exchange_payloads) and all(item.get("passed") for item in exchange_payloads.values()),
+        "exchanges": exchange_payloads,
+    }
+    _write_summary_files(report_root, current, summary)
+    return summary
+
+
+def _build_exchange_canary(
+    results_root: Path,
+    exchange: str,
+    *,
+    now: datetime,
+    lookback_minutes: float,
+) -> dict[str, Any]:
+    session_dir = _latest_session_dir(results_root, exchange)
+    if session_dir is None:
+        return _exchange_failure(exchange, "session_missing")
+
+    status_path = session_dir / "status.json"
+    status = _load_json(status_path)
+    if not isinstance(status, Mapping):
+        return _exchange_failure(exchange, "status_invalid", session_dir=session_dir)
+
+    rows = _recent_rows(
+        _iter_jsonl(session_dir / "causal_entry_decisions.jsonl"),
+        now=now,
+        lookback_minutes=lookback_minutes,
+    )
+    event_rows = _recent_rows(
+        _iter_jsonl(session_dir / "events.jsonl"),
+        now=now,
+        lookback_minutes=lookback_minutes,
+    )
+
+    signals = sum(_row_signal_count(row) for row in rows)
+    orders = sum(_row_order_count(row) for row in rows) + sum(_event_order_count(row) for row in event_rows)
+    fills = sum(_row_fill_count(row) for row in rows) + sum(_event_fill_count(row) for row in event_rows)
+    open_positions = _open_positions_payload(status)
+
+    pnl_payload = _pnl_payload(rows, event_rows, status)
+    expectancy = _expectancy_after_costs(pnl_payload, fills)
+    reconcile_ok, reconcile_warnings = _reconcile_status(status)
+    health_warnings = _health_warnings(status)
+    fail_reasons = _fail_reasons(
+        signals=signals,
+        orders=orders,
+        fills=fills,
+        expectancy_after_costs=expectancy,
+        reconcile_ok=reconcile_ok,
+        reconcile_warnings=reconcile_warnings,
+        health_warnings=health_warnings,
+        owned_open_position_count=int(open_positions["owned_open_position_count"]),
+        status=status,
+    )
+
+    return {
+        "exchange": exchange,
+        "passed": not fail_reasons,
+        "session_dir": str(session_dir),
+        "status_path": str(status_path),
+        "timestamp_utc": str(status.get("timestamp_utc") or status.get("timestamp") or ""),
+        "mode": str(status.get("mode") or ""),
+        "run_state": str(status.get("run_state") or ""),
+        "feed_status": str(status.get("feed_status") or ""),
+        "signals": signals,
+        "orders": orders,
+        "fills": fills,
+        "expectancy_after_costs": round(expectancy, 10),
+        "gross_pnl_usd": round(float(pnl_payload["gross_pnl_usd"]), 10),
+        "fees_usd": round(float(pnl_payload["fees_usd"]), 10),
+        "funding_usd": round(float(pnl_payload["funding_usd"]), 10),
+        "slippage_usd": round(float(pnl_payload["slippage_usd"]), 10),
+        "reconcile_ok": reconcile_ok,
+        "reconcile_warnings": reconcile_warnings,
+        "health_warnings": health_warnings,
+        "open_position_count": int(open_positions["open_position_count"]),
+        "owned_open_position_count": int(open_positions["owned_open_position_count"]),
+        "external_open_position_count": int(open_positions["external_open_position_count"]),
+        "open_position_symbols": open_positions["open_position_symbols"],
+        "owned_open_position_symbols": open_positions["owned_open_position_symbols"],
+        "external_open_position_symbols": open_positions["external_open_position_symbols"],
+        "rows_evaluated": len(rows),
+        "event_rows_evaluated": len(event_rows),
+        "fail_reasons": fail_reasons,
+    }
+
+
+def _exchange_failure(exchange: str, reason: str, *, session_dir: Path | None = None) -> dict[str, Any]:
+    return {
+        "exchange": exchange,
+        "passed": False,
+        "session_dir": str(session_dir or ""),
+        "signals": 0,
+        "orders": 0,
+        "fills": 0,
+        "expectancy_after_costs": 0.0,
+        "reconcile_ok": False,
+        "reconcile_warnings": [],
+        "health_warnings": [],
+        "open_position_count": 0,
+        "owned_open_position_count": 0,
+        "external_open_position_count": 0,
+        "open_position_symbols": [],
+        "owned_open_position_symbols": [],
+        "external_open_position_symbols": [],
+        "fail_reasons": [reason],
+    }
+
+
+def _latest_session_dir(results_root: Path, exchange: str) -> Path | None:
+    exchange_root = results_root / exchange
+    if not exchange_root.exists():
+        return None
+    statuses = [path for path in exchange_root.glob("**/status.json") if path.is_file()]
+    if not statuses:
+        return None
+    return max(statuses, key=lambda path: path.stat().st_mtime).parent
+
+
+def _recent_rows(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    now: datetime,
+    lookback_minutes: float,
+) -> list[Mapping[str, Any]]:
+    if lookback_minutes <= 0:
+        return list(rows)
+    cutoff_seconds = float(lookback_minutes) * 60.0
+    recent: list[Mapping[str, Any]] = []
+    for row in rows:
+        timestamp = _row_timestamp(row)
+        if timestamp is None or (now - timestamp).total_seconds() <= cutoff_seconds:
+            recent.append(row)
+    return recent
+
+
+def _row_signal_count(row: Mapping[str, Any]) -> int:
+    explicit = _max_int(row, "signal_count", "raw_signal_count", "executable_signal_count", "n_signals")
+    raw = _sequence_len(row.get("raw_signals"))
+    executable = _sequence_len(row.get("executable_signals"))
+    flash_signals = 0
+    decisions = row.get("flash_decisions")
+    if isinstance(decisions, Sequence) and not isinstance(decisions, (str, bytes)):
+        for decision in decisions:
+            if isinstance(decision, Mapping) and decision.get("signal"):
+                flash_signals += 1
+    return max(explicit, raw, executable, flash_signals)
+
+
+def _row_order_count(row: Mapping[str, Any]) -> int:
+    explicit = _max_int(row, "orders", "order_count", "sent_orders", "submitted_orders", "n_orders", "n_sent_orders")
+    fills = _row_fill_count(row)
+    rejected = _max_int(row, "rejected", "n_rejected", "rejection_count", "rejected_orders")
+    return max(explicit, fills, rejected)
+
+
+def _row_fill_count(row: Mapping[str, Any]) -> int:
+    return _max_int(row, "fills", "filled", "filled_signals", "n_filled", "fill_count")
+
+
+def _event_order_count(row: Mapping[str, Any]) -> int:
+    if _max_int(row, "orders", "order_count", "sent_orders", "submitted_orders") > 0:
+        return _max_int(row, "orders", "order_count", "sent_orders", "submitted_orders")
+    name = _event_name(row)
+    if "order" in name and any(token in name for token in ("sent", "submit", "place", "accepted")):
+        return 1
+    return 0
+
+
+def _event_fill_count(row: Mapping[str, Any]) -> int:
+    if _max_int(row, "fills", "filled", "fill_count") > 0:
+        return _max_int(row, "fills", "filled", "fill_count")
+    name = _event_name(row)
+    if "fill" in name or "filled" in name:
+        return 1
+    return 0
+
+
+def _event_name(row: Mapping[str, Any]) -> str:
+    parts = [
+        str(row.get("_type") or ""),
+        str(row.get("event") or ""),
+        str(row.get("type") or ""),
+        str(row.get("action") or ""),
+        str(row.get("name") or ""),
+    ]
+    return " ".join(parts).lower()
+
+
+def _pnl_payload(
+    rows: Sequence[Mapping[str, Any]],
+    event_rows: Sequence[Mapping[str, Any]],
+    status: Mapping[str, Any],
+) -> dict[str, float]:
+    combined = list(rows) + list(event_rows)
+    gross = sum(_first_float(row, "realized_pnl_usd", "pnl_usd", "realized_pnl", "pnl") for row in combined)
+    fees = sum(
+        _first_float(row, "fees_usd", "fee_usd", "fees", "fee")
+        + _nested_trade_float(row, "fees_usd", "fee_usd", "fees", "fee")
+        for row in combined
+    )
+    funding = sum(
+        _first_float(row, "funding_usd", "funding")
+        + _nested_trade_float(row, "funding_usd", "funding")
+        for row in combined
+    )
+    slippage = sum(
+        _first_float(row, "slippage_usd", "slippage")
+        + _nested_trade_float(row, "slippage_usd", "slippage")
+        for row in combined
+    )
+
+    if gross == 0.0:
+        gross = _first_float(status, "realized_pnl_usd", "pnl_usd", "realized_pnl", "pnl")
+    if fees == 0.0:
+        fees = _first_float(status, "fees_usd", "total_fees_usd", "total_fees", "fees")
+    if funding == 0.0:
+        funding = _first_float(status, "funding_usd", "total_funding_usd", "total_funding", "funding")
+    if slippage == 0.0:
+        slippage = _first_float(status, "slippage_usd", "total_slippage_usd", "total_slippage", "slippage")
+
+    return {
+        "gross_pnl_usd": gross,
+        "fees_usd": fees,
+        "funding_usd": funding,
+        "slippage_usd": slippage,
+        "direct_expectancy": _first_float(status, "expectancy_after_costs", "expectancy_usd", "expectancy"),
+    }
+
+
+def _expectancy_after_costs(payload: Mapping[str, float], fills: int) -> float:
+    if fills <= 0:
+        return 0.0
+    direct = float(payload.get("direct_expectancy") or 0.0)
+    if direct != 0.0:
+        return direct
+    net = (
+        float(payload.get("gross_pnl_usd") or 0.0)
+        - abs(float(payload.get("fees_usd") or 0.0))
+        + float(payload.get("funding_usd") or 0.0)
+        - abs(float(payload.get("slippage_usd") or 0.0))
+    )
+    return net / float(fills)
+
+
+def _reconcile_status(status: Mapping[str, Any]) -> tuple[bool, list[str]]:
+    payloads = []
+    for key in ("live_state_sync", "exchange_reconcile", "reconcile", "reconcile_summary"):
+        value = status.get(key)
+        if isinstance(value, Mapping):
+            payloads.append(value)
+    warnings: list[str] = []
+    ok = True
+    for payload in payloads:
+        if payload.get("reconcile_ok") is False or payload.get("ok") is False:
+            ok = False
+        warnings.extend(_strings(payload.get("warnings")))
+        warnings.extend(_strings(payload.get("reconcile_warnings")))
+        warnings.extend(_strings(payload.get("desync_warnings")))
+    warnings.extend(_strings(status.get("reconcile_warnings")))
+    return ok and not warnings, sorted(set(warnings))
+
+
+def _health_warnings(status: Mapping[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    warnings.extend(_strings(status.get("health_warnings")))
+    health = status.get("data_health")
+    if isinstance(health, Mapping):
+        warnings.extend(_strings(health.get("warnings")))
+        if _first_float(health, "failed_orders") > 0:
+            warnings.append("failed_orders")
+    return sorted(set(warnings))
+
+
+def _open_positions_payload(status: Mapping[str, Any]) -> dict[str, Any]:
+    positions = status.get("open_positions")
+    rows: list[tuple[str, Mapping[str, Any]]] = []
+    if isinstance(positions, Mapping):
+        for symbol, payload in positions.items():
+            if isinstance(payload, Mapping):
+                rows.append((str(symbol).upper(), payload))
+            else:
+                rows.append((str(symbol).upper(), {}))
+    elif isinstance(positions, Sequence) and not isinstance(positions, (str, bytes)):
+        for index, payload in enumerate(positions):
+            if isinstance(payload, Mapping):
+                symbol = str(payload.get("symbol") or payload.get("sym") or payload.get("asset") or index).upper()
+                rows.append((symbol, payload))
+
+    open_symbols = sorted({symbol for symbol, _ in rows if symbol})
+    owned_symbols = sorted({symbol for symbol, payload in rows if symbol and not _is_external_position(payload)})
+    external_symbols = sorted({symbol for symbol, payload in rows if symbol and _is_external_position(payload)})
+    return {
+        "open_position_count": len(open_symbols),
+        "owned_open_position_count": len(owned_symbols),
+        "external_open_position_count": len(external_symbols),
+        "open_position_symbols": open_symbols,
+        "owned_open_position_symbols": owned_symbols,
+        "external_open_position_symbols": external_symbols,
+    }
+
+
+def _is_external_position(position: Mapping[str, Any]) -> bool:
+    if bool(position.get("external")) or bool(position.get("inherited_from_exchange")):
+        return True
+    external_labels = {"", "AdoptedExchangePosition", "RecoveredExchangePosition"}
+    owner = str(position.get("by_player") or position.get("by_agent") or position.get("owner") or "").strip()
+    return owner in external_labels
+
+
+def _fail_reasons(
+    *,
+    signals: int,
+    orders: int,
+    fills: int,
+    expectancy_after_costs: float,
+    reconcile_ok: bool,
+    reconcile_warnings: Sequence[str],
+    health_warnings: Sequence[str],
+    owned_open_position_count: int,
+    status: Mapping[str, Any],
+) -> list[str]:
+    reasons: list[str] = []
+    if signals <= 0:
+        reasons.append("zero_signals")
+    if orders <= 0:
+        reasons.append("zero_orders")
+    if fills <= 0:
+        reasons.append("zero_fills")
+    if expectancy_after_costs <= 0.0:
+        reasons.append("nonpositive_expectancy")
+    if not reconcile_ok:
+        reasons.append("reconcile_failed")
+    if reconcile_warnings:
+        reasons.append("reconcile_warnings")
+    if health_warnings:
+        reasons.append("health_warnings")
+    if owned_open_position_count > 0:
+        reasons.append("open_positions_not_flat")
+    if str(status.get("feed_status") or "").strip().lower() not in ("", "active", "ok", "healthy"):
+        reasons.append("feed_not_active")
+    return reasons
+
+
+def _write_summary_files(report_root: Path, now: datetime, summary: Mapping[str, Any]) -> None:
+    report_root.mkdir(parents=True, exist_ok=True)
+    run_dir = report_root / now.strftime("%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_path = run_dir / "canary_summary.json"
+    latest_path = report_root / "latest_canary_summary.json"
+    text = json.dumps(summary, indent=2, sort_keys=True)
+    run_path.write_text(text, encoding="utf-8")
+    latest_path.write_text(text, encoding="utf-8")
+    shutil.copyfile(run_path, report_root / "panteon3_live_canary_summary.json")
+
+
+def _iter_jsonl(path: Path) -> Iterable[Mapping[str, Any]]:
+    if not path.exists():
+        return ()
+
+    def _generator() -> Iterable[Mapping[str, Any]]:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    row = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, Mapping):
+                    yield row
+
+    return _generator()
+
+
+def _load_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _row_timestamp(row: Mapping[str, Any]) -> datetime | None:
+    for key in ("timestamp", "timestamp_utc", "created_at"):
+        parsed = _parse_time(row.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _parse_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return _aware_utc(datetime.fromisoformat(text))
+    except ValueError:
+        return None
+
+
+def _aware_utc(value: datetime | None) -> datetime:
+    current = value or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    return current.astimezone(timezone.utc)
+
+
+def _max_int(payload: Mapping[str, Any], *keys: str) -> int:
+    values = []
+    for key in keys:
+        try:
+            values.append(int(payload.get(key)))
+        except (TypeError, ValueError):
+            continue
+    return max(values) if values else 0
+
+
+def _first_float(payload: Mapping[str, Any], *keys: str) -> float:
+    for key in keys:
+        try:
+            return float(payload.get(key))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _nested_trade_float(payload: Mapping[str, Any], *keys: str) -> float:
+    trade = payload.get("trade")
+    if not isinstance(trade, Mapping):
+        return 0.0
+    return _first_float(trade, *keys)
+
+
+def _sequence_len(value: Any) -> int:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return len(value)
+    return 0
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value else []
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [str(item) for item in value if str(item or "").strip()]
+    return []
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build Panteon v3 live canary summary from runtime artifacts.")
+    parser.add_argument("--results-root", default="Results")
+    parser.add_argument("--reports-dir", default=str(Path("Reports") / "Panteon3Canary"))
+    parser.add_argument("--exchange", action="append", dest="exchanges")
+    parser.add_argument("--lookback-minutes", type=float, default=360.0)
+    args = parser.parse_args(argv)
+
+    summary = build_canary_summary(
+        results_root=args.results_root,
+        reports_dir=args.reports_dir,
+        exchanges=tuple(args.exchanges or DEFAULT_EXCHANGES),
+        lookback_minutes=args.lookback_minutes,
+    )
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0 if summary.get("passed") else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

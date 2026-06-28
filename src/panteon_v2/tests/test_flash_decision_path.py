@@ -21,8 +21,10 @@ class _CapturingAllocator:
     def __init__(self) -> None:
         self.degraded_signal_keys = ()
         self.probation_signal_keys = ()
+        self.kwargs = {}
 
     def decide(self, *args, **kwargs):
+        self.kwargs = dict(kwargs)
         self.degraded_signal_keys = tuple(kwargs.get("degraded_signal_keys", ()))
         self.probation_signal_keys = tuple(kwargs.get("probation_signal_keys", ()))
         return ()
@@ -74,6 +76,102 @@ class _Executor:
 
 
 class TestFlashDecisionPath(unittest.TestCase):
+    def test_exchange_min_notional_and_balance_are_passed_to_allocator(self):
+        allocator = _CapturingAllocator()
+
+        class Exchange:
+            def get_min_notional(self, symbol):
+                return 5.0 if symbol == "BTC/USDT" else 0.0
+
+        pipeline = SimpleNamespace(
+            flash_allocator=allocator,
+            event_log=_EventLog(),
+            _current_actionable_player_labels=set(),
+            _current_shadow_agent_signals={},
+            live_execution=SimpleNamespace(max_new_opens_per_bar=1),
+            risk_config=SimpleNamespace(max_open_positions=None),
+            executor=SimpleNamespace(_exchange=Exchange()),
+            current_balance=1234.0,
+        )
+        callbacks = FlashDecisionPathCallbacks(
+            fallback_candidate_safety_issue=lambda *args, **kwargs: False,
+            flash_real_agents=lambda *args, **kwargs: (),
+            flash_execution_actor_type=_FlashActor,
+            sync_player_agents_to_real_positions=lambda *args, **kwargs: None,
+            flash_update_degradation_state_from_events=lambda *args, **kwargs: None,
+            flash_shadow_player_signals_with_position_replay=(
+                lambda *args, **kwargs: {}
+            ),
+            flash_shadow_confirmation_scores=lambda *args, **kwargs: {},
+            flash_degraded_signal_keys=lambda *args, **kwargs: (),
+            genetics_probation_preselection_degraded_signal_keys=(
+                lambda *args, **kwargs: ()
+            ),
+            genetics_probation_preselection_admission_signal_keys=(
+                lambda *args, **kwargs: ()
+            ),
+            flash_degraded_actor_keys=lambda *args, **kwargs: (),
+            flash_degraded_open_symbols=lambda *args, **kwargs: (),
+            flash_promoted_signal_keys=lambda *args, **kwargs: (),
+            flash_open_position_sides_by_symbol=lambda *args, **kwargs: {},
+            flash_open_position_actor_keys_by_symbol=lambda *args, **kwargs: {},
+            flash_previous_actor_key_from_decision=lambda *args, **kwargs: "",
+            flash_register_degradation_signal_keys=lambda *args, **kwargs: None,
+            emit_flash_audit_events=lambda *args, **kwargs: None,
+            flash_stale_position_close_signals=lambda *args, **kwargs: [],
+            flash_stale_position_exit_max_age_bars=lambda *args, **kwargs: 0,
+            flash_stale_position_exit_requires_loss=lambda *args, **kwargs: False,
+            genetics_probation_regime_exit_close_signals=lambda *args, **kwargs: [],
+            flash_partial_profit_lock_close_signals=lambda *args, **kwargs: [],
+            flash_guard_actor=lambda *args, **kwargs: _FlashActor(
+                label="Panteon_Flash",
+                agents=(),
+                agent_labels=(),
+            ),
+            filter_real_signals_against_tracker=(
+                lambda *args, **kwargs: RealSignalGuardResult(signals=[])
+            ),
+            genetics_probation_execution_overlay=lambda *args, **kwargs: args[-1],
+            signal_context=lambda *args, **kwargs: {},
+            record_order_failure=lambda *args, **kwargs: None,
+            record_order_success=lambda *args, **kwargs: None,
+            record_realized_result_for_strategy=lambda *args, **kwargs: None,
+            kill_switch_reason=lambda *args, **kwargs: "",
+            flash_causal_decision_payload=lambda *args, **kwargs: {},
+            step_result_type=_StepResult,
+        )
+
+        run_flash_decision_path(
+            pipeline,
+            make_market_snapshot(
+                bar=1,
+                prices={"BTC/USDT": 100.0, "ETH/USDT": 2000.0},
+                regime="bearish",
+            ),
+            (),
+            SimpleNamespace(
+                total_signals=0,
+                total_filled=0,
+                total_rejected=0,
+                total_blocked=0,
+                actors=0,
+            ),
+            signal_id_counter=1,
+            last_qm_bar=0,
+            last_regime=None,
+            trace="trace",
+            decision_id="decision",
+            context={},
+            health_reason="",
+            callbacks=callbacks,
+        )
+
+        self.assertEqual(
+            allocator.kwargs["min_notional_by_symbol"],
+            {"BTC/USDT": 5.0},
+        )
+        self.assertEqual(allocator.kwargs["account_equity_usd"], 1234.0)
+
     def test_preselection_genetics_probation_degraded_keys_are_passed_to_allocator(self):
         allocator = _CapturingAllocator()
         pipeline = SimpleNamespace(

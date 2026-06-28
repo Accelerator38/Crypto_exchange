@@ -16,6 +16,7 @@ from typing import Any, Deque, Iterable, Mapping, Optional, Sequence
 
 from ..app.agent_bootstrap import (
     experimental_flash_agent_labels,
+    promote_legacy_flash_real_agents,
     register_all_v1_agents,
     register_experimental_flash_agents,
 )
@@ -39,6 +40,7 @@ from ..execution import FakeExchange, RiskLimitsConfig
 from ..app.regime_detector import PriceRegimeDetector
 from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import AgentRegistry, FlashAllocatorConfig, StrategistConfig
+from ..selection.component_memory import ComponentMemory
 from ..selection.promotion_manifest import (
     PromotionManifestConfig,
     Z_95_ONE_SIDED,
@@ -251,6 +253,22 @@ def _clone_agent_for_shadow_registry(agent: Any) -> Optional[Any]:
         return None
 
 
+def _promote_retro_flash_legacy_real_agents(
+    registry: AgentRegistry,
+    config: "RetrodateMarketConfig",
+) -> tuple[str, ...]:
+    labels = tuple(str(label).strip() for label in config.flash_legacy_real_agent_labels if str(label).strip())
+    if not labels:
+        return ()
+    return tuple(
+        promote_legacy_flash_real_agents(
+            registry,
+            labels=labels,
+            skip_missing=True,
+        )
+    )
+
+
 @dataclass(frozen=True)
 class RetrodateMarketConfig:
     """Configuration for a Retrodate market replay benchmark."""
@@ -320,10 +338,13 @@ class RetrodateMarketConfig:
     recompute_quarantine_every: int = 24
     progress_every_bars: int = 1000
     max_bars: Optional[int] = None
+    skip_bars: int = 0
+    compact_causal_entry_decisions: bool = True
     flash_audit_events_enabled: bool = True
     shadow_audit_events_enabled: bool = True
     step_result_retention_enabled: bool = True
     compact_causal_entry_selected_only: bool = False
+    compact_causal_entry_include_labels: tuple[str, ...] = ()
     shadow_agent_include_labels: tuple[str, ...] = ()
     shadow_player_include_labels: tuple[str, ...] = ()
     shadow_parallel_workers: int = 1
@@ -404,6 +425,43 @@ class RetrodateMarketConfig:
     flash_funding_risk_mult_cap: float = 0.25
     flash_no_trade_fee_saving_score_enabled: bool = False
     flash_no_trade_default_fee_bps: float = 0.0
+    flash_controlled_exploration_enabled: bool = False
+    flash_controlled_exploration_allowed_reasons: tuple[str, ...] = ()
+    flash_controlled_exploration_risk_mult: float = 0.05
+    flash_controlled_exploration_min_shadow_score: float = 2.0
+    flash_controlled_exploration_min_shadow_closed: int = 10
+    flash_controlled_exploration_max_daily_trades: int = 1
+    flash_controlled_exploration_max_open_positions: int = 1
+    flash_controlled_exploration_min_rolling_expectancy: float = 0.0
+    flash_controlled_exploration_min_notional_sizing_enabled: bool = False
+    flash_controlled_exploration_account_equity_usd: float = 0.0
+    flash_controlled_exploration_capital_fraction: float = 0.10
+    flash_controlled_exploration_min_notional_max_risk_mult: float = 0.10
+    flash_controlled_exploration_default_min_notional_usd: float = 5.0
+    flash_controlled_exploration_apply_leverage_to_notional: bool = False
+    flash_controlled_exploration_max_leverage: float = 1.0
+    flash_causal_actor_router_enabled: bool = False
+    flash_causal_actor_router_min_closed_trades: int = 5
+    flash_causal_actor_router_min_expectancy: float = 0.0
+    flash_causal_actor_router_min_pnl_lcb: Optional[float] = None
+    flash_causal_actor_router_exploration_enabled: bool = False
+    flash_causal_actor_router_exploration_risk_mult: float = 0.05
+    flash_promotion_derived_router_enabled: bool = False
+    flash_promotion_derived_actor_labels: tuple[str, ...] = ()
+    flash_promotion_derived_dynamic_best_enabled: bool = False
+    flash_promotion_derived_min_closed_trades: int = 5
+    flash_promotion_derived_min_expectancy: float = 0.0
+    flash_promotion_derived_risk_mult: float = 0.03
+    flash_promotion_derived_min_notional_sizing_enabled: bool = False
+    flash_promotion_derived_account_equity_usd: float = 0.0
+    flash_promotion_derived_capital_fraction: float = 0.10
+    flash_promotion_derived_min_notional_max_risk_mult: float = 0.10
+    flash_promotion_derived_default_min_notional_usd: float = 5.0
+    flash_promotion_derived_apply_leverage_to_notional: bool = False
+    flash_promotion_derived_max_leverage: float = 1.0
+    flash_component_memory_jsonl: str = ""
+    flash_legacy_real_agent_labels: tuple[str, ...] = ()
+    futures_replay_signal_fixes_enabled: bool = False
     flash_volatility_risk_sizing_enabled: bool = False
     flash_volatility_risk_target_pct: float = 2.0
     flash_volatility_risk_min_volatility_pct: float = 0.5
@@ -595,6 +653,8 @@ class RetrodateMarketConfig:
             raise ValueError("slippage_pct must be >= 0")
         if self.solo_agent_candidate_limit < 1:
             raise ValueError("solo_agent_candidate_limit must be >= 1")
+        if self.skip_bars < 0:
+            raise ValueError("skip_bars must be >= 0")
         object.__setattr__(
             self,
             "shadow_position_diagnostic_bars",
@@ -679,6 +739,88 @@ class RetrodateMarketConfig:
             raise ValueError("flash_funding_risk_mult_cap must be >= 0")
         if self.flash_no_trade_default_fee_bps < 0:
             raise ValueError("flash_no_trade_default_fee_bps must be >= 0")
+        if self.flash_controlled_exploration_risk_mult < 0:
+            raise ValueError("flash_controlled_exploration_risk_mult must be >= 0")
+        if self.flash_controlled_exploration_risk_mult > 1.0:
+            raise ValueError("flash_controlled_exploration_risk_mult must be <= 1")
+        if self.flash_controlled_exploration_min_shadow_score < 0:
+            raise ValueError(
+                "flash_controlled_exploration_min_shadow_score must be >= 0"
+            )
+        if self.flash_controlled_exploration_min_shadow_closed < 0:
+            raise ValueError(
+                "flash_controlled_exploration_min_shadow_closed must be >= 0"
+            )
+        if self.flash_controlled_exploration_max_daily_trades < 0:
+            raise ValueError(
+                "flash_controlled_exploration_max_daily_trades must be >= 0"
+            )
+        if self.flash_controlled_exploration_max_open_positions < 0:
+            raise ValueError(
+                "flash_controlled_exploration_max_open_positions must be >= 0"
+            )
+        if self.flash_controlled_exploration_account_equity_usd < 0:
+            raise ValueError(
+                "flash_controlled_exploration_account_equity_usd must be >= 0"
+            )
+        if not 0.0 < self.flash_controlled_exploration_capital_fraction <= 1.0:
+            raise ValueError(
+                "flash_controlled_exploration_capital_fraction must be in (0, 1]"
+            )
+        if self.flash_controlled_exploration_min_notional_max_risk_mult < 0:
+            raise ValueError(
+                "flash_controlled_exploration_min_notional_max_risk_mult must be >= 0"
+            )
+        if self.flash_controlled_exploration_min_notional_max_risk_mult > 1.0:
+            raise ValueError(
+                "flash_controlled_exploration_min_notional_max_risk_mult must be <= 1"
+            )
+        if self.flash_controlled_exploration_default_min_notional_usd < 0:
+            raise ValueError(
+                "flash_controlled_exploration_default_min_notional_usd must be >= 0"
+            )
+        if self.flash_controlled_exploration_max_leverage < 1.0:
+            raise ValueError(
+                "flash_controlled_exploration_max_leverage must be >= 1"
+            )
+        if self.flash_causal_actor_router_min_closed_trades < 0:
+            raise ValueError("flash_causal_actor_router_min_closed_trades must be >= 0")
+        if self.flash_causal_actor_router_exploration_risk_mult < 0:
+            raise ValueError(
+                "flash_causal_actor_router_exploration_risk_mult must be >= 0"
+            )
+        if self.flash_causal_actor_router_exploration_risk_mult > 1.0:
+            raise ValueError(
+                "flash_causal_actor_router_exploration_risk_mult must be <= 1"
+            )
+        if self.flash_promotion_derived_min_closed_trades < 0:
+            raise ValueError(
+                "flash_promotion_derived_min_closed_trades must be >= 0"
+            )
+        if self.flash_promotion_derived_risk_mult < 0:
+            raise ValueError("flash_promotion_derived_risk_mult must be >= 0")
+        if self.flash_promotion_derived_risk_mult > 1.0:
+            raise ValueError("flash_promotion_derived_risk_mult must be <= 1")
+        if self.flash_promotion_derived_account_equity_usd < 0:
+            raise ValueError("flash_promotion_derived_account_equity_usd must be >= 0")
+        if not 0.0 < self.flash_promotion_derived_capital_fraction <= 1.0:
+            raise ValueError(
+                "flash_promotion_derived_capital_fraction must be in (0, 1]"
+            )
+        if self.flash_promotion_derived_min_notional_max_risk_mult < 0:
+            raise ValueError(
+                "flash_promotion_derived_min_notional_max_risk_mult must be >= 0"
+            )
+        if self.flash_promotion_derived_min_notional_max_risk_mult > 1.0:
+            raise ValueError(
+                "flash_promotion_derived_min_notional_max_risk_mult must be <= 1"
+            )
+        if self.flash_promotion_derived_default_min_notional_usd < 0:
+            raise ValueError(
+                "flash_promotion_derived_default_min_notional_usd must be >= 0"
+            )
+        if self.flash_promotion_derived_max_leverage < 1.0:
+            raise ValueError("flash_promotion_derived_max_leverage must be >= 1")
         if self.flash_volatility_risk_target_pct <= 0:
             raise ValueError("flash_volatility_risk_target_pct must be > 0")
         if self.flash_volatility_risk_min_volatility_pct <= 0:
@@ -762,6 +904,11 @@ class RetrodateMarketConfig:
         )
         object.__setattr__(
             self,
+            "compact_causal_entry_include_labels",
+            _normalize_label_tuple(self.compact_causal_entry_include_labels),
+        )
+        object.__setattr__(
+            self,
             "shadow_agent_include_labels",
             _normalize_label_tuple(self.shadow_agent_include_labels),
         )
@@ -769,6 +916,11 @@ class RetrodateMarketConfig:
             self,
             "shadow_player_include_labels",
             _normalize_label_tuple(self.shadow_player_include_labels),
+        )
+        object.__setattr__(
+            self,
+            "flash_legacy_real_agent_labels",
+            _normalize_label_tuple(self.flash_legacy_real_agent_labels),
         )
         raw_genetics_confirmation_labels = self.flash_genetics_confirmation_labels
         genetics_confirmation_labels = (
@@ -1209,6 +1361,23 @@ def load_retrodate_year_snapshots(
     return snapshots
 
 
+def _replay_window_from_snapshots(
+    snapshots: Sequence[MarketSnapshot],
+    *,
+    skip_remaining: int,
+    remaining: Optional[int],
+) -> tuple[list[MarketSnapshot], int]:
+    skip = max(0, int(skip_remaining))
+    if skip:
+        skipped = min(skip, len(snapshots))
+        skip -= skipped
+        snapshots = snapshots[skipped:]
+    selected = list(snapshots)
+    if remaining is not None:
+        selected = selected[: max(0, int(remaining))]
+    return selected, skip
+
+
 def _snapshot_lookback_returns_pct(
     prices: dict[str, float],
     state: RetrodateSnapshotState,
@@ -1279,8 +1448,19 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
                 else None
             ),
             skip_on_error=True,
+            futures_replay_signal_fixes_enabled=(
+                config.futures_replay_signal_fixes_enabled
+            ),
         )
     )
+    promoted_legacy_real_labels = _promote_retro_flash_legacy_real_agents(
+        registry,
+        config,
+    )
+    if promoted_legacy_real_labels:
+        registered_agent_labels = list(dict.fromkeys(
+            [*registered_agent_labels, *promoted_legacy_real_labels]
+        ))
     shadow_registry = registry
     if (
         config.experimental_flash_actors_enabled
@@ -1314,6 +1494,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         risk_config=_build_risk_config(config),
         flash_enabled=config.flash_enabled,
         flash_allocator_config=_build_flash_allocator_config(config),
+        flash_component_memory=_load_flash_component_memory(config),
         scoring_config=_build_scoring_config(config),
         perf_max_returns_history=int(config.perf_max_returns_history),
         voting_directional=bool(config.voting_directional),
@@ -1459,9 +1640,12 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
             output_dir=str(output_dir),
             write_every_bars=max(1, int(config.write_every_bars)),
             full_snapshot_every=max(1, int(config.full_snapshot_every)),
-            compact_causal_entry_decisions=True,
+            compact_causal_entry_decisions=bool(config.compact_causal_entry_decisions),
             compact_causal_entry_selected_only=bool(
                 config.compact_causal_entry_selected_only
+            ),
+            compact_causal_entry_include_labels=tuple(
+                config.compact_causal_entry_include_labels
             ),
             latest_dir=str(Path(config.results_root).resolve()),
         ),
@@ -1473,6 +1657,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     last_timestamp = ""
     step_errors: list[str] = []
     processed_years: list[int] = []
+    skip_remaining = max(0, int(config.skip_bars))
 
     try:
         for file_report in selection.valid_reports:
@@ -1481,16 +1666,22 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
                 remaining = max(0, int(config.max_bars) - bars_processed)
                 if remaining <= 0:
                     break
+            load_limit = remaining
+            if skip_remaining > 0 and load_limit is not None:
+                load_limit += skip_remaining
             snapshots = load_retrodate_year_snapshots(
                 file_report.path,
                 stride_minutes=config.stride_minutes,
                 state=state,
-                max_snapshots=remaining,
+                max_snapshots=load_limit,
                 use_live_regime_detector=config.use_live_regime_detector,
                 regime_min_directional_consensus=config.regime_min_directional_consensus,
             )
-            if remaining is not None:
-                snapshots = snapshots[:remaining]
+            snapshots, skip_remaining = _replay_window_from_snapshots(
+                snapshots,
+                skip_remaining=skip_remaining,
+                remaining=remaining,
+            )
             if not snapshots:
                 continue
             if not first_timestamp:
@@ -1722,10 +1913,15 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         recompute_quarantine_every=args.recompute_quarantine_every,
         progress_every_bars=args.progress_every_bars,
         max_bars=args.max_bars,
+        skip_bars=args.skip_bars,
+        compact_causal_entry_decisions=not args.disable_compact_causal_entry_decisions,
         flash_audit_events_enabled=not args.disable_flash_audit_events,
         shadow_audit_events_enabled=not args.disable_shadow_audit_events,
         step_result_retention_enabled=not args.disable_step_result_retention,
         compact_causal_entry_selected_only=args.compact_causal_entry_selected_only,
+        compact_causal_entry_include_labels=_normalize_label_tuple(
+            args.compact_causal_entry_include_label
+        ),
         shadow_agent_include_labels=_normalize_label_tuple(
             args.shadow_agent_include_label
         ),
@@ -1925,6 +2121,117 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             args.enable_flash_no_trade_fee_saving_score
         ),
         flash_no_trade_default_fee_bps=args.flash_no_trade_default_fee_bps,
+        flash_controlled_exploration_enabled=(
+            args.enable_flash_controlled_exploration
+        ),
+        flash_controlled_exploration_allowed_reasons=tuple(
+            reason.strip()
+            for raw in args.flash_controlled_exploration_allowed_reason
+            for reason in str(raw or "").split(",")
+            if reason.strip()
+        ),
+        flash_controlled_exploration_risk_mult=(
+            args.flash_controlled_exploration_risk_mult
+        ),
+        flash_controlled_exploration_min_shadow_score=(
+            args.flash_controlled_exploration_min_shadow_score
+        ),
+        flash_controlled_exploration_min_shadow_closed=(
+            args.flash_controlled_exploration_min_shadow_closed
+        ),
+        flash_controlled_exploration_max_daily_trades=(
+            args.flash_controlled_exploration_max_daily_trades
+        ),
+        flash_controlled_exploration_max_open_positions=(
+            args.flash_controlled_exploration_max_open_positions
+        ),
+        flash_controlled_exploration_min_rolling_expectancy=(
+            args.flash_controlled_exploration_min_rolling_expectancy
+        ),
+        flash_controlled_exploration_min_notional_sizing_enabled=(
+            args.enable_flash_controlled_exploration_min_notional_sizing
+        ),
+        flash_controlled_exploration_account_equity_usd=(
+            args.flash_controlled_exploration_account_equity_usd
+        ),
+        flash_controlled_exploration_capital_fraction=(
+            args.flash_controlled_exploration_capital_fraction
+        ),
+        flash_controlled_exploration_min_notional_max_risk_mult=(
+            args.flash_controlled_exploration_min_notional_max_risk_mult
+        ),
+        flash_controlled_exploration_default_min_notional_usd=(
+            args.flash_controlled_exploration_default_min_notional_usd
+        ),
+        flash_controlled_exploration_apply_leverage_to_notional=(
+            args.flash_controlled_exploration_apply_leverage_to_notional
+        ),
+        flash_controlled_exploration_max_leverage=(
+            args.flash_controlled_exploration_max_leverage
+        ),
+        flash_causal_actor_router_enabled=args.enable_flash_causal_actor_router,
+        flash_causal_actor_router_min_closed_trades=(
+            args.flash_causal_actor_router_min_closed_trades
+        ),
+        flash_causal_actor_router_min_expectancy=(
+            args.flash_causal_actor_router_min_expectancy
+        ),
+        flash_causal_actor_router_min_pnl_lcb=(
+            args.flash_causal_actor_router_min_pnl_lcb
+        ),
+        flash_causal_actor_router_exploration_enabled=(
+            args.enable_flash_causal_actor_router_exploration
+        ),
+        flash_causal_actor_router_exploration_risk_mult=(
+            args.flash_causal_actor_router_exploration_risk_mult
+        ),
+        flash_promotion_derived_router_enabled=(
+            args.enable_flash_promotion_derived_router
+        ),
+        flash_promotion_derived_actor_labels=tuple(
+            label.strip()
+            for raw in args.flash_promotion_derived_actor_label
+            for label in str(raw or "").split(",")
+            if label.strip()
+        ),
+        flash_promotion_derived_dynamic_best_enabled=(
+            args.flash_promotion_derived_dynamic_best
+        ),
+        flash_promotion_derived_min_closed_trades=(
+            args.flash_promotion_derived_min_closed_trades
+        ),
+        flash_promotion_derived_min_expectancy=(
+            args.flash_promotion_derived_min_expectancy
+        ),
+        flash_promotion_derived_risk_mult=args.flash_promotion_derived_risk_mult,
+        flash_promotion_derived_min_notional_sizing_enabled=(
+            args.enable_flash_promotion_derived_min_notional_sizing
+        ),
+        flash_promotion_derived_account_equity_usd=(
+            args.flash_promotion_derived_account_equity_usd
+        ),
+        flash_promotion_derived_capital_fraction=(
+            args.flash_promotion_derived_capital_fraction
+        ),
+        flash_promotion_derived_min_notional_max_risk_mult=(
+            args.flash_promotion_derived_min_notional_max_risk_mult
+        ),
+        flash_promotion_derived_default_min_notional_usd=(
+            args.flash_promotion_derived_default_min_notional_usd
+        ),
+        flash_promotion_derived_apply_leverage_to_notional=(
+            args.flash_promotion_derived_apply_leverage_to_notional
+        ),
+        flash_promotion_derived_max_leverage=(
+            args.flash_promotion_derived_max_leverage
+        ),
+        flash_component_memory_jsonl=str(args.flash_component_memory_jsonl or ""),
+        flash_legacy_real_agent_labels=_normalize_label_tuple(
+            args.flash_legacy_real_agent_label
+        ),
+        futures_replay_signal_fixes_enabled=bool(
+            args.enable_futures_replay_signal_fixes
+        ),
         flash_volatility_risk_sizing_enabled=(
             args.enable_flash_volatility_risk_sizing
         ),
@@ -2463,6 +2770,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress-every-bars", type=int, default=1000)
     parser.add_argument("--max-bars", type=int)
     parser.add_argument(
+        "--skip-bars",
+        type=int,
+        default=0,
+        help="Skip this many causal snapshots before processing max-bars replay window.",
+    )
+    parser.add_argument(
+        "--disable-compact-causal-entry-decisions",
+        action="store_true",
+        help=(
+            "Write full Flash candidate rows to causal_entry_decisions.jsonl. "
+            "Useful for promotion diagnostics; files can be large."
+        ),
+    )
+    parser.add_argument(
         "--disable-flash-audit-events",
         action="store_true",
         help=(
@@ -2495,6 +2816,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "When compact causal JSONL is enabled, write only selected Flash "
             "decisions with real signals. This keeps attribution/context rows "
             "available for gate runs while avoiding huge NoTrade payloads."
+        ),
+    )
+    parser.add_argument(
+        "--compact-causal-entry-include-label",
+        action="append",
+        default=[],
+        help=(
+            "Keep this candidate label or actor_key in compact Flash audit rows "
+            "even when it is not selected or top-ranked. Can be repeated or "
+            "comma-separated."
         ),
     )
     parser.add_argument(
@@ -2671,6 +3002,73 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flash-funding-risk-mult-cap", type=float, default=0.25)
     parser.add_argument("--enable-flash-no-trade-fee-saving-score", action="store_true")
     parser.add_argument("--flash-no-trade-default-fee-bps", type=float, default=0.0)
+    parser.add_argument("--enable-flash-controlled-exploration", action="store_true")
+    parser.add_argument(
+        "--flash-controlled-exploration-allowed-reason",
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--flash-controlled-exploration-risk-mult", type=float, default=0.05)
+    parser.add_argument("--flash-controlled-exploration-min-shadow-score", type=float, default=2.0)
+    parser.add_argument("--flash-controlled-exploration-min-shadow-closed", type=int, default=10)
+    parser.add_argument("--flash-controlled-exploration-max-daily-trades", type=int, default=1)
+    parser.add_argument("--flash-controlled-exploration-max-open-positions", type=int, default=1)
+    parser.add_argument("--flash-controlled-exploration-min-rolling-expectancy", type=float, default=0.0)
+    parser.add_argument("--enable-flash-controlled-exploration-min-notional-sizing", action="store_true")
+    parser.add_argument("--flash-controlled-exploration-account-equity-usd", type=float, default=0.0)
+    parser.add_argument("--flash-controlled-exploration-capital-fraction", type=float, default=0.10)
+    parser.add_argument("--flash-controlled-exploration-min-notional-max-risk-mult", type=float, default=0.10)
+    parser.add_argument("--flash-controlled-exploration-default-min-notional-usd", type=float, default=5.0)
+    parser.add_argument("--flash-controlled-exploration-apply-leverage-to-notional", action="store_true")
+    parser.add_argument("--flash-controlled-exploration-max-leverage", type=float, default=1.0)
+    parser.add_argument("--enable-flash-causal-actor-router", action="store_true")
+    parser.add_argument("--flash-causal-actor-router-min-closed-trades", type=int, default=5)
+    parser.add_argument("--flash-causal-actor-router-min-expectancy", type=float, default=0.0)
+    parser.add_argument("--flash-causal-actor-router-min-pnl-lcb", type=float, default=None)
+    parser.add_argument("--enable-flash-causal-actor-router-exploration", action="store_true")
+    parser.add_argument("--flash-causal-actor-router-exploration-risk-mult", type=float, default=0.05)
+    parser.add_argument("--enable-flash-promotion-derived-router", action="store_true")
+    parser.add_argument(
+        "--flash-promotion-derived-actor-label",
+        action="append",
+        default=[],
+    )
+    parser.add_argument("--flash-promotion-derived-min-closed-trades", type=int, default=5)
+    parser.add_argument("--flash-promotion-derived-dynamic-best", action="store_true")
+    parser.add_argument("--flash-promotion-derived-min-expectancy", type=float, default=0.0)
+    parser.add_argument("--flash-promotion-derived-risk-mult", type=float, default=0.03)
+    parser.add_argument("--enable-flash-promotion-derived-min-notional-sizing", action="store_true")
+    parser.add_argument("--flash-promotion-derived-account-equity-usd", type=float, default=0.0)
+    parser.add_argument("--flash-promotion-derived-capital-fraction", type=float, default=0.10)
+    parser.add_argument("--flash-promotion-derived-min-notional-max-risk-mult", type=float, default=0.10)
+    parser.add_argument("--flash-promotion-derived-default-min-notional-usd", type=float, default=5.0)
+    parser.add_argument("--flash-promotion-derived-apply-leverage-to-notional", action="store_true")
+    parser.add_argument("--flash-promotion-derived-max-leverage", type=float, default=1.0)
+    parser.add_argument(
+        "--flash-component-memory-jsonl",
+        default="",
+        help=(
+            "Optional JSONL with prior-bar component stats "
+            "(actor_label/symbol/regime/action/bar/closed_trades/expectancy)."
+        ),
+    )
+    parser.add_argument(
+        "--enable-futures-replay-signal-fixes",
+        action="store_true",
+        help=(
+            "Replay-only futures signal fixes for CarryFlowAgentV2, "
+            "MomentumScalper and LiveVolCompress."
+        ),
+    )
+    parser.add_argument(
+        "--flash-legacy-real-agent-label",
+        action="append",
+        default=[],
+        help=(
+            "Promote an existing legacy v1 agent label into the real Flash "
+            "candidate universe for replay. Can be repeated or comma-separated."
+        ),
+    )
     parser.add_argument("--enable-flash-volatility-risk-sizing", action="store_true")
     parser.add_argument("--flash-volatility-risk-target-pct", type=float, default=2.0)
     parser.add_argument("--flash-volatility-risk-min-volatility-pct", type=float, default=0.5)
@@ -3238,6 +3636,105 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
             config.flash_no_trade_fee_saving_score_enabled
         ),
         no_trade_default_fee_bps=config.flash_no_trade_default_fee_bps,
+        controlled_exploration_enabled=(
+            config.flash_controlled_exploration_enabled
+        ),
+        controlled_exploration_allowed_reasons=(
+            config.flash_controlled_exploration_allowed_reasons
+        ),
+        controlled_exploration_risk_mult=(
+            config.flash_controlled_exploration_risk_mult
+        ),
+        controlled_exploration_min_shadow_score=(
+            config.flash_controlled_exploration_min_shadow_score
+        ),
+        controlled_exploration_min_shadow_closed=(
+            config.flash_controlled_exploration_min_shadow_closed
+        ),
+        controlled_exploration_max_daily_trades=(
+            config.flash_controlled_exploration_max_daily_trades
+        ),
+        controlled_exploration_max_open_positions=(
+            config.flash_controlled_exploration_max_open_positions
+        ),
+        controlled_exploration_min_rolling_expectancy=(
+            config.flash_controlled_exploration_min_rolling_expectancy
+        ),
+        controlled_exploration_min_notional_sizing_enabled=(
+            config.flash_controlled_exploration_min_notional_sizing_enabled
+        ),
+        controlled_exploration_account_equity_usd=(
+            config.flash_controlled_exploration_account_equity_usd
+            or config.initial_capital
+        ),
+        controlled_exploration_capital_fraction=(
+            config.flash_controlled_exploration_capital_fraction
+        ),
+        controlled_exploration_min_notional_max_risk_mult=(
+            config.flash_controlled_exploration_min_notional_max_risk_mult
+        ),
+        controlled_exploration_default_min_notional_usd=(
+            config.flash_controlled_exploration_default_min_notional_usd
+        ),
+        controlled_exploration_apply_leverage_to_notional=(
+            config.flash_controlled_exploration_apply_leverage_to_notional
+        ),
+        controlled_exploration_max_leverage=(
+            config.flash_controlled_exploration_max_leverage
+        ),
+        causal_actor_router_enabled=config.flash_causal_actor_router_enabled,
+        causal_actor_router_min_closed_trades=(
+            config.flash_causal_actor_router_min_closed_trades
+        ),
+        causal_actor_router_min_expectancy=(
+            config.flash_causal_actor_router_min_expectancy
+        ),
+        causal_actor_router_min_pnl_lcb=(
+            config.flash_causal_actor_router_min_pnl_lcb
+        ),
+        causal_actor_router_exploration_enabled=(
+            config.flash_causal_actor_router_exploration_enabled
+        ),
+        causal_actor_router_exploration_risk_mult=(
+            config.flash_causal_actor_router_exploration_risk_mult
+        ),
+        promotion_derived_router_enabled=(
+            config.flash_promotion_derived_router_enabled
+        ),
+        promotion_derived_actor_labels=(
+            config.flash_promotion_derived_actor_labels
+        ),
+        promotion_derived_dynamic_best_enabled=(
+            config.flash_promotion_derived_dynamic_best_enabled
+        ),
+        promotion_derived_min_closed_trades=(
+            config.flash_promotion_derived_min_closed_trades
+        ),
+        promotion_derived_min_expectancy=(
+            config.flash_promotion_derived_min_expectancy
+        ),
+        promotion_derived_risk_mult=config.flash_promotion_derived_risk_mult,
+        promotion_derived_min_notional_sizing_enabled=(
+            config.flash_promotion_derived_min_notional_sizing_enabled
+        ),
+        promotion_derived_account_equity_usd=(
+            config.flash_promotion_derived_account_equity_usd
+        ),
+        promotion_derived_capital_fraction=(
+            config.flash_promotion_derived_capital_fraction
+        ),
+        promotion_derived_min_notional_max_risk_mult=(
+            config.flash_promotion_derived_min_notional_max_risk_mult
+        ),
+        promotion_derived_default_min_notional_usd=(
+            config.flash_promotion_derived_default_min_notional_usd
+        ),
+        promotion_derived_apply_leverage_to_notional=(
+            config.flash_promotion_derived_apply_leverage_to_notional
+        ),
+        promotion_derived_max_leverage=(
+            config.flash_promotion_derived_max_leverage
+        ),
         volatility_risk_sizing_enabled=config.flash_volatility_risk_sizing_enabled,
         volatility_risk_target_pct=config.flash_volatility_risk_target_pct,
         volatility_risk_min_volatility_pct=(
@@ -3465,6 +3962,13 @@ def _flash_promoted_actor_cap_overrides(
         if actor_key not in explicit_actors and len(keys_by_actor[actor_key]) >= 2
     )
     return explicit + auto
+
+
+def _load_flash_component_memory(config: RetrodateMarketConfig) -> ComponentMemory | None:
+    raw = str(getattr(config, "flash_component_memory_jsonl", "") or "").strip()
+    if not raw:
+        return None
+    return ComponentMemory.from_jsonl(Path(raw))
 
 
 def _build_live_execution_config(config: RetrodateMarketConfig) -> LiveExecutionConfig:
@@ -6457,8 +6961,14 @@ def _write_run_summary(
         "step_result_retention_enabled": bool(
             config.step_result_retention_enabled
         ),
+        "compact_causal_entry_decisions": bool(
+            config.compact_causal_entry_decisions
+        ),
         "compact_causal_entry_selected_only": bool(
             config.compact_causal_entry_selected_only
+        ),
+        "compact_causal_entry_include_labels": list(
+            config.compact_causal_entry_include_labels
         ),
         "shadow_agent_include_labels": list(config.shadow_agent_include_labels),
         "shadow_player_include_labels": list(config.shadow_player_include_labels),
@@ -6652,6 +7162,115 @@ def _write_run_summary(
             config.flash_no_trade_fee_saving_score_enabled
         ),
         "flash_no_trade_default_fee_bps": config.flash_no_trade_default_fee_bps,
+        "flash_controlled_exploration_enabled": (
+            config.flash_controlled_exploration_enabled
+        ),
+        "flash_controlled_exploration_allowed_reasons": list(
+            config.flash_controlled_exploration_allowed_reasons
+        ),
+        "flash_controlled_exploration_risk_mult": (
+            config.flash_controlled_exploration_risk_mult
+        ),
+        "flash_controlled_exploration_min_shadow_score": (
+            config.flash_controlled_exploration_min_shadow_score
+        ),
+        "flash_controlled_exploration_min_shadow_closed": (
+            config.flash_controlled_exploration_min_shadow_closed
+        ),
+        "flash_controlled_exploration_max_daily_trades": (
+            config.flash_controlled_exploration_max_daily_trades
+        ),
+        "flash_controlled_exploration_max_open_positions": (
+            config.flash_controlled_exploration_max_open_positions
+        ),
+        "flash_controlled_exploration_min_rolling_expectancy": (
+            config.flash_controlled_exploration_min_rolling_expectancy
+        ),
+        "flash_controlled_exploration_min_notional_sizing_enabled": (
+            config.flash_controlled_exploration_min_notional_sizing_enabled
+        ),
+        "flash_controlled_exploration_account_equity_usd": (
+            config.flash_controlled_exploration_account_equity_usd
+        ),
+        "flash_controlled_exploration_capital_fraction": (
+            config.flash_controlled_exploration_capital_fraction
+        ),
+        "flash_controlled_exploration_min_notional_max_risk_mult": (
+            config.flash_controlled_exploration_min_notional_max_risk_mult
+        ),
+        "flash_controlled_exploration_default_min_notional_usd": (
+            config.flash_controlled_exploration_default_min_notional_usd
+        ),
+        "flash_controlled_exploration_apply_leverage_to_notional": (
+            config.flash_controlled_exploration_apply_leverage_to_notional
+        ),
+        "flash_controlled_exploration_max_leverage": (
+            config.flash_controlled_exploration_max_leverage
+        ),
+        "flash_causal_actor_router_enabled": (
+            config.flash_causal_actor_router_enabled
+        ),
+        "flash_causal_actor_router_min_closed_trades": (
+            config.flash_causal_actor_router_min_closed_trades
+        ),
+        "flash_causal_actor_router_min_expectancy": (
+            config.flash_causal_actor_router_min_expectancy
+        ),
+        "flash_causal_actor_router_min_pnl_lcb": (
+            config.flash_causal_actor_router_min_pnl_lcb
+        ),
+        "flash_causal_actor_router_exploration_enabled": (
+            config.flash_causal_actor_router_exploration_enabled
+        ),
+        "flash_causal_actor_router_exploration_risk_mult": (
+            config.flash_causal_actor_router_exploration_risk_mult
+        ),
+        "flash_promotion_derived_router_enabled": (
+            config.flash_promotion_derived_router_enabled
+        ),
+        "flash_promotion_derived_actor_labels": list(
+            config.flash_promotion_derived_actor_labels
+        ),
+        "flash_promotion_derived_dynamic_best_enabled": (
+            config.flash_promotion_derived_dynamic_best_enabled
+        ),
+        "flash_promotion_derived_min_closed_trades": (
+            config.flash_promotion_derived_min_closed_trades
+        ),
+        "flash_promotion_derived_min_expectancy": (
+            config.flash_promotion_derived_min_expectancy
+        ),
+        "flash_promotion_derived_risk_mult": (
+            config.flash_promotion_derived_risk_mult
+        ),
+        "flash_promotion_derived_min_notional_sizing_enabled": (
+            config.flash_promotion_derived_min_notional_sizing_enabled
+        ),
+        "flash_promotion_derived_account_equity_usd": (
+            config.flash_promotion_derived_account_equity_usd
+        ),
+        "flash_promotion_derived_capital_fraction": (
+            config.flash_promotion_derived_capital_fraction
+        ),
+        "flash_promotion_derived_min_notional_max_risk_mult": (
+            config.flash_promotion_derived_min_notional_max_risk_mult
+        ),
+        "flash_promotion_derived_default_min_notional_usd": (
+            config.flash_promotion_derived_default_min_notional_usd
+        ),
+        "flash_promotion_derived_apply_leverage_to_notional": (
+            config.flash_promotion_derived_apply_leverage_to_notional
+        ),
+        "flash_promotion_derived_max_leverage": (
+            config.flash_promotion_derived_max_leverage
+        ),
+        "flash_component_memory_jsonl": config.flash_component_memory_jsonl,
+        "flash_legacy_real_agent_labels": list(
+            config.flash_legacy_real_agent_labels
+        ),
+        "futures_replay_signal_fixes_enabled": (
+            config.futures_replay_signal_fixes_enabled
+        ),
         "flash_volatility_risk_sizing_enabled": (
             config.flash_volatility_risk_sizing_enabled
         ),
@@ -7126,6 +7745,7 @@ def _write_run_summary(
         "registered_agents": list(summary.registered_agents),
         "player_profile_count": summary.player_profile_count,
         "max_bars": summary.max_bars,
+        "skip_bars": config.skip_bars,
         "step_errors": list(summary.step_errors),
         "validation_files": [_file_report_payload(item) for item in selection.report.files],
     }

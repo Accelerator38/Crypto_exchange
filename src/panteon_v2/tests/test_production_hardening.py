@@ -552,8 +552,12 @@ class TestStartupFailClosed(unittest.TestCase):
         ):
             self.assertIn(label, mexc_flash.range_low_vol_real_actor_allowlist)
             self.assertIn(label, bitget_flash.range_low_vol_real_actor_allowlist)
-        self.assertNotIn(
+        self.assertIn(
             "GeneticsCore",
+            mexc_flash.range_low_vol_real_actor_allowlist,
+        )
+        self.assertIn(
+            "agent:GeneticsCore",
             mexc_flash.range_low_vol_real_actor_allowlist,
         )
         self.assertIn(
@@ -582,11 +586,11 @@ class TestStartupFailClosed(unittest.TestCase):
             ],
             1,
         )
-        self.assertLessEqual(
+        self.assertEqual(
             mexc_live.genetics_probation_max_realized_loss_pct_by_label[
                 "GeneticsCore"
             ],
-            0.01,
+            0.30,
         )
         self.assertTrue(mexc_live.genetics_probation_require_shadow_confirmation)
         self.assertTrue(
@@ -596,8 +600,30 @@ class TestStartupFailClosed(unittest.TestCase):
             )
         )
 
-        self.assertFalse(bitget_live.genetics_probation_execution_enabled)
+        self.assertTrue(bitget_live.genetics_probation_execution_enabled)
         self.assertEqual(bitget_live.genetics_probation_labels, ("GeneticsCore",))
+        self.assertEqual(bitget_live.genetics_probation_risk_mult, 0.08)
+        self.assertEqual(
+            bitget_live.genetics_probation_max_daily_trades_by_label["GeneticsCore"],
+            1,
+        )
+        self.assertEqual(
+            bitget_live.genetics_probation_max_real_trades_by_label["GeneticsCore"],
+            1,
+        )
+        self.assertEqual(
+            bitget_live.genetics_probation_max_consecutive_failed_orders_by_label[
+                "GeneticsCore"
+            ],
+            1,
+        )
+        self.assertEqual(
+            bitget_live.genetics_probation_max_realized_loss_pct_by_label[
+                "GeneticsCore"
+            ],
+            0.30,
+        )
+        self.assertTrue(bitget_live.genetics_probation_require_shadow_confirmation)
 
     def test_live_bridge_failure_fails_closed_without_explicit_fallback(self):
         from panteon_v2.app.startup import _should_fail_closed_after_bridge_error

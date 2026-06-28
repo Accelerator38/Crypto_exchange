@@ -10,6 +10,7 @@ Layered exports:
 """
 
 from .agent import Agent, AgentRegistry
+from .causal_actor_router import CausalActorRouterConfig, RoutedActor, route_actor
 from .voting import (
     AgentVotes,
     RiskParity,
@@ -59,6 +60,9 @@ __all__ = [
     # agent
     "Agent",
     "AgentRegistry",
+    "CausalActorRouterConfig",
+    "RoutedActor",
+    "route_actor",
     # voting
     "AgentVotes",
     "RiskParity",

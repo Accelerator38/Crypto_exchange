@@ -354,6 +354,33 @@ def test_cli_config_accepts_flash_technical_overlay_flags():
     assert config.flash_technical_atr_target_pct == pytest.approx(1.8)
 
 
+def test_cli_accepts_skip_bars_for_replay_windows():
+    config = runner._parse_cli_config([
+        "--years",
+        "2025",
+        "--max-bars",
+        "1440",
+        "--skip-bars",
+        "4320",
+    ])
+
+    assert config.max_bars == 1440
+    assert config.skip_bars == 4320
+
+
+def test_replay_window_from_snapshots_skips_before_max_bars():
+    snapshots = [object() for _ in range(5)]
+
+    selected, remaining_skip = runner._replay_window_from_snapshots(
+        snapshots,
+        skip_remaining=2,
+        remaining=2,
+    )
+
+    assert selected == snapshots[2:4]
+    assert remaining_skip == 0
+
+
 def test_cli_and_flash_allocator_config_accept_flash_flags():
     config = runner._parse_cli_config([
         "--years",
@@ -497,6 +524,68 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "--enable-flash-no-trade-fee-saving-score",
         "--flash-no-trade-default-fee-bps",
         "4.5",
+        "--enable-flash-controlled-exploration",
+        "--flash-controlled-exploration-allowed-reason",
+        "expected_edge_below_cost",
+        "--flash-controlled-exploration-allowed-reason",
+        "range_low_vol_actor_not_allowed,shadow_unconfirmed",
+        "--flash-controlled-exploration-risk-mult",
+        "0.07",
+        "--flash-controlled-exploration-min-shadow-score",
+        "2.5",
+        "--flash-controlled-exploration-min-shadow-closed",
+        "12",
+        "--flash-controlled-exploration-max-daily-trades",
+        "3",
+        "--flash-controlled-exploration-max-open-positions",
+        "2",
+        "--flash-controlled-exploration-min-rolling-expectancy",
+        "0.01",
+        "--enable-flash-controlled-exploration-min-notional-sizing",
+        "--flash-controlled-exploration-account-equity-usd",
+        "750.0",
+        "--flash-controlled-exploration-capital-fraction",
+        "0.08",
+        "--flash-controlled-exploration-min-notional-max-risk-mult",
+        "0.12",
+        "--flash-controlled-exploration-default-min-notional-usd",
+        "5.10",
+        "--flash-controlled-exploration-apply-leverage-to-notional",
+        "--flash-controlled-exploration-max-leverage",
+        "3",
+        "--enable-flash-causal-actor-router",
+        "--flash-causal-actor-router-min-closed-trades",
+        "7",
+        "--flash-causal-actor-router-min-expectancy",
+        "0.03",
+        "--flash-causal-actor-router-min-pnl-lcb",
+        "-0.02",
+        "--enable-flash-causal-actor-router-exploration",
+        "--flash-causal-actor-router-exploration-risk-mult",
+        "0.06",
+        "--enable-flash-promotion-derived-router",
+        "--flash-promotion-derived-actor-label",
+        "CarryFlowAgentV2",
+        "--flash-promotion-derived-actor-label",
+        "MomentumScalper,LiveCrashHunter",
+        "--flash-promotion-derived-min-closed-trades",
+        "6",
+        "--flash-promotion-derived-min-expectancy",
+        "0.02",
+        "--flash-promotion-derived-risk-mult",
+        "0.03",
+        "--enable-flash-promotion-derived-min-notional-sizing",
+        "--flash-promotion-derived-account-equity-usd",
+        "800.0",
+        "--flash-promotion-derived-capital-fraction",
+        "0.09",
+        "--flash-promotion-derived-min-notional-max-risk-mult",
+        "0.11",
+        "--flash-promotion-derived-default-min-notional-usd",
+        "5.25",
+        "--flash-promotion-derived-apply-leverage-to-notional",
+        "--flash-promotion-derived-max-leverage",
+        "2",
         "--enable-flash-volatility-risk-sizing",
         "--flash-volatility-risk-target-pct",
         "1.8",
@@ -681,6 +770,47 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert flash_config.funding_risk_mult_cap == 0.2
     assert flash_config.no_trade_fee_saving_score_enabled is True
     assert flash_config.no_trade_default_fee_bps == 4.5
+    assert flash_config.controlled_exploration_enabled is True
+    assert flash_config.controlled_exploration_allowed_reasons == (
+        "expected_edge_below_cost",
+        "range_low_vol_actor_not_allowed",
+        "shadow_unconfirmed",
+    )
+    assert flash_config.controlled_exploration_risk_mult == 0.07
+    assert flash_config.controlled_exploration_min_shadow_score == 2.5
+    assert flash_config.controlled_exploration_min_shadow_closed == 12
+    assert flash_config.controlled_exploration_max_daily_trades == 3
+    assert flash_config.controlled_exploration_max_open_positions == 2
+    assert flash_config.controlled_exploration_min_rolling_expectancy == 0.01
+    assert flash_config.controlled_exploration_min_notional_sizing_enabled is True
+    assert flash_config.controlled_exploration_account_equity_usd == 750.0
+    assert flash_config.controlled_exploration_capital_fraction == 0.08
+    assert flash_config.controlled_exploration_min_notional_max_risk_mult == 0.12
+    assert flash_config.controlled_exploration_default_min_notional_usd == 5.10
+    assert flash_config.controlled_exploration_apply_leverage_to_notional is True
+    assert flash_config.controlled_exploration_max_leverage == 3.0
+    assert flash_config.causal_actor_router_enabled is True
+    assert flash_config.causal_actor_router_min_closed_trades == 7
+    assert flash_config.causal_actor_router_min_expectancy == 0.03
+    assert flash_config.causal_actor_router_min_pnl_lcb == -0.02
+    assert flash_config.causal_actor_router_exploration_enabled is True
+    assert flash_config.causal_actor_router_exploration_risk_mult == 0.06
+    assert flash_config.promotion_derived_router_enabled is True
+    assert flash_config.promotion_derived_actor_labels == (
+        "CarryFlowAgentV2",
+        "MomentumScalper",
+        "LiveCrashHunter",
+    )
+    assert flash_config.promotion_derived_min_closed_trades == 6
+    assert flash_config.promotion_derived_min_expectancy == 0.02
+    assert flash_config.promotion_derived_risk_mult == 0.03
+    assert flash_config.promotion_derived_min_notional_sizing_enabled is True
+    assert flash_config.promotion_derived_account_equity_usd == 800.0
+    assert flash_config.promotion_derived_capital_fraction == 0.09
+    assert flash_config.promotion_derived_min_notional_max_risk_mult == 0.11
+    assert flash_config.promotion_derived_default_min_notional_usd == 5.25
+    assert flash_config.promotion_derived_apply_leverage_to_notional is True
+    assert flash_config.promotion_derived_max_leverage == 2.0
     assert flash_config.volatility_risk_sizing_enabled is True
     assert flash_config.volatility_risk_target_pct == 1.8
     assert flash_config.volatility_risk_min_volatility_pct == 0.4
@@ -761,6 +891,7 @@ def test_cli_config_accepts_shadow_position_diagnostic_flags():
         "--years",
         "2022",
         "--compact-causal-entry-selected-only",
+        "--disable-compact-causal-entry-decisions",
         "--shadow-position-diagnostic-bar",
         "2982",
         "--shadow-position-diagnostic-bar",
@@ -772,11 +903,52 @@ def test_cli_config_accepts_shadow_position_diagnostic_flags():
     ])
 
     assert config.compact_causal_entry_selected_only is True
+    assert config.compact_causal_entry_decisions is False
     assert config.shadow_position_diagnostic_bars == (2982, 2983)
     assert config.shadow_position_diagnostic_labels == (
         "Optimal_StaticRotator",
         "Solo_MomentumScalper",
     )
+
+
+def test_cli_config_loads_flash_component_memory_jsonl(tmp_path):
+    memory_path = tmp_path / "component_memory.jsonl"
+    memory_path.write_text(
+        json.dumps(
+            {
+                "actor_label": "MomentumScalper",
+                "symbol": "BTC/USDT",
+                "regime": "range_low_vol",
+                "action": "FUT_LONG_FULL",
+                "bar": 9,
+                "closed_trades": 7,
+                "expectancy": 0.12,
+                "pnl_lcb": 0.04,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = runner._parse_cli_config([
+        "--years",
+        "2025",
+        "--flash-component-memory-jsonl",
+        str(memory_path),
+    ])
+
+    assert config.flash_component_memory_jsonl == str(memory_path)
+    memory = runner._load_flash_component_memory(config)
+    stat = memory.best_prior(
+        actor_label="MomentumScalper",
+        symbol="BTCUSDT",
+        regime="range_low_vol",
+        action="FUT_LONG_FULL",
+        bar=10,
+    )
+    assert stat is not None
+    assert stat.closed_trades == 7
+    assert stat.expectancy == 0.12
 
 
 def test_cli_and_flash_allocator_config_accept_promotion_manifest_flags(tmp_path):
@@ -850,6 +1022,45 @@ def test_cli_and_flash_allocator_config_accept_promotion_manifest_flags(tmp_path
     assert manifest_config.min_full_pnl_per_trade_lcb_pct == 0.03
     assert manifest_config.min_latest_pnl_per_trade_lcb_pct == 0.01
     assert manifest_config.pnl_per_trade_lcb_z == 1.0
+
+
+def test_cli_can_promote_legacy_flash_agent_into_real_replay_universe():
+    config = runner._parse_cli_config([
+        "--years",
+        "2026",
+        "--enable-flash",
+        "--flash-legacy-real-agent-label",
+        "CarryFlowAgentV2,CandlePatternAgent",
+    ])
+
+    assert config.flash_legacy_real_agent_labels == (
+        "CarryFlowAgentV2",
+        "CandlePatternAgent",
+    )
+
+    registry = runner.AgentRegistry()
+    runner.register_all_v1_agents(registry, skip_on_error=True)
+    carry = registry.get("CarryFlowAgentV2")
+    assert carry is not None
+    assert getattr(carry, "shadow_only", False) is True
+
+    promoted = runner._promote_retro_flash_legacy_real_agents(registry, config)
+
+    assert promoted == ("CarryFlowAgentV2", "CandlePatternAgent")
+    assert getattr(carry, "shadow_only", True) is False
+    assert getattr(carry, "paper_trading_eligible", False) is True
+    assert getattr(carry, "live_trading_eligible", False) is True
+
+
+def test_cli_can_enable_futures_replay_signal_fixes():
+    config = runner._parse_cli_config([
+        "--years",
+        "2026",
+        "--enable-flash",
+        "--enable-futures-replay-signal-fixes",
+    ])
+
+    assert config.futures_replay_signal_fixes_enabled is True
 
 
 def test_flash_manifest_keys_combine_manifest_and_explicit_values(tmp_path):
@@ -2090,6 +2301,9 @@ def test_shadow_pnl_export_can_write_agent_stream(tmp_path):
                     realized_pnl_usd=4.0,
                     closed_trades=2,
                     winning_trades=1,
+                    symbol_action_outcomes=(
+                        ("BNB/USDT", "FUT_SHORT_FULL", 4.0, 2, 1),
+                    ),
                 ),
                 ShadowActorUpdated(
                     bar=1,
@@ -2119,6 +2333,9 @@ def test_shadow_pnl_export_can_write_agent_stream(tmp_path):
         "pnl_usd": 4.0,
         "closed_trades": 2,
         "wins": 1,
+        "symbol_action_outcomes": [
+            ["BNB/USDT", "FUT_SHORT_FULL", 4.0, 2, 1],
+        ],
     }]
 
 

@@ -30,6 +30,7 @@ from panteon_v2.app.main_loop import _apply_genetics_probation_execution_overlay
 from panteon_v2.app.main_loop import _flash_actor_key_from_decision
 from panteon_v2.app.main_loop import _flash_causal_decision_payload
 from panteon_v2.app.main_loop import _flash_previous_actor_key_from_decision
+from panteon_v2.app.main_loop import _record_order_success
 from panteon_v2.app.main_loop import _compose_candidates
 from panteon_v2.app.main_loop import _compose_fixed_agent_candidates
 from panteon_v2.app.main_loop import _compose_regime_switch_agent_candidates
@@ -67,7 +68,7 @@ from panteon_v2.attribution import (
 )
 from panteon_v2.domain.types import Action, Metrics, Regime, Signal, Trade
 from panteon_v2.app.live_state import RealSignalGuardResult
-from panteon_v2.execution import ExchangePosition, FakeExchange
+from panteon_v2.execution import ExchangePosition, ExecutionResult, ExecutionStatus, FakeExchange
 from panteon_v2.execution import RiskLimitsConfig
 from panteon_v2.execution.position_tracker import TrackedPosition
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
@@ -481,6 +482,80 @@ class TestBootstrap(unittest.TestCase):
         self.assertEqual(crash_agents, [])
         self.assertFalse(getattr(allowed, "live_trading_eligible"))
 
+    def test_flash_real_agents_allows_promotion_derived_shadow_only_agent_behind_flag(self):
+        promoted = FakeAgent("MomentumScalper", {"BTC": Action.FUT_LONG_FULL})
+        promoted.shadow_only = True
+        promoted.live_trading_eligible = False
+        blocked = FakeAgent("CarryFlowAgentV2", {"BTC": Action.FUT_SHORT_FULL})
+        blocked.shadow_only = True
+        blocked.live_trading_eligible = False
+        registry = AgentRegistry()
+        registry.register(promoted)
+        registry.register(blocked)
+        market = make_market(regime=Regime.BULLISH, prices={"BTC": 100.0})
+
+        disabled = type("Pipeline", (), {
+            "registry": registry,
+            "flash_allocator": type("Allocator", (), {
+                "config": FlashAllocatorConfig(
+                    promotion_derived_router_enabled=False,
+                    promotion_derived_actor_labels=("MomentumScalper",),
+                ),
+            })(),
+        })()
+        enabled = type("Pipeline", (), {
+            "registry": registry,
+            "flash_allocator": type("Allocator", (), {
+                "config": FlashAllocatorConfig(
+                    promotion_derived_router_enabled=True,
+                    promotion_derived_actor_labels=("MomentumScalper",),
+                ),
+            })(),
+        })()
+
+        self.assertEqual(_flash_real_agents(disabled, market), [])
+        self.assertEqual(
+            [agent.label for agent in _flash_real_agents(enabled, market)],
+            ["MomentumScalper"],
+        )
+        self.assertFalse(getattr(promoted, "live_trading_eligible"))
+
+    def test_record_order_success_feeds_controlled_exploration_outcome_memory(self):
+        class Allocator:
+            def __init__(self) -> None:
+                self.results = []
+
+            def record_controlled_exploration_execution_result(self, result):
+                self.results.append(result)
+
+        allocator = Allocator()
+        signal = Signal(
+            id=2,
+            bar=5,
+            sym="BTC",
+            action=Action.FUT_CLOSE_ALL,
+            price=99.0,
+            regime=Regime.BULLISH,
+            by_player="ColdExplorer",
+            by_agent="ColdExplorer",
+        )
+        result = ExecutionResult(
+            status=ExecutionStatus.FILLED,
+            signal=signal,
+            closed_position_actor_outcomes=(
+                ("ColdExplorer", "BTC", "FUT_LONG_FULL", "long", -0.02),
+            ),
+        )
+        pipeline = type("Pipeline", (), {
+            "flash_allocator": allocator,
+            "live_execution": LiveExecutionConfig(),
+            "kill_switch": None,
+        })()
+
+        _record_order_success(pipeline, signal, result)
+
+        self.assertEqual(allocator.results, [result])
+
     def test_flash_real_agents_probation_genetics_bypass_hard_policy_only(self):
         allowed = FakeAgent("GeneticsNeutral", {"BTC": Action.FUT_LONG_FULL})
         allowed.shadow_only = True
@@ -582,6 +657,30 @@ class TestBootstrap(unittest.TestCase):
         )
 
         self.assertEqual(capital, 77.0)
+
+    def test_paper_live_feed_mode_keeps_virtual_capital(self):
+        from panteon_v2.app.startup import _resolve_initial_capital
+
+        class LiveExchange(FakeExchange):
+            def get_account_equity(self):
+                return 40.25
+
+        capital = _resolve_initial_capital(
+            exchange_adapter=LiveExchange(name="BITGET"),
+            mode="paper_live_feed",
+            requested_initial_capital=None,
+            exchange_name="BITGET",
+        )
+
+        self.assertEqual(capital, 100.0)
+
+    def test_paper_live_feed_mode_uses_fake_exchange(self):
+        from panteon_v2.app.startup import resolve_exchange
+
+        exchange = resolve_exchange("MEXC", mode="paper_live_feed")
+
+        self.assertIsInstance(exchange, FakeExchange)
+        self.assertEqual(exchange.name, "MEXC-PAPER")
 
     def test_live_startup_scopes_legacy_event_log_path_per_run(self):
         from panteon_v2.app.startup import _run_scoped_event_log_path
@@ -1100,6 +1199,94 @@ class TestBootstrap(unittest.TestCase):
         self.assertTrue(stale_exit["enabled"])
         self.assertEqual(stale_exit["max_age_bars"], 168)
         self.assertTrue(stale_exit["require_nonpositive_unrealized"])
+
+    def test_flash_settings_parse_exchange_scoped_canary_router_knobs(self):
+        from panteon_v2.app.startup import _flash_allocator_config_from_settings
+
+        settings = {
+            "v2_flash_controlled_exploration_enabled": "false",
+            "v2_flash_causal_actor_router_enabled": "false",
+            "v2_flash_promotion_derived_router_enabled": "false",
+            "v2_flash_live_real_actor_whitelist": "LiveOIBreakout",
+            "v2_flash_terminal_denied_signal_keys": (
+                "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+            ),
+            "bitget_v2_flash_controlled_exploration_enabled": "true",
+            "bitget_v2_flash_controlled_exploration_allowed_reasons": (
+                "expected_edge_below_cost,flash_symbol_degraded"
+            ),
+            "bitget_v2_flash_controlled_exploration_risk_mult": "0.04",
+            "bitget_v2_flash_controlled_exploration_min_shadow_score": "3.5",
+            "bitget_v2_flash_controlled_exploration_min_shadow_closed": "6",
+            "bitget_v2_flash_controlled_exploration_min_rolling_expectancy": "0.02",
+            "bitget_v2_flash_causal_actor_router_enabled": "true",
+            "bitget_v2_flash_causal_actor_router_exploration_enabled": "true",
+            "bitget_v2_flash_causal_actor_router_min_closed_trades": "4",
+            "bitget_v2_flash_causal_actor_router_min_expectancy": "0.01",
+            "bitget_v2_flash_promotion_derived_router_enabled": "true",
+            "bitget_v2_flash_promotion_derived_actor_labels": (
+                "GeneticsCore,Solo_GeneticsCore"
+            ),
+            "bitget_v2_flash_promotion_derived_dynamic_best_enabled": "true",
+            "bitget_v2_flash_promotion_derived_risk_mult": "0.02",
+            "bitget_v2_flash_live_real_actor_whitelist": (
+                "GeneticsCore,agent:GeneticsCore,Solo_GeneticsCore,"
+                "ensemble:Solo_GeneticsCore"
+            ),
+            "bitget_v2_flash_terminal_denied_signal_keys": (
+                "agent:Legacy|BTC|FUT_SHORT_FULL"
+            ),
+        }
+
+        mexc = _flash_allocator_config_from_settings(settings, exchange_name="MEXC")
+        bitget = _flash_allocator_config_from_settings(settings, exchange_name="BITGET")
+
+        self.assertFalse(mexc.controlled_exploration_enabled)
+        self.assertFalse(mexc.causal_actor_router_enabled)
+        self.assertFalse(mexc.promotion_derived_router_enabled)
+        self.assertEqual(mexc.live_real_actor_whitelist, ("LiveOIBreakout",))
+        self.assertIn(
+            "agent:GeneticsCore|BTC|FUT_SHORT_FULL",
+            mexc.terminal_denied_signal_keys,
+        )
+
+        self.assertTrue(bitget.controlled_exploration_enabled)
+        self.assertEqual(
+            bitget.controlled_exploration_allowed_reasons,
+            ("expected_edge_below_cost", "flash_symbol_degraded"),
+        )
+        self.assertEqual(bitget.controlled_exploration_risk_mult, 0.04)
+        self.assertEqual(bitget.controlled_exploration_min_shadow_score, 3.5)
+        self.assertEqual(bitget.controlled_exploration_min_shadow_closed, 6)
+        self.assertEqual(bitget.controlled_exploration_min_rolling_expectancy, 0.02)
+        self.assertTrue(bitget.causal_actor_router_enabled)
+        self.assertTrue(bitget.causal_actor_router_exploration_enabled)
+        self.assertEqual(bitget.causal_actor_router_min_closed_trades, 4)
+        self.assertEqual(bitget.causal_actor_router_min_expectancy, 0.01)
+        self.assertTrue(bitget.promotion_derived_router_enabled)
+        self.assertEqual(
+            bitget.promotion_derived_actor_labels,
+            ("GeneticsCore", "Solo_GeneticsCore"),
+        )
+        self.assertTrue(bitget.promotion_derived_dynamic_best_enabled)
+        self.assertEqual(bitget.promotion_derived_risk_mult, 0.02)
+        self.assertEqual(
+            bitget.live_real_actor_whitelist,
+            (
+                "GeneticsCore",
+                "agent:GeneticsCore",
+                "Solo_GeneticsCore",
+                "ensemble:Solo_GeneticsCore",
+            ),
+        )
+        self.assertNotIn(
+            "agent:GeneticsCore|BTC|FUT_SHORT_FULL",
+            bitget.terminal_denied_signal_keys,
+        )
+        self.assertIn(
+            "agent:Legacy|BTC|FUT_SHORT_FULL",
+            bitget.terminal_denied_signal_keys,
+        )
 
     def test_leaderboard_players_include_standalone_strategy_pool_without_activity(self):
         from panteon_v2.app.output_writer import OutputWriterConfig
@@ -9680,7 +9867,17 @@ class TestOutputWriter(unittest.TestCase):
         decision = rows[0]["flash_decisions"][0]
         self.assertEqual(decision["candidate_count"], 1)
         self.assertEqual(decision["candidates"], [])
-        self.assertEqual(decision["top_rejected_candidates"], [])
+        self.assertEqual(
+            decision["top_rejected_candidates"],
+            [{
+                "label": "Alpha",
+                "actor_type": "agent",
+                "actor_key": "agent:Alpha",
+                "rank": 1,
+                "score": 2.5,
+                "reason": "score_below_threshold",
+            }],
+        )
         self.assertNotIn("heavy_debug_payload", json.dumps(decision))
 
     def test_writer_compacts_causal_entry_flash_candidates_when_requested(self):
@@ -9826,7 +10023,62 @@ class TestOutputWriter(unittest.TestCase):
             "score_below_threshold": 1
         })
         self.assertEqual(decision["candidates"], [])
-        self.assertEqual(decision["top_rejected_candidates"], [])
+        self.assertEqual(
+            decision["top_rejected_candidates"],
+            [{
+                "label": "Alpha",
+                "actor_type": "agent",
+                "rank": 1,
+                "reason": "score_below_threshold",
+            }],
+        )
+        self.assertNotIn("heavy_debug_payload", json.dumps(decision))
+
+    def test_writer_compact_flash_decision_keeps_diagnostic_include_rejections(self):
+        decision = OutputWriter._compact_flash_decision(
+            {
+                "symbol": "BTC/USDT",
+                "selected_actor": "NoTrade",
+                "actor_type": "no_trade",
+                "score": 0.0,
+                "action": "HOLD",
+                "signal": None,
+                "candidates": [
+                    {
+                        "label": "RankOne",
+                        "actor_type": "agent",
+                        "actor_key": "agent:RankOne",
+                        "rank": 1,
+                        "rejected": True,
+                        "reason": "inactive",
+                    },
+                    {
+                        "label": "CarryFlowAgentV2",
+                        "actor_type": "agent",
+                        "actor_key": "agent:CarryFlowAgentV2",
+                        "rank": 8,
+                        "rejected": True,
+                        "reason": "inactive",
+                        "agent_diagnostics": {
+                            "reason": "missing_funding_context",
+                            "funding_rate": None,
+                        },
+                    },
+                ],
+            },
+            top_rejected_candidates=1,
+            include_labels=("CarryFlowAgentV2",),
+        )
+
+        self.assertEqual(decision["candidates"], [])
+        self.assertEqual(
+            [candidate["label"] for candidate in decision["top_rejected_candidates"]],
+            ["RankOne", "CarryFlowAgentV2"],
+        )
+        self.assertEqual(
+            decision["top_rejected_candidates"][1]["agent_diagnostics"]["reason"],
+            "missing_funding_context",
+        )
 
     def test_writer_can_compact_causal_entry_to_selected_flash_decisions_only(self):
         reg = AgentRegistry()

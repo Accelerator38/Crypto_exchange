@@ -135,7 +135,7 @@ class TestNewStrategyAgents(unittest.TestCase):
         )
         self.assertEqual(
             tuple(legacy_flash_real_agent_labels()),
-            ("CarryFlowAgentV2",),
+            ("CarryFlowAgentV2", "CandlePatternAgent"),
         )
         for label in promoted:
             with self.subTest(label=label):

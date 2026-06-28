@@ -219,18 +219,19 @@ def _fills(events: Iterable[Mapping]) -> list[dict]:
         if _event_type(event) != "OrderFilled":
             continue
         trade = event.get("trade")
-        if not isinstance(trade, dict):
+        if trade is None:
             continue
-        notional = _float(trade.get("notional"))
+        notional = _float(_field(trade, "notional"))
         if notional <= 0:
-            qty = _float(trade.get("qty"))
-            price = _float(trade.get("fill_price") or trade.get("fillPrice"))
+            qty = _float(_field(trade, "qty"))
+            price = _float(_field(trade, "fill_price") or _field(trade, "fillPrice"))
             notional = qty * price
         out.append({
             "bar": _int(event.get("bar"), default=0),
             "notional": notional,
-            "fee": _float(trade.get("fee")),
-            "sym": str(trade.get("sym") or ""),
+            "fee": _float(_field(trade, "fee")),
+            "funding": _float(_field(trade, "funding")),
+            "sym": str(_field(trade, "sym") or ""),
         })
     return out
 
@@ -243,6 +244,7 @@ def _trade_stats(trades: list[Mapping], *, fills: list[Mapping]) -> dict:
     gross_loss = abs(sum(losses))
     turnover = sum(_float(fill.get("notional")) for fill in fills)
     fees = sum(_float(fill.get("fee")) for fill in fills)
+    funding = sum(_float(fill.get("funding")) for fill in fills)
     total_pnl = sum(pnls)
     return {
         "closed_trades": len(pnls),
@@ -257,6 +259,8 @@ def _trade_stats(trades: list[Mapping], *, fills: list[Mapping]) -> dict:
         "max_drawdown_pnl": _max_drawdown(pnls),
         "turnover_notional": turnover,
         "fees": fees,
+        "funding": funding,
+        "explicit_costs": fees + funding,
         "fee_per_turnover_pct": (fees / turnover * 100.0) if turnover > 0 else 0.0,
         "net_pnl_minus_5bps": total_pnl - turnover * 0.0005,
         "net_pnl_minus_10bps": total_pnl - turnover * 0.0010,
@@ -451,6 +455,12 @@ def _float(value) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _field(value, key: str):
+    if isinstance(value, Mapping):
+        return value.get(key)
+    return getattr(value, key, None)
 
 
 def _int(value, *, default: int = 0) -> int:

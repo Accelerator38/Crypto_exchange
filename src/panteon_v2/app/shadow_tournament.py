@@ -36,6 +36,8 @@ from ..selection.player import normalize_vote_result
 log = logging.getLogger(__name__)
 
 _SHADOW_SIGNAL_ID_START = 1_000_000_000
+_QUOTE_ASSET_SUFFIXES = ("USDT", "USDC", "USD")
+_SYMBOL_SEPARATORS = ("/", "-", "_")
 
 
 def _regime_adaptive_bias_trace_for_symbol(
@@ -57,6 +59,51 @@ def _regime_adaptive_bias_trace_for_symbol(
             if key != "by_symbol"
         }
     return {}
+
+
+def _market_symbol_for_agent_action(market: MarketSnapshot, symbol: object) -> str:
+    clean_symbol = str(symbol or "").strip().upper()
+    if not clean_symbol:
+        return ""
+    prices = getattr(market, "prices", {}) or {}
+    for raw_symbol in prices:
+        market_symbol = str(raw_symbol or "").strip().upper()
+        if market_symbol == clean_symbol:
+            return market_symbol
+    for raw_symbol in prices:
+        market_symbol = str(raw_symbol or "").strip().upper()
+        if _symbols_equivalent_for_market(clean_symbol, market_symbol):
+            return market_symbol
+    return ""
+
+
+def _symbols_equivalent_for_market(left: str, right: str) -> bool:
+    left_base, left_quote = _symbol_base_quote(left)
+    right_base, right_quote = _symbol_base_quote(right)
+    if not left_base or not right_base or left_base != right_base:
+        return False
+    return left_quote == right_quote or not left_quote or not right_quote
+
+
+def _symbol_base_quote(symbol: object) -> tuple[str, str]:
+    clean = str(symbol or "").strip().upper()
+    if not clean:
+        return "", ""
+    for separator in _SYMBOL_SEPARATORS:
+        if separator not in clean:
+            continue
+        base, quote = clean.rsplit(separator, 1)
+        base = base.strip()
+        quote = quote.strip()
+        if base and quote in _QUOTE_ASSET_SUFFIXES:
+            return base, quote
+    compact = clean
+    for separator in _SYMBOL_SEPARATORS:
+        compact = compact.replace(separator, "")
+    for quote in _QUOTE_ASSET_SUFFIXES:
+        if compact.endswith(quote) and len(compact) > len(quote):
+            return compact[: -len(quote)], quote
+    return compact, ""
 
 
 class _NoopEventLog:
@@ -519,8 +566,9 @@ class ProductionShadowTournament:
         bias_trace = getattr(agent, "last_regime_adaptive_output_bias", None)
 
         signals: List[Signal] = []
-        for sym, action in (actions or {}).items():
-            if sym not in market.prices:
+        for raw_sym, action in (actions or {}).items():
+            sym = _market_symbol_for_agent_action(market, raw_sym)
+            if not sym:
                 continue
             if not isinstance(action, Action):
                 try:

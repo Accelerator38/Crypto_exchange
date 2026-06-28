@@ -22,12 +22,14 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
+from ..domain.types import Action, Regime, Signal
 from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
 from ..scoring import DEFAULT_SCORING, ScoringConfig
 from ..selection import AgentRegistry, FlashAllocatorConfig, PlayerProfile, StrategistConfig
+from ..selection.component_memory import ComponentMemory
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
 from .agent_bootstrap import (
@@ -56,6 +58,14 @@ from .shadow_tournament import ProductionShadowTournament
 log = logging.getLogger(__name__)
 
 
+VIRTUAL_EXCHANGE_MODES = frozenset({"paper", "paper_live_feed", "shadow_live_feed"})
+SYNTHETIC_FEED_MODES = frozenset({"paper"})
+
+
+def _is_virtual_exchange_mode(mode: str) -> bool:
+    return str(mode or "").strip().lower() in VIRTUAL_EXCHANGE_MODES
+
+
 def _resolve_initial_capital(
     *,
     exchange_adapter: Exchange,
@@ -68,9 +78,10 @@ def _resolve_initial_capital(
     For live modes, absent explicit *_INITIAL_CAPITAL means "use real exchange
     equity". Paper keeps a deterministic configured/default balance.
     """
+    mode_key = str(mode or "").strip().lower()
     if requested_initial_capital is not None:
         capital = float(requested_initial_capital)
-        if mode != "paper":
+        if not _is_virtual_exchange_mode(mode_key):
             live_equity = _read_exchange_equity(exchange_adapter)
             if live_equity is not None:
                 log.info(
@@ -81,7 +92,7 @@ def _resolve_initial_capital(
                 )
         return capital
 
-    if mode != "paper":
+    if not _is_virtual_exchange_mode(mode_key):
         live_equity = _read_exchange_equity(exchange_adapter)
         if live_equity is not None:
             log.info(
@@ -672,6 +683,313 @@ def _settings_bool(settings: dict, names: Sequence[str], default: bool = False) 
     return bool(default)
 
 
+def _resolve_paper_canary_shutdown_flatten_enabled(exchange_name: str) -> bool:
+    """Resolve virtual canary shutdown flattening.
+
+    This flag is intentionally opt-in and the execution helper below also
+    refuses every non-virtual mode. It must never become an implicit live
+    position closer.
+    """
+    exchange_key = str(exchange_name or "").strip().upper()
+    exchange_prefix = str(exchange_name or "").strip().lower()
+    if exchange_key and _env_flag(
+        f"{exchange_key}_PANTEON_V2_PAPER_CANARY_CLOSE_ON_SHUTDOWN",
+        False,
+    ):
+        return True
+    if _env_flag("PANTEON_V2_PAPER_CANARY_CLOSE_ON_SHUTDOWN", False):
+        return True
+    settings = _load_exchange_settings(exchange_name)
+    names = (
+        f"{exchange_prefix}_v2_paper_canary_close_on_shutdown",
+        f"{exchange_prefix}_paper_canary_close_on_shutdown",
+        f"{exchange_prefix}_v2_paper_canary_shutdown_flatten_enabled",
+        f"{exchange_prefix}_paper_canary_shutdown_flatten_enabled",
+        "v2_paper_canary_close_on_shutdown",
+        "paper_canary_close_on_shutdown",
+        "v2_paper_canary_shutdown_flatten_enabled",
+        "paper_canary_shutdown_flatten_enabled",
+    )
+    return _settings_bool(settings, names, False)
+
+
+def _paper_canary_shutdown_summary(
+    *,
+    enabled: bool = False,
+    skipped_reason: str = "",
+) -> Dict[str, Any]:
+    return {
+        "enabled": bool(enabled),
+        "skipped_reason": str(skipped_reason or ""),
+        "attempted": 0,
+        "closed": 0,
+        "failed": 0,
+        "skipped_external": 0,
+        "closed_symbols": [],
+        "failed_symbols": [],
+        "remaining_open_position_count": 0,
+    }
+
+
+def _is_external_or_recovered_position(position: TrackedPosition) -> bool:
+    by_player = str(getattr(position, "by_player", "") or "").strip()
+    by_agent = str(getattr(position, "by_agent", "") or "").strip()
+    external_labels = {
+        "",
+        "RecoveredExchangePosition",
+        "ExternalExchangePosition",
+        "AdoptedExchangePosition",
+    }
+    return by_player in external_labels or (
+        bool(by_agent) and by_agent in external_labels
+    )
+
+
+def _lookup_shutdown_close_price(
+    symbol: str,
+    position: TrackedPosition,
+    latest_prices: Mapping[str, float] | None,
+) -> float:
+    candidates = [str(symbol or ""), str(getattr(position, "sym", "") or "")]
+    expanded: List[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        expanded.extend(
+            [
+                candidate,
+                candidate.upper(),
+                candidate.replace("/", "").upper(),
+                candidate.replace("USDT", "/USDT").upper(),
+            ]
+        )
+    prices = latest_prices if isinstance(latest_prices, Mapping) else {}
+    for key in expanded:
+        if key in prices:
+            try:
+                price = float(prices[key])
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                return price
+    try:
+        return float(getattr(position, "entry_price", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _shutdown_close_action_for(position: TrackedPosition) -> Action:
+    open_action = str(getattr(position, "open_action", "") or "").strip().upper()
+    if open_action.startswith("SPOT_"):
+        return Action.SPOT_SELL_ALL
+    return Action.FUT_CLOSE_ALL
+
+
+def _next_shutdown_signal_id(open_positions: Mapping[str, TrackedPosition]) -> int:
+    max_open_id = 0
+    for position in open_positions.values():
+        try:
+            max_open_id = max(max_open_id, int(position.open_signal_id))
+        except (TypeError, ValueError):
+            continue
+    return max_open_id + 1
+
+
+def _close_paper_canary_positions_on_shutdown(
+    pipeline: object,
+    *,
+    mode: str,
+    enabled: bool,
+    latest_prices: Mapping[str, float] | None = None,
+    bar: int | None = None,
+) -> Dict[str, Any]:
+    """Close owned virtual canary positions before process shutdown.
+
+    The helper deliberately runs through TradeExecutor so FakeExchange,
+    PositionTracker, EventLog and AttributionLedger observe the same lifecycle
+    as normal paper fills. It skips recovered/external positions and refuses
+    every non-virtual mode even when enabled=True.
+    """
+    if not enabled:
+        return _paper_canary_shutdown_summary(skipped_reason="disabled")
+    if not _is_virtual_exchange_mode(mode):
+        return _paper_canary_shutdown_summary(skipped_reason="non_virtual_mode")
+
+    executor = getattr(pipeline, "executor", None)
+    tracker = getattr(executor, "_tracker", None)
+    if executor is None or tracker is None or not hasattr(tracker, "all_open"):
+        return _paper_canary_shutdown_summary(skipped_reason="missing_executor")
+
+    try:
+        open_positions = dict(tracker.all_open() or {})
+    except Exception:
+        log.exception("paper canary shutdown flatten failed to inspect positions")
+        return _paper_canary_shutdown_summary(skipped_reason="position_read_failed")
+
+    summary = _paper_canary_shutdown_summary(enabled=True)
+    if not open_positions:
+        return summary
+
+    try:
+        close_bar = int(bar) if bar is not None else max(
+            int(getattr(pos, "opened_bar", 0) or 0) for pos in open_positions.values()
+        ) + 1
+    except (TypeError, ValueError):
+        close_bar = 1
+    signal_id = _next_shutdown_signal_id(open_positions)
+    balance = float(
+        getattr(pipeline, "current_balance", None)
+        or getattr(pipeline, "initial_capital", None)
+        or 1.0
+    )
+
+    for symbol, position in sorted(open_positions.items()):
+        sym = str(symbol or getattr(position, "sym", "") or "").upper()
+        if not sym:
+            continue
+        if _is_external_or_recovered_position(position):
+            summary["skipped_external"] += 1
+            continue
+
+        price = _lookup_shutdown_close_price(sym, position, latest_prices)
+        if price <= 0:
+            summary["failed"] += 1
+            summary["failed_symbols"].append(
+                {"symbol": sym, "reason": "missing_close_price"}
+            )
+            continue
+
+        signal = Signal(
+            id=signal_id,
+            bar=max(close_bar, int(getattr(position, "opened_bar", 0) or 0) + 1),
+            sym=sym,
+            action=_shutdown_close_action_for(position),
+            price=price,
+            regime=Regime.from_string(str(getattr(position, "open_regime", "") or "")),
+            by_player=str(getattr(position, "by_player", "") or "PaperCanaryShutdown"),
+            by_agent="PaperCanaryShutdownClose",
+            metadata={
+                "reason": "paper_canary_shutdown_flatten",
+                "source": "startup_shutdown",
+            },
+        )
+        signal_id += 1
+        summary["attempted"] += 1
+        try:
+            result = executor.execute(signal, balance_usd=balance)
+        except Exception as exc:
+            log.exception("paper canary shutdown close failed for %s", sym)
+            summary["failed"] += 1
+            summary["failed_symbols"].append(
+                {"symbol": sym, "reason": type(exc).__name__}
+            )
+            continue
+        if result.status == ExecutionStatus.FILLED:
+            summary["closed"] += 1
+            summary["closed_symbols"].append(sym)
+        else:
+            summary["failed"] += 1
+            summary["failed_symbols"].append(
+                {
+                    "symbol": sym,
+                    "status": getattr(result.status, "name", str(result.status)),
+                    "reason": str(getattr(result, "reason", "") or ""),
+                }
+            )
+
+    event_log = getattr(pipeline, "event_log", None)
+    ledger = getattr(pipeline, "ledger", None)
+    replay = getattr(ledger, "replay_from_event_log", None)
+    if event_log is not None and callable(replay):
+        try:
+            replay(event_log)
+        except Exception:
+            log.exception("paper canary shutdown ledger replay failed")
+
+    try:
+        summary["remaining_open_position_count"] = int(tracker.open_count)
+    except Exception:
+        summary["remaining_open_position_count"] = None
+    return summary
+
+
+def _latest_prices_from_writer(writer: object) -> Dict[str, float]:
+    status = getattr(writer, "_last_status_data", {}) or {}
+    if not isinstance(status, dict):
+        return {}
+    current = status.get("current_prices")
+    if isinstance(current, dict) and current:
+        return {
+            str(symbol): float(price)
+            for symbol, price in current.items()
+            if _safe_positive_float(price) is not None
+        }
+    history = status.get("price_history")
+    if isinstance(history, list):
+        for row in reversed(history):
+            if not isinstance(row, dict):
+                continue
+            prices = row.get("prices")
+            if not isinstance(prices, dict) or not prices:
+                continue
+            return {
+                str(symbol): float(price)
+                for symbol, price in prices.items()
+                if _safe_positive_float(price) is not None
+            }
+    return {}
+
+
+def _safe_positive_float(value: object) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _apply_paper_canary_shutdown_flatten(
+    pipeline: object,
+    writer: object,
+    *,
+    exchange: str,
+    mode: str,
+    bar: int | None = None,
+) -> Dict[str, Any]:
+    flatten_summary = _close_paper_canary_positions_on_shutdown(
+        pipeline,
+        mode=mode,
+        enabled=_resolve_paper_canary_shutdown_flatten_enabled(exchange),
+        latest_prices=_latest_prices_from_writer(writer),
+        bar=bar,
+    )
+    if flatten_summary.get("enabled") or flatten_summary.get("skipped_reason") not in {
+        "",
+        "disabled",
+    }:
+        pipeline.paper_canary_shutdown_flatten = flatten_summary
+        if flatten_summary.get("enabled"):
+            failed = int(flatten_summary.get("failed", 0) or 0)
+            remaining = int(flatten_summary.get("remaining_open_position_count", 0) or 0)
+            feed_status = (
+                "shutdown_flattened" if failed == 0 and remaining == 0
+                else "shutdown_flatten_failed"
+            )
+            try:
+                writer.write_heartbeat(
+                    run_state="stopping",
+                    feed_status=feed_status,
+                    message=(
+                        "paper_canary_shutdown_flatten "
+                        f"closed={flatten_summary.get('closed', 0)} "
+                        f"failed={failed} remaining={remaining}"
+                    ),
+                )
+            except Exception:
+                log.exception("paper canary shutdown heartbeat failed")
+    return flatten_summary
+
+
 def _settings_float(settings: dict, names: Sequence[str], default: float) -> float:
     for name in names:
         if name not in settings:
@@ -793,6 +1111,41 @@ DEFAULT_MANUAL_QUARANTINE_LABELS: tuple[str, ...] = (
     "LiveTrendFollow",
     "GeneticsGenomeEnsemble",
 )
+
+
+DEFAULT_COMPACT_CAUSAL_ENTRY_INCLUDE_LABELS: tuple[str, ...] = (
+    "CarryFlowAgentV2",
+    "agent:CarryFlowAgentV2",
+    "Solo_CarryFlowAgentV2",
+    "ensemble:Solo_CarryFlowAgentV2",
+    "MomentumScalper",
+    "agent:MomentumScalper",
+    "Solo_MomentumScalper",
+    "ensemble:Solo_MomentumScalper",
+    "LiveVolCompress",
+    "agent:LiveVolCompress",
+    "Solo_LiveVolCompress",
+    "ensemble:Solo_LiveVolCompress",
+    "LiveCrashHunter",
+    "agent:LiveCrashHunter",
+    "Solo_LiveCrashHunter",
+    "ensemble:Solo_LiveCrashHunter",
+)
+
+
+def _resolve_compact_causal_entry_include_labels(exchange_name: str) -> tuple[str, ...]:
+    settings = _load_exchange_settings(exchange_name)
+    configured = _settings_csv_tuple(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_compact_causal_entry_include_labels",
+        ) + _exchange_scoped_setting_names(
+            exchange_name,
+            "compact_causal_entry_include_labels",
+        ),
+    )
+    return tuple(dict.fromkeys(DEFAULT_COMPACT_CAUSAL_ENTRY_INCLUDE_LABELS + configured))
 
 
 def _manual_quarantine_labels_from_settings(
@@ -1026,6 +1379,276 @@ def _flash_allocator_config_from_settings(
         fee_aware_round_trip_cost_pct=_settings_float(
             settings, ("v2_flash_fee_aware_round_trip_cost_pct", "flash_fee_aware_round_trip_cost_pct"), 0.06,
         ),
+        controlled_exploration_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_enabled",
+                "flash_controlled_exploration_enabled",
+            ),
+            False,
+        ),
+        controlled_exploration_allowed_reasons=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_allowed_reasons",
+                "flash_controlled_exploration_allowed_reasons",
+            ),
+        ),
+        controlled_exploration_risk_mult=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_risk_mult",
+                "flash_controlled_exploration_risk_mult",
+            ),
+            0.05,
+        ),
+        controlled_exploration_min_shadow_score=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_min_shadow_score",
+                "flash_controlled_exploration_min_shadow_score",
+            ),
+            2.0,
+        ),
+        controlled_exploration_min_shadow_closed=int(_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_min_shadow_closed",
+                "flash_controlled_exploration_min_shadow_closed",
+            ),
+            10.0,
+        )),
+        controlled_exploration_max_daily_trades=int(_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_max_daily_trades",
+                "flash_controlled_exploration_max_daily_trades",
+            ),
+            1.0,
+        )),
+        controlled_exploration_max_open_positions=int(_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_max_open_positions",
+                "flash_controlled_exploration_max_open_positions",
+            ),
+            1.0,
+        )),
+        controlled_exploration_min_rolling_expectancy=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_min_rolling_expectancy",
+                "flash_controlled_exploration_min_rolling_expectancy",
+            ),
+            0.0,
+        ),
+        controlled_exploration_min_notional_sizing_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_min_notional_sizing_enabled",
+                "flash_controlled_exploration_min_notional_sizing_enabled",
+            ),
+            False,
+        ),
+        controlled_exploration_account_equity_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_account_equity_usd",
+                "flash_controlled_exploration_account_equity_usd",
+            ),
+            0.0,
+        ),
+        controlled_exploration_capital_fraction=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_capital_fraction",
+                "flash_controlled_exploration_capital_fraction",
+            ),
+            0.10,
+        ),
+        controlled_exploration_min_notional_max_risk_mult=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_min_notional_max_risk_mult",
+                "flash_controlled_exploration_min_notional_max_risk_mult",
+            ),
+            0.10,
+        ),
+        controlled_exploration_default_min_notional_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_default_min_notional_usd",
+                "flash_controlled_exploration_default_min_notional_usd",
+            ),
+            5.0,
+        ),
+        controlled_exploration_apply_leverage_to_notional=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_apply_leverage_to_notional",
+                "flash_controlled_exploration_apply_leverage_to_notional",
+            ),
+            False,
+        ),
+        controlled_exploration_max_leverage=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_max_leverage",
+                "flash_controlled_exploration_max_leverage",
+            ),
+            1.0,
+        ),
+        causal_actor_router_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_enabled",
+                "flash_causal_actor_router_enabled",
+            ),
+            False,
+        ),
+        causal_actor_router_min_closed_trades=int(_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_min_closed_trades",
+                "flash_causal_actor_router_min_closed_trades",
+            ),
+            5.0,
+        )),
+        causal_actor_router_min_expectancy=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_min_expectancy",
+                "flash_causal_actor_router_min_expectancy",
+            ),
+            0.0,
+        ),
+        causal_actor_router_min_pnl_lcb=_settings_optional_float(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_min_pnl_lcb",
+                "flash_causal_actor_router_min_pnl_lcb",
+            ),
+            None,
+        ),
+        causal_actor_router_exploration_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_exploration_enabled",
+                "flash_causal_actor_router_exploration_enabled",
+            ),
+            False,
+        ),
+        causal_actor_router_exploration_risk_mult=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_causal_actor_router_exploration_risk_mult",
+                "flash_causal_actor_router_exploration_risk_mult",
+            ),
+            0.05,
+        ),
+        promotion_derived_router_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_router_enabled",
+                "flash_promotion_derived_router_enabled",
+            ),
+            False,
+        ),
+        promotion_derived_actor_labels=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_actor_labels",
+                "flash_promotion_derived_actor_labels",
+            ),
+        ),
+        promotion_derived_dynamic_best_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_dynamic_best_enabled",
+                "flash_promotion_derived_dynamic_best_enabled",
+            ),
+            False,
+        ),
+        promotion_derived_min_closed_trades=int(_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_min_closed_trades",
+                "flash_promotion_derived_min_closed_trades",
+            ),
+            5.0,
+        )),
+        promotion_derived_min_expectancy=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_min_expectancy",
+                "flash_promotion_derived_min_expectancy",
+            ),
+            0.0,
+        ),
+        promotion_derived_risk_mult=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_risk_mult",
+                "flash_promotion_derived_risk_mult",
+            ),
+            0.03,
+        ),
+        promotion_derived_min_notional_sizing_enabled=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_min_notional_sizing_enabled",
+                "flash_promotion_derived_min_notional_sizing_enabled",
+            ),
+            False,
+        ),
+        promotion_derived_account_equity_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_account_equity_usd",
+                "flash_promotion_derived_account_equity_usd",
+            ),
+            0.0,
+        ),
+        promotion_derived_capital_fraction=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_capital_fraction",
+                "flash_promotion_derived_capital_fraction",
+            ),
+            0.10,
+        ),
+        promotion_derived_min_notional_max_risk_mult=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_min_notional_max_risk_mult",
+                "flash_promotion_derived_min_notional_max_risk_mult",
+            ),
+            0.10,
+        ),
+        promotion_derived_default_min_notional_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_default_min_notional_usd",
+                "flash_promotion_derived_default_min_notional_usd",
+            ),
+            5.0,
+        ),
+        promotion_derived_apply_leverage_to_notional=_settings_bool(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_apply_leverage_to_notional",
+                "flash_promotion_derived_apply_leverage_to_notional",
+            ),
+            False,
+        ),
+        promotion_derived_max_leverage=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_promotion_derived_max_leverage",
+                "flash_promotion_derived_max_leverage",
+            ),
+            1.0,
+        ),
         churn_cooldown_bars=int(_settings_float(
             settings, ("v2_flash_churn_cooldown_bars", "flash_churn_cooldown_bars"), 0.0,
         )),
@@ -1037,7 +1660,7 @@ def _flash_allocator_config_from_settings(
         ),
         live_real_actor_whitelist=_settings_csv_tuple(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_live_real_actor_whitelist",
                 "v2_flash_live_real_actor_whitelist",
                 "flash_live_real_actor_whitelist",
@@ -1887,7 +2510,7 @@ def _flash_allocator_config_from_settings(
         ),
         terminal_denied_signal_keys=_settings_csv_tuple(
             settings,
-            (
+            scoped_names(
                 "panteon_flash_terminal_denied_signal_keys",
                 "v2_flash_terminal_denied_signal_keys",
                 "flash_terminal_denied_signal_keys",
@@ -2138,6 +2761,62 @@ def _resolve_flash_enabled(exchange_name: str) -> bool:
         _load_exchange_settings(exchange_name),
         default=env_default,
     )
+
+
+def _resolve_futures_signal_fixes_enabled(exchange_name: str) -> bool:
+    exchange_key = str(exchange_name or "").strip().upper()
+    env_default = (
+        _env_flag(f"{exchange_key}_PANTEON_V2_FUTURES_SIGNAL_FIXES_ENABLED", False)
+        or _env_flag(f"{exchange_key}_PANTEON_FUTURES_SIGNAL_FIXES_ENABLED", False)
+        or _env_flag("PANTEON_V2_FUTURES_SIGNAL_FIXES_ENABLED", False)
+        or _env_flag("PANTEON_FUTURES_SIGNAL_FIXES_ENABLED", False)
+    )
+    settings = _load_exchange_settings(exchange_name)
+    return _settings_bool(
+        settings,
+        _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_futures_signal_fixes_enabled",
+        )
+        + _exchange_scoped_setting_names(
+            exchange_name,
+            "panteon_futures_signal_fixes_enabled",
+        )
+        + _exchange_scoped_setting_names(
+            exchange_name,
+            "v2_futures_replay_signal_fixes_enabled",
+        ),
+        env_default,
+    )
+
+
+def _resolve_flash_component_memory(exchange_name: str) -> Optional[ComponentMemory]:
+    exchange_key = str(exchange_name or "").strip().upper()
+    raw = (
+        os.getenv(f"{exchange_key}_PANTEON_FLASH_COMPONENT_MEMORY_JSONL")
+        or os.getenv("PANTEON_FLASH_COMPONENT_MEMORY_JSONL")
+        or _settings_str(
+            _load_exchange_settings(exchange_name),
+            _exchange_scoped_setting_names(
+                exchange_name,
+                "v2_flash_component_memory_jsonl",
+            )
+            + _exchange_scoped_setting_names(
+                exchange_name,
+                "flash_component_memory_jsonl",
+            ),
+            "",
+        )
+    )
+    path_text = str(raw or "").strip()
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if not path.exists():
+        raise FileNotFoundError(f"Flash component memory JSONL not found: {path}")
+    memory = ComponentMemory.from_jsonl(path)
+    log.info("[%s] Flash component memory loaded: %s", exchange_key, path)
+    return memory
 
 
 def _resolve_scoring_config(exchange_name: str) -> ScoringConfig:
@@ -2702,8 +3381,8 @@ def resolve_exchange(exchange_name: str, *, mode: str) -> Exchange:
     FakeExchange остаётся только для paper или неподдержанной биржи.
     """
     name = exchange_name.upper()
-    if mode == "paper":
-        log.info("[%s] paper mode → FakeExchange", name)
+    if _is_virtual_exchange_mode(mode):
+        log.info("[%s] %s mode → FakeExchange", name, mode)
         return FakeExchange(name=f"{name}-PAPER")
 
     if name == "BITGET":
@@ -3126,14 +3805,18 @@ def start_production(
             return float(getattr(pipeline, "current_balance", resolved_initial_capital) or resolved_initial_capital)
         return resolved_initial_capital
 
+    futures_signal_fixes_enabled = _resolve_futures_signal_fixes_enabled(exchange)
     registered = register_all_v1_agents(
         registry,
         portfolio_value_fn=_portfolio_value,
         skip_on_error=True,
         include_optional=include_genetics,
+        futures_replay_signal_fixes_enabled=futures_signal_fixes_enabled,
     )
     log.info("Registered %d v1-agents: %s", len(registered),
              ", ".join(registered[:5]) + ("…" if len(registered) > 5 else ""))
+    if futures_signal_fixes_enabled:
+        log.info("[%s] futures signal fixes enabled for v1 agents", exchange)
     if not registered:
         log.error(
             "No v1-agents registered. Check sys.path / panteon_runtime presence."
@@ -3201,6 +3884,7 @@ def start_production(
         live_execution_config=live_execution_config,
         flash_enabled=flash_enabled,
         flash_allocator_config=flash_allocator_config,
+        flash_component_memory=_resolve_flash_component_memory(exchange),
         scoring_config=_resolve_scoring_config(exchange),
         perf_trade_fraction=trade_fraction,
         perf_max_returns_history=_resolve_perf_max_returns_history(exchange),
@@ -3340,7 +4024,13 @@ def start_production(
             if timed_out:
                 log.warning("[%s] timed out %d restored pending order(s)", exchange, timed_out)
 
-    writer = OutputWriter.for_session(pipeline, results_root=results_root)
+    writer = OutputWriter.for_session(
+        pipeline,
+        results_root=results_root,
+        compact_causal_entry_include_labels=(
+            _resolve_compact_causal_entry_include_labels(exchange)
+        ),
+    )
     log.info("Output directory: %s", writer.output_dir)
 
     # 6. Feed selection: v1-bridge > PollingFeed > SyntheticFeed (paper) > empty
@@ -3364,6 +4054,13 @@ def start_production(
                 ),
                 bridge_cache_max_age_sec=bridge_cache_max_age_sec,
                 snapshot_callback=lambda: _save_runtime_snapshot(pipeline, snapshot_path),
+                shutdown_callback=lambda steps: _apply_paper_canary_shutdown_flatten(
+                    pipeline,
+                    writer,
+                    exchange=exchange,
+                    mode=mode,
+                    bar=(steps[-1].bar + 1) if steps else None,
+                ),
             )
             # Сохраняем snapshot
             if snapshot_path:
@@ -3404,7 +4101,7 @@ def start_production(
     if polling_session_dir:
         feed: MarketFeed = PollingFeed(session_dir=polling_session_dir)
         log.info("Using PollingFeed: %s", polling_session_dir)
-    elif mode == "paper":
+    elif str(mode or "").strip().lower() in SYNTHETIC_FEED_MODES:
         # paper-mode → smoke через SyntheticFeed (random-walk цены)
         feed = SyntheticFeed(
             symbols=["BTC", "ETH", "SOL", "BNB", "ADA", "DOGE"],
@@ -3473,6 +4170,14 @@ def start_production(
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt — saving state and exit")
         steps = None
+
+    _apply_paper_canary_shutdown_flatten(
+        pipeline,
+        writer,
+        exchange=exchange,
+        mode=mode,
+        bar=(steps[-1].bar + 1) if steps else None,
+    )
 
     writer.close()
     if snapshot_path:

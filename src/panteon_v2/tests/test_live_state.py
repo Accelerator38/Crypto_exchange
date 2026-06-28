@@ -446,6 +446,36 @@ class TestLiveSignalGuard(unittest.TestCase):
         self.assertEqual(runtime.fut_entry["BTC"], 100.0)
         self.assertIn(("BTC", 0.0, 0.0, -0.25, 100.0), runtime.updates)
 
+    def test_prepare_live_resets_direct_agent_check_timer_after_warmup(self):
+        class Agent:
+            label = "LiveVolCompress"
+            CHECK_INT = 3
+            _lc = 6380
+            pos = {"BTC": "long"}
+            ep = {"BTC": 100.0}
+            et = {"BTC": 6370}
+
+        agent = Agent()
+
+        class Registry:
+            def all_agents(self):
+                return [agent]
+
+        class Pipeline:
+            registry = Registry()
+            executor = _pipeline_for_tracker(PositionTracker()).executor
+
+        prepare_v2_agents_for_live_after_warmup(
+            Pipeline(),
+            exchange_name="MEXC",
+            bar_index=6380,
+        )
+
+        self.assertIsNone(Agent.pos["BTC"])
+        self.assertEqual(Agent.ep["BTC"], 0.0)
+        self.assertEqual(Agent.et["BTC"], 0)
+        self.assertLessEqual(agent._lc, 6380 - Agent.CHECK_INT)
+
 
 class TestLiveExchangeReconcile(unittest.TestCase):
     def test_reconcile_adds_exchange_position_missing_from_tracker(self):

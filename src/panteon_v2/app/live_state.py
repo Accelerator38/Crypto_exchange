@@ -756,9 +756,26 @@ def reset_actor_for_live(actor: Any, *, bar_index: int, seen: Set[int], depth: i
             log.debug("agent reset_for_live failed", exc_info=True)
     else:
         clear_actor_position_maps(actor)
+        reset_actor_check_timer_for_live(actor, bar_index=bar_index)
 
     for child in child_actors(actor):
         reset_actor_for_live(child, bar_index=bar_index, seen=seen, depth=depth + 1)
+
+
+def reset_actor_check_timer_for_live(actor: Any, *, bar_index: int) -> bool:
+    if not hasattr(actor, "_lc"):
+        return False
+    try:
+        check_int = int(float(getattr(actor, "CHECK_INT", 1) or 1))
+    except (TypeError, ValueError):
+        check_int = 1
+    check_int = max(1, check_int)
+    try:
+        setattr(actor, "_lc", int(bar_index or 0) - check_int)
+        return True
+    except Exception:
+        log.debug("agent check timer reset failed", exc_info=True)
+        return False
 
 
 def clear_actor_position_maps(actor: Any) -> int:

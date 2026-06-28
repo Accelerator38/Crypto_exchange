@@ -23,6 +23,7 @@ class DegradationGateConfig:
     min_session_closed_trades: int = 3
     max_session_loss_pct: float = 1.0
     max_session_drawdown_pct: float = 2.0
+    drawdown_requires_nonpositive_pnl: bool = True
     max_execution_failure_rate: float = 0.50
     max_blocked_signal_rate: float = 0.90
     reason_prefix: str = "degradation_gate"
@@ -131,6 +132,10 @@ class DegradationGate:
             self._config.max_session_drawdown_pct > 0
             and metrics.closed_trades >= self._config.min_session_closed_trades
             and metrics.max_dd_pct >= float(self._config.max_session_drawdown_pct)
+            and (
+                not self._config.drawdown_requires_nonpositive_pnl
+                or metrics.pnl_pct <= 0.0
+            )
         ):
             reasons.append("session_drawdown_pct")
         if (

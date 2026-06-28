@@ -16,9 +16,9 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, List, Mapping, Optional, Sequence, Tuple
 
 from ..domain.types import Action, MarketSnapshot, Regime
 from ..selection import AgentRegistry
@@ -78,6 +78,38 @@ FLASH_LEGACY_REAL_AGENT_LABELS: Tuple[str, ...] = (
     "CandlePatternAgent",
 )
 
+FUTURES_REPLAY_SIGNAL_FIX_OVERRIDES: dict[str, dict[str, Any]] = {
+    "CarryFlowAgentV2": {
+        "CHECK_INT": 1,
+        "HOLD": 48,
+        "EMA_FAST": 12,
+        "EMA_SLOW": 48,
+        "RSI_OB": 58,
+        "RSI_OS": 42,
+        "EXTREME_EXT": 0.004,
+        "ENTRY_COOLDOWN": 24,
+    },
+    "MomentumScalper": {
+        "FUTURES_REPLAY_MODE": True,
+        "CHECK_INT": 1,
+        "EMA_F": 4,
+        "EMA_M": 12,
+        "EMA_S": 48,
+        "VOL_WIN": 12,
+        "VOL_MULT": 0.90,
+        "MOM_MIN": 0.0015,
+    },
+    "LiveVolCompress": {
+        "FUTURES_REPLAY_MODE": True,
+        "CHECK_INT": 1,
+        "HOLD": 48,
+        "BBW_THRESH": 0.035,
+        "MIN_BBW": 0.0008,
+        "MOM_MIN": 0.0012,
+        "ENTRY_COOLDOWN": 12,
+    },
+}
+
 OPTIONAL_V1_AGENTS: List[Tuple[str, str]] = [
     ("GeneticsGenomeEnsemble", "agents_v2:GenomeEnsembleAgent"),
     ("GeneticsCore",        "crypto_genetics:GeneticsAgent"),
@@ -90,6 +122,8 @@ MANIFEST_GENETICS_AGENT_LABELS: Tuple[str, ...] = (
 )
 MANIFEST_GENETICS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
 REGIME_ADAPTIVE_BIAS_ENV = "PANTEON_V2_GENETICS_REGIME_ADAPTIVE_BIAS_MANIFEST"
+GENETICS_CORE_GENOME_ENV = "PANTEON_V2_GENETICS_CORE_GENOME"
+GENETICS_CORE_REQUIRE_REAL_ENV = "PANTEON_V2_REQUIRE_REAL_GENETICS_CORE"
 
 OPTIONAL_SPECIAL_AGENTS: Tuple[str, ...] = (
     "GeneticsRegimeRouter",
@@ -303,6 +337,7 @@ EXPERIMENTAL_FLASH_AGENT_SPECS: Tuple[
 class ActionFilterAgent:
     """Wrap an agent under a new label and expose only a narrow action slice."""
 
+    prefers_full_market_snapshot: ClassVar[bool] = True
     label: str
     base_agent: Any
     allowed_actions: Tuple[Action, ...] = ()
@@ -313,6 +348,7 @@ class ActionFilterAgent:
     funding_cost_aligned_opens: bool = False
     min_lookback_return_pct_by_bars: Optional[dict[int, float]] = None
     max_lookback_return_pct_by_bars: Optional[dict[int, float]] = None
+    last_signal_diagnostics: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         self.allowed_actions = tuple(
@@ -356,6 +392,7 @@ class ActionFilterAgent:
         )
 
     def act(self, market: MarketSnapshot) -> dict[str, Action]:
+        self.last_signal_diagnostics = {}
         try:
             raw = self.base_agent.act(market)
         except Exception:
@@ -363,6 +400,10 @@ class ActionFilterAgent:
         if not isinstance(raw, dict):
             return {}
 
+        diagnostics = _normalize_agent_diagnostics(
+            getattr(self.base_agent, "last_signal_diagnostics", {}),
+            market,
+        )
         allowed_actions = frozenset(self.allowed_actions)
         allowed_symbols = frozenset(self.allowed_symbols)
         denied_symbols = frozenset(self.denied_symbols)
@@ -374,21 +415,40 @@ class ActionFilterAgent:
                 continue
             regime_label = _normalize_regime_label(market.regime_for_symbol(symbol))
             action = _coerce_action(raw_action)
+            diag = dict(diagnostics.get(symbol, {}))
+            diag["wrapper_label"] = self.label
+            diag["wrapper_base_label"] = str(getattr(self.base_agent, "label", "") or "")
+            diag["wrapper_action"] = None if action is None else action.name
             if action is None or action.is_hold:
+                diag["wrapper_reason"] = "invalid_action" if action is None else "base_hold"
+                diagnostics[symbol] = diag
                 continue
             if allowed_actions and action not in allowed_actions:
+                diag["wrapper_reason"] = "action_not_allowed"
+                diagnostics[symbol] = diag
                 continue
             if allowed_symbols and symbol not in allowed_symbols:
+                diag["wrapper_reason"] = "symbol_not_allowed"
+                diagnostics[symbol] = diag
                 continue
             if symbol in denied_symbols:
+                diag["wrapper_reason"] = "symbol_denied"
+                diagnostics[symbol] = diag
                 continue
             if allowed_regimes and regime_label not in allowed_regimes:
                 out[symbol] = Action.HOLD
+                diag["wrapper_reason"] = "regime_not_allowed"
+                diagnostics[symbol] = diag
                 continue
             if action.is_open and not self._open_context_allows(market, symbol, action):
                 out[symbol] = Action.HOLD
+                diag["wrapper_reason"] = "open_context_blocked"
+                diagnostics[symbol] = diag
                 continue
+            diag["wrapper_reason"] = "passed"
+            diagnostics[symbol] = diag
             out[symbol] = action
+        self.last_signal_diagnostics = diagnostics
         return out
 
     def _open_context_allows(
@@ -475,12 +535,31 @@ def _symbol_candidates(symbol: str) -> tuple[str, ...]:
 
 
 def _lookup_symbol_value(mapping: Any, symbol: str) -> Any:
-    if not isinstance(mapping, dict):
+    if not isinstance(mapping, Mapping):
         return None
     for key in _symbol_candidates(symbol):
         if key in mapping:
             return mapping[key]
     return None
+
+
+def _normalize_agent_diagnostics(
+    raw: Any,
+    market: MarketSnapshot,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for raw_symbol in market.prices:
+        symbol = _normalize_symbol(raw_symbol)
+        payload = _lookup_symbol_value(raw, symbol)
+        if payload is None:
+            continue
+        if isinstance(payload, Mapping):
+            out[symbol] = dict(payload)
+        else:
+            out[symbol] = {"value": payload}
+    return out
 
 
 def _lookup_numeric_symbol_value(mapping: Any, symbol: str) -> Optional[float]:
@@ -1004,20 +1083,109 @@ def _register_manifest_genetics_agents(
     return registered
 
 
+def _resolve_genetics_core_genome_path() -> Path | None:
+    raw = os.environ.get(GENETICS_CORE_GENOME_ENV, "").strip()
+    if raw:
+        path = Path(raw)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path.resolve()
+    default_path = (
+        Path(__file__).resolve().parents[3]
+        / "Genetics_DL_Agents"
+        / "Agents"
+        / "genetics"
+        / "best_genome.npy"
+    )
+    return default_path.resolve() if default_path.exists() else None
+
+
+def _register_genetics_core_agent(
+    registry: AgentRegistry,
+    *,
+    module_path: str,
+    class_name: str,
+    portfolio_value_fn: Optional[callable] = None,
+) -> str:
+    import numpy as np
+
+    module = __import__(module_path, fromlist=[class_name])
+    cls = getattr(module, class_name)
+    genome_path = _resolve_genetics_core_genome_path()
+    source = "legacy_default_constructor"
+    source_meta_path: Path | None = None
+    if genome_path is not None:
+        if not genome_path.exists():
+            raise FileNotFoundError(
+                f"{GENETICS_CORE_GENOME_ENV} points to missing genome: {genome_path}"
+            )
+        genome = np.load(genome_path).astype(np.float32).ravel()
+        expected_genome_size = getattr(module, "GENOME_SIZE", None)
+        if expected_genome_size is not None and genome.size != int(expected_genome_size):
+            raise ValueError(
+                f"GeneticsCore genome size mismatch for {genome_path}: "
+                f"{genome.size} != {int(expected_genome_size)}"
+            )
+        instance = cls(genome=genome)
+        source = "explicit_core_genome"
+        for candidate in (
+            genome_path.with_name(f"{genome_path.stem}_meta.json"),
+            genome_path.parent / "best_genome_meta.json",
+        ):
+            if candidate.exists():
+                source_meta_path = candidate.resolve()
+                break
+    else:
+        if _env_flag(GENETICS_CORE_REQUIRE_REAL_ENV, False):
+            raise FileNotFoundError(
+                "GeneticsCore real genome source is required but no "
+                f"{GENETICS_CORE_GENOME_ENV} or default best_genome.npy was found"
+            )
+        log.warning(
+            "GeneticsCore genome source was not found; using legacy default constructor"
+        )
+        instance = cls()
+
+    adapter = GeneticsV2AgentAdapter(
+        label="GeneticsCore",
+        v1_agent=instance,
+        portfolio_value_fn=portfolio_value_fn,
+    )
+    adapter.genetics_signal_source = source
+    if genome_path is not None:
+        adapter.source_genome_path = str(genome_path)
+        setattr(instance, "source_genome_path", str(genome_path))
+    if source_meta_path is not None:
+        adapter.source_meta_path = str(source_meta_path)
+    registry.register(adapter, replace=True)
+    return "GeneticsCore"
+
+
 def _register_from_list(
     registry: AgentRegistry,
     items: List[Tuple[str, str]],
     *,
     portfolio_value_fn: Optional[callable] = None,
     skip_on_error: bool = True,
+    futures_replay_signal_fixes_enabled: bool = False,
 ) -> List[str]:
     registered: List[str] = []
     for label, dotted in items:
         try:
             module_path, class_name = dotted.split(":")
+            if label == "GeneticsCore" and module_path == "crypto_genetics":
+                registered.append(_register_genetics_core_agent(
+                    registry,
+                    module_path=module_path,
+                    class_name=class_name,
+                    portfolio_value_fn=portfolio_value_fn,
+                ))
+                continue
             module = __import__(module_path, fromlist=[class_name])
             cls = getattr(module, class_name)
             instance = cls()
+            if futures_replay_signal_fixes_enabled:
+                _apply_futures_replay_signal_fixes(label, instance)
             adapter_cls = (
                 GeneticsV2AgentAdapter
                 if module_path == "crypto_genetics" or label.startswith("Genetics")
@@ -1104,6 +1272,18 @@ def _register_special_optional_agents(
     return registered
 
 
+def _apply_futures_replay_signal_fixes(label: str, instance: Any) -> bool:
+    overrides = FUTURES_REPLAY_SIGNAL_FIX_OVERRIDES.get(str(label or ""))
+    if not overrides:
+        return False
+    for attr, value in overrides.items():
+        try:
+            setattr(instance, attr, value)
+        except Exception:
+            return False
+    return True
+
+
 def register_all_v1_agents(
     registry: AgentRegistry,
     *,
@@ -1111,6 +1291,7 @@ def register_all_v1_agents(
     skip_on_error: bool = True,
     include_optional: Optional[bool] = None,
     optional_agent_labels: Optional[Sequence[str]] = None,
+    futures_replay_signal_fixes_enabled: bool = False,
 ) -> List[str]:
     """Регистрирует базовые v1-агенты в registry.
 
@@ -1127,6 +1308,7 @@ def register_all_v1_agents(
         registry, KNOWN_V1_AGENTS,
         portfolio_value_fn=portfolio_value_fn,
         skip_on_error=skip_on_error,
+        futures_replay_signal_fixes_enabled=futures_replay_signal_fixes_enabled,
     )
     if include_optional:
         log.info("Loading optional agents (Genetics) — may take a while…")
@@ -1135,6 +1317,7 @@ def register_all_v1_agents(
             registry, optional_items,
             portfolio_value_fn=portfolio_value_fn,
             skip_on_error=skip_on_error,
+            futures_replay_signal_fixes_enabled=futures_replay_signal_fixes_enabled,
         )
         registered += _register_manifest_genetics_agents(
             registry,

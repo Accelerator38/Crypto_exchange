@@ -18,6 +18,44 @@ log = logging.getLogger(__name__)
 GENETICS_CONTRA_NO_BACKFILL_REASON = "genetics_contra_no_backfill"
 
 
+def _flash_exchange_from_pipeline(pipeline: object) -> object | None:
+    exchange = getattr(pipeline, "exchange", None)
+    if exchange is not None:
+        return exchange
+    executor = getattr(pipeline, "executor", None)
+    return getattr(executor, "_exchange", None)
+
+
+def _flash_min_notional_by_symbol(
+    pipeline: object,
+    symbols: Sequence[str],
+) -> Dict[str, float]:
+    exchange = _flash_exchange_from_pipeline(pipeline)
+    getter = getattr(exchange, "get_min_notional", None)
+    if not callable(getter):
+        return {}
+    values: Dict[str, float] = {}
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol or "").strip()
+        if not symbol:
+            continue
+        try:
+            value = float(getter(symbol) or 0.0)
+        except Exception:
+            log.debug("failed to read min_notional for %s", symbol, exc_info=True)
+            continue
+        if value > 0:
+            values[symbol.upper()] = value
+    return values
+
+
+def _flash_account_equity_usd(pipeline: object) -> float:
+    try:
+        return float(getattr(pipeline, "current_balance", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
 @dataclass(frozen=True)
 class FlashDecisionPathCallbacks:
     """Dependencies supplied by main_loop to keep this module cycle-free."""
@@ -167,6 +205,11 @@ def run_flash_decision_path(
         previous_actor_by_symbol=previous_flash_actors,
         open_position_sides_by_symbol=callbacks.flash_open_position_sides_by_symbol(pipeline),
         open_position_actor_keys_by_symbol=callbacks.flash_open_position_actor_keys_by_symbol(pipeline),
+        min_notional_by_symbol=_flash_min_notional_by_symbol(
+            pipeline,
+            tuple(str(symbol) for symbol in market.prices.keys()),
+        ),
+        account_equity_usd=_flash_account_equity_usd(pipeline),
     ))
     pipeline._flash_previous_actor_by_symbol = {
         symbol: actor_key

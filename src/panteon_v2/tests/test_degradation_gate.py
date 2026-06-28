@@ -183,6 +183,32 @@ class TestDegradationGate(unittest.TestCase):
         self.assertTrue(result.is_no_op)
         self.assertFalse(qm.is_quarantined("GeneticsBearish"))
 
+    def test_positive_session_pnl_prevents_drawdown_only_quarantine(self) -> None:
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager()
+        gate = DegradationGate(
+            DegradationGateConfig(
+                min_session_closed_trades=1,
+                max_session_loss_pct=1.0,
+                max_session_drawdown_pct=2.0,
+                max_execution_failure_rate=0.0,
+                max_blocked_signal_rate=0.0,
+            )
+        )
+        label = "GeneticsCore"
+        gate.capture_baseline(perf, labels=[label])
+        _add_trade(perf, label, 10.0, start_id=100)
+        _add_trade(perf, label, -5.0, start_id=110)
+        _add_trade(perf, label, 3.0, start_id=120)
+
+        result = gate.apply(perf, qm, labels=[label], bar=120)
+
+        self.assertTrue(result.is_no_op)
+        self.assertFalse(qm.is_quarantined(label))
+        decision = gate.last_decisions[0]
+        self.assertGreater(decision.session_metrics.pnl_pct, 0.0)
+        self.assertGreater(decision.session_metrics.max_dd_pct, 2.0)
+
     def test_default_gate_ignores_non_genetics_labels(self) -> None:
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager()

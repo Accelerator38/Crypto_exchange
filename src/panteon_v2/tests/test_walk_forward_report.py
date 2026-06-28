@@ -53,6 +53,39 @@ class TestWalkForwardReport(unittest.TestCase):
         self.assertIn("bullish", report["by_regime"])
         self.assertEqual(report["sessions"]["count"], 1)
 
+    def test_report_parses_in_memory_order_filled_trade_objects(self):
+        from panteon_v2.analysis.walk_forward import build_walk_forward_report_from_events
+        from panteon_v2.attribution import EventLog, OrderFilled
+        from panteon_v2.domain.types import Trade
+
+        filled = OrderFilled(
+            bar=1,
+            trade=Trade(
+                signal_id=7,
+                bar=1,
+                sym="BTC/USDT",
+                side="long",
+                qty=0.25,
+                fill_price=200.0,
+                fee=0.04,
+            ),
+        )
+        events = [
+            EventLog._event_to_dict(filled),
+            {"_type": "PositionClosed", "bar": 2, "sym": "BTC/USDT", "realized_pnl": 1.5},
+        ]
+
+        report = build_walk_forward_report_from_events(
+            results_root="Results",
+            events=events,
+        )
+
+        totals = report["totals"]
+        self.assertEqual(totals["closed_trades"], 1)
+        self.assertAlmostEqual(totals["turnover_notional"], 50.0)
+        self.assertAlmostEqual(totals["fees"], 0.04)
+        self.assertAlmostEqual(totals["fee_per_turnover_pct"], 0.08)
+
     def test_regime_stats_use_entry_regime_when_close_happens_after_regime_change(self):
         from panteon_v2.analysis.walk_forward import build_walk_forward_report_from_events
 

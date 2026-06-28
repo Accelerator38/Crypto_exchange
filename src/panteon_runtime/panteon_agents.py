@@ -9,7 +9,7 @@ import logging
 import numpy as np
 from collections import deque, OrderedDict
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from agent_meta import (
     ContextMemoryAgent,
@@ -145,6 +145,25 @@ def _take_ranked_entries(candidates, slots):
         return []
     ranked = sorted(candidates, key=lambda item: (-float(item[0]), str(item[1])))
     return ranked[:slots]
+
+
+def _diag_value(value: Any):
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        value = float(value)
+        return value if np.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(k): _diag_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_diag_value(v) for v in value]
+    return str(value)
+
+
+def _set_signal_diag(diags, sym, **payload):
+    diags[str(sym).upper()] = {str(k): _diag_value(v) for k, v in payload.items()}
 
 
 def _regime(h_dict, lb=60):
@@ -301,7 +320,25 @@ class Bomberman:
             self.pos.setdefault(s,None); self.entry_px.setdefault(s,0.)
         self.t = bar_index if bar_index is not None else self.t+1
         actions={s:0 for s in prices}
-        if self.t-self._lc<self.CHECK_INT: return actions
+        diagnostics={}
+        if self.t-self._lc<self.CHECK_INT:
+            wait=max(0,self.CHECK_INT-(self.t-self._lc))
+            for sym in prices:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="MomentumScalper",
+                    reason="check_interval_wait",
+                    action=0,
+                    bar=self.t,
+                    check_interval=self.CHECK_INT,
+                    bars_until_check=wait,
+                    history_len=len(self.h.get(sym,())),
+                    volume_history_len=len(self.v.get(sym,())),
+                    futures_replay_mode=bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+                )
+            self.last_signal_diagnostics=diagnostics
+            return actions
         self._lc=self.t
         regime=_regime(self.h)
         n_long=sum(1 for v in self.pos.values() if v=='long_fut')
@@ -354,7 +391,14 @@ class MomentumScalper:
     def __init__(self):
         self.h:Dict[str,deque]={}; self.v:Dict[str,deque]={}
         self.pos:Dict[str,str]={}; self.entry_px:Dict[str,float]={}
+        self.last_signal_diagnostics:Dict[str,dict]={}
         self.t=0; self._lc=-9999
+
+    def _long_open_action(self):
+        return 5 if getattr(self, "FUTURES_REPLAY_MODE", False) else 2
+
+    def _long_close_action(self):
+        return 8 if getattr(self, "FUTURES_REPLAY_MODE", False) else 3
 
     def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
         for s,p in prices.items():
@@ -363,34 +407,160 @@ class MomentumScalper:
             self.pos.setdefault(s,None); self.entry_px.setdefault(s,0.)
         self.t=bar_index if bar_index is not None else self.t+1
         actions={s:0 for s in prices}
-        if self.t-self._lc<self.CHECK_INT: return actions
+        diagnostics={}
+        if self.t-self._lc<self.CHECK_INT:
+            wait=max(0,self.CHECK_INT-(self.t-self._lc))
+            for sym in prices:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="MomentumScalper",
+                    reason="check_interval_wait",
+                    action=0,
+                    bar=self.t,
+                    check_interval=self.CHECK_INT,
+                    bars_until_check=wait,
+                    history_len=len(self.h.get(sym,())),
+                    volume_history_len=len(self.v.get(sym,())),
+                    futures_replay_mode=bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+                )
+            self.last_signal_diagnostics=diagnostics
+            return actions
         self._lc=self.t
         n_long=sum(1 for v in self.pos.values() if v=='long')
         n_short=sum(1 for v in self.pos.values() if v=='short')
         for sym in prices:
             h=list(self.h[sym]); vl=list(self.v[sym]); cur=self.pos[sym]; px=prices[sym]
-            if len(h)<self.EMA_S+1: continue
+            if len(h)<self.EMA_S+1:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="MomentumScalper",
+                    reason="not_enough_history",
+                    action=0,
+                    bar=self.t,
+                    history_len=len(h),
+                    required_history=self.EMA_S+1,
+                    futures_replay_mode=bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+                )
+                continue
             ef=_ema(h[-self.EMA_F*3:],  self.EMA_F)
             em=_ema(h[-self.EMA_M*2:],  self.EMA_M)
             es=_ema(h[-self.EMA_S:],     self.EMA_S)
             ep=self.entry_px[sym]
+            common={
+                "agent":"MomentumScalper",
+                "bar":self.t,
+                "history_len":len(h),
+                "volume_history_len":len(vl),
+                "price":px,
+                "ema_fast":ef,
+                "ema_mid":em,
+                "ema_slow":es,
+                "ema_fast_mid_ratio":(ef/(em+1e-12))-1.0,
+                "ema_mid_slow_ratio":(em/(es+1e-12))-1.0,
+                "long_fast_mid_gap":(ef/(em+1e-12))-1.003,
+                "long_mid_slow_gap":(em/(es+1e-12))-1.001,
+                "short_fast_mid_gap":0.997-(ef/(em+1e-12)),
+                "short_mid_slow_gap":0.999-(em/(es+1e-12)),
+                "n_long":n_long,
+                "n_short":n_short,
+                "max_pos":self.MAX_POS,
+                "futures_replay_mode":bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+            }
             # Стоп + тейк
             if cur=='long':
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or ef<em*0.999:
-                    actions[sym]=3; self.pos[sym]=None; n_long-=1; continue
+                    actions[sym]=self._long_close_action(); self.pos[sym]=None; n_long-=1
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_long",
+                        action=actions[sym],
+                        entry_price=ep,
+                        stop_hit=px<=ep*(1-self.STOP),
+                        target_hit=px>=ep*(1+self.TARGET),
+                        trend_exit=ef<em*0.999,
+                    )
+                    continue
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="in_long_position",
+                    action=0,
+                    entry_price=ep,
+                )
+                continue
             elif cur=='short':
                 if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET) or ef>em*1.001:
-                    actions[sym]=8; self.pos[sym]=None; n_short-=1; continue
-            if cur is not None: continue
+                    actions[sym]=8; self.pos[sym]=None; n_short-=1
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_short",
+                        action=actions[sym],
+                        entry_price=ep,
+                        stop_hit=px>=ep*(1+self.STOP),
+                        target_hit=px<=ep*(1-self.TARGET),
+                        trend_exit=ef>em*1.001,
+                    )
+                    continue
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="in_short_position",
+                    action=0,
+                    entry_price=ep,
+                )
+                continue
             mom=_mom(self.h[sym], self.EMA_F)
             v_avg=float(np.mean(vl[-self.VOL_WIN-1:-1])) if len(vl)>self.VOL_WIN else 0
             v_cur=vl[-1] if vl else 0
             vol_spike=v_cur>v_avg*self.VOL_MULT if v_avg>0 else False
+            long_trend_ok=ef>em*1.003 and em>es*1.001
+            short_trend_ok=ef<em*0.997 and em<es*0.999
+            common.update({
+                "momentum":mom,
+                "momentum_min":self.MOM_MIN,
+                "long_momentum_gap":mom-self.MOM_MIN,
+                "short_momentum_gap":-mom-self.MOM_MIN,
+                "volume_current":v_cur,
+                "volume_average":v_avg,
+                "volume_mult":self.VOL_MULT,
+                "volume_threshold":v_avg*self.VOL_MULT if v_avg>0 else 0.0,
+                "volume_gap":v_cur-(v_avg*self.VOL_MULT) if v_avg>0 else None,
+                "volume_spike":vol_spike,
+                "long_trend_ok":long_trend_ok,
+                "short_trend_ok":short_trend_ok,
+            })
             # v5 FIX: vol_spike теперь используется как условие входа (было мёртвый код)
-            if ef>em*1.003 and em>es*1.001 and mom>self.MOM_MIN and vol_spike and n_long<self.MAX_POS:
-                actions[sym]=2; self.pos[sym]='long'; self.entry_px[sym]=px; n_long+=1
-            elif ef<em*0.997 and em<es*0.999 and mom<-self.MOM_MIN and vol_spike and n_short<self.MAX_POS:
+            if long_trend_ok and mom>self.MOM_MIN and vol_spike and n_long<self.MAX_POS:
+                actions[sym]=self._long_open_action(); self.pos[sym]='long'; self.entry_px[sym]=px; n_long+=1
+                _set_signal_diag(diagnostics,sym,**common,reason="candidate_long",action=actions[sym])
+            elif short_trend_ok and mom<-self.MOM_MIN and vol_spike and n_short<self.MAX_POS:
                 actions[sym]=7; self.pos[sym]='short'; self.entry_px[sym]=px; n_short+=1
+                _set_signal_diag(diagnostics,sym,**common,reason="candidate_short",action=actions[sym])
+            else:
+                if not vol_spike:
+                    reason="volume_below_threshold"
+                elif mom<=self.MOM_MIN and mom>=-self.MOM_MIN:
+                    reason="momentum_below_threshold"
+                elif mom>self.MOM_MIN and not long_trend_ok:
+                    reason="long_trend_not_aligned"
+                elif mom<-self.MOM_MIN and not short_trend_ok:
+                    reason="short_trend_not_aligned"
+                elif mom>self.MOM_MIN and n_long>=self.MAX_POS:
+                    reason="max_long_positions"
+                elif mom<-self.MOM_MIN and n_short>=self.MAX_POS:
+                    reason="max_short_positions"
+                else:
+                    reason="entry_conditions_not_met"
+                _set_signal_diag(diagnostics,sym,**common,reason=reason,action=0)
+        self.last_signal_diagnostics=diagnostics
         return actions
 
 
@@ -875,7 +1045,14 @@ class LiveVolCompress:
         self.h:Dict[str,deque]={}; self.pos:Dict[str,str]={}
         self.ep:Dict[str,float]={}; self.et:Dict[str,int]={}
         self.last_entry:Dict[str,int]={}
+        self.last_signal_diagnostics:Dict[str,dict]={}
         self.t=0; self._lc=-9999
+
+    def _long_open_action(self):
+        return 5 if getattr(self, "FUTURES_REPLAY_MODE", False) else 1
+
+    def _long_close_action(self):
+        return 8 if getattr(self, "FUTURES_REPLAY_MODE", False) else 3
 
     def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
         for s,p in prices.items():
@@ -883,40 +1060,153 @@ class LiveVolCompress:
             self.pos.setdefault(s,None); self.ep.setdefault(s,0.); self.et.setdefault(s,0)
         self.t=bar_index if bar_index is not None else self.t+1
         actions={s:0 for s in prices}
-        if self.t-self._lc<self.CHECK_INT: return actions
+        diagnostics={}
+        if self.t-self._lc<self.CHECK_INT:
+            wait=max(0,self.CHECK_INT-(self.t-self._lc))
+            for sym in prices:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="LiveVolCompress",
+                    reason="check_interval_wait",
+                    action=0,
+                    bar=self.t,
+                    check_interval=self.CHECK_INT,
+                    bars_until_check=wait,
+                    history_len=len(self.h.get(sym,())),
+                    futures_replay_mode=bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+                )
+            self.last_signal_diagnostics=diagnostics
+            return actions
         self._lc=self.t
         regime = _regime(self.h, lb=max(60, self.BB_PERIOD * 2))
         n_open=sum(1 for v in self.pos.values() if v is not None)
         candidates=[]
         for sym in prices:
             h=list(self.h[sym]); cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]
-            if len(h)<self.BB_PERIOD+self.MOM_N+2: continue
+            if len(h)<self.BB_PERIOD+self.MOM_N+2:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="LiveVolCompress",
+                    reason="not_enough_history",
+                    action=0,
+                    bar=self.t,
+                    history_len=len(h),
+                    required_history=self.BB_PERIOD+self.MOM_N+2,
+                    regime=regime,
+                    futures_replay_mode=bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+                )
+                continue
             w=h[-self.BB_PERIOD:]; mid=float(np.mean(w)); sd=float(np.std(w))
             held=self.t-self.et[sym]
+            common={
+                "agent":"LiveVolCompress",
+                "bar":self.t,
+                "history_len":len(h),
+                "price":px,
+                "entry_price":ep,
+                "held_bars":held,
+                "regime":regime,
+                "n_open":n_open,
+                "max_pos":self.MAX_POS,
+                "bb_period":self.BB_PERIOD,
+                "bb_std":self.BB_STD,
+                "bb_mid":mid,
+                "bb_sd":sd,
+                "bbw_thresh":self.BBW_THRESH,
+                "min_bbw":self.MIN_BBW,
+                "mom_n":self.MOM_N,
+                "mom_min":self.MOM_MIN,
+                "futures_replay_mode":bool(getattr(self,"FUTURES_REPLAY_MODE",False)),
+            }
             if cur=='long':
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; n_open=max(0,n_open-1); continue
+                    actions[sym]=self._long_close_action(); self.pos[sym]=None; n_open=max(0,n_open-1)
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_long",
+                        action=actions[sym],
+                        stop_hit=px<=ep*(1-self.STOP),
+                        target_hit=px>=ep*(1+self.TARGET),
+                        hold_expired=held>=self.HOLD,
+                    )
+                    continue
+                _set_signal_diag(diagnostics,sym,**common,reason="in_long_position",action=0)
                 continue
             if cur=='short':
                 if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET) or held>=self.HOLD:
-                    actions[sym]=8; self.pos[sym]=None; n_open=max(0,n_open-1); continue
+                    actions[sym]=8; self.pos[sym]=None; n_open=max(0,n_open-1)
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_short",
+                        action=actions[sym],
+                        stop_hit=px>=ep*(1+self.STOP),
+                        target_hit=px<=ep*(1-self.TARGET),
+                        hold_expired=held>=self.HOLD,
+                    )
+                    continue
+                _set_signal_diag(diagnostics,sym,**common,reason="in_short_position",action=0)
                 continue
-            if mid<1e-9: continue
+            if mid<1e-9:
+                _set_signal_diag(diagnostics,sym,**common,reason="invalid_bb_mid",action=0)
+                continue
             bbw=(2*self.BB_STD*sd)/mid
             mom=(h[-1]-h[-self.MOM_N-1])/(h[-self.MOM_N-1]+1e-12)
-            if self.MIN_BBW < bbw < self.BBW_THRESH:
+            squeeze_ok=self.MIN_BBW < bbw < self.BBW_THRESH
+            cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
+            common.update({
+                "bbw":bbw,
+                "squeeze_ok":squeeze_ok,
+                "bbw_above_min_gap":bbw-self.MIN_BBW,
+                "bbw_below_max_gap":self.BBW_THRESH-bbw,
+                "momentum":mom,
+                "long_momentum_gap":mom-self.MOM_MIN,
+                "short_momentum_gap":-mom-self.MOM_MIN,
+                "cooldown_penalty":cooldown,
+                "regime_blocks_long":regime=="bear",
+                "regime_blocks_short":regime=="bull",
+            })
+            if squeeze_ok:
                 squeeze=(self.BBW_THRESH-bbw)/max(self.BBW_THRESH-self.MIN_BBW,1e-12)
-                cooldown=_entry_cooldown_penalty(self.last_entry,sym,self.t,self.ENTRY_COOLDOWN)*0.75
+                common["squeeze_score"]=squeeze
                 if mom>self.MOM_MIN and regime != 'bear':
                     edge=(mom-self.MOM_MIN)*100.0+squeeze*0.25-cooldown
-                    candidates.append((edge,sym,1,'long',px))
+                    candidates.append((edge,sym,self._long_open_action(),'long',px))
+                    _set_signal_diag(diagnostics,sym,**common,reason="candidate_long_pending_selection",action=0,edge=edge)
                 elif mom<-self.MOM_MIN and regime != 'bull':
                     edge=(-mom-self.MOM_MIN)*100.0+squeeze*0.25-cooldown
                     candidates.append((edge,sym,6,'short',px))
+                    _set_signal_diag(diagnostics,sym,**common,reason="candidate_short_pending_selection",action=0,edge=edge)
+                elif mom>self.MOM_MIN and regime == 'bear':
+                    _set_signal_diag(diagnostics,sym,**common,reason="long_regime_blocked",action=0)
+                elif mom<-self.MOM_MIN and regime == 'bull':
+                    _set_signal_diag(diagnostics,sym,**common,reason="short_regime_blocked",action=0)
+                else:
+                    _set_signal_diag(diagnostics,sym,**common,reason="momentum_below_threshold",action=0)
+            else:
+                reason="bbw_below_min" if bbw<=self.MIN_BBW else "bbw_above_threshold"
+                _set_signal_diag(diagnostics,sym,**common,reason=reason,action=0)
         slots=max(0,self.MAX_POS-n_open)
-        for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
+        selected_entries=_take_ranked_entries(candidates,slots)
+        selected_keys={(sym,action,side) for _,sym,action,side,_px in selected_entries}
+        for edge,sym,action,side,_px in candidates:
+            if (sym,action,side) in selected_keys:
+                continue
+            diag=dict(diagnostics.get(str(sym).upper(),{}))
+            diag.update({"reason":"candidate_not_selected_slots","action":0,"edge":edge,"slots":slots})
+            diagnostics[str(sym).upper()]={str(k):_diag_value(v) for k,v in diag.items()}
+        for edge,sym,action,side,px in selected_entries:
             actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
             self.last_entry[sym]=self.t
+            diag=dict(diagnostics.get(str(sym).upper(),{}))
+            diag.update({"reason":f"candidate_{side}","action":action,"edge":edge,"slots":slots})
+            diagnostics[str(sym).upper()]={str(k):_diag_value(v) for k,v in diag.items()}
+        self.last_signal_diagnostics=diagnostics
         return actions
 
 
@@ -1030,8 +1320,10 @@ class LiveOIBreakout:
         self.pos:Dict[str,str]={}; self.ep:Dict[str,float]={}
         self.oi_prev:Dict[str,float]={}; self.et:Dict[str,int]={}
         self.t=0; self._lc=-9999
+        self.last_signal_diagnostics:Dict[str,dict]={}
 
     def act(self, prices, volumes, month=None, portfolio_value=None, bar_index=None):
+        diagnostics={}
         for s,p in prices.items():
             self.h.setdefault(s,deque(maxlen=6*BAR)).append(float(p))
             self.v.setdefault(s,deque(maxlen=4*BAR+10)).append(float(volumes.get(s,0)))
@@ -1039,19 +1331,51 @@ class LiveOIBreakout:
             self.oi_prev.setdefault(s,0.); self.et.setdefault(s,0)
         self.t=bar_index if bar_index is not None else self.t+1
         actions={s:0 for s in prices}
-        if self.t-self._lc<self.CHECK_INT: return actions
+        if self.t-self._lc<self.CHECK_INT:
+            for sym in prices:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    reason="check_interval_wait",
+                    action=0,
+                    bar=self.t,
+                    check_interval=self.CHECK_INT,
+                    bars_since_check=self.t-self._lc,
+                    wait_bars=max(0,self.CHECK_INT-(self.t-self._lc)),
+                )
+            self.last_signal_diagnostics=diagnostics
+            return actions
         self._lc=self.t
         for sym in prices:
             cur=self.pos[sym]; px=prices[sym]; ep=self.ep[sym]; held=self.t-self.et[sym]
+            common=dict(bar=self.t,price=px,check_interval=self.CHECK_INT)
             # ОБЯЗАТЕЛЬНЫЙ стоп + тейк + время
             if cur=='long':
                 if px<=ep*(1-self.STOP) or px>=ep*(1+self.TARGET) or held>=self.HOLD:
-                    actions[sym]=3; self.pos[sym]=None; continue
+                    reason="long_stop" if px<=ep*(1-self.STOP) else "long_target" if px>=ep*(1+self.TARGET) else "long_hold_timeout"
+                    actions[sym]=3; self.pos[sym]=None
+                    _set_signal_diag(diagnostics,sym,**common,reason=reason,action=actions[sym],held_bars=held,entry_price=ep)
+                    continue
             elif cur=='short':
                 if px>=ep*(1+self.STOP) or px<=ep*(1-self.TARGET) or held>=self.HOLD:
-                    actions[sym]=8; self.pos[sym]=None; continue
-            if cur is not None: continue
-            if len(self.h[sym])<self.MOM_N+1: continue
+                    reason="short_stop" if px>=ep*(1+self.STOP) else "short_target" if px<=ep*(1-self.TARGET) else "short_hold_timeout"
+                    actions[sym]=8; self.pos[sym]=None
+                    _set_signal_diag(diagnostics,sym,**common,reason=reason,action=actions[sym],held_bars=held,entry_price=ep)
+                    continue
+            if cur is not None:
+                _set_signal_diag(diagnostics,sym,**common,reason="in_position",action=0,side=cur,held_bars=held,entry_price=ep)
+                continue
+            if len(self.h[sym])<self.MOM_N+1:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="insufficient_history",
+                    action=0,
+                    history_len=len(self.h[sym]),
+                    required_history=self.MOM_N+1,
+                )
+                continue
             mom=_mom(self.h[sym],self.MOM_N)
             vl=list(self.v[sym])
             v_avg=float(np.mean(vl[-BAR-1:-1])) if len(vl)>BAR else 0
@@ -1059,16 +1383,27 @@ class LiveOIBreakout:
             spike=v_cur>v_avg*self.VOL_MULT if v_avg>0 else False
             has_fd=_FUNDING_FETCHER is not None
             oi_exp=False
+            oi=0
+            oi_change=0.0
             if has_fd:
                 fd=_get_funding(sym); oi=fd.get("open_interest_usdt",0)
                 prev=self.oi_prev[sym]
-                if oi>0 and prev>0 and (oi-prev)/prev>0.03: oi_exp=True
+                if oi>0 and prev>0:
+                    oi_change=(oi-prev)/prev
+                    if oi_change>0.03: oi_exp=True
                 self.oi_prev[sym]=oi if oi>0 else prev
             if spike or oi_exp:
                 if mom>self.MOM_MIN:
                     actions[sym]=2; self.pos[sym]='long'; self.ep[sym]=px; self.et[sym]=self.t
+                    _set_signal_diag(diagnostics,sym,**common,reason="candidate_long",action=actions[sym],momentum=mom,volume_current=v_cur,volume_avg=v_avg,volume_spike=spike,oi_expansion=oi_exp,open_interest_usdt=oi,oi_change=oi_change)
                 elif mom<-self.MOM_MIN:
                     actions[sym]=6; self.pos[sym]='short'; self.ep[sym]=px; self.et[sym]=self.t
+                    _set_signal_diag(diagnostics,sym,**common,reason="candidate_short",action=actions[sym],momentum=mom,volume_current=v_cur,volume_avg=v_avg,volume_spike=spike,oi_expansion=oi_exp,open_interest_usdt=oi,oi_change=oi_change)
+                else:
+                    _set_signal_diag(diagnostics,sym,**common,reason="momentum_below_threshold",action=0,momentum=mom,momentum_threshold=self.MOM_MIN,volume_current=v_cur,volume_avg=v_avg,volume_spike=spike,oi_expansion=oi_exp,open_interest_usdt=oi,oi_change=oi_change)
+            else:
+                _set_signal_diag(diagnostics,sym,**common,reason="no_volume_or_oi_breakout",action=0,momentum=mom,momentum_threshold=self.MOM_MIN,volume_current=v_cur,volume_avg=v_avg,volume_spike=spike,volume_multiplier=self.VOL_MULT,funding_fetcher_available=has_fd,oi_expansion=oi_exp,open_interest_usdt=oi,oi_change=oi_change)
+        self.last_signal_diagnostics=diagnostics
         return actions
 
 
@@ -2155,6 +2490,7 @@ class CarryFlowAgentV2:
         self.ep: Dict[str, float] = {}
         self.et: Dict[str, int] = {}
         self.last_entry: Dict[str, int] = {}
+        self.last_signal_diagnostics: Dict[str, dict] = {}
         self.t = 0
         self._lc = -9999
 
@@ -2192,7 +2528,23 @@ class CarryFlowAgentV2:
                 self.oi_h[s].append(oi_now)
         self.t = bar_index if bar_index is not None else self.t + 1
         actions = {s: 0 for s in prices}
+        diagnostics: Dict[str, dict] = {}
         if self.t - self._lc < self.CHECK_INT:
+            wait = max(0, self.CHECK_INT - (self.t - self._lc))
+            for sym in prices:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    agent="CarryFlowAgentV2",
+                    reason="check_interval_wait",
+                    action=0,
+                    bar=self.t,
+                    check_interval=self.CHECK_INT,
+                    bars_until_check=wait,
+                    history_len=len(self.h.get(sym, ())),
+                    oi_history_len=len(self.oi_h.get(sym, ())),
+                )
+            self.last_signal_diagnostics = diagnostics
             return actions
         self._lc = self.t
         n_open = sum(1 for v in self.pos.values() if v is not None)
@@ -2223,6 +2575,34 @@ class CarryFlowAgentV2:
             if len(oi_vals) >= 2 and oi_vals[-2] > 0:
                 oi_chg = oi_vals[-1] / oi_vals[-2] - 1.0
 
+            common = {
+                "agent": "CarryFlowAgentV2",
+                "bar": self.t,
+                "history_len": len(h),
+                "required_history": self.EMA_SLOW + 5,
+                "oi_history_len": len(oi_vals),
+                "price": px,
+                "entry_price": ep,
+                "held_bars": held,
+                "funding_present": bool(fd),
+                "funding_rate": rate,
+                "funding_entry": self.FUNDING_ENTRY,
+                "long_ratio": long_ratio,
+                "short_ratio": short_ratio,
+                "crowd_ratio": self.CROWD_RATIO,
+                "basis": basis,
+                "basis_entry": self.BASIS_ENTRY,
+                "extension": ext,
+                "extreme_extension": self.EXTREME_EXT,
+                "rsi": rsi,
+                "rsi_overbought": self.RSI_OB,
+                "rsi_oversold": self.RSI_OS,
+                "oi_change": oi_chg,
+                "oi_spike": self.OI_SPIKE,
+                "n_open": n_open,
+                "max_pos": self.MAX_POS,
+            }
+
             if cur == 'long':
                 normalized = (
                     fd
@@ -2240,6 +2620,25 @@ class CarryFlowAgentV2:
                     actions[sym] = 8
                     self.pos[sym] = None
                     n_open = max(0, n_open - 1)
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_long",
+                        action=actions[sym],
+                        stop_hit=px <= ep * (1 - self.STOP),
+                        target_hit=px >= ep * (1 + self.TARGET),
+                        hold_expired=held >= self.HOLD,
+                        normalized=bool(normalized),
+                    )
+                else:
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="in_long_position",
+                        action=0,
+                    )
                 continue
             if cur == 'short':
                 normalized = (
@@ -2258,9 +2657,35 @@ class CarryFlowAgentV2:
                     actions[sym] = 8
                     self.pos[sym] = None
                     n_open = max(0, n_open - 1)
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="close_short",
+                        action=actions[sym],
+                        stop_hit=px >= ep * (1 + self.STOP),
+                        target_hit=px <= ep * (1 - self.TARGET),
+                        hold_expired=held >= self.HOLD,
+                        normalized=bool(normalized),
+                    )
+                else:
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="in_short_position",
+                        action=0,
+                    )
                 continue
 
             if len(h) < self.EMA_SLOW + 5:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="not_enough_history",
+                    action=0,
+                )
                 continue
             es = _ema(list(h)[-self.EMA_SLOW:], self.EMA_SLOW)
             trend_up = ef > es * 1.001 if es > 0 else False
@@ -2268,6 +2693,13 @@ class CarryFlowAgentV2:
             cooldown = _entry_cooldown_penalty(
                 self.last_entry, sym, self.t, self.ENTRY_COOLDOWN,
             ) * 0.75
+            common.update({
+                "ema_fast": ef,
+                "ema_slow": es,
+                "trend_up": trend_up,
+                "trend_down": trend_dn,
+                "cooldown_penalty": cooldown,
+            })
 
             if fd and oi_chg >= self.OI_SPIKE:
                 if (
@@ -2286,6 +2718,14 @@ class CarryFlowAgentV2:
                         -cooldown
                     )
                     candidates.append((edge,sym,7,'short',px))
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="candidate_short_pending_selection",
+                        action=0,
+                        edge=edge,
+                    )
                 elif (
                     rate <= -self.FUNDING_ENTRY
                     and short_ratio >= self.CROWD_RATIO
@@ -2302,19 +2742,71 @@ class CarryFlowAgentV2:
                         -cooldown
                     )
                     candidates.append((edge,sym,5,'long',px))
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="candidate_long_pending_selection",
+                        action=0,
+                        edge=edge,
+                    )
+                else:
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="funding_conditions_not_met",
+                        action=0,
+                    )
                 continue
 
             if not fd:
                 if trend_up and ext <= -self.EXTREME_EXT and rsi <= self.RSI_OS:
                     edge=max(-ext-self.EXTREME_EXT,0.0)*100.0+max(self.RSI_OS-rsi,0.0)/100.0-cooldown
                     candidates.append((edge,sym,5,'long',px))
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="fallback_candidate_long_pending_selection",
+                        action=0,
+                        edge=edge,
+                    )
                 elif trend_dn and ext >= self.EXTREME_EXT and rsi >= self.RSI_OB:
                     edge=max(ext-self.EXTREME_EXT,0.0)*100.0+max(rsi-self.RSI_OB,0.0)/100.0-cooldown
                     candidates.append((edge,sym,7,'short',px))
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="fallback_candidate_short_pending_selection",
+                        action=0,
+                        edge=edge,
+                    )
+                else:
+                    _set_signal_diag(
+                        diagnostics,
+                        sym,
+                        **common,
+                        reason="funding_missing_fallback_conditions_not_met",
+                        action=0,
+                    )
+            else:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="oi_below_threshold",
+                    action=0,
+                )
         slots=max(0,self.MAX_POS-n_open)
         for _,sym,action,side,px in _take_ranked_entries(candidates,slots):
             actions[sym]=action; self.pos[sym]=side; self.ep[sym]=px; self.et[sym]=self.t
             self.last_entry[sym]=self.t
+            diag = dict(diagnostics.get(str(sym).upper(), {}))
+            diag.update({"reason": f"candidate_{side}", "action": action, "slots": slots})
+            diagnostics[str(sym).upper()] = {str(k): _diag_value(v) for k, v in diag.items()}
+        self.last_signal_diagnostics = diagnostics
         return actions
 
 

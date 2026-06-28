@@ -119,6 +119,30 @@ class TestV1AgentAdapter(unittest.TestCase):
         result = wrapped.act(snap)
         self.assertEqual(result, {})
 
+    def test_exposes_last_signal_diagnostics_for_market_symbols(self):
+        class V1Agent:
+            def act(self, prices, volumes, **kw):
+                self.last_signal_diagnostics = {
+                    "btc": {
+                        "reason": "momentum_below_threshold",
+                        "momentum": 0.001,
+                    },
+                    "UNKNOWN": {"reason": "ignored"},
+                }
+                return {"BTC": 0}
+
+        wrapped = V1AgentAdapter(label="V1", v1_agent=V1Agent())
+        snap = make_market_snapshot(bar=1, prices={"BTC": 100.0}, regime="bullish")
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["BTC"], Action.HOLD)
+        self.assertEqual(
+            wrapped.last_signal_diagnostics["BTC"]["reason"],
+            "momentum_below_threshold",
+        )
+        self.assertNotIn("UNKNOWN", wrapped.last_signal_diagnostics)
+
 
 class TestGeneticsV2AgentAdapter(unittest.TestCase):
     def test_maps_collapsed_genetics_actions_to_v2_actions(self):
@@ -464,6 +488,37 @@ class TestProductionShadowTournamentFilters(unittest.TestCase):
         self.assertIn("PlayerA", tournament.last_player_signals())
         self.assertNotIn("AgentB", tournament.last_agent_signals())
         self.assertNotIn("PlayerB", tournament.last_player_signals())
+
+    def test_shadow_agent_symbol_alias_signal_uses_market_symbol(self):
+        from panteon_v2.app.shadow_tournament import ProductionShadowTournament
+        from panteon_v2.execution import RiskLimitsConfig
+        from panteon_v2.memory import PerformanceMemory
+
+        class CompactSymbolAgent:
+            label = "AliasAgent"
+
+            def act(self, market):
+                return {"BTCUSDT": Action.FUT_LONG_FULL}
+
+        registry = AgentRegistry()
+        registry.register(CompactSymbolAgent())
+        tournament = ProductionShadowTournament(
+            registry=registry,
+            perf=PerformanceMemory(),
+            risk_config=RiskLimitsConfig(max_open_positions=10),
+        )
+        market = make_market_snapshot(
+            bar=1,
+            prices={"BTC/USDT": 100.0},
+            regime="bullish",
+        )
+
+        summary = tournament.run_bar(market, players=(), balance_usd=1000.0)
+
+        self.assertEqual(summary.agent_signals, 1)
+        signal = tournament.last_agent_signals()["AliasAgent"][0]
+        self.assertEqual(signal.sym, "BTC/USDT")
+        self.assertEqual(signal.action, Action.FUT_LONG_FULL)
 
 
 class TestReplayFeed(unittest.TestCase):

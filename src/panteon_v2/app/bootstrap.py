@@ -18,7 +18,7 @@ state — только через переданные ссылки.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..attribution import AttributionLedger, EventLog
 from ..dashboards import DashboardRenderer
@@ -473,6 +473,7 @@ def build_production_pipeline(
     live_execution_config: Optional[LiveExecutionConfig] = None,
     flash_enabled:     bool = False,
     flash_allocator_config: Optional[FlashAllocatorConfig] = None,
+    flash_component_memory: Optional[Any] = None,
     degradation_config: Optional[DegradationGateConfig] = None,
     perf_trade_fraction: float = 0.10,
     perf_max_returns_history: int = 0,
@@ -562,6 +563,7 @@ def build_production_pipeline(
         config=flash_allocator_config,
         scoring_config=scoring_config,
         real_perf=real_perf,
+        component_memory=flash_component_memory,
     )
     executor = TradeExecutor(
         exchange=exchange,

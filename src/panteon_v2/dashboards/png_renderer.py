@@ -1002,11 +1002,16 @@ def _flash_diagnostics(status: Mapping[str, object]) -> dict:
     reasons: Counter[str] = Counter()
     actionable = 0
     rejected = 0
+    symbols_with_candidate_reasons: set[str] = set()
     if isinstance(decisions, (list, tuple)):
         for decision in decisions:
             if not isinstance(decision, Mapping):
                 continue
-            for candidate in decision.get("candidates", ()) or ():
+            symbol = str(decision.get("symbol") or "").strip()
+            candidates = decision.get("candidates", ()) or ()
+            compact_rejected = decision.get("top_rejected_candidates", ()) or ()
+            use_compact_rejected = not candidates and compact_rejected
+            for candidate in compact_rejected if use_compact_rejected else candidates:
                 if not isinstance(candidate, Mapping):
                     continue
                 label = str(candidate.get("label") or "")
@@ -1015,12 +1020,25 @@ def _flash_diagnostics(status: Mapping[str, object]) -> dict:
                     continue
                 action = str(candidate.get("action") or "").strip().upper()
                 is_hold = not action or action == "HOLD" or action.endswith(".HOLD")
-                if bool(candidate.get("rejected", False)):
+                if use_compact_rejected or bool(candidate.get("rejected", False)):
                     rejected += 1
                     reason = str(candidate.get("reason") or "rejected").strip() or "rejected"
                     reasons[reason] += 1
+                    if symbol:
+                        symbols_with_candidate_reasons.add(symbol)
                 elif not is_hold:
                     actionable += 1
+    gate_funnel = flash.get("gate_funnel_by_symbol") if isinstance(flash, Mapping) else {}
+    if isinstance(gate_funnel, Mapping):
+        for symbol, row in gate_funnel.items():
+            clean_symbol = str(symbol or "").strip()
+            if clean_symbol in symbols_with_candidate_reasons:
+                continue
+            if not isinstance(row, Mapping):
+                continue
+            reason = str(row.get("top_blocker") or "").strip()
+            if reason:
+                reasons[reason] += 1
     return {
         "symbols_total": symbols_total,
         "no_trade_symbols": no_trade_symbols,

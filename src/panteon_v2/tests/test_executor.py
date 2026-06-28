@@ -245,6 +245,14 @@ class TestExecuteSuccess(unittest.TestCase):
         closed = list(self.deps["event_log"].query(event_types=[PositionClosed]))
         self.assertEqual(len(closed), 1)
         self.assertGreater(closed[0].realized_pnl, 0)
+        self.assertIn(
+            ("P", "BTC", "FUT_LONG_FULL", "long", closed[0].realized_pnl),
+            result.closed_position_actor_outcomes,
+        )
+        self.assertIn(
+            ("A", "BTC", "FUT_LONG_FULL", "long", closed[0].realized_pnl),
+            result.closed_position_actor_outcomes,
+        )
 
     def test_close_fraction_closes_only_that_position_share(self):
         op_sig = _make_signal(sid=1)

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..domain.types import Action, MarketSnapshot, Metrics, Regime, Signal
 from ..memory import PerformanceMemory, QuarantineManager
 from ..scoring import DEFAULT_SCORING, ScoringConfig, regime_score
 from .agent import Agent
+from .causal_actor_router import CausalActorRouterConfig, route_actor
+from .component_memory import ComponentMemory, ComponentStat
 from .player import Player, normalize_vote_result
 
 
@@ -269,6 +271,40 @@ class FlashAllocatorConfig:
     fee_aware_admission_enabled: bool = False
     fee_aware_round_trip_cost_pct: float = 0.06  # 2×fee + спред/slippage, %
     fee_aware_safety_mult: float = 1.5
+    controlled_exploration_enabled: bool = False
+    controlled_exploration_allowed_reasons: Tuple[str, ...] = ()
+    controlled_exploration_risk_mult: float = 0.05
+    controlled_exploration_min_shadow_score: float = 2.0
+    controlled_exploration_min_shadow_closed: int = 10
+    controlled_exploration_max_daily_trades: int = 1
+    controlled_exploration_max_open_positions: int = 1
+    controlled_exploration_min_rolling_expectancy: float = 0.0
+    controlled_exploration_min_notional_sizing_enabled: bool = False
+    controlled_exploration_account_equity_usd: float = 0.0
+    controlled_exploration_capital_fraction: float = 0.10
+    controlled_exploration_min_notional_max_risk_mult: float = 0.10
+    controlled_exploration_default_min_notional_usd: float = 5.0
+    controlled_exploration_apply_leverage_to_notional: bool = False
+    controlled_exploration_max_leverage: float = 1.0
+    causal_actor_router_enabled: bool = False
+    causal_actor_router_min_closed_trades: int = 5
+    causal_actor_router_min_expectancy: float = 0.0
+    causal_actor_router_min_pnl_lcb: Optional[float] = None
+    causal_actor_router_exploration_enabled: bool = False
+    causal_actor_router_exploration_risk_mult: float = 0.05
+    promotion_derived_router_enabled: bool = False
+    promotion_derived_actor_labels: Tuple[str, ...] = ()
+    promotion_derived_dynamic_best_enabled: bool = False
+    promotion_derived_min_closed_trades: int = 5
+    promotion_derived_min_expectancy: float = 0.0
+    promotion_derived_risk_mult: float = 0.03
+    promotion_derived_min_notional_sizing_enabled: bool = False
+    promotion_derived_account_equity_usd: float = 0.0
+    promotion_derived_capital_fraction: float = 0.10
+    promotion_derived_min_notional_max_risk_mult: float = 0.10
+    promotion_derived_default_min_notional_usd: float = 5.0
+    promotion_derived_apply_leverage_to_notional: bool = False
+    promotion_derived_max_leverage: float = 1.0
     # Churn limiter: cooldown между открытиями по символу, дневной лимит, anti-flip.
     churn_cooldown_bars: int = 0
     churn_max_opens_per_day: int = 0
@@ -694,6 +730,76 @@ class FlashAllocatorConfig:
             raise ValueError("churn_max_opens_per_day must be >= 0")
         if self.fee_aware_round_trip_cost_pct < 0:
             raise ValueError("fee_aware_round_trip_cost_pct must be >= 0")
+        object.__setattr__(
+            self,
+            "controlled_exploration_allowed_reasons",
+            _normalize_string_tuple(self.controlled_exploration_allowed_reasons),
+        )
+        if self.controlled_exploration_risk_mult < 0:
+            raise ValueError("controlled_exploration_risk_mult must be >= 0")
+        if self.controlled_exploration_risk_mult > 1.0:
+            raise ValueError("controlled_exploration_risk_mult must be <= 1")
+        if self.controlled_exploration_min_shadow_score < 0:
+            raise ValueError("controlled_exploration_min_shadow_score must be >= 0")
+        if self.controlled_exploration_min_shadow_closed < 0:
+            raise ValueError("controlled_exploration_min_shadow_closed must be >= 0")
+        if self.controlled_exploration_max_daily_trades < 0:
+            raise ValueError("controlled_exploration_max_daily_trades must be >= 0")
+        if self.controlled_exploration_max_open_positions < 0:
+            raise ValueError("controlled_exploration_max_open_positions must be >= 0")
+        if self.controlled_exploration_account_equity_usd < 0:
+            raise ValueError("controlled_exploration_account_equity_usd must be >= 0")
+        if not 0.0 < self.controlled_exploration_capital_fraction <= 1.0:
+            raise ValueError(
+                "controlled_exploration_capital_fraction must be in (0, 1]"
+            )
+        if self.controlled_exploration_min_notional_max_risk_mult < 0:
+            raise ValueError(
+                "controlled_exploration_min_notional_max_risk_mult must be >= 0"
+            )
+        if self.controlled_exploration_min_notional_max_risk_mult > 1.0:
+            raise ValueError(
+                "controlled_exploration_min_notional_max_risk_mult must be <= 1"
+            )
+        if self.controlled_exploration_default_min_notional_usd < 0:
+            raise ValueError(
+                "controlled_exploration_default_min_notional_usd must be >= 0"
+            )
+        if self.controlled_exploration_max_leverage < 1.0:
+            raise ValueError("controlled_exploration_max_leverage must be >= 1")
+        if self.causal_actor_router_min_closed_trades < 0:
+            raise ValueError("causal_actor_router_min_closed_trades must be >= 0")
+        if self.causal_actor_router_exploration_risk_mult < 0:
+            raise ValueError("causal_actor_router_exploration_risk_mult must be >= 0")
+        if self.causal_actor_router_exploration_risk_mult > 1.0:
+            raise ValueError("causal_actor_router_exploration_risk_mult must be <= 1")
+        object.__setattr__(
+            self,
+            "promotion_derived_actor_labels",
+            _normalize_string_tuple(self.promotion_derived_actor_labels),
+        )
+        if self.promotion_derived_min_closed_trades < 0:
+            raise ValueError("promotion_derived_min_closed_trades must be >= 0")
+        if self.promotion_derived_risk_mult < 0:
+            raise ValueError("promotion_derived_risk_mult must be >= 0")
+        if self.promotion_derived_risk_mult > 1.0:
+            raise ValueError("promotion_derived_risk_mult must be <= 1")
+        if self.promotion_derived_account_equity_usd < 0:
+            raise ValueError("promotion_derived_account_equity_usd must be >= 0")
+        if not 0.0 < self.promotion_derived_capital_fraction <= 1.0:
+            raise ValueError("promotion_derived_capital_fraction must be in (0, 1]")
+        if self.promotion_derived_min_notional_max_risk_mult < 0:
+            raise ValueError(
+                "promotion_derived_min_notional_max_risk_mult must be >= 0"
+            )
+        if self.promotion_derived_min_notional_max_risk_mult > 1.0:
+            raise ValueError(
+                "promotion_derived_min_notional_max_risk_mult must be <= 1"
+            )
+        if self.promotion_derived_default_min_notional_usd < 0:
+            raise ValueError("promotion_derived_default_min_notional_usd must be >= 0")
+        if self.promotion_derived_max_leverage < 1.0:
+            raise ValueError("promotion_derived_max_leverage must be >= 1")
         if self.shadow_confirmation_min_closed_trades < 0:
             raise ValueError("shadow_confirmation_min_closed_trades must be >= 0")
         if self.shadow_actor_fallback_min_base_score < 0:
@@ -892,6 +998,13 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "actor_risk_sizing_enabled",
     "shadow_confirmation_pnl_per_trade_lcb_risk_sizing_enabled",
     "no_trade_fee_saving_score_enabled",
+    "controlled_exploration_enabled",
+    "controlled_exploration_min_notional_sizing_enabled",
+    "causal_actor_router_enabled",
+    "causal_actor_router_exploration_enabled",
+    "promotion_derived_router_enabled",
+    "promotion_derived_dynamic_best_enabled",
+    "promotion_derived_min_notional_sizing_enabled",
     "volatility_risk_sizing_enabled",
     "technical_overlay_enabled",
     "technical_hard_gate_enabled",
@@ -903,6 +1016,51 @@ FLASH_EXPERIMENTAL_FLAGS: Tuple[str, ...] = (
     "genetics_probation_bypass_pnl_enabled",
     "flash_genetics_core_primary_enabled",
 )
+
+_CONTROLLED_EXPLORATION_HARD_REASONS: frozenset[str] = frozenset({
+    "quarantined",
+    "inactive",
+    "denied_open_regime",
+    "denied_open_symbol",
+    "flash_symbol_degraded",
+    "no_evidence",
+    "global_health_veto",
+    "regime_edge_veto",
+    "low_regime_confidence",
+    "real_loss_veto",
+    "not_in_live_whitelist",
+    "churn_limited",
+    "ml_edge_veto",
+    "shadow_win_rate_below_threshold",
+    "shadow_downside_above_threshold",
+    "shadow_pnl_per_trade_lcb_below_threshold",
+    "shadow_symbol_health_lcb_below_threshold",
+    "trend_alignment_veto",
+    "foreign_position_owner",
+    "flash_actor_degraded",
+    "flash_actor_deny_key",
+    "flash_signal_degraded",
+    "flash_signal_terminal_deny_key",
+    "flash_signal_deny_key",
+    "flash_signal_not_promoted",
+    "genetics_contra_no_backfill",
+    "stale_close_position",
+    "duplicate_open_position",
+    "missing_price",
+})
+
+_PROMOTION_DERIVED_SOFT_REASONS: frozenset[str] = frozenset({
+    "eligible",
+    "genetics_probation_admission",
+    "expected_edge_below_cost",
+    "insufficient_closed_trades",
+    "pnl_below_threshold",
+    "range_low_vol_actor_not_allowed",
+    "score_below_threshold",
+    "shadow_unconfirmed",
+    "shadow_score_below_threshold",
+    "flash_signal_not_promoted",
+})
 
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "min_score_to_trade": 0.10,
@@ -993,6 +1151,40 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "funding_risk_mult_cap": 0.25,
     "no_trade_fee_saving_score_enabled": False,
     "no_trade_default_fee_bps": 0.0,
+    "controlled_exploration_enabled": False,
+    "controlled_exploration_allowed_reasons": (),
+    "controlled_exploration_risk_mult": 0.05,
+    "controlled_exploration_min_shadow_score": 2.0,
+    "controlled_exploration_min_shadow_closed": 10,
+    "controlled_exploration_max_daily_trades": 1,
+    "controlled_exploration_max_open_positions": 1,
+    "controlled_exploration_min_rolling_expectancy": 0.0,
+    "controlled_exploration_min_notional_sizing_enabled": False,
+    "controlled_exploration_account_equity_usd": 0.0,
+    "controlled_exploration_capital_fraction": 0.10,
+    "controlled_exploration_min_notional_max_risk_mult": 0.10,
+    "controlled_exploration_default_min_notional_usd": 5.0,
+    "controlled_exploration_apply_leverage_to_notional": False,
+    "controlled_exploration_max_leverage": 1.0,
+    "causal_actor_router_enabled": False,
+    "causal_actor_router_min_closed_trades": 5,
+    "causal_actor_router_min_expectancy": 0.0,
+    "causal_actor_router_min_pnl_lcb": None,
+    "causal_actor_router_exploration_enabled": False,
+    "causal_actor_router_exploration_risk_mult": 0.05,
+    "promotion_derived_router_enabled": False,
+    "promotion_derived_actor_labels": (),
+    "promotion_derived_dynamic_best_enabled": False,
+    "promotion_derived_min_closed_trades": 5,
+    "promotion_derived_min_expectancy": 0.0,
+    "promotion_derived_risk_mult": 0.03,
+    "promotion_derived_min_notional_sizing_enabled": False,
+    "promotion_derived_account_equity_usd": 0.0,
+    "promotion_derived_capital_fraction": 0.10,
+    "promotion_derived_min_notional_max_risk_mult": 0.10,
+    "promotion_derived_default_min_notional_usd": 5.0,
+    "promotion_derived_apply_leverage_to_notional": False,
+    "promotion_derived_max_leverage": 1.0,
     "volatility_risk_sizing_enabled": False,
     "volatility_risk_target_pct": 2.0,
     "volatility_risk_min_volatility_pct": 0.5,
@@ -1065,6 +1257,18 @@ FLASH_PRESET_AGGRESSIVE = FlashAllocatorConfig(
     genetics_confirmation_quality_gate_enabled=True,
     genetics_confirmation_contra_no_backfill_enabled=True,
     no_trade_fee_saving_score_enabled=True,
+    controlled_exploration_enabled=True,
+    controlled_exploration_min_notional_sizing_enabled=True,
+    causal_actor_router_enabled=True,
+    causal_actor_router_exploration_enabled=True,
+    promotion_derived_router_enabled=True,
+    promotion_derived_dynamic_best_enabled=True,
+    promotion_derived_min_notional_sizing_enabled=True,
+    promotion_derived_actor_labels=(
+        "CarryFlowAgentV2",
+        "MomentumScalper",
+        "LiveCrashHunter",
+    ),
     volatility_risk_sizing_enabled=True,
     technical_overlay_enabled=True,
     technical_hard_gate_enabled=True,
@@ -1138,9 +1342,10 @@ class FlashCandidateAudit:
     trend_gate_reason: str = ""
     regime_feature_risk_mult: float = 1.0
     actor_key: str = ""
+    agent_diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return {
+        payload = {
             "symbol": self.symbol,
             "label": self.label,
             "actor_type": self.actor_type,
@@ -1222,6 +1427,10 @@ class FlashCandidateAudit:
             "trend_gate_reason": self.trend_gate_reason,
             "regime_feature_risk_mult": float(self.regime_feature_risk_mult),
         }
+        diagnostics = _sanitize_agent_diagnostics(self.agent_diagnostics)
+        if isinstance(diagnostics, dict) and diagnostics:
+            payload["agent_diagnostics"] = diagnostics
+        return payload
 
 
 @dataclass(frozen=True)
@@ -1263,6 +1472,7 @@ class _ActorSignal:
     action: Action
     signal: Optional[Signal]
     agent_labels: Tuple[str, ...]
+    agent_diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -1298,6 +1508,7 @@ class FlashAllocator:
         scoring_config: ScoringConfig = DEFAULT_SCORING,
         scoring_per_regime: Optional[Mapping[Regime, ScoringConfig]] = None,
         real_perf: Optional[PerformanceMemory] = None,
+        component_memory: Optional[ComponentMemory] = None,
     ) -> None:
         self._perf = perf
         # Live-audit fix: реальная память для real-aware гейтинга (shadow лжёт).
@@ -1309,6 +1520,11 @@ class FlashAllocator:
         self._opens_today_day: int = -1
         self._qm = qm
         self._config = config
+        self._component_memory = component_memory
+        self._controlled_exploration_outcomes: Dict[
+            tuple[str, str, str],
+            dict[str, float],
+        ] = {}
         self._scoring = scoring_config
         self._scoring_per_regime = dict(scoring_per_regime or {})
         self._selected_subset_score_boosts = _signal_key_float_map(
@@ -1337,6 +1553,72 @@ class FlashAllocator:
     def config(self) -> FlashAllocatorConfig:
         return self._config
 
+    def record_controlled_exploration_outcome(
+        self,
+        *,
+        actor_label: str,
+        symbol: str,
+        action: Action | str,
+        realized_pnl: float,
+    ) -> None:
+        """Remember realized exploration outcomes by actor/symbol/open action."""
+        try:
+            pnl = float(realized_pnl)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(pnl):
+            return
+        action_name = _normalize_action_name(action)
+        if not action_name:
+            return
+        actor_aliases = _actor_label_family_aliases(actor_label)
+        symbols = _signal_symbol_aliases(symbol)
+        if not actor_aliases or not symbols:
+            return
+        for actor_alias in actor_aliases:
+            for symbol_alias in symbols:
+                key = (
+                    str(actor_alias or "").strip().lower(),
+                    str(symbol_alias or "").strip().upper(),
+                    action_name,
+                )
+                bucket = self._controlled_exploration_outcomes.setdefault(
+                    key,
+                    {"closed_trades": 0.0, "realized_pnl": 0.0},
+                )
+                bucket["closed_trades"] = float(bucket.get("closed_trades", 0.0) or 0.0) + 1.0
+                bucket["realized_pnl"] = float(bucket.get("realized_pnl", 0.0) or 0.0) + pnl
+
+    def record_controlled_exploration_execution_result(self, result: object) -> None:
+        """Ingest filled close outcomes from TradeExecutor.ExecutionResult."""
+        outcomes = tuple(getattr(result, "closed_position_actor_outcomes", ()) or ())
+        if outcomes:
+            for outcome in outcomes:
+                if len(outcome) < 5:
+                    continue
+                actor_label, symbol, action, _side, realized_pnl = outcome[:5]
+                self.record_controlled_exploration_outcome(
+                    actor_label=str(actor_label or ""),
+                    symbol=str(symbol or ""),
+                    action=str(action or ""),
+                    realized_pnl=float(realized_pnl or 0.0),
+                )
+            return
+
+        labels = tuple(
+            str(label or "")
+            for label, _pnl in (getattr(result, "realized_pnl_by_player", ()) or ())
+            if str(label or "")
+        )
+        for symbol, action, pnl in getattr(result, "closed_position_outcomes", ()) or ():
+            for label in labels:
+                self.record_controlled_exploration_outcome(
+                    actor_label=label,
+                    symbol=str(symbol or ""),
+                    action=str(action or ""),
+                    realized_pnl=float(pnl or 0.0),
+                )
+
     def decide(
         self,
         market: MarketSnapshot,
@@ -1356,6 +1638,8 @@ class FlashAllocator:
         previous_actor_by_symbol: Optional[Mapping[str, str]] = None,
         open_position_sides_by_symbol: Optional[Mapping[str, str]] = None,
         open_position_actor_keys_by_symbol: Optional[Mapping[str, Iterable[str] | str]] = None,
+        min_notional_by_symbol: Optional[Mapping[str, float]] = None,
+        account_equity_usd: Optional[float] = None,
     ) -> Tuple[FlashDecision, ...]:
         actionable = {
             str(label).strip()
@@ -1373,6 +1657,11 @@ class FlashAllocator:
             if str(key or "").strip()
         }
         degraded_symbols = set(_normalize_symbol_tuple(degraded_open_symbols or ()))
+        min_notional_map = {
+            str(symbol).strip().upper(): float(value or 0.0)
+            for symbol, value in (min_notional_by_symbol or {}).items()
+            if str(symbol or "").strip()
+        }
         position_state_available = open_position_sides_by_symbol is not None
         open_position_sides = {
             str(symbol).upper(): str(side).strip().lower()
@@ -1462,6 +1751,8 @@ class FlashAllocator:
                 open_position_actor_keys_by_symbol=open_position_actor_keys,
                 position_state_available=position_state_available,
                 genetics_confirmation_by_symbol=genetics_confirmation_by_symbol,
+                min_notional_by_symbol=min_notional_map,
+                account_equity_usd=account_equity_usd,
             )
             if decision.signal is not None:
                 next_signal_id += 1
@@ -1495,6 +1786,8 @@ class FlashAllocator:
         open_position_actor_keys_by_symbol: Mapping[str, frozenset[str]],
         position_state_available: bool,
         genetics_confirmation_by_symbol: Mapping[str, Mapping[str, int]],
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
     ) -> FlashDecision:
         local_regime = market.regime_for_symbol(symbol)
         rows: List[FlashCandidateAudit] = []
@@ -2119,6 +2412,7 @@ class FlashAllocator:
                     symbol,
                     output.action,
                 ),
+                agent_diagnostics=output.agent_diagnostics,
             ))
 
         if self._config.stable_pool_ranking_enabled:
@@ -2192,31 +2486,136 @@ class FlashAllocator:
             )
         no_trade_admission_block = (
             self._top_rejected_positive_shadow_candidate(ranked)
+            or self._top_controlled_exploration_candidate(ranked)
             if _is_no_trade_candidate(selected)
             else None
         )
+        controlled_exploration_selected = False
+        promotion_derived_router_selected = False
         if no_trade_admission_block is not None:
-            return FlashDecision(
+            exploration_candidate, exploration_block_reason = self._controlled_exploration_candidate(
+                no_trade_admission_block,
                 symbol=symbol,
-                selected_actor="NoTrade",
-                actor_type="no_trade",
-                score=0.0,
-                action=Action.HOLD,
-                reason=f"no_real_admission:{no_trade_admission_block.reason}",
-                signal=None,
-                candidates=ranked,
-                original_selected_actor=no_trade_admission_block.label,
-                original_actor_type=no_trade_admission_block.actor_type,
-                selected_reasons=(
-                    "selected",
-                    "no_real_admission",
-                    no_trade_admission_block.reason,
-                ),
+                local_regime=local_regime,
+                bar=market.bar,
+                degraded_actor_keys=degraded_actor_keys,
+                degraded_open_symbols=degraded_open_symbols,
+                promoted_signal_keys=promoted_signal_keys,
+                probation_signal_keys=probation_signal_keys,
+                open_position_sides_by_symbol=open_position_sides_by_symbol,
+                position_state_available=position_state_available,
+                min_notional_by_symbol=min_notional_by_symbol,
+                account_equity_usd=account_equity_usd,
             )
+            if exploration_candidate is not None:
+                selected = exploration_candidate
+                ranked = tuple(
+                    exploration_candidate
+                    if row.actor_key == exploration_candidate.actor_key
+                    else row
+                    for row in ranked
+                )
+                controlled_exploration_selected = True
+            elif exploration_block_reason:
+                blocked_row = replace(
+                    no_trade_admission_block,
+                    reason=exploration_block_reason,
+                )
+                ranked = tuple(
+                    blocked_row
+                    if row.actor_key == blocked_row.actor_key
+                    else row
+                    for row in ranked
+                )
+                no_trade_admission_block = blocked_row
+        if not controlled_exploration_selected:
+            promoted_candidate, promotion_blocked_rows = self._promotion_derived_router_candidate(
+                ranked,
+                symbol=symbol,
+                local_regime=local_regime,
+                bar=market.bar,
+                min_notional_by_symbol=min_notional_by_symbol,
+                account_equity_usd=account_equity_usd,
+            )
+            if promotion_blocked_rows:
+                blocked_by_key = {row.actor_key: row for row in promotion_blocked_rows}
+                ranked = tuple(blocked_by_key.get(row.actor_key, row) for row in ranked)
+                if (
+                    no_trade_admission_block is not None
+                    and no_trade_admission_block.actor_key in blocked_by_key
+                ):
+                    no_trade_admission_block = blocked_by_key[
+                        no_trade_admission_block.actor_key
+                    ]
+            if promoted_candidate is not None:
+                selected = promoted_candidate
+                ranked = tuple(
+                    promoted_candidate
+                    if row.actor_key == promoted_candidate.actor_key
+                    else row
+                    for row in ranked
+                )
+                no_trade_admission_block = None
+                promotion_derived_router_selected = True
+        if no_trade_admission_block is not None:
+            if not controlled_exploration_selected:
+                return FlashDecision(
+                    symbol=symbol,
+                    selected_actor="NoTrade",
+                    actor_type="no_trade",
+                    score=0.0,
+                    action=Action.HOLD,
+                    reason=f"no_real_admission:{no_trade_admission_block.reason}",
+                    signal=None,
+                    candidates=ranked,
+                    original_selected_actor=no_trade_admission_block.label,
+                    original_actor_type=no_trade_admission_block.actor_type,
+                    selected_reasons=(
+                        "selected",
+                        "no_real_admission",
+                        no_trade_admission_block.reason,
+                    ),
+                )
 
         original_selected = selected
         selected_reasons: List[str] = ["selected"]
-        anchor = self._anchor_dominance_candidate(ranked, selected)
+        causal_router_selected = False
+        causal_router_exploration_selected = False
+        if controlled_exploration_selected:
+            selected_reasons.append("controlled_exploration")
+            selected_reasons.append(no_trade_admission_block.reason)
+        if promotion_derived_router_selected:
+            selected_reasons.append("promotion_derived_router")
+        if not controlled_exploration_selected and not promotion_derived_router_selected:
+            routed_candidate = self._causal_actor_router_candidate(
+                ranked,
+                symbol=symbol,
+                local_regime=local_regime,
+                bar=market.bar,
+            )
+            if (
+                routed_candidate is not None
+                and routed_candidate.actor_key != selected.actor_key
+            ):
+                selected = routed_candidate
+                ranked = tuple(
+                    routed_candidate if row.actor_key == routed_candidate.actor_key else row
+                    for row in ranked
+                )
+                causal_router_selected = True
+                causal_router_exploration_selected = (
+                    str(routed_candidate.reason or "") == "causal_actor_router:exploration_floor"
+                )
+                selected_reasons.append("causal_actor_router")
+        anchor = (
+            None
+            if (
+                controlled_exploration_selected
+                or promotion_derived_router_selected
+                or causal_router_selected
+            )
+            else self._anchor_dominance_candidate(ranked, selected)
+        )
         if anchor is not None:
             selected = anchor
             selected_reasons.append("anchor_dominance_hold")
@@ -2224,7 +2623,13 @@ class FlashAllocator:
             previous_actor_by_symbol,
             symbol,
         )
-        if self._config.actor_switch_margin > 0.0 and previous_actor_key:
+        if (
+            not controlled_exploration_selected
+            and not promotion_derived_router_selected
+            and not causal_router_selected
+            and self._config.actor_switch_margin > 0.0
+            and previous_actor_key
+        ):
             previous = next(
                 (
                     row
@@ -2348,22 +2753,63 @@ class FlashAllocator:
                 sym=symbol,
                 price=price,
                 regime=local_regime,
-                risk_mult=self._risk_mult_for_signal(
-                    signal,
-                    metrics_by_actor_key.get(selected.actor_key),
-                    market,
-                    symbol,
-                    selected.action,
-                    shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
-                    selected_subset_risk_mult=selected.selected_subset_risk_mult,
-                    genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
+                risk_mult=(
+                    min(
+                        self._risk_mult_for_signal(
+                            signal,
+                            metrics_by_actor_key.get(selected.actor_key),
+                            market,
+                            symbol,
+                            selected.action,
+                            shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
+                            selected_subset_risk_mult=selected.selected_subset_risk_mult,
+                            genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
+                                symbol,
+                                {},
+                            ),
+                            degraded_signal_risk_sized=(
+                                _signal_deny_key(selected.actor_key, symbol, selected.action)
+                                in degraded_signal_keys
+                            ),
+                        ),
+                        float(
+                            getattr(
+                                selected,
+                                "risk_mult",
+                                self._config.controlled_exploration_risk_mult,
+                            )
+                            if controlled_exploration_selected
+                            else getattr(
+                                selected,
+                                "risk_mult",
+                                self._config.promotion_derived_risk_mult,
+                            )
+                            if promotion_derived_router_selected
+                            else self._config.causal_actor_router_exploration_risk_mult
+                        ),
+                    )
+                    if (
+                        controlled_exploration_selected
+                        or promotion_derived_router_selected
+                        or causal_router_exploration_selected
+                    )
+                    else self._risk_mult_for_signal(
+                        signal,
+                        metrics_by_actor_key.get(selected.actor_key),
+                        market,
                         symbol,
-                        {},
-                    ),
-                    degraded_signal_risk_sized=(
-                        _signal_deny_key(selected.actor_key, symbol, selected.action)
-                        in degraded_signal_keys
-                    ),
+                        selected.action,
+                        shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
+                        selected_subset_risk_mult=selected.selected_subset_risk_mult,
+                        genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
+                            symbol,
+                            {},
+                        ),
+                        degraded_signal_risk_sized=(
+                            _signal_deny_key(selected.actor_key, symbol, selected.action)
+                            in degraded_signal_keys
+                        ),
+                    )
                 ),
                 timestamp=market.timestamp,
             )
@@ -2373,7 +2819,15 @@ class FlashAllocator:
             actor_type=selected.actor_type,
             score=selected.score,
             action=selected.action,
-            reason=selected_reasons[-1],
+            reason=(
+                "controlled_exploration"
+                if controlled_exploration_selected
+                else "promotion_derived_router"
+                if promotion_derived_router_selected
+                else "causal_actor_router"
+                if causal_router_selected
+                else selected_reasons[-1]
+            ),
             signal=signal,
             candidates=ranked,
             original_selected_actor=original_selected.label,
@@ -3747,6 +4201,770 @@ class FlashAllocator:
                 return row
         return None
 
+    def _top_controlled_exploration_candidate(
+        self,
+        rows: Sequence[FlashCandidateAudit],
+    ) -> Optional[FlashCandidateAudit]:
+        cfg = self._config
+        if not cfg.controlled_exploration_enabled:
+            return None
+        allowed = {str(item).strip() for item in cfg.controlled_exploration_allowed_reasons}
+        if not allowed:
+            return None
+        for row in rows:
+            if not bool(getattr(row, "rejected", False)):
+                continue
+            if _is_no_trade_candidate(row):
+                continue
+            action = getattr(row, "action", Action.HOLD)
+            if not bool(getattr(action, "is_open", False)):
+                continue
+            reason = str(getattr(row, "reason", "") or "").strip()
+            if reason in allowed:
+                return row
+        return None
+
+    def _causal_actor_router_candidate(
+        self,
+        rows: Sequence[FlashCandidateAudit],
+        *,
+        symbol: str,
+        local_regime: Regime,
+        bar: int,
+    ) -> Optional[FlashCandidateAudit]:
+        cfg = self._config
+        if not cfg.causal_actor_router_enabled:
+            return None
+        eligible = tuple(
+            row
+            for row in rows
+            if not bool(getattr(row, "rejected", False))
+            and not _is_no_trade_candidate(row)
+            and (
+                bool(getattr(getattr(row, "action", Action.HOLD), "is_open", False))
+                or bool(getattr(getattr(row, "action", Action.HOLD), "is_close", False))
+            )
+        )
+        if len(eligible) < 2:
+            return None
+        regime_name = getattr(local_regime, "name", str(local_regime))
+        memory: dict[str, list[dict[str, object]]] = {}
+        for row in eligible:
+            closed = int(getattr(row, "closed_trades", 0) or 0)
+            pnl = float(getattr(row, "pnl_net_pct", 0.0) or 0.0)
+            expectancy = (pnl / closed) if closed > 0 else 0.0
+            memory.setdefault(str(row.label), []).append({
+                "bar": int(bar) - 1,
+                "symbol": symbol,
+                "regime": regime_name,
+                "closed_trades": closed,
+                "expectancy": expectancy,
+                "pnl_lcb": getattr(row, "shadow_pnl_per_trade_lcb_usd", None),
+            })
+        routed = route_actor(
+            eligible,
+            memory,
+            symbol=symbol,
+            regime=regime_name,
+            bar=int(bar),
+            config=CausalActorRouterConfig(
+                min_closed_trades=int(cfg.causal_actor_router_min_closed_trades),
+                min_expectancy=float(cfg.causal_actor_router_min_expectancy),
+                min_pnl_lcb=cfg.causal_actor_router_min_pnl_lcb,
+                exploration_enabled=bool(cfg.causal_actor_router_exploration_enabled),
+                exploration_risk_mult=float(
+                    cfg.causal_actor_router_exploration_risk_mult
+                ),
+            ),
+        )
+        if routed.reason == "candidate_score_fallback":
+            return None
+        for row in eligible:
+            if str(row.label) != routed.label:
+                continue
+            risk_mult = float(getattr(row, "risk_mult", 1.0) or 1.0)
+            if routed.reason == "exploration_floor":
+                risk_mult = min(
+                    risk_mult,
+                    float(cfg.causal_actor_router_exploration_risk_mult),
+                )
+            return replace(
+                row,
+                reason=f"causal_actor_router:{routed.reason}",
+                risk_mult=max(0.0, risk_mult),
+            )
+        return None
+
+    def _promotion_derived_router_candidate(
+        self,
+        rows: Sequence[FlashCandidateAudit],
+        *,
+        symbol: str,
+        local_regime: Regime,
+        bar: int,
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
+    ) -> tuple[Optional[FlashCandidateAudit], Tuple[FlashCandidateAudit, ...]]:
+        cfg = self._config
+        if not cfg.promotion_derived_router_enabled:
+            return None, ()
+        allowed = {
+            str(label or "").strip()
+            for label in cfg.promotion_derived_actor_labels
+            if str(label or "").strip()
+        }
+        dynamic_best_enabled = bool(cfg.promotion_derived_dynamic_best_enabled)
+        if not allowed and not dynamic_best_enabled:
+            return None, ()
+        allowed_lower: set[str] = set()
+        for label in allowed:
+            allowed_lower.update(_actor_label_family_aliases(label))
+        scored: list[tuple[float, float, int, float, FlashCandidateAudit]] = []
+        blocked_rows: list[FlashCandidateAudit] = []
+        for row in rows:
+            label = str(getattr(row, "label", "") or "").strip()
+            actor_key = str(
+                getattr(row, "actor_key", "") or _actor_key(row.actor_type, label)
+            ).strip()
+            row_aliases = _actor_label_family_aliases(label) | _actor_label_family_aliases(actor_key)
+            if not dynamic_best_enabled and not (row_aliases & allowed_lower):
+                continue
+            action = getattr(row, "action", Action.HOLD)
+            if not bool(getattr(action, "is_open", False)):
+                continue
+            if self._promotion_derived_negative_outcome_blocked(
+                row,
+                symbol=symbol,
+                action=action,
+            ):
+                blocked_rows.append(
+                    replace(row, reason="promotion_derived_negative_outcome")
+                )
+                continue
+            reason = str(getattr(row, "reason", "") or "").strip()
+            prior_stat = self._component_prior_stat(
+                row,
+                symbol=symbol,
+                local_regime=local_regime,
+                action=action,
+                bar=bar,
+            )
+            if (
+                prior_stat is None
+                and (reason == "no_evidence" or not bool(getattr(row, "has_data", False)))
+            ):
+                continue
+            if (
+                bool(getattr(row, "rejected", False))
+                and reason not in _PROMOTION_DERIVED_SOFT_REASONS
+                and prior_stat is None
+            ):
+                continue
+            closed = (
+                int(prior_stat.closed_trades)
+                if prior_stat is not None
+                else int(getattr(row, "closed_trades", 0) or 0)
+            )
+            if closed <= 0:
+                continue
+            expectancy = (
+                float(prior_stat.expectancy)
+                if prior_stat is not None
+                else _rolling_expectancy_for_row(row)
+            )
+            if expectancy <= float(cfg.promotion_derived_min_expectancy):
+                if prior_stat is not None:
+                    blocked_rows.append(
+                        replace(row, reason="promotion_derived_negative_prior")
+                    )
+                continue
+            if closed < int(cfg.promotion_derived_min_closed_trades):
+                continue
+            scored.append((
+                expectancy,
+                float(getattr(row, "pnl_net_pct", 0.0) or 0.0)
+                if prior_stat is None
+                else float(prior_stat.expectancy) * float(prior_stat.closed_trades),
+                closed,
+                float(getattr(row, "score", 0.0) or 0.0),
+                row,
+            ))
+        if not scored:
+            return None, tuple(blocked_rows)
+        expectancy, _pnl, _closed, _score, selected = max(scored)
+        risk_cap = float(cfg.promotion_derived_risk_mult)
+        required_risk = self._promotion_derived_min_notional_risk_mult(
+            selected,
+            symbol=symbol,
+            min_notional_by_symbol=min_notional_by_symbol,
+            account_equity_usd=account_equity_usd,
+        )
+        if required_risk > 0.0:
+            max_risk = float(cfg.promotion_derived_min_notional_max_risk_mult)
+            if required_risk > max_risk or required_risk > 1.0:
+                return None, tuple(blocked_rows)
+            risk_cap = max(risk_cap, required_risk)
+        capped_risk = min(
+            float(getattr(selected, "risk_mult", 1.0) or 1.0),
+            risk_cap,
+        )
+        return (
+            replace(
+                selected,
+                rejected=False,
+                reason="promotion_derived_router",
+                risk_mult=max(0.0, capped_risk),
+                score=max(float(getattr(selected, "score", 0.0) or 0.0), expectancy),
+            ),
+            tuple(blocked_rows),
+        )
+
+    def _promotion_derived_negative_outcome_blocked(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        action: Action,
+    ) -> bool:
+        return self._negative_session_outcome_blocked(
+            row,
+            symbol=symbol,
+            action=action,
+            threshold=float(self._config.promotion_derived_min_expectancy),
+        )
+
+    def _negative_session_outcome_blocked(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        action: Action | str,
+        threshold: float,
+    ) -> bool:
+        action_name = _normalize_action_name(action)
+        if not action_name:
+            return False
+        actor_aliases = (
+            _actor_label_family_aliases(getattr(row, "label", ""))
+            | _actor_label_family_aliases(getattr(row, "actor_key", ""))
+        )
+        symbols = _signal_symbol_aliases(symbol)
+        if not actor_aliases or not symbols:
+            return False
+        if not self._controlled_exploration_outcomes:
+            return False
+        for actor_alias in actor_aliases:
+            for symbol_alias in symbols:
+                bucket = self._controlled_exploration_outcomes.get((
+                    str(actor_alias or "").strip().lower(),
+                    str(symbol_alias or "").strip().upper(),
+                    action_name,
+                ))
+                if not bucket:
+                    continue
+                closed = float(bucket.get("closed_trades", 0.0) or 0.0)
+                if closed <= 0.0:
+                    continue
+                expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
+                if expectancy < float(threshold):
+                    return True
+        return False
+
+    def _component_prior_stat(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        local_regime: Regime,
+        action: Action,
+        bar: int,
+    ) -> Optional[ComponentStat]:
+        memory = self._component_memory
+        if memory is None:
+            return None
+        labels = (
+            str(getattr(row, "label", "") or ""),
+            str(getattr(row, "actor_key", "") or ""),
+        )
+        regime = getattr(local_regime, "label", getattr(local_regime, "name", str(local_regime)))
+        action_name = getattr(action, "name", str(action))
+        action_names = _component_prior_action_names(action)
+        exact_action_stats = [
+            stat
+            for label in labels
+            if label
+            for prior_action_name in action_names
+            for stat in (
+                memory.best_prior(
+                    label,
+                    symbol=symbol,
+                    regime=str(regime),
+                    action=prior_action_name,
+                    bar=int(bar),
+                ),
+            )
+            if stat is not None
+            and _component_prior_action_exact_or_alias(stat.action, action)
+        ]
+        if exact_action_stats:
+            return max(
+                exact_action_stats,
+                key=lambda stat: (
+                    _component_prior_action_rank(stat.action, action),
+                    int(stat.closed_trades),
+                    -1.0e18 if stat.pnl_lcb is None else float(stat.pnl_lcb),
+                    float(stat.expectancy),
+                    int(stat.bar),
+                ),
+            )
+        negative_context_stats = [
+            stat
+            for label in labels
+            if label
+            for prior_action_name in action_names
+            for stat in (
+                memory.best_prior(
+                    label,
+                    symbol=symbol,
+                    regime=str(regime),
+                    action=prior_action_name,
+                    bar=int(bar),
+                ),
+            )
+            if stat is not None
+            and _component_prior_context_specific(stat)
+            and int(stat.closed_trades) > 0
+            and float(stat.expectancy)
+            <= float(self._config.promotion_derived_min_expectancy)
+        ]
+        if negative_context_stats:
+            return max(
+                negative_context_stats,
+                key=lambda stat: (
+                    _component_prior_action_rank(stat.action, action),
+                    int(stat.closed_trades),
+                    -1.0e18 if stat.pnl_lcb is None else float(stat.pnl_lcb),
+                    float(stat.expectancy),
+                    int(stat.bar),
+                ),
+            )
+        stats = [
+            stat
+            for label in labels
+            if label
+            for prior_action_name in action_names
+            for stat in (
+                memory.best_prior(
+                    label,
+                    symbol=symbol,
+                    regime=str(regime),
+                    action=prior_action_name,
+                    bar=int(bar),
+                    min_closed_trades=int(
+                        self._config.promotion_derived_min_closed_trades
+                    ),
+                    min_expectancy=float(
+                        self._config.promotion_derived_min_expectancy
+                    ),
+                ),
+            )
+            if stat is not None
+        ]
+        if not stats:
+            return None
+        return max(
+            stats,
+            key=lambda stat: (
+                _component_prior_action_rank(stat.action, action),
+                int(stat.closed_trades),
+                -1.0e18 if stat.pnl_lcb is None else float(stat.pnl_lcb),
+                float(stat.expectancy),
+                int(stat.bar),
+            ),
+        )
+
+    def _promotion_derived_min_notional_risk_mult(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
+    ) -> float:
+        cfg = self._config
+        if not bool(cfg.promotion_derived_min_notional_sizing_enabled):
+            return 0.0
+        action = getattr(row, "action", Action.HOLD)
+        if not bool(getattr(action, "is_open", False)):
+            return 0.0
+        clean_symbol = str(symbol or "").strip().upper()
+        min_notional = float(
+            min_notional_by_symbol.get(
+                clean_symbol,
+                cfg.promotion_derived_default_min_notional_usd,
+            )
+            or 0.0
+        )
+        if min_notional <= 0.0:
+            return 0.0
+        equity = float(
+            account_equity_usd
+            if account_equity_usd is not None
+            else cfg.promotion_derived_account_equity_usd
+        )
+        if equity <= 0.0:
+            equity = float(cfg.promotion_derived_account_equity_usd or 0.0)
+        if equity <= 0.0:
+            return 0.0
+        fraction = float(getattr(action, "fraction", 1.0) or 1.0)
+        leverage_mult = (
+            max(1.0, float(cfg.promotion_derived_max_leverage))
+            if bool(cfg.promotion_derived_apply_leverage_to_notional)
+            else 1.0
+        )
+        base_notional = (
+            equity
+            * float(cfg.promotion_derived_capital_fraction)
+            * fraction
+            * leverage_mult
+        )
+        if base_notional <= 0.0:
+            return 0.0
+        return max(0.0, min_notional / base_notional)
+
+    def _controlled_exploration_candidate(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        local_regime: Regime,
+        bar: int,
+        degraded_actor_keys: set[str],
+        degraded_open_symbols: set[str],
+        promoted_signal_keys: set[str],
+        probation_signal_keys: set[str],
+        open_position_sides_by_symbol: Mapping[str, str],
+        position_state_available: bool,
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
+    ) -> tuple[Optional[FlashCandidateAudit], str]:
+        cfg = self._config
+        if not cfg.controlled_exploration_enabled:
+            return None, ""
+        reason = str(getattr(row, "reason", "") or "").strip()
+        allowed = {str(item).strip() for item in cfg.controlled_exploration_allowed_reasons}
+        if not reason or reason not in allowed:
+            return None, ""
+        action = getattr(row, "action", Action.HOLD)
+        no_evidence_cold_start = reason == "no_evidence"
+        probation_degradation_bypass = bool(
+            reason == "flash_symbol_degraded"
+            and getattr(action, "is_open", False)
+            and _signal_deny_key(
+                str(getattr(row, "actor_key", "") or "").strip(),
+                str(symbol or "").strip().upper(),
+                action,
+            )
+            in probation_signal_keys
+        )
+        if (
+            reason in _CONTROLLED_EXPLORATION_HARD_REASONS
+            and not probation_degradation_bypass
+            and not no_evidence_cold_start
+        ):
+            return None, ""
+        if not bool(getattr(action, "is_open", False)):
+            return None, ""
+        if not bool(getattr(row, "has_data", False)) and not no_evidence_cold_start:
+            return None, ""
+        if float(getattr(row, "shadow_score", 0.0) or 0.0) < float(
+            cfg.controlled_exploration_min_shadow_score
+        ):
+            return None, ""
+        if int(getattr(row, "shadow_closed_trades", 0) or 0) < int(
+            cfg.controlled_exploration_min_shadow_closed
+        ):
+            return None, ""
+        if self._controlled_exploration_negative_outcome_blocked(
+            row,
+            symbol=symbol,
+            action=action,
+            local_regime=local_regime,
+            bar=bar,
+        ):
+            return None, "controlled_exploration_negative_outcome"
+        if (
+            cfg.controlled_exploration_max_daily_trades > 0
+            and self._opens_today_count >= cfg.controlled_exploration_max_daily_trades
+        ):
+            return None, ""
+        if (
+            position_state_available
+            and cfg.controlled_exploration_max_open_positions > 0
+            and len(open_position_sides_by_symbol)
+            >= cfg.controlled_exploration_max_open_positions
+        ):
+            return None, ""
+        hard_block_reason = self._controlled_exploration_hard_block_reason(
+            row,
+            symbol=symbol,
+            local_regime=local_regime,
+            degraded_actor_keys=degraded_actor_keys,
+            degraded_open_symbols=degraded_open_symbols,
+            promoted_signal_keys=promoted_signal_keys,
+            probation_signal_keys=probation_signal_keys,
+        )
+        if hard_block_reason:
+            return None, hard_block_reason
+        if (
+            int(getattr(row, "closed_trades", 0) or 0) > 0
+            and _rolling_expectancy_for_row(row)
+            < float(cfg.controlled_exploration_min_rolling_expectancy)
+        ):
+            return None, "controlled_exploration_negative_expectancy"
+        risk_cap = float(cfg.controlled_exploration_risk_mult)
+        required_risk = self._controlled_exploration_min_notional_risk_mult(
+            row,
+            symbol=symbol,
+            min_notional_by_symbol=min_notional_by_symbol,
+            account_equity_usd=account_equity_usd,
+        )
+        if required_risk > 0.0:
+            max_risk = float(cfg.controlled_exploration_min_notional_max_risk_mult)
+            if required_risk > max_risk or required_risk > 1.0:
+                return None, "controlled_exploration_min_notional_risk_too_high"
+            risk_cap = max(risk_cap, required_risk)
+        capped_risk = min(float(getattr(row, "risk_mult", 1.0) or 1.0), risk_cap)
+        return replace(
+            row,
+            rejected=False,
+            reason=f"controlled_exploration:{reason}",
+            risk_mult=max(0.0, capped_risk),
+        ), ""
+
+    def _controlled_exploration_negative_outcome_blocked(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        action: Action,
+        local_regime: Regime,
+        bar: int,
+    ) -> bool:
+        action_name = _normalize_action_name(action)
+        if not action_name:
+            return False
+        actor_aliases = (
+            _actor_label_family_aliases(getattr(row, "label", ""))
+            | _actor_label_family_aliases(getattr(row, "actor_key", ""))
+        )
+        symbols = _signal_symbol_aliases(symbol)
+        if not actor_aliases or not symbols:
+            return False
+        threshold = float(self._config.controlled_exploration_min_rolling_expectancy)
+        if self._controlled_exploration_outcomes:
+            for actor_alias in actor_aliases:
+                for symbol_alias in symbols:
+                    bucket = self._controlled_exploration_outcomes.get((
+                        str(actor_alias or "").strip().lower(),
+                        str(symbol_alias or "").strip().upper(),
+                        action_name,
+                    ))
+                    if not bucket:
+                        continue
+                    closed = float(bucket.get("closed_trades", 0.0) or 0.0)
+                    if closed <= 0.0:
+                        continue
+                    expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
+                    if expectancy < threshold:
+                        return True
+        if self._controlled_exploration_negative_component_prior_blocked(
+            actor_aliases=actor_aliases,
+            symbols=symbols,
+            action_name=action_name,
+            local_regime=local_regime,
+            bar=bar,
+            threshold=threshold,
+        ):
+            return True
+        return False
+
+    def _controlled_exploration_negative_component_prior_blocked(
+        self,
+        *,
+        actor_aliases: set[str],
+        symbols: Tuple[str, ...],
+        action_name: str,
+        local_regime: Regime,
+        bar: int,
+        threshold: float,
+    ) -> bool:
+        memory = self._component_memory
+        if memory is None:
+            return False
+        regime = getattr(
+            local_regime,
+            "label",
+            getattr(local_regime, "name", str(local_regime)),
+        )
+        for actor_alias in actor_aliases:
+            for symbol_alias in symbols:
+                stat = memory.best_prior(
+                    actor_alias,
+                    symbol=symbol_alias,
+                    regime=str(regime),
+                    action=action_name,
+                    bar=int(bar),
+                )
+                if stat is None:
+                    continue
+                if int(stat.closed_trades) <= 0:
+                    continue
+                if str(getattr(stat, "action", "") or "").strip().upper() != action_name:
+                    continue
+                stat_symbols = _signal_symbol_aliases(getattr(stat, "symbol", ""))
+                if not set(stat_symbols).intersection(symbols):
+                    continue
+                if float(stat.expectancy) < float(threshold):
+                    return True
+        return False
+
+    def _controlled_exploration_min_notional_risk_mult(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
+    ) -> float:
+        cfg = self._config
+        if not bool(cfg.controlled_exploration_min_notional_sizing_enabled):
+            return 0.0
+        action = getattr(row, "action", Action.HOLD)
+        if not bool(getattr(action, "is_open", False)):
+            return 0.0
+        clean_symbol = str(symbol or "").strip().upper()
+        min_notional = float(
+            min_notional_by_symbol.get(
+                clean_symbol,
+                cfg.controlled_exploration_default_min_notional_usd,
+            )
+            or 0.0
+        )
+        if min_notional <= 0.0:
+            return 0.0
+        equity = float(
+            account_equity_usd
+            if account_equity_usd is not None
+            else cfg.controlled_exploration_account_equity_usd
+        )
+        if equity <= 0.0:
+            equity = float(cfg.controlled_exploration_account_equity_usd or 0.0)
+        if equity <= 0.0:
+            return 0.0
+        fraction = float(getattr(action, "fraction", 1.0) or 1.0)
+        leverage_mult = (
+            max(1.0, float(cfg.controlled_exploration_max_leverage))
+            if bool(cfg.controlled_exploration_apply_leverage_to_notional)
+            else 1.0
+        )
+        base_notional = (
+            equity
+            * float(cfg.controlled_exploration_capital_fraction)
+            * fraction
+            * leverage_mult
+        )
+        if base_notional <= 0.0:
+            return 0.0
+        return max(0.0, min_notional / base_notional)
+
+    def _controlled_exploration_hard_block_reason(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        local_regime: Regime,
+        degraded_actor_keys: set[str],
+        degraded_open_symbols: set[str],
+        promoted_signal_keys: set[str],
+        probation_signal_keys: set[str],
+    ) -> str:
+        reason = str(getattr(row, "reason", "") or "").strip()
+        clean_symbol = str(symbol or "").strip().upper()
+        actor_key = str(getattr(row, "actor_key", "") or "").strip()
+        label = str(getattr(row, "label", "") or "").strip()
+        action = getattr(row, "action", Action.HOLD)
+        signal_key = _signal_deny_key(actor_key, clean_symbol, action)
+        probation_admission = bool(
+            getattr(action, "is_open", False) and signal_key in probation_signal_keys
+        )
+        probation_degradation_bypass = bool(
+            reason == "flash_symbol_degraded" and probation_admission
+        )
+        if (
+            reason in _CONTROLLED_EXPLORATION_HARD_REASONS
+            and reason != "no_evidence"
+            and not probation_degradation_bypass
+        ):
+            return reason
+        if label and self._qm.is_quarantined(label):
+            return "quarantined"
+        if local_regime in self._config.denied_open_regimes:
+            return "denied_open_regime"
+        if clean_symbol in self._config.denied_open_symbols:
+            return "denied_open_symbol"
+        if clean_symbol in degraded_open_symbols and not probation_degradation_bypass:
+            return "flash_symbol_degraded"
+        if actor_key in degraded_actor_keys:
+            return "flash_actor_degraded"
+        denied_actor_keys = set(self._config.denied_actor_keys)
+        if actor_key in denied_actor_keys or label in denied_actor_keys:
+            return "flash_actor_deny_key"
+        if self._row_not_in_live_whitelist(row):
+            return "not_in_live_whitelist"
+        probation_terminal_bypass = bool(
+            probation_admission
+            and self._config.genetics_probation_bypass_terminal_deny_enabled
+        )
+        if (
+            signal_key in self._config.terminal_denied_signal_keys
+            and not probation_terminal_bypass
+        ):
+            return "flash_signal_terminal_deny_key"
+        context_key = _signal_context_key(actor_key, clean_symbol, action, local_regime)
+        if (
+            context_key in self._config.terminal_denied_context_signal_keys
+            and not probation_terminal_bypass
+        ):
+            return "flash_signal_terminal_deny_key"
+        if signal_key in self._config.denied_signal_keys:
+            return "flash_signal_deny_key"
+        if (
+            self._config.promotion_manifest_enabled
+            and signal_key not in promoted_signal_keys
+        ):
+            return "flash_signal_not_promoted"
+        return ""
+
+    def _row_not_in_live_whitelist(self, row: FlashCandidateAudit) -> bool:
+        wl = self._config.live_real_actor_whitelist
+        if not wl:
+            return False
+        allowed_aliases: set[str] = set()
+        for item in wl:
+            allowed_aliases.update(_actor_label_family_aliases(item))
+        if not allowed_aliases:
+            return False
+        label = str(getattr(row, "label", "") or "")
+        actor_key = str(getattr(row, "actor_key", "") or "")
+        candidates = {label, actor_key}
+        for lookup_label in _solo_label_lookup_sequence(label):
+            candidates.add(str(lookup_label))
+        candidate_aliases: set[str] = set()
+        for item in candidates:
+            candidate_aliases.update(_actor_label_family_aliases(item))
+        return not (candidate_aliases & allowed_aliases)
+
     def _is_anchor_actor(self, actor_key: str, label: str) -> bool:
         anchors = set(self._config.anchor_actor_keys)
         if not anchors:
@@ -4099,17 +5317,20 @@ class FlashAllocator:
         wl = self._config.live_real_actor_whitelist
         if not wl:
             return False
-        allowed = {str(w or "").strip() for w in wl if str(w or "").strip()}
-        if not allowed:
+        allowed_aliases: set[str] = set()
+        for item in wl:
+            allowed_aliases.update(_actor_label_family_aliases(item))
+        if not allowed_aliases:
             return False
         label = str(getattr(output, "label", "") or "")
         actor_key = str(getattr(output, "actor_key", "") or "")
         candidates = {label, actor_key}
         for lk in _solo_label_lookup_sequence(label):
             candidates.add(str(lk))
-        # Также сравниваем «голые» имена без префиксов agent:/ensemble:.
-        bare = {c.split(":", 1)[-1] for c in candidates if c}
-        return not (candidates & allowed or bare & allowed or {b for b in bare} & {a.split(":",1)[-1] for a in allowed})
+        candidate_aliases: set[str] = set()
+        for item in candidates:
+            candidate_aliases.update(_actor_label_family_aliases(item))
+        return not (candidate_aliases & allowed_aliases)
 
     def _real_loss_rejected(self, label: str) -> bool:
         """Вето открытия по РЕАЛЬНОЙ realized убыточности актора (root fix: shadow≠real)."""
@@ -4249,13 +5470,49 @@ class FlashAllocator:
             label = str(getattr(agent, "label", "") or "")
             if not label:
                 continue
+            if bool(getattr(agent, "prefers_full_market_snapshot", False)):
+                try:
+                    actions = agent.act(market) or {}
+                except Exception:
+                    actions = {}
+                for symbol in market.prices:
+                    symbol_market = market.with_regime_for_symbol(symbol)
+                    action = _coerce_action(_action_for_market_symbol(actions, symbol))
+                    signal = None
+                    if not action.is_hold:
+                        signal = Signal(
+                            id=0,
+                            bar=market.bar,
+                            sym=str(symbol).upper(),
+                            action=action,
+                            price=float(market.prices.get(symbol, 0.0)),
+                            regime=symbol_market.regime,
+                            by_player=label,
+                            by_agent="",
+                            timestamp=market.timestamp,
+                        )
+                    rows.append(_ActorSignal(
+                        symbol=str(symbol).upper(),
+                        label=label,
+                        actor_type="agent",
+                        actor_key=_actor_key("agent", label),
+                        action=action,
+                        signal=signal,
+                        agent_labels=(label,),
+                        agent_diagnostics=_agent_diagnostics_for_market_symbol(
+                            getattr(agent, "last_signal_diagnostics", {}),
+                            market,
+                            symbol,
+                        ),
+                    ))
+                continue
             for symbol in market.prices:
                 symbol_market = market.with_regime_for_symbol(symbol)
                 try:
                     actions = agent.act(symbol_market) or {}
                 except Exception:
                     actions = {}
-                action = _coerce_action(actions.get(symbol, Action.HOLD))
+                action = _coerce_action(_action_for_market_symbol(actions, symbol))
                 signal = None
                 if not action.is_hold:
                     signal = Signal(
@@ -4277,6 +5534,11 @@ class FlashAllocator:
                     action=action,
                     signal=signal,
                     agent_labels=(label,),
+                    agent_diagnostics=_agent_diagnostics_for_market_symbol(
+                        getattr(agent, "last_signal_diagnostics", {}),
+                        market,
+                        symbol,
+                    ),
                 ))
         return rows
 
@@ -4364,10 +5626,15 @@ class FlashAllocator:
             if not clean_label:
                 continue
             actor_key = _actor_key("ensemble", clean_label)
-            if actor_key not in known_actor_keys and not self._known_solo_wrapper_label(
-                clean_label,
-                known_actor_keys,
-            ):
+            known_shadow_source = (
+                actor_key in known_actor_keys
+                or self._known_solo_wrapper_label(clean_label, known_actor_keys)
+                or self._promotion_derived_shadow_handoff_allowed(
+                    clean_label,
+                    actor_key,
+                )
+            )
+            if not known_shadow_source:
                 continue
             for signal in signals or ():
                 row = _shadow_signal_output(
@@ -4394,7 +5661,12 @@ class FlashAllocator:
             if not clean_label:
                 continue
             actor_key = _actor_key("agent", clean_label)
-            if actor_key not in known_actor_keys:
+            if actor_key not in known_actor_keys and not (
+                self._promotion_derived_shadow_handoff_allowed(
+                    clean_label,
+                    actor_key,
+                )
+            ):
                 continue
             for signal in signals or ():
                 if (
@@ -4423,6 +5695,23 @@ class FlashAllocator:
                 rows.append(row)
         return rows
 
+    def _promotion_derived_shadow_handoff_allowed(
+        self,
+        label: str,
+        actor_key: str,
+    ) -> bool:
+        if not self._config.promotion_derived_router_enabled:
+            return False
+        allowed_aliases: set[str] = set()
+        for raw_label in self._config.promotion_derived_actor_labels:
+            allowed_aliases.update(_actor_label_family_aliases(raw_label))
+        if not allowed_aliases:
+            return False
+        actor_aliases = _actor_label_family_aliases(label) | _actor_label_family_aliases(
+            actor_key
+        )
+        return bool(actor_aliases & allowed_aliases)
+
     def _known_solo_wrapper_label(
         self,
         label: str,
@@ -4446,6 +5735,65 @@ def _coerce_action(value: object) -> Action:
         return Action(int(value))
     except (TypeError, ValueError):
         return Action.HOLD
+
+
+def _agent_diagnostics_for_market_symbol(
+    raw: object,
+    market: MarketSnapshot,
+    symbol: object,
+) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        return {}
+    clean_symbol = str(symbol or "").strip().upper()
+    if not clean_symbol:
+        return {}
+    for raw_symbol, payload in raw.items():
+        candidate = str(raw_symbol or "").strip().upper()
+        if not candidate:
+            continue
+        if candidate != clean_symbol and not _symbols_equivalent_for_market(
+            candidate,
+            clean_symbol,
+        ):
+            continue
+        sanitized = _sanitize_agent_diagnostics(payload)
+        if isinstance(sanitized, Mapping):
+            return dict(sanitized)
+        return {"value": sanitized}
+    return {}
+
+
+def _sanitize_agent_diagnostics(value: object, *, _depth: int = 0) -> object:
+    if _depth > 4:
+        return str(value)
+    if isinstance(value, Action):
+        return value.name
+    if isinstance(value, Mapping):
+        out: dict[str, object] = {}
+        for raw_key, raw_value in value.items():
+            key = str(raw_key or "").strip()
+            if not key:
+                continue
+            out[key] = _sanitize_agent_diagnostics(raw_value, _depth=_depth + 1)
+        return out
+    if isinstance(value, (list, tuple, set)):
+        return [
+            _sanitize_agent_diagnostics(item, _depth=_depth + 1)
+            for item in value
+        ]
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value) if math.isfinite(float(value)) else None
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return _sanitize_agent_diagnostics(item(), _depth=_depth + 1)
+        except Exception:
+            pass
+    return str(value)
 
 
 def _open_action_direction(action: Action) -> str:
@@ -4516,6 +5864,80 @@ def _is_no_trade_candidate(row: FlashCandidateAudit) -> bool:
     )
 
 
+def _rolling_expectancy_for_row(row: FlashCandidateAudit) -> float:
+    closed = int(getattr(row, "closed_trades", 0) or 0)
+    if closed <= 0:
+        return 0.0
+    return float(getattr(row, "pnl_net_pct", 0.0) or 0.0) / float(closed)
+
+
+def _normalize_action_name(raw: Action | str) -> str:
+    if isinstance(raw, Action):
+        return raw.name
+    text = str(raw or "").strip().upper()
+    if not text:
+        return ""
+    try:
+        return Action[text].name
+    except KeyError:
+        return text
+
+
+def _component_prior_action_names(action: Action) -> tuple[str, ...]:
+    action_name = _normalize_action_name(action)
+    names: list[str] = [action_name] if action_name else []
+    try:
+        coerced = action if isinstance(action, Action) else Action(int(action))
+    except (TypeError, ValueError):
+        coerced = Action.HOLD
+    if coerced in (Action.FUT_LONG_HALF, Action.FUT_LONG_FULL):
+        names.extend((
+            "FUT_LONG_FULL",
+            "FUT_LONG_HALF",
+            "SPOT_BUY_FULL",
+            "SPOT_BUY_HALF",
+        ))
+    elif coerced in (Action.SPOT_BUY_HALF, Action.SPOT_BUY_FULL):
+        names.extend((
+            "SPOT_BUY_FULL",
+            "SPOT_BUY_HALF",
+            "FUT_LONG_FULL",
+            "FUT_LONG_HALF",
+        ))
+    elif coerced in (Action.FUT_SHORT_HALF, Action.FUT_SHORT_FULL):
+        names.extend(("FUT_SHORT_FULL", "FUT_SHORT_HALF"))
+    elif coerced in (Action.FUT_CLOSE_ALL, Action.SPOT_SELL_ALL):
+        names.extend(("FUT_CLOSE_ALL", "SPOT_SELL_ALL"))
+    names.append("*")
+    return tuple(dict.fromkeys(name for name in names if name))
+
+
+def _component_prior_action_exact_or_alias(raw_action: object, action: Action) -> bool:
+    raw = _normalize_action_name(str(raw_action or ""))
+    if raw in {"", "*", "ALL", "ANY"}:
+        return False
+    return raw in set(_component_prior_action_names(action)) - {"*"}
+
+
+def _component_prior_action_rank(raw_action: object, action: Action) -> int:
+    raw = _normalize_action_name(str(raw_action or ""))
+    requested = _normalize_action_name(action)
+    if raw == requested:
+        return 3
+    if raw in set(_component_prior_action_names(action)) - {"*"}:
+        return 2
+    if raw in {"", "*", "ALL", "ANY"}:
+        return 0
+    return 1
+
+
+def _component_prior_context_specific(stat: ComponentStat) -> bool:
+    symbol = str(getattr(stat, "symbol", "") or "").strip().lower()
+    regime = str(getattr(stat, "regime", "") or "").strip().lower()
+    wildcards = {"", "*", "all", "any"}
+    return symbol not in wildcards or regime not in wildcards
+
+
 def _is_shadow_position_replay_output(output: _ActorSignal) -> bool:
     signal = getattr(output, "signal", None)
     return (
@@ -4530,6 +5952,36 @@ def _actor_key(actor_type: str, label: str) -> str:
     clean_type = str(actor_type or "unknown").strip() or "unknown"
     clean_label = str(label or "").strip()
     return f"{clean_type}:{clean_label}"
+
+
+def _actor_label_family_aliases(raw: object) -> set[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return set()
+    label = text.split(":", 1)[-1].strip()
+    labels = {text, label}
+    if label.startswith("V_"):
+        labels.add(label[2:])
+    if label.startswith("Solo_"):
+        labels.add(label[len("Solo_") :])
+    for item in tuple(labels):
+        if item.startswith("V_"):
+            labels.add(item[2:])
+        if item.startswith("Solo_"):
+            labels.add(item[len("Solo_") :])
+
+    aliases: set[str] = set()
+    for item in labels:
+        clean = str(item or "").strip()
+        if not clean:
+            continue
+        aliases.add(clean.lower())
+        aliases.add(f"V_{clean}".lower())
+        aliases.add(f"Solo_{clean}".lower())
+        aliases.add(f"agent:{clean}".lower())
+        aliases.add(f"ensemble:{clean}".lower())
+        aliases.add(f"ensemble:Solo_{clean}".lower())
+    return aliases
 
 
 def _selected_candidate_audit(decision: FlashDecision) -> Optional[FlashCandidateAudit]:
@@ -4868,6 +6320,25 @@ def _market_price_for_symbol(market: MarketSnapshot, symbol: str) -> Optional[fl
         except (TypeError, ValueError):
                 return None
     return None
+
+
+def _action_for_market_symbol(
+    actions: Mapping[object, object] | object,
+    symbol: object,
+) -> object:
+    if not isinstance(actions, Mapping):
+        return Action.HOLD
+    clean_symbol = str(symbol or "").strip().upper()
+    if not clean_symbol:
+        return Action.HOLD
+    for raw_symbol, action in actions.items():
+        if str(raw_symbol or "").strip().upper() == clean_symbol:
+            return action
+    for raw_symbol, action in actions.items():
+        candidate = str(raw_symbol or "").strip().upper()
+        if candidate and _symbols_equivalent_for_market(candidate, clean_symbol):
+            return action
+    return Action.HOLD
 
 
 def _market_symbol_for_signal(market: MarketSnapshot, symbol: object) -> str:

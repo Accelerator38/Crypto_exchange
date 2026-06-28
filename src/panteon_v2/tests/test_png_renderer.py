@@ -589,6 +589,42 @@ class TestPngRenderer(unittest.TestCase):
         self.assertEqual(info["symbols_total"], 2)
         self.assertEqual(info["top_reasons"][0], ("inactive", 2))
 
+    def test_flash_diagnostics_use_compact_top_rejected_candidates(self):
+        from panteon_v2.dashboards import png_renderer
+
+        info = png_renderer._flash_diagnostics({
+            "flash": {
+                "selected_actors_by_symbol": {
+                    "BTC": "NoTrade",
+                },
+                "decisions": [
+                    {
+                        "symbol": "BTC",
+                        "selected_actor": "NoTrade",
+                        "candidates": [],
+                        "top_rejected_candidates": [
+                            {
+                                "label": "DefaultEnsemble",
+                                "actor_type": "ensemble",
+                                "rejected": True,
+                                "reason": "expected_edge_below_cost",
+                            },
+                        ],
+                    },
+                ],
+                "gate_funnel_by_symbol": {
+                    "DOGE": {
+                        "top_blocker": "min_executable_notional",
+                    },
+                },
+            },
+        })
+
+        self.assertTrue(info["all_no_trade"])
+        self.assertEqual(info["rejected_candidates"], 1)
+        self.assertIn(("expected_edge_below_cost", 1), info["top_reasons"])
+        self.assertIn(("min_executable_notional", 1), info["top_reasons"])
+
     def test_price_history_rows_normalize_status_payload(self):
         from panteon_v2.dashboards import png_renderer
 

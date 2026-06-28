@@ -675,10 +675,19 @@ def _warmup_v2_agents_from_bridge(
                 len(price_rows),
             )
 
+    if len(volume_rows) > len(price_rows):
+        volume_rows = volume_rows[-len(price_rows):]
+    volume_offset = max(0, len(price_rows) - len(volume_rows))
+
     detector = PriceRegimeDetector(exchange_name=exchange_name)
     warmed = 0
     for idx, prices in enumerate(price_rows, start=1):
-        volumes = volume_rows[idx - 1] if idx - 1 < len(volume_rows) else {}
+        volume_idx = idx - 1 - volume_offset
+        volumes = (
+            volume_rows[volume_idx]
+            if 0 <= volume_idx < len(volume_rows)
+            else {}
+        )
         regime = detector.update(prices, volumes=volumes)
         market = make_market_snapshot(
             bar=idx,
@@ -810,10 +819,11 @@ def _create_bridge(
     Если bridge нельзя создать — возвращает None и логирует предупреждение.
     """
     _ensure_v1_paths()
+    bridge_mode = _bridge_market_data_mode(mode)
     try:
         import os as _os
         _os.environ["CRYPTO_EXCHANGE"] = exchange_name.upper()
-        _os.environ[f"{exchange_name.upper()}_TRADING_MODE"] = mode
+        _os.environ[f"{exchange_name.upper()}_TRADING_MODE"] = bridge_mode
         try:
             from exchange_registry import load_exchange_runtime  # type: ignore
 
@@ -840,7 +850,7 @@ def _create_bridge(
             bridge_kwargs = {
                 "agents": {},
                 "cfg": cfg,
-                "mode": mode,
+                "mode": bridge_mode,
                 "api_key": api_key,
                 "api_secret": api_secret,
                 "output_dir": output_dir,
@@ -878,6 +888,12 @@ def _create_bridge(
 # Main entry: run_with_v1_bridge
 # ────────────────────────────────────────────────────────────────────
 
+def _bridge_market_data_mode(mode: str) -> str:
+    clean = str(mode or "").strip().lower()
+    if clean in {"paper_live_feed", "shadow_live_feed"}:
+        return "live_futures"
+    return clean or "live_futures"
+
 
 def run_with_v1_bridge(
     pipeline:                  ProductionPipeline,
@@ -893,6 +909,7 @@ def run_with_v1_bridge(
     bridge_cache_path:         Optional[str] = None,
     bridge_cache_max_age_sec:  float = 6 * 3600,
     snapshot_callback:         Optional[Callable[[], None]] = None,
+    shutdown_callback:         Optional[Callable[[Optional[List[StepResult]]], None]] = None,
 ) -> int:
     """Запускает pipeline через v1-bridge."""
     if bridge is None:
@@ -1063,6 +1080,12 @@ def run_with_v1_bridge(
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt — graceful shutdown")
         steps = None
+
+    if shutdown_callback is not None:
+        try:
+            shutdown_callback(steps)
+        except Exception:
+            log.exception("[%s] bridge shutdown callback failed", exchange_name)
 
     if output_writer:
         output_writer.close()

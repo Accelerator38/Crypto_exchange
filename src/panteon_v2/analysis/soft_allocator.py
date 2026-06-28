@@ -19,6 +19,7 @@ class ShadowPnLEvent:
     pnl_usd: float = 0.0
     closed_trades: int = 0
     wins: int = 0
+    symbol_action_outcomes: tuple[tuple[str, str, float, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,9 @@ def shadow_pnl_events_from_shadow_updates(
                 pnl_usd=_float(_event_value(event, "realized_pnl_usd")),
                 closed_trades=_int(_event_value(event, "closed_trades")),
                 wins=_int(_event_value(event, "winning_trades")),
+                symbol_action_outcomes=_coerce_symbol_action_outcomes(
+                    _event_value(event, "symbol_action_outcomes")
+                ),
             )
         )
     return rows
@@ -850,6 +854,32 @@ def _timestamp_iso(value: object) -> str:
         except Exception:
             return ""
     return str(value or "")
+
+
+def _coerce_symbol_action_outcomes(
+    value: object,
+) -> tuple[tuple[str, str, float, int, int], ...]:
+    rows: list[tuple[str, str, float, int, int]] = []
+    if not isinstance(value, Iterable) or isinstance(value, (str, bytes)):
+        return ()
+    for item in value:
+        if not isinstance(item, Iterable) or isinstance(item, (str, bytes)):
+            continue
+        parts = tuple(item)
+        if len(parts) < 5:
+            continue
+        symbol = str(parts[0] or "").strip().upper()
+        action = str(parts[1] or "").strip().upper()
+        if not symbol or not action:
+            continue
+        rows.append((
+            symbol,
+            action,
+            _float(parts[2]),
+            _int(parts[3]),
+            _int(parts[4]),
+        ))
+    return tuple(rows)
 
 
 def _int(value: object) -> int:

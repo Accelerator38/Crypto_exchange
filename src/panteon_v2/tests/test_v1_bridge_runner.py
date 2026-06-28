@@ -9,6 +9,7 @@ import tempfile
 import types
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from panteon_v2.domain.types import Regime
@@ -112,6 +113,15 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(bridge.kwargs["api_passphrase"], "pass")
         self.assertEqual(bridge.kwargs["output_dir"], "out-dir")
         self.assertEqual(bridge.kwargs["direct_client"]["api_key"], "key")
+
+    def test_create_bridge_maps_paper_live_feed_to_market_data_mode(self):
+        from panteon_v2.app.v1_bridge_runner import _create_bridge
+
+        bridge = _create_bridge("MEXC", mode="paper_live_feed")
+
+        self.assertIsInstance(bridge, FakeBridge)
+        self.assertEqual(bridge.kwargs["mode"], "live_futures")
+        self.assertEqual(os.environ["MEXC_TRADING_MODE"], "live_futures")
 
     def test_bridge_feed_uses_fetch_market_without_v1_order_cycle(self):
         from panteon_v2.app.v1_bridge_runner import V1BridgeFeed
@@ -302,6 +312,54 @@ class V1BridgeRunnerTests(unittest.TestCase):
             ],
         )
 
+    def test_warmup_aligns_shorter_volume_history_to_price_tail(self):
+        from panteon_v2.app.v1_bridge_runner import _warmup_v2_agents_from_bridge
+        from panteon_v2.selection import AgentRegistry
+
+        class RecordingAgent:
+            label = "Recorder"
+
+            def __init__(self):
+                self.calls = []
+
+            def act(self, market):
+                self.calls.append((market.bar, dict(market.volumes)))
+                return {}
+
+        bridge = FakeBridge()
+        bridge._price_hist = [
+            {"BTC": 100.0},
+            {"BTC": 101.0},
+            {"BTC": 102.0},
+            {"BTC": 103.0},
+            {"BTC": 104.0},
+        ]
+        bridge._volume_hist = [
+            {"BTC": 40.0},
+            {"BTC": 50.0},
+        ]
+        registry = AgentRegistry()
+        agent = RecordingAgent()
+        registry.register(agent)
+
+        warmed = _warmup_v2_agents_from_bridge(
+            bridge,
+            registry,
+            exchange_name="MEXC",
+        )
+
+        self.assertEqual(warmed, 5)
+        self.assertEqual(
+            agent.calls,
+            [
+                (1, {"BTC": 0.0}),
+                (2, {"BTC": 0.0}),
+                (3, {"BTC": 0.0}),
+                (4, {"BTC": 40.0}),
+                (5, {"BTC": 50.0}),
+            ],
+        )
+
     def test_warmup_includes_runtime_genetics_candidates(self):
         from panteon_v2.app.v1_bridge_runner import (
             _is_heavy_optional_warmup_agent,
@@ -421,6 +479,45 @@ class V1BridgeRunnerTests(unittest.TestCase):
         ):
             os.environ.pop("PANTEON_V2_GENETICS_AGENT_WARMUP_LABELS", None)
             self.assertFalse(_is_heavy_optional_warmup_agent(Agent()))
+
+    def test_run_with_v1_bridge_calls_shutdown_callback_before_writer_close(self):
+        from panteon_v2.app import v1_bridge_runner
+        from panteon_v2.selection import AgentRegistry
+
+        events = []
+
+        class Writer:
+            output_dir = "out"
+
+            def write_heartbeat(self, **_kwargs):
+                pass
+
+            def close(self):
+                events.append("close")
+
+        pipeline = SimpleNamespace(
+            registry=AgentRegistry(),
+            initial_capital=100.0,
+            current_balance=100.0,
+        )
+        steps = [SimpleNamespace(bar=99)]
+
+        with patch.object(v1_bridge_runner, "_warmup_v2_agents_from_bridge", return_value=1), \
+             patch.object(v1_bridge_runner, "_prepare_v2_agents_for_live_after_warmup"), \
+             patch.object(v1_bridge_runner, "main_loop", return_value=steps):
+            rc = v1_bridge_runner.run_with_v1_bridge(
+                pipeline,
+                exchange_name="MEXC",
+                bridge=FakeBridge(),
+                output_writer=Writer(),
+                max_bars=1,
+                shutdown_callback=lambda callback_steps: events.append(
+                    ("shutdown", callback_steps[0].bar)
+                ),
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(events, [("shutdown", 99), "close"])
 
     def test_prepare_live_agents_clears_warmup_positions_and_injects_real_positions(self):
         from panteon_v2.app.v1_bridge_runner import (

@@ -51,6 +51,7 @@ INITIAL_CAPITAL_ENV: dict[str, str] = {
     "BITGET": "BITGET_INITIAL_CAPITAL",
 }
 
+VIRTUAL_TRADING_MODES = {"paper", "paper_live_feed", "shadow_live_feed"}
 ON_VALUES = {"1", "ON", "TRUE", "YES", "Y"}
 LOCK_OFFSET = 4096
 SRC_DIR = PROJECT_ROOT / "src"
@@ -318,7 +319,7 @@ def _spawn_child_windows(
 
 def _block_system_python_for_live(exchange: str, mode: str) -> None:
     if (
-        mode != "paper"
+        mode not in VIRTUAL_TRADING_MODES
         and not os.getenv("PANTEON_V2_ALLOW_SYSTEM_PYTHON")
         and Path(sys.prefix).resolve() == Path(sys.base_prefix).resolve()
     ):
@@ -381,6 +382,23 @@ def _initial_capital(exchange: str) -> float | None:
     return float(raw) if raw else None
 
 
+def _launch_mode(exchange: str) -> str:
+    return os.getenv(MODE_ENV[exchange], "live_futures").strip().lower()
+
+
+def _live_preflight_result(exchange: str, launch_mode: str):
+    if launch_mode in VIRTUAL_TRADING_MODES:
+        return None
+    _prepare_imports()
+    from panteon_v2.app.live_preflight import config_from_env, run_live_preflight
+
+    return run_live_preflight(
+        exchange,
+        launch_mode,
+        config=config_from_env(PROJECT_ROOT),
+    )
+
+
 def _run_exchange_worker(exchange: str) -> int:
     exchange = exchange.upper()
     if exchange not in EXCHANGES:
@@ -392,7 +410,7 @@ def _run_exchange_worker(exchange: str) -> int:
     _configure_default_genetics_manifests()
 
     mode_env = MODE_ENV[exchange]
-    launch_mode = os.getenv(mode_env, "live_futures").strip().lower()
+    launch_mode = _launch_mode(exchange)
     os.environ["CRYPTO_EXCHANGE"] = exchange
     os.environ[mode_env] = launch_mode
 
@@ -408,7 +426,7 @@ def _run_exchange_worker(exchange: str) -> int:
         else "virtual portfolio; scoring enabled"
     )
     print(f"[START v3] {exchange} launch mode: {launch_mode.upper()} ({mode_note})")
-    if launch_mode != "paper" and missing:
+    if launch_mode not in VIRTUAL_TRADING_MODES and missing:
         print(
             f"{exchange} live launch is missing credentials: "
             + ", ".join(missing)
@@ -458,6 +476,17 @@ def _launch_exchange(
             exchange,
             "dry_run",
             f"would launch {' '.join(_worker_args(exchange))}",
+        )
+
+    _load_env()
+    launch_mode = _launch_mode(exchange)
+    preflight = _live_preflight_result(exchange, launch_mode)
+    if preflight is not None and not preflight.passed:
+        reasons = ", ".join(preflight.reasons) or "unknown"
+        return LaunchResult(
+            exchange,
+            "preflight_failed",
+            f"live preflight failed: {reasons}",
         )
 
     try:

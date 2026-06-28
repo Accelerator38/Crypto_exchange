@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 from collections import deque
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, ClassVar, Dict, Iterable, Mapping, Optional, Tuple
 
@@ -107,6 +107,29 @@ def _map_v1_actions(
 # ────────────────────────────────────────────────────────────────────
 # V1AgentAdapter
 # ────────────────────────────────────────────────────────────────────
+
+
+def _compact_symbol_key(symbol: Any) -> str:
+    return str(symbol or "").strip().upper().replace("/", "").replace("-", "").replace("_", "")
+
+
+def _map_v1_diagnostics(raw: Any, market: MarketSnapshot) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(raw, Mapping):
+        return {}
+    market_symbols = {
+        _compact_symbol_key(symbol): str(symbol).upper()
+        for symbol in (getattr(market, "prices", {}) or {})
+    }
+    out: Dict[str, Dict[str, Any]] = {}
+    for raw_symbol, payload in raw.items():
+        symbol = market_symbols.get(_compact_symbol_key(raw_symbol))
+        if not symbol:
+            continue
+        if isinstance(payload, Mapping):
+            out[symbol] = dict(payload)
+        else:
+            out[symbol] = {"value": payload}
+    return out
 
 
 _GENETICS_PRICE_HISTORY_TAIL_ITEMS = 18_000
@@ -208,6 +231,9 @@ def _clone_genetics_runtime_agent(agent: Any) -> Any:
                 "_breadth",
                 "_regime_conf",
                 "_ema_breadth",
+                "source_genome_path",
+                "selection_manifest_path",
+                "genetics_signal_source",
             ):
                 if hasattr(agent, attr):
                     try:
@@ -265,6 +291,8 @@ class V1AgentAdapter:
     v1_agent: Any              # любой объект с .act(...)
     portfolio_value_fn: Optional[Callable[[], float]] = None
     action_mapper: ActionMapper = _coerce_v2_action
+    last_signal_diagnostics: Dict[str, Dict[str, Any]] = field(default_factory=dict, init=False)
+    prefers_full_market_snapshot: ClassVar[bool] = True
 
     def clone_for_shadow(self) -> "V1AgentAdapter":
         clone_fn = getattr(self.v1_agent, "clone_for_shadow", None)
@@ -283,6 +311,7 @@ class V1AgentAdapter:
         )
 
     def act(self, market: MarketSnapshot) -> Dict[str, Action]:
+        self.last_signal_diagnostics = {}
         prices = dict(market.prices)
         volumes = dict(market.volumes)
         portfolio_value = self.portfolio_value_fn() if self.portfolio_value_fn else 0.0
@@ -314,6 +343,10 @@ class V1AgentAdapter:
             return {}
         if not isinstance(raw, dict):
             return {}
+        self.last_signal_diagnostics = _map_v1_diagnostics(
+            getattr(self.v1_agent, "last_signal_diagnostics", {}),
+            market,
+        )
         out: Dict[str, Action] = {}
         for sym, value in raw.items():
             sym = str(sym).upper()
@@ -399,12 +432,24 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
 
     def clone_for_shadow(self) -> "GeneticsV2AgentAdapter":
         cloned_v1 = _clone_genetics_runtime_agent(self.v1_agent)
-        return GeneticsV2AgentAdapter(
+        cloned = GeneticsV2AgentAdapter(
             label=self.label,
             v1_agent=cloned_v1,
             portfolio_value_fn=self.portfolio_value_fn,
             allowed_open_regimes=self.allowed_open_regimes,
         )
+        for attr in (
+            "source_genome_path",
+            "source_meta_path",
+            "selection_manifest_path",
+            "genetics_signal_source",
+        ):
+            if hasattr(self, attr):
+                try:
+                    setattr(cloned, attr, copy.deepcopy(getattr(self, attr)))
+                except Exception:
+                    setattr(cloned, attr, getattr(self, attr))
+        return cloned
 
     def act(self, market: MarketSnapshot) -> Dict[str, Action]:
         key = self._cache_key(market)
@@ -542,6 +587,7 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             bias_items = ()
         return (
             self.label,
+            self._runtime_source_key(),
             bool(getattr(self.v1_agent, "_regime_adaptive_output_bias_enabled", False)),
             bias_items,
             (
@@ -558,6 +604,28 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             )),
             tuple(sorted((str(sym), round(float(price), 10)) for sym, price in market.prices.items())),
             tuple(sorted((str(sym), round(float(volume), 10)) for sym, volume in market.volumes.items())),
+        )
+
+    def _runtime_source_key(self) -> Tuple[object, ...]:
+        for owner in (self, self.v1_agent):
+            for attr in (
+                "source_genome_path",
+                "selection_manifest_path",
+                "genetics_signal_source",
+            ):
+                value = getattr(owner, attr, None)
+                if value:
+                    return (attr, str(value))
+        genome = getattr(self.v1_agent, "genome", None)
+        if genome is not None:
+            shape = getattr(genome, "shape", None)
+            dtype = getattr(genome, "dtype", None)
+            return ("genome_object", id(genome), str(shape), str(dtype))
+        agent_type = type(self.v1_agent)
+        return (
+            "agent_type",
+            getattr(agent_type, "__module__", ""),
+            getattr(agent_type, "__qualname__", getattr(agent_type, "__name__", "")),
         )
 
 

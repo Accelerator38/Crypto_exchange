@@ -271,6 +271,7 @@ class OutputWriterConfig:
     compact_causal_entry_decisions: bool = False
     compact_causal_entry_selected_only: bool = False
     compact_causal_entry_top_rejected_candidates: int = 5
+    compact_causal_entry_include_labels: tuple[str, ...] = ()
     latest_dir:           Optional[str] = None
 
 
@@ -640,6 +641,7 @@ class OutputWriter:
                         0,
                         int(self._config.compact_causal_entry_top_rejected_candidates),
                     ),
+                    include_labels=self._config.compact_causal_entry_include_labels,
                 )
                 for decision in decisions
             ]
@@ -667,6 +669,7 @@ class OutputWriter:
         decision: Any,
         *,
         top_rejected_candidates: int = 5,
+        include_labels: tuple[str, ...] = (),
     ) -> Any:
         if not isinstance(decision, dict):
             return decision
@@ -688,19 +691,20 @@ class OutputWriter:
         out["rejected_candidate_count"] = len(rejected_candidates)
         out["eligible_candidate_count"] = len(candidates) - len(rejected_candidates)
         out["candidate_rejection_counts"] = dict(sorted(rejection_counts.items()))
+        included_rejected_candidates = OutputWriter._compact_rejected_candidates(
+            rejected_candidates,
+            top_rejected_candidates=top_rejected_candidates,
+            include_labels=include_labels,
+        )
         out["top_rejected_candidates"] = [
             OutputWriter._compact_candidate_audit(candidate)
-            for candidate in sorted(
-                rejected_candidates,
-                key=lambda item: int(item.get("rank") or 0),
-            )[:top_rejected_candidates]
+            for candidate in included_rejected_candidates
         ]
 
         selected_actor = str(decision.get("selected_actor") or "")
         actor_type = str(decision.get("actor_type") or "")
         if selected_actor == "NoTrade" and not decision.get("signal"):
             out["candidates"] = []
-            out["top_rejected_candidates"] = []
             return out
         original_selected_actor = str(decision.get("original_selected_actor") or "")
         original_actor_type = str(decision.get("original_actor_type") or "")
@@ -720,7 +724,11 @@ class OutputWriter:
                 label == original_selected_actor
                 and (not original_actor_type or candidate_type == original_actor_type)
             )
-            if not (is_selected or is_original_selected):
+            is_diagnostic_include = OutputWriter._candidate_matches_include_labels(
+                candidate,
+                include_labels,
+            )
+            if not (is_selected or is_original_selected or is_diagnostic_include):
                 continue
             key = (label, candidate_type)
             if key in seen:
@@ -732,6 +740,59 @@ class OutputWriter:
 
         out["candidates"] = compact_candidates
         return out
+
+    @staticmethod
+    def _compact_rejected_candidates(
+        rejected_candidates: List[Dict[str, Any]],
+        *,
+        top_rejected_candidates: int,
+        include_labels: tuple[str, ...],
+    ) -> List[Dict[str, Any]]:
+        ranked = sorted(
+            rejected_candidates,
+            key=lambda item: int(item.get("rank") or 0),
+        )
+        selected = list(ranked[: max(0, int(top_rejected_candidates))])
+        seen = {
+            (
+                str(candidate.get("label") or ""),
+                str(candidate.get("actor_type") or ""),
+                str(candidate.get("actor_key") or ""),
+            )
+            for candidate in selected
+        }
+        for candidate in ranked:
+            if not OutputWriter._candidate_matches_include_labels(
+                candidate,
+                include_labels,
+            ):
+                continue
+            key = (
+                str(candidate.get("label") or ""),
+                str(candidate.get("actor_type") or ""),
+                str(candidate.get("actor_key") or ""),
+            )
+            if key in seen:
+                continue
+            selected.append(candidate)
+            seen.add(key)
+        return selected
+
+    @staticmethod
+    def _candidate_matches_include_labels(
+        candidate: Dict[str, Any],
+        include_labels: tuple[str, ...],
+    ) -> bool:
+        labels = {
+            str(candidate.get("label") or "").strip().lower(),
+            str(candidate.get("actor_key") or "").strip().lower(),
+        }
+        labels.discard("")
+        for raw_label in include_labels or ():
+            label = str(raw_label or "").strip().lower()
+            if label and label in labels:
+                return True
+        return False
 
     @staticmethod
     def _compact_candidate_audit(candidate: Dict[str, Any]) -> Dict[str, Any]:
@@ -761,6 +822,7 @@ class OutputWriter:
             "selected_subset_risk_mult",
             "risk_mult",
             "lookback_return_z",
+            "agent_diagnostics",
         )
         return {key: candidate[key] for key in keys if key in candidate}
 
@@ -1089,6 +1151,11 @@ class OutputWriter:
             "real_trading_actors": real_trading_actors,
             "configured_actor_pool": self._configured_actor_pool_payload(),
             "live_state_sync":  getattr(self._pipeline, "live_state_sync", None),
+            "paper_canary_shutdown_flatten": getattr(
+                self._pipeline,
+                "paper_canary_shutdown_flatten",
+                {},
+            ),
             "shadow":           shadow,
             "flash":            flash,
             "decision_debug":   decision_debug,

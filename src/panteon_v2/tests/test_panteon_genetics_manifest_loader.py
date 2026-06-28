@@ -247,6 +247,37 @@ def test_manifest_specialists_register_risk_tight_shadow_candidate(
     assert Path(adapter.source_genome_path).resolve() == genome_path.resolve()
 
 
+def test_core_registration_uses_explicit_genome_source(tmp_path, monkeypatch):
+    from panteon_v2.app import agent_bootstrap
+
+    module = _install_fake_crypto_genetics(monkeypatch)
+    module.GeneticsAgent = _DefaultingFakeGeneticsAgent
+    genome_path = _write_genome(
+        tmp_path
+        / "Results"
+        / "neiro_genetics"
+        / "core"
+        / "best_genome.npy",
+        4,
+    )
+
+    with monkeypatch.context() as mp:
+        mp.setenv("PANTEON_V2_GENETICS_CORE_GENOME", str(genome_path))
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        registry = AgentRegistry()
+        registered = agent_bootstrap.register_optional_agents(
+            registry,
+            optional_agent_labels=("GeneticsCore",),
+            skip_on_error=False,
+        )
+
+    assert registered == ["GeneticsCore"]
+    adapter = registry.get("GeneticsCore")
+    assert adapter.v1_agent.genome.tolist() == [4.0]
+    assert Path(adapter.source_genome_path).resolve() == genome_path.resolve()
+    assert adapter.genetics_signal_source == "explicit_core_genome"
+
+
 def test_manifest_router_registers_when_manifest_env_is_set_and_label_requested(
     tmp_path,
     monkeypatch,
@@ -499,6 +530,38 @@ def test_genetics_specialist_clone_preserves_manifest_loaded_genome():
     assert clone.act(market)["BTC"] == Action.FUT_SHORT_FULL
     assert clone.v1_agent is not adapter.v1_agent
     assert clone.v1_agent.genome.tolist() == [4.0]
+
+
+def test_genetics_adapter_cache_is_scoped_by_runtime_source():
+    from panteon_v2.shadow.adapters import GeneticsV2AgentAdapter
+
+    class SourceAgent:
+        def __init__(self, raw_action, source):
+            self.raw_action = int(raw_action)
+            self.source_genome_path = source
+
+        def act(self, prices, volumes, **_kwargs):
+            return {symbol: self.raw_action for symbol in prices}
+
+    GeneticsV2AgentAdapter._act_cache.clear()
+    GeneticsV2AgentAdapter._act_trace_cache.clear()
+    market = make_market_snapshot(
+        bar=1,
+        prices={"BTC": 100.0},
+        volumes={"BTC": 10.0},
+        regime="bearish",
+    )
+    hold = GeneticsV2AgentAdapter(
+        label="GeneticsCore",
+        v1_agent=SourceAgent(0, "fallback.npy"),
+    )
+    short = GeneticsV2AgentAdapter(
+        label="GeneticsCore",
+        v1_agent=SourceAgent(4, "real.npy"),
+    )
+
+    assert hold.act(market)["BTC"] == Action.HOLD
+    assert short.act(market)["BTC"] == Action.FUT_SHORT_FULL
 
 
 def test_genetics_router_clone_preserves_manifest_loaded_regime_genomes():

@@ -21,6 +21,7 @@ import copy
 import logging
 import math
 import time
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -1289,12 +1290,64 @@ def _flash_real_agents(
         if (
             not _agent_is_real_executable(agent)
             and not _agent_is_genetics_probation_agent_executable(agent, pipeline, market)
+            and not _agent_is_promotion_derived_agent_executable(agent, pipeline)
         ):
             continue
         if _flash_agent_safety_issue(pipeline, agent, market):
             continue
         out.append(agent)
     return out
+
+
+def _agent_is_promotion_derived_agent_executable(
+    agent: object,
+    pipeline: ProductionPipeline | None,
+) -> bool:
+    label = str(getattr(agent, "label", "") or "").strip()
+    if not label:
+        return False
+    allocator = getattr(pipeline, "flash_allocator", None)
+    cfg = getattr(allocator, "config", None)
+    if not bool(getattr(cfg, "promotion_derived_router_enabled", False)):
+        return False
+    allowed_aliases: set[str] = set()
+    for raw_label in getattr(cfg, "promotion_derived_actor_labels", ()) or ():
+        allowed_aliases.update(_flash_actor_label_family_aliases(raw_label))
+    if not allowed_aliases:
+        return False
+    actor_aliases = _flash_actor_label_family_aliases(label)
+    actor_aliases.update(_flash_actor_label_family_aliases(f"agent:{label}"))
+    actor_aliases.update(_flash_actor_label_family_aliases(f"Solo_{label}"))
+    return bool(actor_aliases & allowed_aliases)
+
+
+def _flash_actor_label_family_aliases(raw: object) -> set[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return set()
+    label = text.split(":", 1)[-1].strip()
+    labels = {text, label}
+    if label.startswith("V_"):
+        labels.add(label[2:])
+    if label.startswith("Solo_"):
+        labels.add(label[len("Solo_"):])
+    for item in tuple(labels):
+        if item.startswith("V_"):
+            labels.add(item[2:])
+        if item.startswith("Solo_"):
+            labels.add(item[len("Solo_"):])
+    aliases: set[str] = set()
+    for item in labels:
+        clean = str(item or "").strip()
+        if not clean:
+            continue
+        aliases.add(clean.lower())
+        aliases.add(f"V_{clean}".lower())
+        aliases.add(f"Solo_{clean}".lower())
+        aliases.add(f"agent:{clean}".lower())
+        aliases.add(f"ensemble:{clean}".lower())
+        aliases.add(f"ensemble:Solo_{clean}".lower())
+    return aliases
 
 
 def _agent_is_genetics_probation_agent_executable(
@@ -6599,6 +6652,13 @@ def _record_order_success(
             f"excessive slippage {slippage_pct:.4f}% > {limit:.4f}%",
             kind="slippage",
         )
+    allocator = getattr(pipeline, "flash_allocator", None)
+    recorder = getattr(allocator, "record_controlled_exploration_execution_result", None)
+    if callable(recorder):
+        try:
+            recorder(result)
+        except Exception:
+            log.exception("controlled exploration outcome memory update failed")
 
 
 def _record_realized_result_for_strategy(

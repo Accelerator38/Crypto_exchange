@@ -10,6 +10,7 @@ import pytest
 from panteon_v2.domain.types import Action, Regime, Signal, TechnicalIndicators, Trade
 from panteon_v2.memory import PerformanceMemory, QuarantineManager
 from panteon_v2.selection import AgentRegistry, EnsemblePlayer
+from panteon_v2.selection.component_memory import ComponentMemory, ComponentStat
 from panteon_v2.selection.flash_allocator import (
     FLASH_EXPERIMENTAL_FLAGS,
     FLASH_PRESET_AGGRESSIVE,
@@ -82,6 +83,103 @@ def _record_one_trade(
 
 
 class TestFlashAllocator(unittest.TestCase):
+    def test_raw_agent_symbol_alias_action_is_used_for_market_symbol(self):
+        class CompactSymbolAgent:
+            label = "AliasAgent"
+
+            def act(self, market):
+                return {"BTCUSDT": Action.FUT_LONG_FULL}
+
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "AliasAgent", Regime.BULLISH, 10, 1.0, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(min_closed_trades_to_trade=1),
+        ).decide(
+            make_market(prices={"BTC/USDT": 100.0}),
+            agents=[CompactSymbolAgent()],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "AliasAgent")
+        self.assertEqual(decision.symbol, "BTC/USDT")
+        self.assertEqual(decision.signal.sym, "BTC/USDT")
+        self.assertEqual(decision.signal.action, Action.FUT_LONG_FULL)
+
+    def test_agent_signal_diagnostics_reach_candidate_audit(self):
+        class DiagnosticAgent:
+            label = "LiveVolCompress"
+
+            def act(self, market):
+                self.last_signal_diagnostics = {
+                    "BTCUSDT": {
+                        "reason": "squeeze_missing",
+                        "bbw": 0.041,
+                    }
+                }
+                return {"BTCUSDT": Action.HOLD}
+
+        decision = FlashAllocator(
+            perf=PerformanceMemory(trade_fraction=1.0),
+            qm=QuarantineManager(seed=set()),
+        ).decide(
+            make_market(prices={"BTC/USDT": 100.0}),
+            agents=[DiagnosticAgent()],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        candidate = next(
+            row for row in decision.candidates if row.label == "LiveVolCompress"
+        )
+        payload = candidate.as_dict()
+        self.assertEqual(
+            payload["agent_diagnostics"]["reason"],
+            "squeeze_missing",
+        )
+        self.assertEqual(payload["agent_diagnostics"]["bbw"], 0.041)
+
+    def test_full_market_agent_is_called_once_per_bar(self):
+        class FullMarketAgent:
+            label = "MomentumScalper"
+            prefers_full_market_snapshot = True
+
+            def __init__(self):
+                self.calls = 0
+
+            def act(self, market):
+                self.calls += 1
+                self.last_signal_diagnostics = {
+                    symbol: {
+                        "reason": "called_once",
+                        "call": self.calls,
+                    }
+                    for symbol in market.prices
+                }
+                return {symbol: Action.HOLD for symbol in market.prices}
+
+        agent = FullMarketAgent()
+        decision_rows = FlashAllocator(
+            perf=PerformanceMemory(trade_fraction=1.0),
+            qm=QuarantineManager(seed=set()),
+        ).decide(
+            make_market(prices={"BTC/USDT": 100.0, "ETH/USDT": 50.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=10,
+        )
+
+        self.assertEqual(agent.calls, 1)
+        for decision in decision_rows:
+            candidate = next(
+                row for row in decision.candidates if row.label == "MomentumScalper"
+            )
+            self.assertEqual(candidate.as_dict()["agent_diagnostics"]["call"], 1)
+
     def test_raw_agent_receives_symbol_local_regime_in_flash(self):
         class RegimeAwareAgent:
             label = "LocalAgent"
@@ -943,6 +1041,1053 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertFalse(row.rejected)
         self.assertEqual(decision.selected_actor, "GeneticsCore")
         self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+
+    def test_controlled_exploration_risk_sizes_expected_edge_below_cost_candidate(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LowEdge", Regime.BULLISH, 10, 0.01, start_id=1)
+
+        blocked = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("LowEdge", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"LowEdge": (3.0, 12)},
+        )[0]
+        self.assertEqual(blocked.selected_actor, "NoTrade")
+        self.assertEqual(blocked.reason, "no_real_admission:expected_edge_below_cost")
+
+        explored = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=2.0,
+                controlled_exploration_min_shadow_closed=10,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("LowEdge", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"LowEdge": (3.0, 12)},
+        )[0]
+
+        self.assertEqual(explored.selected_actor, "LowEdge")
+        self.assertEqual(explored.reason, "controlled_exploration")
+        self.assertIn("controlled_exploration", explored.selected_reasons)
+        self.assertAlmostEqual(explored.signal.risk_mult, 0.05)
+        row = {candidate.label: candidate for candidate in explored.candidates}["LowEdge"]
+        self.assertFalse(row.rejected)
+        self.assertEqual(row.reason, "controlled_exploration:expected_edge_below_cost")
+        self.assertAlmostEqual(row.risk_mult, 0.05)
+
+    def test_controlled_exploration_allows_range_low_vol_only_when_reason_is_configured(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RangeActor", Regime.RANGE_LOW_VOL, 10, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("range_low_vol_actor_not_allowed",),
+                controlled_exploration_risk_mult=0.08,
+                controlled_exploration_min_shadow_score=2.0,
+                controlled_exploration_min_shadow_closed=10,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC": 100.0}),
+            agents=[FakeAgent("RangeActor", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"RangeActor": (2.5, 11)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "RangeActor")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.08)
+
+    def test_controlled_exploration_does_not_bypass_hard_symbol_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "DeniedActor", Regime.BULLISH, 10, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                denied_open_symbols=("BTC",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("denied_open_symbol",),
+                controlled_exploration_risk_mult=0.05,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("DeniedActor", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"DeniedActor": (5.0, 20)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(decision.reason, "no_real_admission:denied_open_symbol")
+
+    def test_controlled_exploration_blocks_negative_rolling_expectancy_actor(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "NegativeExplorer", Regime.BULLISH, 8, -0.25, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("NegativeExplorer", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"NegativeExplorer": (3.0, 12)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_negative_expectancy",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "NegativeExplorer"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_negative_expectancy")
+
+    def test_controlled_exploration_outcome_memory_blocks_repeat_cold_start_after_negative_close(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "ColdExplorer", Regime.BULLISH, 10, 0.01, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        )
+
+        first = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdExplorer", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"ColdExplorer": (3.0, 12)},
+        )[0]
+        self.assertEqual(first.selected_actor, "ColdExplorer")
+        self.assertEqual(first.reason, "controlled_exploration")
+
+        allocator.record_controlled_exploration_outcome(
+            actor_label="ColdExplorer",
+            symbol="BTC",
+            action=Action.FUT_LONG_FULL,
+            realized_pnl=-0.01,
+        )
+        second = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdExplorer", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=20,
+            shadow_confirmation={"ColdExplorer": (3.0, 12)},
+        )[0]
+
+        self.assertEqual(second.selected_actor, "NoTrade")
+        self.assertEqual(
+            second.reason,
+            "no_real_admission:controlled_exploration_negative_outcome",
+        )
+        row = {candidate.label: candidate for candidate in second.candidates}[
+            "ColdExplorer"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_negative_outcome")
+
+    def test_controlled_exploration_blocks_negative_component_memory_prior(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "ColdExplorer", Regime.BULLISH, 10, 0.01, start_id=1)
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="ColdExplorer",
+                symbol="BTC",
+                regime="*",
+                action="FUT_LONG_FULL",
+                bar=9,
+                closed_trades=1,
+                expectancy=-0.01,
+                pnl_lcb=-0.01,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+            component_memory=memory,
+        ).decide(
+            make_market(bar=10, prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdExplorer", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"ColdExplorer": (3.0, 12)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_negative_outcome",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "ColdExplorer"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_negative_outcome")
+
+    def test_controlled_exploration_sizing_reaches_min_notional_floor(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "FloorActor", Regime.BULLISH, 10, 0.01, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                controlled_exploration_min_notional_sizing_enabled=True,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_min_notional_max_risk_mult=0.10,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("FloorActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"FloorActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "FloorActor")
+        self.assertEqual(decision.reason, "controlled_exploration")
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.10)
+
+    def test_controlled_exploration_blocks_when_min_notional_floor_exceeds_cap(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "TooSmallActor", Regime.BULLISH, 10, 0.01, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                controlled_exploration_min_notional_sizing_enabled=True,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_min_notional_max_risk_mult=0.10,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("TooSmallActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"TooSmallActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 20.0},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_min_notional_risk_too_high",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "TooSmallActor"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_min_notional_risk_too_high")
+
+    def test_causal_actor_router_flag_prefers_prior_expectancy_over_actionable_boost(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "BoostedLowEdge", Regime.BULLISH, 20, 0.10, start_id=1)
+        _add_perf(perf, "CausalHighEdge", Regime.BULLISH, 6, 0.50, start_id=100)
+        agents = [
+            FakeAgent("BoostedLowEdge", {"BTC": Action.FUT_LONG_FULL}),
+            FakeAgent("CausalHighEdge", {"BTC": Action.FUT_SHORT_FULL}),
+        ]
+
+        baseline = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                actionable_bonus=10.0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=agents,
+            players=[],
+            signal_id_start=10,
+            actionable_labels={"BoostedLowEdge"},
+        )[0]
+        self.assertEqual(baseline.selected_actor, "BoostedLowEdge")
+
+        routed = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                actionable_bonus=10.0,
+                causal_actor_router_enabled=True,
+                causal_actor_router_min_closed_trades=5,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=agents,
+            players=[],
+            signal_id_start=10,
+            actionable_labels={"BoostedLowEdge"},
+        )[0]
+
+        self.assertEqual(routed.selected_actor, "CausalHighEdge")
+        self.assertEqual(routed.reason, "causal_actor_router")
+        self.assertIn("causal_actor_router", routed.selected_reasons)
+
+    def test_promotion_derived_router_prefers_allowlisted_positive_component_with_small_risk_cap(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LiveVolCompress", Regime.BULLISH, 20, 0.10, start_id=1)
+        _add_perf(perf, "CarryFlowAgentV2", Regime.BULLISH, 6, 0.50, start_id=100)
+        agents = [
+            FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL}),
+            FakeAgent("CarryFlowAgentV2", {"BTC": Action.FUT_SHORT_FULL}),
+        ]
+
+        baseline = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                actionable_bonus=10.0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=agents,
+            players=[],
+            signal_id_start=10,
+            actionable_labels={"LiveVolCompress"},
+        )[0]
+        self.assertEqual(baseline.selected_actor, "LiveVolCompress")
+
+        routed = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                actionable_bonus=10.0,
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=(
+                    "CarryFlowAgentV2",
+                    "MomentumScalper",
+                    "LiveCrashHunter",
+                ),
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=agents,
+            players=[],
+            signal_id_start=10,
+            actionable_labels={"LiveVolCompress"},
+        )[0]
+
+        self.assertEqual(routed.selected_actor, "CarryFlowAgentV2")
+        self.assertEqual(routed.reason, "promotion_derived_router")
+        self.assertIn("promotion_derived_router", routed.selected_reasons)
+        self.assertEqual(routed.signal.action, Action.FUT_SHORT_FULL)
+        self.assertAlmostEqual(routed.signal.risk_mult, 0.03)
+
+    def test_promotion_derived_dynamic_best_can_route_positive_component_outside_static_allowlist(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LiveVolCompress", Regime.BULLISH, 8, 0.60, start_id=1)
+        _add_perf(perf, "CarryFlowAgentV2", Regime.BULLISH, 8, 0.10, start_id=100)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_score_to_trade=999.0,
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=("CarryFlowAgentV2",),
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[
+                FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL}),
+                FakeAgent("CarryFlowAgentV2", {"BTC": Action.FUT_SHORT_FULL}),
+            ],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "LiveVolCompress")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        self.assertEqual(decision.signal.action, Action.FUT_LONG_FULL)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.03)
+
+    def test_promotion_derived_router_can_lift_positive_range_low_vol_component(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LiveVolCompress", Regime.RANGE_LOW_VOL, 8, 0.30, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(
+                prices={"BTC": 100.0},
+                regime=Regime.RANGE_LOW_VOL,
+                regimes_by_symbol={"BTC": Regime.RANGE_LOW_VOL},
+            ),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_SHORT_HALF})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "LiveVolCompress")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        self.assertIn("promotion_derived_router", decision.selected_reasons)
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_HALF)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.03)
+
+    def test_promotion_derived_dynamic_best_does_not_promote_no_evidence_actor(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=0,
+                promotion_derived_min_expectancy=-1.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdActor", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertIsNone(decision.signal)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "ColdActor"
+        ]
+        self.assertEqual(row.reason, "no_evidence")
+
+    def test_promotion_derived_dynamic_best_uses_prior_component_memory_for_no_evidence_signal(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="FUT_LONG_FULL",
+                bar=4,
+                closed_trades=7,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "LiveVolCompress"
+        assert decision.reason == "promotion_derived_router"
+        assert decision.signal.action == Action.FUT_LONG_FULL
+        assert decision.signal.risk_mult == 0.03
+
+    def test_promotion_derived_outcome_memory_blocks_negative_repeat(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="FUT_LONG_FULL",
+                bar=4,
+                closed_trades=7,
+                expectancy=0.40,
+            )
+        ])
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        )
+
+        first = allocator.decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+        assert first.selected_actor == "LiveVolCompress"
+        assert first.reason == "promotion_derived_router"
+
+        allocator.record_controlled_exploration_outcome(
+            actor_label="LiveVolCompress",
+            symbol="BTC",
+            action=Action.FUT_LONG_FULL,
+            realized_pnl=-0.05,
+        )
+        second = allocator.decide(
+            make_market(bar=6, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=20,
+        )[0]
+
+        assert second.selected_actor == "NoTrade"
+        row = {candidate.label: candidate for candidate in second.candidates}[
+            "LiveVolCompress"
+        ]
+        assert row.reason == "promotion_derived_negative_outcome"
+
+    def test_promotion_derived_uses_legacy_spot_long_prior_for_futures_long_signal(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="SPOT_BUY_HALF",
+                bar=4,
+                closed_trades=7,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "LiveVolCompress"
+        assert decision.reason == "promotion_derived_router"
+        assert decision.signal.action == Action.FUT_LONG_FULL
+        assert decision.signal.risk_mult == 0.03
+
+    def test_promotion_derived_negative_legacy_spot_long_prior_blocks_global_fallback(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="*",
+                action="*",
+                bar=4,
+                closed_trades=8,
+                expectancy=0.20,
+            ),
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="SPOT_BUY_HALF",
+                bar=4,
+                closed_trades=2,
+                expectancy=-0.10,
+            ),
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveVolCompress"
+        ]
+        assert row.reason == "promotion_derived_negative_prior"
+
+    def test_promotion_derived_negative_regime_prior_blocks_global_fallback(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="*",
+                action="*",
+                bar=4,
+                closed_trades=8,
+                expectancy=0.20,
+            ),
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="neutral",
+                action="*",
+                bar=4,
+                closed_trades=1,
+                expectancy=-0.10,
+            ),
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, regime=Regime.NEUTRAL, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveVolCompress"
+        ]
+        assert row.reason == "promotion_derived_negative_prior"
+
+    def test_promotion_derived_memory_uses_eligible_wildcard_prior_when_exact_prior_is_too_small(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="BULLISH",
+                action="*",
+                bar=4,
+                closed_trades=1,
+                expectancy=0.80,
+            ),
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="*",
+                action="*",
+                bar=4,
+                closed_trades=7,
+                expectancy=0.12,
+            ),
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "LiveVolCompress"
+        assert decision.reason == "promotion_derived_router"
+        assert decision.signal.risk_mult == 0.03
+
+    def test_promotion_derived_memory_does_not_fallback_to_actor_global_when_action_prior_is_negative(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="*",
+                regime="*",
+                action="*",
+                bar=4,
+                closed_trades=8,
+                expectancy=0.10,
+            ),
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="FUT_SHORT_HALF",
+                bar=4,
+                closed_trades=2,
+                expectancy=-0.20,
+            ),
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_SHORT_HALF})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveVolCompress"
+        ]
+        assert row.reason == "promotion_derived_negative_prior"
+
+    def test_promotion_derived_dynamic_best_ignores_current_bar_component_memory(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveVolCompress",
+                symbol="BTC",
+                regime="BULLISH",
+                action="FUT_LONG_FULL",
+                bar=5,
+                closed_trades=7,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(bar=5, prices={"BTC": 100.0}),
+            agents=[FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+
+    def test_promotion_derived_router_can_uplift_to_min_notional_under_bounded_cap(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LiveCrashHunter", Regime.BULLISH, 10, 0.50, start_id=100)
+        agents = [FakeAgent("LiveCrashHunter", {"BTC": Action.FUT_SHORT_HALF})]
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=("LiveCrashHunter",),
+                promotion_derived_min_closed_trades=1,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+                promotion_derived_min_notional_sizing_enabled=True,
+                promotion_derived_account_equity_usd=1000.0,
+                promotion_derived_capital_fraction=0.10,
+                promotion_derived_min_notional_max_risk_mult=0.12,
+                promotion_derived_default_min_notional_usd=5.0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=agents,
+            players=[],
+            signal_id_start=10,
+            min_notional_by_symbol={"BTC": 5.0},
+            account_equity_usd=1000.0,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "LiveCrashHunter")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_HALF)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.10)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveCrashHunter"
+        ]
+        self.assertAlmostEqual(row.risk_mult, 0.10)
+
+    def test_promotion_derived_router_maps_virtual_leader_label_to_active_solo_wrapper(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        live_agent = FakeAgent("LiveVolCompress", {"BTC": Action.FUT_LONG_FULL})
+        genetics = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        solo_genetics = EnsemblePlayer(
+            label="Solo_GeneticsCore",
+            agents=[genetics],
+            weights={"GeneticsCore": 1.0},
+            voting=WeightedConsensus(),
+            thresholds=ThresholdProfile(),
+        )
+        _add_perf(perf, "LiveVolCompress", Regime.BULLISH, 20, 0.10, start_id=1)
+        _add_perf(perf, "Solo_GeneticsCore", Regime.BULLISH, 6, 0.50, start_id=100)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                actionable_bonus=10.0,
+                live_real_actor_whitelist=("V_GeneticsCore",),
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=("V_GeneticsCore",),
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[live_agent],
+            players=[solo_genetics],
+            signal_id_start=10,
+            actionable_labels={"LiveVolCompress"},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "Solo_GeneticsCore")
+        self.assertEqual(decision.actor_type, "ensemble")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.03)
+
+    def test_promotion_derived_router_handoffs_allowlisted_shadow_agent_signal(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "CarryFlowAgentV2", Regime.BULLISH, 8, 0.50, start_id=1)
+        shadow_signal = Signal(
+            id=91,
+            bar=5,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="CarryFlowAgentV2",
+            by_agent="CarryFlowAgentV2",
+        )
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                shadow_signal_handoff_enabled=True,
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=("CarryFlowAgentV2",),
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[],
+            players=[],
+            signal_id_start=77,
+            shadow_agent_signals={"CarryFlowAgentV2": (shadow_signal,)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "CarryFlowAgentV2")
+        self.assertEqual(decision.actor_type, "agent")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        self.assertEqual(decision.signal.id, 77)
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.03)
+
+    def test_promotion_derived_router_treats_actor_allowlist_as_promotion_source(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "CarryFlowAgentV2", Regime.BULLISH, 8, 0.50, start_id=1)
+        shadow_signal = Signal(
+            id=91,
+            bar=5,
+            sym="BTC",
+            action=Action.FUT_SHORT_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="CarryFlowAgentV2",
+            by_agent="CarryFlowAgentV2",
+        )
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                shadow_signal_handoff_enabled=True,
+                promotion_manifest_enabled=True,
+                promotion_derived_router_enabled=True,
+                promotion_derived_actor_labels=("CarryFlowAgentV2",),
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[],
+            players=[],
+            signal_id_start=77,
+            shadow_agent_signals={"CarryFlowAgentV2": (shadow_signal,)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "CarryFlowAgentV2")
+        self.assertEqual(decision.reason, "promotion_derived_router")
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "CarryFlowAgentV2"
+        ]
+        self.assertFalse(row.rejected)
+        self.assertEqual(row.reason, "promotion_derived_router")
 
     def test_quarantine_rejects_actor_before_scoring(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -3141,6 +4286,77 @@ class TestFlashAllocator(unittest.TestCase):
         rejected = {row.label: row for row in decision.candidates if row.rejected}
         self.assertEqual(rejected["UnprovenAgent"].reason, "no_evidence")
 
+    def test_controlled_exploration_allows_explicit_no_evidence_cold_start(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        cold = FakeAgent("ColdStartActor", {"BTC": Action.FUT_LONG_FULL})
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("no_evidence",),
+                controlled_exploration_risk_mult=0.03,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                live_real_actor_whitelist=("ColdStartActor",),
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[cold],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "ColdStartActor")
+        self.assertEqual(decision.reason, "controlled_exploration")
+        self.assertIsNotNone(decision.signal)
+        self.assertEqual(decision.signal.action, Action.FUT_LONG_FULL)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.03)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "ColdStartActor"
+        ]
+        self.assertFalse(row.rejected)
+        self.assertEqual(row.reason, "controlled_exploration:no_evidence")
+
+    def test_controlled_exploration_blocks_no_evidence_after_negative_close(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("no_evidence",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        )
+        allocator.record_controlled_exploration_outcome(
+            actor_label="ColdStartActor",
+            symbol="BTC",
+            action=Action.FUT_LONG_FULL,
+            realized_pnl=-0.01,
+        )
+
+        decision = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdStartActor", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_negative_outcome",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "ColdStartActor"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_negative_outcome")
+
     def test_close_signal_does_not_require_actor_evidence(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -4029,6 +5245,159 @@ class TestFlashAllocator(unittest.TestCase):
 
         self.assertEqual(probation_decision.selected_actor, "GeneticsCore")
         self.assertEqual(probation_row.reason, "genetics_probation_admission")
+
+    def test_controlled_exploration_honors_probation_terminal_deny_bypass(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.BEARISH, 10, 0.01, start_id=1)
+        key = "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+        shadow = {
+            "GeneticsCore": {
+                "score": 6.0,
+                "closed_trades": 20,
+                "winning_trades": 15,
+                "win_rate_pct": 75.0,
+            },
+        }
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                live_real_actor_whitelist=("GeneticsCore",),
+                terminal_denied_signal_keys=(key,),
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=0.0,
+                min_score_to_trade=0.1,
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=10,
+                fee_aware_admission_enabled=True,
+                fee_aware_round_trip_cost_pct=0.06,
+                genetics_probation_bypass_terminal_deny_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=4.0,
+                controlled_exploration_min_shadow_closed=10,
+                controlled_exploration_min_rolling_expectancy=0.0,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.BEARISH, prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            shadow_confirmation=shadow,
+            probation_signal_keys=(key,),
+        )[0]
+        row = next(item for item in decision.candidates if item.label == "GeneticsCore")
+
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertEqual(row.reason, "controlled_exploration:expected_edge_below_cost")
+        self.assertEqual(row.risk_mult, 0.05)
+
+    def test_controlled_exploration_still_blocks_non_probation_terminal_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"BTC": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.BEARISH, 10, 0.01, start_id=1)
+        key = "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
+        shadow = {
+            "GeneticsCore": {
+                "score": 6.0,
+                "closed_trades": 20,
+                "winning_trades": 15,
+                "win_rate_pct": 75.0,
+            },
+        }
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                live_real_actor_whitelist=("GeneticsCore",),
+                terminal_denied_signal_keys=(key,),
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=0.0,
+                min_score_to_trade=0.1,
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=10,
+                fee_aware_admission_enabled=True,
+                fee_aware_round_trip_cost_pct=0.06,
+                genetics_probation_bypass_terminal_deny_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=4.0,
+                controlled_exploration_min_shadow_closed=10,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.BEARISH, prices={"BTC": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            shadow_confirmation=shadow,
+            probation_signal_keys=(),
+        )[0]
+        row = next(item for item in decision.candidates if item.label == "GeneticsCore")
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(row.reason, "flash_signal_terminal_deny_key")
+
+    def test_controlled_exploration_canary_allows_probation_symbol_degradation(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("GeneticsCore", {"DOGE": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "GeneticsCore", Regime.BEARISH, 10, 0.04, start_id=1)
+        key = "agent:GeneticsCore|DOGE|FUT_SHORT_FULL"
+        shadow = {
+            "GeneticsCore": {
+                "score": 6.0,
+                "closed_trades": 20,
+                "winning_trades": 15,
+                "win_rate_pct": 75.0,
+            },
+        }
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                live_real_actor_whitelist=("GeneticsCore",),
+                min_closed_trades_to_trade=1,
+                min_pnl_pct_to_trade=0.0,
+                min_score_to_trade=0.1,
+                shadow_confirmation_enabled=True,
+                shadow_confirmation_min_score=4.0,
+                shadow_confirmation_min_closed_trades=10,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("flash_symbol_degraded",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=4.0,
+                controlled_exploration_min_shadow_closed=10,
+                controlled_exploration_min_rolling_expectancy=0.0,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.BEARISH, prices={"DOGE": 0.15}),
+            agents=[agent],
+            players=[],
+            signal_id_start=7,
+            shadow_confirmation=shadow,
+            degraded_open_symbols=("DOGE",),
+            probation_signal_keys=(key,),
+        )[0]
+        row = next(item for item in decision.candidates if item.label == "GeneticsCore")
+
+        self.assertEqual(decision.selected_actor, "GeneticsCore")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
+        self.assertEqual(row.reason, "controlled_exploration:flash_symbol_degraded")
+        self.assertEqual(row.risk_mult, 0.05)
 
     def test_shadow_signal_handoff_is_disabled_by_default(self):
         perf = PerformanceMemory(trade_fraction=1.0)
