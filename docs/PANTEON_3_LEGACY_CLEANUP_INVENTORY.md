@@ -26,8 +26,6 @@ Reason: these implement or verify gate funnel diagnostics and NoTrade observabil
 
 ## Keep As Active ML/Execution Work
 
-- `Start_ML.py`
-- `Start_ML_BITGET.py`
 - `src/panteon_runtime/bitget_connector.py`
 - `src/panteon_runtime/mexc_connector.py`
 - `src/panteon_v2/ml/bitget_adapter.py`
@@ -51,6 +49,8 @@ Reason: these implement or verify gate funnel diagnostics and NoTrade observabil
 - `tools/run_ml_bitget.cmd`
 
 Reason: these were already present as uncommitted work before this cleanup pass and appear related to fill-confirmed ML/live supervision. Do not revert without review.
+
+Note 2026-06-29: root launchers `Start_ML.py` and `Start_ML_BITGET.py` were removed with the other root `Start_*.py` launchers. The ML package, tests, models, and `tools/run_ml*.cmd` helpers remain for research/supervision workflows.
 
 ## Keep As Evidence/Baseline
 
@@ -90,9 +90,10 @@ Move to `docs/archive/` or an external artifact store after confirming no script
 
 Reason: these look like historical sweep/report artifacts. Keep the latest summarized evidence, but remove repeated experiment directories from the active project surface.
 
-## Move To Legacy Candidates
+## Deleted Root Entrypoints In 2026-06-29 Pass
 
-Move to `legacy/entrypoints/` after verifying launch scripts and docs no longer reference them:
+These files were removed after replacing the root launch surface with
+`Start_panteon.py`:
 
 - `Start_DEFAULT.py`
 - `Start_DEFAULT_v2.py`
@@ -101,10 +102,22 @@ Move to `legacy/entrypoints/` after verifying launch scripts and docs no longer 
 - `Start_BITGET.py`
 - `Start_BITGET_v2.py`
 - `Start_BITGET_legend.py`
+- `Start_ML.py`
+- `Start_ML_BITGET.py`
+- `Start_panteon_v3.py`
+
+Reason: `Start_panteon.py` is now the single root launcher. Keeping multiple
+root launchers increased operator error risk, especially when BITGET is the
+current focus and MEXC must stay off by default.
+
+## Move To Legacy Candidates
+
+Move to `legacy/entrypoints/` after verifying launch scripts and docs no longer reference them:
+
 - `Retrostart_MEXC.py`
 - `Retrostart_BITGET.py`
 
-Reason: `Start_panteon_v3.py`, `Start_ML.py`, and `Start_ML_BITGET.py` are the current entrypoint surface. Old root start scripts increase operator error risk.
+Reason: these are retro/replay entrypoints, not the active live launch surface.
 
 ## Delete Candidates After Confirmation
 
@@ -135,8 +148,7 @@ Reason: environment, credentials, local runtime state, or large historical mater
 
 ## Next Safe Cleanup Steps
 
-1. Run a reference search before moving any entrypoint:
-   `rg "Start_MEXC|Start_BITGET|Start_DEFAULT|Retrostart" .`
-2. Move old entrypoints to `legacy/entrypoints/` in one patch and update docs/scripts that reference them.
-3. Archive repeated May 2026 Flash sweep report directories after extracting one summary index.
-4. Keep before/after evidence until Panteon 3.0 walk-forward comparison is complete.
+1. Run a reference search before moving remaining retro entrypoints:
+   `rg "Retrostart_MEXC|Retrostart_BITGET" .`
+2. Archive repeated May 2026 Flash sweep report directories after extracting one summary index.
+3. Keep before/after evidence until Panteon 3.0 walk-forward comparison is complete.

@@ -1,5 +1,9 @@
 # Panteon_Trade
 
+> Panteon 3 note 2026-06-29: root launchers were consolidated into
+> `Start_panteon.py`. Use `docs/PANTEON_3_OPERATOR_GUIDE.md` for current
+> BITGET/MEXC switches and `trade_regime` selection.
+
 `Panteon_Trade.py` — основной live-entrypoint для мультибиржевого торгового контура `Panteon`.
 
 ## Актуальная структура

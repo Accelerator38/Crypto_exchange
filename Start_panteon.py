@@ -1,13 +1,16 @@
-"""Unified Panteon v3 launcher.
+"""Unified Panteon launcher.
 
-Exchange switches live at the top of this file:
-MEXC=ON
-BITGET=ON
+Edit these launch switches before running:
 
-The parent process starts one hidden worker per exchange by re-invoking this
-file with ``--worker EXCHANGE``. Workers call ``start_production`` directly;
-the old ``Start_MEXC_v2.py`` and ``Start_BITGET_v2.py`` files are not used by
-this launcher.
+BITGET = "ON"
+MEXC = "OFF"
+
+trade_regime = "multi"
+trade_regime = "singlton(GeneticsCore)"
+
+``multi`` runs the normal Panteon/Flash actor selection. ``singlton(<actor>)``
+allows only the named actor to send real orders; the rest of the runtime keeps
+collecting shadow/statistical evidence where the production pipeline supports it.
 """
 
 from __future__ import annotations
@@ -26,44 +29,57 @@ from typing import Mapping, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+BITGET = "ON"
+MEXC = "OFF"
+trade_regime = "multi"
+
 EXCHANGES: dict[str, str] = {
-    "MEXC": "ON",
-    "BITGET": "ON",
+    "BITGET": BITGET,
+    "MEXC": MEXC,
 }
 
 LOCK_NAMES: dict[str, str] = {
-    "MEXC": "panteon_v2_mexc",
     "BITGET": "panteon_v2_bitget",
+    "MEXC": "panteon_v2_mexc",
 }
 
 MODE_ENV: dict[str, str] = {
-    "MEXC": "MEXC_TRADING_MODE",
     "BITGET": "BITGET_TRADING_MODE",
+    "MEXC": "MEXC_TRADING_MODE",
 }
 
 REQUIRED_CREDENTIALS: dict[str, tuple[str, ...]] = {
-    "MEXC": ("MEXC_API_KEY", "MEXC_SECRET_KEY"),
     "BITGET": ("BITGET_API_KEY", "BITGET_SECRET_KEY", "BITGET_PASSPHRASE"),
+    "MEXC": ("MEXC_API_KEY", "MEXC_SECRET_KEY"),
 }
 
 INITIAL_CAPITAL_ENV: dict[str, str] = {
-    "MEXC": "MEXC_INITIAL_CAPITAL",
     "BITGET": "BITGET_INITIAL_CAPITAL",
+    "MEXC": "MEXC_INITIAL_CAPITAL",
 }
 
-VIRTUAL_TRADING_MODES = {"paper", "paper_live_feed", "shadow_live_feed"}
 ON_VALUES = {"1", "ON", "TRUE", "YES", "Y"}
+VIRTUAL_TRADING_MODES = {"paper", "paper_live_feed", "shadow_live_feed"}
 LOCK_OFFSET = 4096
 SRC_DIR = PROJECT_ROOT / "src"
 RUNTIME_DIR = SRC_DIR / "panteon_runtime"
-GENETICS_SPECIALISTS_ENV = "PANTEON_V2_GENETICS_SPECIALISTS_MANIFEST"
-DEFAULT_GENETICS_SPECIALISTS_MANIFEST = (
-    PROJECT_ROOT
-    / "Results"
-    / "neiro_genetics"
-    / "live_active_shadow_20260604"
-    / "genetics_specialists_manifest.json"
-)
+ACTOR_ALIASES = {
+    "carryflowagentv2": "CarryFlowAgentV2",
+    "geneticbest": "GeneticsBest",
+    "geneticcore": "GeneticsCore",
+    "geneticrisktight": "GeneticsRiskTight",
+    "geneticsbearish": "GeneticsBearish",
+    "geneticsbest": "GeneticsBest",
+    "geneticsbullish": "GeneticsBullish",
+    "geneticscore": "GeneticsCore",
+    "geneticsneutral": "GeneticsNeutral",
+    "geneticsregimerouter": "GeneticsRegimeRouter",
+    "geneticsrisktight": "GeneticsRiskTight",
+    "livecrashhunter": "LiveCrashHunter",
+    "liveoibreakout": "LiveOIBreakout",
+    "livevolcompress": "LiveVolCompress",
+    "momentumscalper": "MomentumScalper",
+}
 
 
 @dataclass(frozen=True)
@@ -74,6 +90,12 @@ class LaunchResult:
     pid: int | None = None
 
 
+@dataclass(frozen=True)
+class TradeRegime:
+    mode: str
+    singleton_actor: str = ""
+
+
 def _prepare_imports() -> None:
     for path in (SRC_DIR, RUNTIME_DIR):
         path_str = str(path)
@@ -82,26 +104,42 @@ def _prepare_imports() -> None:
 
 
 def _load_env() -> None:
+    _prepare_imports()
     try:
         from env_bootstrap import load_local_env  # type: ignore
 
         load_local_env(PROJECT_ROOT)
     except ImportError:
-        pass
-
-
-def _configure_default_genetics_manifests() -> None:
-    if os.getenv(GENETICS_SPECIALISTS_ENV):
         return
-    if DEFAULT_GENETICS_SPECIALISTS_MANIFEST.exists():
-        os.environ[GENETICS_SPECIALISTS_ENV] = str(DEFAULT_GENETICS_SPECIALISTS_MANIFEST)
+
+
+def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
+    text = str(trade_regime if raw is None else raw).strip()
+    lower = text.lower()
+    if lower == "multi":
+        return TradeRegime("multi")
+    if lower.startswith("singlton(") and text.endswith(")"):
+        actor = text[text.find("(") + 1 : -1].strip()
+        if not actor:
+            raise ValueError("trade_regime singlton(...) requires an actor name")
+        return TradeRegime("singlton", _canonical_actor_label(actor))
+    raise ValueError("trade_regime must be 'multi' or 'singlton(<actor>)'")
+
+
+def _normalization_key(text: str) -> str:
+    return "".join(ch.lower() for ch in str(text or "") if ch.isalnum())
+
+
+def _canonical_actor_label(actor_label: str) -> str:
+    text = str(actor_label or "").strip()
+    return ACTOR_ALIASES.get(_normalization_key(text), text)
 
 
 def _enabled_exchanges(config: Mapping[str, str] = EXCHANGES) -> tuple[str, ...]:
     enabled: list[str] = []
     for exchange, value in config.items():
         if str(value or "").strip().upper() in ON_VALUES:
-            enabled.append(exchange)
+            enabled.append(str(exchange).upper())
     return tuple(enabled)
 
 
@@ -117,60 +155,20 @@ def _selected_exchanges(raw: str) -> tuple[str, ...]:
 
 
 def _python_executable() -> str:
-    if os.name == "nt":
-        candidate = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
-    else:
-        candidate = PROJECT_ROOT / ".venv" / "bin" / "python"
-    if candidate.exists():
-        return str(candidate)
-    return sys.executable
-
-
-def _read_pyvenv_base_executable(venv_root: Path) -> str | None:
-    cfg_path = venv_root / "pyvenv.cfg"
-    try:
-        lines = cfg_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return None
-    for raw in lines:
-        key, sep, value = raw.partition("=")
-        if sep and key.strip().lower() == "base-executable":
-            candidate = Path(value.strip())
-            if candidate.exists():
-                return str(candidate)
-    return None
-
-
-def _windows_python_process_context(
-    python_executable: str,
-) -> tuple[str, dict[str, str]]:
-    env: dict[str, str] = {}
-    if os.name != "nt":
-        return python_executable, env
-
-    python_path = Path(python_executable)
-    venv_root = python_path.parent.parent
-    if python_path.parent.name.lower() != "scripts" or not (venv_root / "pyvenv.cfg").exists():
-        return python_executable, env
-
-    base_executable = _read_pyvenv_base_executable(venv_root)
-    if not base_executable:
-        return python_executable, env
-
-    env["__PYVENV_LAUNCHER__"] = str(python_path)
-    env["VIRTUAL_ENV"] = str(venv_root)
-    env["PATH"] = str(python_path.parent) + os.pathsep + env.get("PATH", "")
-    env.pop("PYTHONHOME", None)
-    return base_executable, env
+    candidate = (
+        PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+        if os.name == "nt"
+        else PROJECT_ROOT / ".venv" / "bin" / "python"
+    )
+    return str(candidate) if candidate.exists() else sys.executable
 
 
 def _worker_args(exchange: str) -> tuple[str, str, str]:
-    return ("Start_panteon_v3.py", "--worker", exchange)
+    return ("Start_panteon.py", "--worker", exchange.upper())
 
 
 def _lock_path(exchange: str) -> Path:
-    lock_name = LOCK_NAMES[exchange]
-    return PROJECT_ROOT / "state" / "locks" / f"{lock_name}.lock"
+    return PROJECT_ROOT / "state" / "locks" / f"{LOCK_NAMES[exchange.upper()]}.lock"
 
 
 def _lock_is_held(path: Path) -> bool:
@@ -215,106 +213,33 @@ def _lock_owner_hint(path: Path) -> str:
         key, sep, value = raw.partition("=")
         if sep:
             data[key.strip()] = value.strip()
-    pid = data.get("pid", "?")
-    parent_pid = data.get("parent_pid", "?")
-    executable = data.get("sys_executable", "?")
-    return f"pid={pid}, parent_pid={parent_pid}, executable={executable}"
-
-
-def _ps_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _ps_array(values: Sequence[str]) -> str:
-    return "@(" + ", ".join(_ps_quote(str(value)) for value in values) + ")"
+    return (
+        f"pid={data.get('pid', '?')}, "
+        f"parent_pid={data.get('parent_pid', '?')}, "
+        f"executable={data.get('sys_executable', '?')}"
+    )
 
 
 def _spawn_child(exchange: str, python_executable: str) -> int:
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    out_path = log_dir / f"v3_{exchange.lower()}_launcher.out.log"
-    err_path = log_dir / f"v3_{exchange.lower()}_launcher.err.log"
-    worker_args = _worker_args(exchange)
-    with out_path.open("a", encoding="utf-8") as out_handle:
+    out_path = log_dir / f"panteon_{exchange.lower()}_launcher.out.log"
+    err_path = log_dir / f"panteon_{exchange.lower()}_launcher.err.log"
+    with out_path.open("a", encoding="utf-8") as out_handle, err_path.open(
+        "a",
+        encoding="utf-8",
+    ) as err_handle:
         out_handle.write(
             f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] launching {exchange} "
-            f"via {' '.join(worker_args)}\n"
+            f"via {' '.join(_worker_args(exchange))}\n"
         )
-    if os.name == "nt":
-        return _spawn_child_windows(
-            python_executable=python_executable,
-            worker_args=worker_args,
-            out_path=out_path,
-            err_path=err_path,
-        )
-
-    out_handle = out_path.open("a", encoding="utf-8")
-    err_handle = err_path.open("a", encoding="utf-8")
-    try:
         process = subprocess.Popen(
-            [python_executable, *worker_args],
+            [python_executable, *_worker_args(exchange)],
             cwd=str(PROJECT_ROOT),
             stdout=out_handle,
             stderr=err_handle,
         )
         return int(process.pid)
-    finally:
-        out_handle.close()
-        err_handle.close()
-
-
-def _spawn_child_windows(
-    *,
-    python_executable: str,
-    worker_args: Sequence[str],
-    out_path: Path,
-    err_path: Path,
-) -> int:
-    launch_executable, launch_env = _windows_python_process_context(python_executable)
-    try:
-        err_path.touch(exist_ok=True)
-    except OSError:
-        pass
-    env_script = ""
-    if launch_env:
-        env_script = "".join(
-            f"$env:{name} = {_ps_quote(value)}; "
-            for name, value in sorted(launch_env.items())
-        )
-        env_script += "Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue; "
-    command = (
-        env_script
-        + "$p = Start-Process "
-        f"-FilePath {_ps_quote(launch_executable)} "
-        f"-ArgumentList {_ps_array(worker_args)} "
-        f"-WorkingDirectory {_ps_quote(str(PROJECT_ROOT))} "
-        "-WindowStyle Hidden -PassThru; "
-        "Write-Output $p.Id"
-    )
-    completed = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            command,
-        ],
-        cwd=str(PROJECT_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "Start-Process failed: "
-            + (completed.stderr.strip() or completed.stdout.strip() or "unknown error")
-        )
-    for raw in reversed(completed.stdout.splitlines()):
-        text = raw.strip()
-        if text.isdigit():
-            return int(text)
-    raise RuntimeError("Start-Process did not return a child pid")
 
 
 def _block_system_python_for_live(exchange: str, mode: str) -> None:
@@ -324,9 +249,8 @@ def _block_system_python_for_live(exchange: str, mode: str) -> None:
         and Path(sys.prefix).resolve() == Path(sys.base_prefix).resolve()
     ):
         print(
-            f"[START v3] {exchange} live launch blocked: run it with a virtualenv "
-            "Python, not the system interpreter. Set "
-            "PANTEON_V2_ALLOW_SYSTEM_PYTHON=1 to override.",
+            f"[Start_panteon] {exchange} live launch blocked: use .venv Python "
+            "or set PANTEON_V2_ALLOW_SYSTEM_PYTHON=1.",
             file=sys.stderr,
         )
         sys.exit(4)
@@ -335,25 +259,24 @@ def _block_system_python_for_live(exchange: str, mode: str) -> None:
 def _acquire_instance_lock(exchange: str) -> None:
     from panteon_v2.app.single_instance import acquire_single_instance
 
-    lock_name = LOCK_NAMES[exchange]
     lock_path = _lock_path(exchange)
     instance_lock = acquire_single_instance(
-        lock_name,
+        LOCK_NAMES[exchange],
         lock_dir=lock_path.parent,
     )
     if instance_lock is None:
         print(
-            f"[START v3] {exchange} is already running; second live instance "
-            f"blocked ({_lock_owner_hint(lock_path)}).",
+            f"[Start_panteon] {exchange} is already running "
+            f"({_lock_owner_hint(lock_path)}).",
             file=sys.stderr,
         )
         sys.exit(3)
 
 
-def _configure_logging(exchange: str) -> Path:
+def _configure_logging(exchange: str) -> None:
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"v3_{exchange.lower()}_runtime.log"
+    log_file = log_dir / f"panteon_{exchange.lower()}_runtime.log"
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s | %(message)s",
@@ -362,19 +285,6 @@ def _configure_logging(exchange: str) -> Path:
             logging.FileHandler(log_file, encoding="utf-8"),
         ],
     )
-    logging.getLogger(__name__).info("Runtime log: %s", log_file)
-    logging.getLogger(__name__).info(
-        "Process: pid=%s ppid=%s executable=%s",
-        os.getpid(),
-        os.getppid(),
-        sys.executable,
-    )
-    if os.name == "nt":
-        logging.getLogger(__name__).info(
-            "Windows note: v3 starts the base interpreter with venv launch "
-            "context to avoid a persistent venv launcher parent process."
-        )
-    return log_file
 
 
 def _initial_capital(exchange: str) -> float | None:
@@ -399,20 +309,63 @@ def _live_preflight_result(exchange: str, launch_mode: str):
     )
 
 
+def _base_actor_label(raw: str) -> str:
+    text = str(raw or "").strip()
+    if ":" in text:
+        text = text.split(":", 1)[1].strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ("Solo_", "V_"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+    return text
+
+
+def _single_actor_aliases(actor_label: str) -> tuple[str, ...]:
+    base = _base_actor_label(actor_label)
+    if not base:
+        raise ValueError("singleton actor label is required")
+    return tuple(dict.fromkeys((
+        str(actor_label).strip(),
+        base,
+        f"agent:{base}",
+        f"Solo_{base}",
+        f"ensemble:Solo_{base}",
+    )))
+
+
+def _singleton_flash_config(exchange: str, actor_label: str):
+    from dataclasses import replace
+    from panteon_v2.app import startup
+
+    base = startup._resolve_flash_allocator_config(exchange)
+    aliases = _single_actor_aliases(actor_label)
+    return replace(
+        base,
+        live_real_actor_whitelist=aliases,
+        range_low_vol_real_actor_allowlist=aliases,
+        promotion_derived_router_enabled=True,
+        promotion_derived_actor_labels=(_base_actor_label(actor_label),),
+        promotion_derived_dynamic_best_enabled=False,
+        max_signals_per_actor=1,
+    )
+
+
 def _run_exchange_worker(exchange: str) -> int:
     exchange = exchange.upper()
     if exchange not in EXCHANGES:
-        print(f"[START v3] unknown exchange worker: {exchange}", file=sys.stderr)
+        print(f"[Start_panteon] unknown exchange worker: {exchange}", file=sys.stderr)
         return 2
 
     _prepare_imports()
     _load_env()
-    _configure_default_genetics_manifests()
+    parsed_regime = _parse_trade_regime()
 
-    mode_env = MODE_ENV[exchange]
     launch_mode = _launch_mode(exchange)
     os.environ["CRYPTO_EXCHANGE"] = exchange
-    os.environ[mode_env] = launch_mode
+    os.environ[MODE_ENV[exchange]] = launch_mode
 
     _block_system_python_for_live(exchange, launch_mode)
     _acquire_instance_lock(exchange)
@@ -420,18 +373,12 @@ def _run_exchange_worker(exchange: str) -> int:
     missing = [
         name for name in REQUIRED_CREDENTIALS[exchange] if not os.getenv(name)
     ]
-    mode_note = (
-        "real futures trading requested; adapter/feed check follows"
-        if launch_mode == "live_futures"
-        else "virtual portfolio; scoring enabled"
-    )
-    print(f"[START v3] {exchange} launch mode: {launch_mode.upper()} ({mode_note})")
     if launch_mode not in VIRTUAL_TRADING_MODES and missing:
         print(
             f"{exchange} live launch is missing credentials: "
             + ", ".join(missing)
-            + f"\nPut them in {PROJECT_ROOT}\\.env.local "
-            + f"or set {mode_env}='paper'.",
+            + f"\nPut them in {PROJECT_ROOT}\\.env.local or set "
+            + f"{MODE_ENV[exchange]}='paper'.",
             file=sys.stderr,
         )
         return 2
@@ -440,18 +387,28 @@ def _run_exchange_worker(exchange: str) -> int:
 
     from panteon_v2.app.startup import start_production
 
+    flash_config = None
+    if parsed_regime.mode == "singlton":
+        flash_config = _singleton_flash_config(exchange, parsed_regime.singleton_actor)
+
     exchange_lower = exchange.lower()
-    snapshot_path = str(
-        PROJECT_ROOT / "panteon_v2_state" / f"{exchange_lower}_snapshot.json"
+    print(
+        f"[Start_panteon] {exchange} mode={launch_mode} "
+        f"trade_regime={parsed_regime.mode}"
+        + (
+            f" actor={parsed_regime.singleton_actor}"
+            if parsed_regime.singleton_actor
+            else ""
+        )
     )
-    events_jsonl = str(PROJECT_ROOT / "logs" / f"v2_{exchange_lower}_events.jsonl")
     return start_production(
         exchange=exchange,
         mode=launch_mode,
         initial_capital=_initial_capital(exchange),
-        snapshot_path=snapshot_path,
-        jsonl_event_log=events_jsonl,
+        snapshot_path=str(PROJECT_ROOT / "panteon_v2_state" / f"{exchange_lower}_snapshot.json"),
+        jsonl_event_log=str(PROJECT_ROOT / "logs" / f"v2_{exchange_lower}_events.jsonl"),
         sleep_between_polls_sec=5.0,
+        flash_allocator_config_override=flash_config,
     )
 
 
@@ -461,9 +418,9 @@ def _launch_exchange(
     dry_run: bool = False,
     python_executable: str | None = None,
 ) -> LaunchResult:
+    exchange = exchange.upper()
     if exchange not in EXCHANGES:
         return LaunchResult(exchange, "disabled", "unknown exchange")
-
     lock_path = _lock_path(exchange)
     if _lock_is_held(lock_path):
         return LaunchResult(
@@ -490,10 +447,7 @@ def _launch_exchange(
         )
 
     try:
-        pid = _spawn_child(
-            exchange,
-            python_executable or _python_executable(),
-        )
+        pid = _spawn_child(exchange, python_executable or _python_executable())
     except Exception as exc:
         return LaunchResult(exchange, "failed", str(exc))
     return LaunchResult(
@@ -505,26 +459,26 @@ def _launch_exchange(
 
 
 def _print_plan(selected: Sequence[str]) -> None:
-    print("[START v3] exchange switches:")
+    parsed_regime = _parse_trade_regime()
+    print("[Start_panteon] exchange switches:")
     for exchange, value in EXCHANGES.items():
         marker = "selected" if exchange in selected else "off"
-        print(f"[START v3] {exchange}={value} ({marker})")
+        print(f"[Start_panteon] {exchange}={value} ({marker})")
+    print(
+        f"[Start_panteon] trade_regime={parsed_regime.mode}"
+        + (
+            f" actor={parsed_regime.singleton_actor}"
+            if parsed_regime.singleton_actor
+            else ""
+        )
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Start Panteon v3 trading processes.")
-    parser.add_argument(
-        "--only",
-        default="",
-        help="Comma-separated exchange filter, for example MEXC or MEXC,BITGET.",
-    )
+    parser = argparse.ArgumentParser(description="Start Panteon trading processes.")
+    parser.add_argument("--only", default="", help="Comma-separated exchange filter.")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument(
-        "--worker",
-        choices=tuple(EXCHANGES),
-        default="",
-        help=argparse.SUPPRESS,
-    )
+    parser.add_argument("--worker", choices=tuple(EXCHANGES), default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
     if args.worker:
@@ -533,15 +487,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = _selected_exchanges(args.only)
     _print_plan(selected)
     if not selected:
-        print("[START v3] no exchanges selected")
+        print("[Start_panteon] no exchanges selected")
         return 0
 
     failed = False
     for exchange in selected:
         result = _launch_exchange(exchange, dry_run=bool(args.dry_run))
         pid_text = f" pid={result.pid}" if result.pid is not None else ""
-        print(f"[START v3] {exchange}: {result.status}{pid_text} - {result.message}")
-        failed = failed or result.status == "failed"
+        print(f"[Start_panteon] {exchange}: {result.status}{pid_text} - {result.message}")
+        failed = failed or result.status in {"failed", "preflight_failed"}
     return 2 if failed else 0
 
 

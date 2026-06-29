@@ -49,8 +49,11 @@ cp /backup/v1_pre_cutover.json panteon_runtime/state/memory.json
 ### Шаг R4 — Запустить v1 (T+5 мин)
 
 ```bash
-nohup python panteon_runtime/Start_BITGET.py > logs/v1_rollback_bitget.log 2>&1 &
-nohup python panteon_runtime/Start_MEXC.py > logs/v1_rollback_mexc.log 2>&1 &
+# Panteon 3 note: old v1 root launchers were removed from the active tree.
+# Restore the validated v1 launcher from the archived legacy branch/worktree
+# before using this rollback path.
+nohup python <legacy-worktree>/panteon_runtime/Start_BITGET.py > logs/v1_rollback_bitget.log 2>&1 &
+nohup python <legacy-worktree>/panteon_runtime/Start_MEXC.py > logs/v1_rollback_mexc.log 2>&1 &
 ```
 
 **Acceptance в течение 5 минут:**

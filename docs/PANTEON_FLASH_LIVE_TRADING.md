@@ -1,5 +1,9 @@
 # Panteon Flash live trading documentation
 
+> Historical note 2026-06-29: this file documents the May 2026 Flash live
+> state. Current Panteon 3 operations use the unified root launcher
+> `Start_panteon.py`; see `docs/PANTEON_3_OPERATOR_GUIDE.md`.
+
 Документ описывает текущую live-сборку `Panteon_Flash`, которая запущена в
 торгах из ветки `codex/Panteon_Flash` и должна быть опубликована в ветку
 `panteon_flash`.
@@ -94,7 +98,7 @@ pending_timeout=180s
 
 Производственный поток:
 
-1. `Start_MEXC_v2.py` или `Start_BITGET_v2.py` вызывает `start_production`.
+1. `Start_panteon.py` вызывает `start_production` для выбранной биржи после live pre-flight.
 2. `startup.py` загружает биржевой адаптер, капитал, риск, live guardrails,
    Flash-конфиг, список агентов и профили игроков.
 3. Создается `ProductionPipeline`: registry агентов, память, карантин,

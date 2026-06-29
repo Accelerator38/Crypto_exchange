@@ -42,8 +42,8 @@ python -m panteon_runtime.cli --status   # n_positions=0
 
 ```bash
 # Грейсфул shutdown:
-pkill -SIGTERM -f Start_BITGET.py
-pkill -SIGTERM -f Start_MEXC.py
+pkill -SIGTERM -f "Start_panteon.py --worker BITGET"
+pkill -SIGTERM -f "Start_panteon.py --worker MEXC"
 # Подождать 30 сек, проверить:
 ps aux | grep Start_  # должно быть пусто
 ```

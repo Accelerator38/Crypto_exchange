@@ -10,7 +10,7 @@ def _find_project_root(start: str | os.PathLike[str] | None = None) -> Path:
     if current.is_file():
         current = current.parent
 
-    markers = ("settings.txt", "Start_MEXC.py", "Start_BITGET.py")
+    markers = ("settings.txt", "Start_panteon.py")
     for candidate in (current, *current.parents):
         if all((candidate / marker).exists() for marker in markers):
             return candidate

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -50,8 +52,8 @@ def _contains_start_production(node: ast.AST) -> bool:
 
 
 class TestEntrypoints(unittest.TestCase):
-    def test_mexc_entrypoint_defers_launch_to_main_guard(self):
-        tree = _parse_script("Start_MEXC_v2.py")
+    def test_unified_entrypoint_defers_launch_to_main_guard(self):
+        tree = _parse_script("Start_panteon.py")
         self.assertTrue(
             any(isinstance(node, ast.FunctionDef) and node.name == "main"
                 for node in tree.body)
@@ -59,14 +61,18 @@ class TestEntrypoints(unittest.TestCase):
         self.assertTrue(_has_main_guard(tree))
         self.assertFalse(_has_top_level_start_call(tree))
 
-    def test_bitget_entrypoint_defers_launch_to_main_guard(self):
-        tree = _parse_script("Start_BITGET_v2.py")
-        self.assertTrue(
-            any(isinstance(node, ast.FunctionDef) and node.name == "main"
-                for node in tree.body)
-        )
-        self.assertTrue(_has_main_guard(tree))
-        self.assertFalse(_has_top_level_start_call(tree))
+    def test_runtime_project_root_uses_unified_launcher_marker(self):
+        path = ROOT / "src" / "panteon_runtime" / "project_paths.py"
+        spec = importlib.util.spec_from_file_location("project_paths_under_test", path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with patch.object(module.Path, "cwd", return_value=ROOT.parent):
+            found = module._find_project_root(path)
+
+        self.assertEqual(found, ROOT)
 
 
 if __name__ == "__main__":
