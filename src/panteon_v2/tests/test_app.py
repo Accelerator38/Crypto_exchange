@@ -1211,6 +1211,9 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_terminal_denied_signal_keys": (
                 "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
             ),
+            "v2_flash_terminal_denied_context_signal_keys": (
+                "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol"
+            ),
             "bitget_v2_flash_controlled_exploration_enabled": "true",
             "bitget_v2_flash_controlled_exploration_allowed_reasons": (
                 "expected_edge_below_cost,flash_symbol_degraded"
@@ -1236,6 +1239,9 @@ class TestBootstrap(unittest.TestCase):
             "bitget_v2_flash_terminal_denied_signal_keys": (
                 "agent:Legacy|BTC|FUT_SHORT_FULL"
             ),
+            "bitget_v2_flash_terminal_denied_context_signal_keys": (
+                "agent:LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol"
+            ),
         }
 
         mexc = _flash_allocator_config_from_settings(settings, exchange_name="MEXC")
@@ -1248,6 +1254,10 @@ class TestBootstrap(unittest.TestCase):
         self.assertIn(
             "agent:GeneticsCore|BTC|FUT_SHORT_FULL",
             mexc.terminal_denied_signal_keys,
+        )
+        self.assertIn(
+            "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol",
+            mexc.terminal_denied_context_signal_keys,
         )
 
         self.assertTrue(bitget.controlled_exploration_enabled)
@@ -1286,6 +1296,14 @@ class TestBootstrap(unittest.TestCase):
         self.assertIn(
             "agent:Legacy|BTC|FUT_SHORT_FULL",
             bitget.terminal_denied_signal_keys,
+        )
+        self.assertNotIn(
+            "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol",
+            bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol",
+            bitget.terminal_denied_context_signal_keys,
         )
 
     def test_leaderboard_players_include_standalone_strategy_pool_without_activity(self):

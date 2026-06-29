@@ -222,6 +222,77 @@ def test_canary_summary_counts_order_fill_events_and_nested_trade_costs(tmp_path
     assert exchange["expectancy_after_costs"] == 0.14
 
 
+def test_canary_summary_exports_negative_context_deny_keys(tmp_path):
+    module = _load_tool()
+    session = tmp_path / "Results" / "BITGET" / "run"
+    _write_json(
+        session / "status.json",
+        {
+            "timestamp_utc": "2026-06-27T10:00:00+00:00",
+            "exchange": "BITGET",
+            "mode": "paper_live_feed",
+            "run_state": "stopped",
+            "feed_status": "closed",
+            "live_state_sync": {"reconcile_ok": True, "warnings": []},
+            "open_positions": {},
+        },
+    )
+    _write_jsonl(
+        session / "causal_entry_decisions.jsonl",
+        [
+            {
+                "timestamp": "2026-06-27T10:01:00+00:00",
+                "raw_signal_count": 1,
+                "executable_signal_count": 1,
+                "n_orders": 1,
+                "n_filled": 1,
+                "realized_pnl_usd": -0.20,
+            },
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "Results" / "logs" / "bitget_single_component_events.jsonl",
+        [
+            {
+                "timestamp": "2026-06-27T10:02:00+00:00",
+                "_type": "PositionClosed",
+                "symbol": "BNB",
+                "open_action": "FUT_SHORT_HALF",
+                "open_regime": "range_low_vol",
+                "by_player": "LiveOIBreakout",
+                "realized_pnl": -0.20,
+            },
+        ],
+    )
+
+    summary = module.build_canary_summary(
+        results_root=tmp_path / "Results",
+        reports_dir=tmp_path / "Reports" / "Panteon3Canary",
+        exchanges=("BITGET",),
+        now=module._parse_time("2026-06-27T10:05:00+00:00"),
+    )
+
+    exchange = summary["exchanges"]["BITGET"]
+    assert exchange["event_rows_evaluated"] == 0
+    assert exchange["context_event_rows_evaluated"] == 1
+    assert exchange["negative_closed_trade_contexts"] == [
+        {
+            "actor_label": "LiveOIBreakout",
+            "symbol": "BNB",
+            "action": "FUT_SHORT_HALF",
+            "regime": "range_low_vol",
+            "realized_pnl": -0.20,
+            "timestamp": "2026-06-27T10:02:00+00:00",
+        }
+    ]
+    assert "agent:LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol" in exchange[
+        "negative_context_signal_keys"
+    ]
+    assert "ensemble:Solo_LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol" in exchange[
+        "negative_context_signal_keys"
+    ]
+
+
 def test_canary_summary_counts_filled_decision_as_order_when_order_counter_missing(tmp_path):
     module = _load_tool()
     session = tmp_path / "Results" / "MEXC" / "run"

@@ -65,7 +65,12 @@ def _build_exchange_canary(
         lookback_minutes=lookback_minutes,
     )
     event_rows = _recent_rows(
-        _iter_jsonl(session_dir / "events.jsonl"),
+        _iter_session_event_jsonl(session_dir),
+        now=now,
+        lookback_minutes=lookback_minutes,
+    )
+    context_event_rows = _recent_rows(
+        _iter_context_event_jsonl(results_root, exchange=exchange, session_dir=session_dir),
         now=now,
         lookback_minutes=lookback_minutes,
     )
@@ -79,6 +84,12 @@ def _build_exchange_canary(
     expectancy = _expectancy_after_costs(pnl_payload, fills)
     reconcile_ok, reconcile_warnings = _reconcile_status(status)
     health_warnings = _health_warnings(status)
+    negative_contexts = _negative_closed_trade_contexts(context_event_rows)
+    negative_context_keys = sorted({
+        key
+        for context in negative_contexts
+        for key in _negative_context_signal_keys(context)
+    })
     fail_reasons = _fail_reasons(
         signals=signals,
         orders=orders,
@@ -117,8 +128,11 @@ def _build_exchange_canary(
         "open_position_symbols": open_positions["open_position_symbols"],
         "owned_open_position_symbols": open_positions["owned_open_position_symbols"],
         "external_open_position_symbols": open_positions["external_open_position_symbols"],
+        "negative_closed_trade_contexts": negative_contexts,
+        "negative_context_signal_keys": negative_context_keys,
         "rows_evaluated": len(rows),
         "event_rows_evaluated": len(event_rows),
+        "context_event_rows_evaluated": len(context_event_rows),
         "fail_reasons": fail_reasons,
     }
 
@@ -141,6 +155,9 @@ def _exchange_failure(exchange: str, reason: str, *, session_dir: Path | None = 
         "open_position_symbols": [],
         "owned_open_position_symbols": [],
         "external_open_position_symbols": [],
+        "negative_closed_trade_contexts": [],
+        "negative_context_signal_keys": [],
+        "context_event_rows_evaluated": 0,
         "fail_reasons": [reason],
     }
 
@@ -279,6 +296,57 @@ def _expectancy_after_costs(payload: Mapping[str, float], fills: int) -> float:
         - abs(float(payload.get("slippage_usd") or 0.0))
     )
     return net / float(fills)
+
+
+def _negative_closed_trade_contexts(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    contexts: list[dict[str, Any]] = []
+    for row in rows:
+        if "positionclosed" not in _event_name(row).replace(" ", ""):
+            continue
+        realized_pnl = _first_float(row, "realized_pnl_usd", "realized_pnl", "pnl_usd", "pnl")
+        if realized_pnl >= 0.0:
+            continue
+        actor_label = str(row.get("by_player") or row.get("by_agent") or "").strip()
+        symbol = str(row.get("symbol") or row.get("sym") or "").strip().upper()
+        action = str(row.get("open_action") or row.get("action") or "").strip().upper()
+        regime = str(row.get("open_regime") or row.get("regime") or "").strip()
+        if not actor_label or not symbol or not action or not regime:
+            continue
+        contexts.append({
+            "actor_label": actor_label,
+            "symbol": symbol,
+            "action": action,
+            "regime": regime,
+            "realized_pnl": realized_pnl,
+            "timestamp": str(row.get("timestamp") or row.get("timestamp_utc") or ""),
+        })
+    return contexts
+
+
+def _negative_context_signal_keys(context: Mapping[str, Any]) -> list[str]:
+    actor_label = str(context.get("actor_label") or "").strip()
+    symbol = str(context.get("symbol") or "").strip().upper()
+    action = str(context.get("action") or "").strip().upper()
+    regime = str(context.get("regime") or "").strip()
+    if not actor_label or not symbol or not action or not regime:
+        return []
+    return [
+        f"{actor_key}|{symbol}|{action}|{regime}"
+        for actor_key in _actor_key_aliases(actor_label)
+    ]
+
+
+def _actor_key_aliases(actor_label: str) -> tuple[str, ...]:
+    clean = str(actor_label or "").strip()
+    if not clean:
+        return ()
+    aliases = [clean]
+    if ":" not in clean:
+        aliases.append(f"agent:{clean}")
+        if not clean.startswith("Solo_"):
+            aliases.append(f"Solo_{clean}")
+            aliases.append(f"ensemble:Solo_{clean}")
+    return tuple(dict.fromkeys(aliases))
 
 
 def _reconcile_status(status: Mapping[str, Any]) -> tuple[bool, list[str]]:
@@ -432,6 +500,42 @@ def _iter_jsonl(path: Path) -> Iterable[Mapping[str, Any]]:
                     yield row
 
     return _generator()
+
+
+def _iter_session_event_jsonl(session_dir: Path) -> Iterable[Mapping[str, Any]]:
+    candidates: list[Path] = [
+        session_dir / "events.jsonl",
+    ]
+    candidates.extend((session_dir / "logs").glob("*events*.jsonl"))
+    yield from _iter_unique_jsonl(candidates)
+
+
+def _iter_context_event_jsonl(
+    results_root: Path,
+    *,
+    exchange: str,
+    session_dir: Path,
+) -> Iterable[Mapping[str, Any]]:
+    candidates: list[Path] = [session_dir / "events.jsonl"]
+    candidates.extend((session_dir / "logs").glob("*events*.jsonl"))
+    logs_dir = results_root / "logs"
+    exchange_prefix = str(exchange or "").strip().lower()
+    if logs_dir.exists():
+        candidates.extend(logs_dir.glob(f"{exchange_prefix}*events*.jsonl"))
+    yield from _iter_unique_jsonl(candidates)
+
+
+def _iter_unique_jsonl(paths: Iterable[Path]) -> Iterable[Mapping[str, Any]]:
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path
+        if resolved in seen or not path.exists():
+            continue
+        seen.add(resolved)
+        yield from _iter_jsonl(path)
 
 
 def _load_json(path: Path) -> Any:

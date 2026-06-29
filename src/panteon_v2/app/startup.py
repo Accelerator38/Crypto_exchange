@@ -2516,6 +2516,14 @@ def _flash_allocator_config_from_settings(
                 "flash_terminal_denied_signal_keys",
             ),
         ),
+        terminal_denied_context_signal_keys=_settings_csv_tuple(
+            settings,
+            scoped_names(
+                "panteon_flash_terminal_denied_context_signal_keys",
+                "v2_flash_terminal_denied_context_signal_keys",
+                "flash_terminal_denied_context_signal_keys",
+            ),
+        ),
         denied_open_symbols=_settings_csv_tuple(
             settings,
             (
