@@ -509,7 +509,7 @@ class TestStartupFailClosed(unittest.TestCase):
         self.assertNotIn("GeneticsRegimeAdaptiveBias", cfg.genetics_probation_labels)
         self.assertLessEqual(
             cfg.genetics_probation_risk_mult_by_label["GeneticsCore"],
-            0.10,
+            0.08,
         )
         self.assertEqual(
             cfg.genetics_probation_max_daily_trades_by_label["GeneticsCore"],
@@ -593,6 +593,9 @@ class TestStartupFailClosed(unittest.TestCase):
             0.30,
         )
         self.assertTrue(mexc_live.genetics_probation_require_shadow_confirmation)
+        self.assertFalse(
+            mexc_live.flash_genetics_core_primary_bypass_shadow_confirmation_enabled
+        )
         self.assertTrue(
             all(
                 "GeneticsCore" in key

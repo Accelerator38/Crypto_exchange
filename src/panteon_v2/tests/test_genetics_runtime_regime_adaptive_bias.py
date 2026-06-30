@@ -16,6 +16,24 @@ def _load_crypto_genetics():
     return importlib.import_module("crypto_genetics")
 
 
+def test_action_contract_metrics_reports_directional_exposure_bias():
+    cg = _load_crypto_genetics()
+
+    short_only = np.zeros((1, 3, 2), dtype=np.int32)
+    short_only[0, 0, 0] = 6
+    balanced = np.zeros((1, 3, 2), dtype=np.int32)
+    balanced[0, 0, 0] = 4
+    balanced[0, 0, 1] = 6
+
+    short_metrics = cg._action_contract_metrics(short_only)
+    balanced_metrics = cg._action_contract_metrics(balanced)
+
+    assert short_metrics["net_direction_biases"][0] == -1.0
+    assert balanced_metrics["net_direction_biases"][0] == 0.0
+    assert short_metrics["mean_short_slot_rates"][0] > 0.0
+    assert balanced_metrics["mean_long_slot_rates"][0] > 0.0
+
+
 def test_genetics_agent_applies_regime_adaptive_open_bias_before_argmax(monkeypatch):
     cg = _load_crypto_genetics()
     agent = cg.GeneticsAgent(genome=np.zeros(cg.GENOME_SIZE, dtype=np.float32))
@@ -37,12 +55,19 @@ def test_genetics_agent_applies_regime_adaptive_open_bias_before_argmax(monkeypa
         action = agent.act({"BTC": 100.0 + idx * 0.01}, {"BTC": 1000.0}, month=4)
 
     assert action == {"BTC": 0}
-    assert agent.last_regime_adaptive_output_bias == {
+    assert {
+        key: agent.last_regime_adaptive_output_bias[key]
+        for key in ("enabled", "regime", "raw_regime", "open_output_bias")
+    } == {
         "enabled": True,
         "regime": "neutral",
         "raw_regime": "unknown",
         "open_output_bias": 1.0,
     }
+    assert agent.last_regime_adaptive_output_bias["by_symbol"]["BTC"][
+        "action_confidence"
+    ] > 0.0
+    assert "logit_margin" in agent.last_regime_adaptive_output_bias["by_symbol"]["BTC"]
 
 
 def test_genetics_agent_negative_regime_bias_boosts_open_logits(monkeypatch):

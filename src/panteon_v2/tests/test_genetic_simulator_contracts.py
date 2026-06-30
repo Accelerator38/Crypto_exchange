@@ -404,6 +404,36 @@ def test_invalid_open_pressure_counts_same_bar_overcapacity(monkeypatch):
     assert suppression_metrics["invalid_open_logit_pressures"][0] > 8.0
 
 
+def test_position_aware_forward_reports_weak_open_confidence_and_margin(monkeypatch):
+    cg = _load_crypto_genetics()
+    monkeypatch.setattr(cg, "TRAIN_MAX_POS", 2)
+    monkeypatch.setattr(cg, "OPEN_CONFIDENCE_MIN", 0.50, raising=False)
+    monkeypatch.setattr(cg, "OPEN_LOGIT_MARGIN_MIN", 0.20, raising=False)
+
+    genome = np.zeros(cg.GENOME_SIZE, dtype=np.float32)
+    b4_start = (
+        cg._W1s + cg._b1s
+        + cg._W2s + cg._b2s
+        + cg._W3s + cg._b3s
+        + cg._W4s
+    )
+    genome[b4_start + 5] = 0.05
+
+    feat = np.zeros((1, 1, cg.N_INPUT), dtype=np.float32)
+    prices = np.full((1, 1), 100.0, dtype=np.float64)
+
+    actions, suppression_metrics = cg._batch_forward_position_aware_numpy(
+        genome[None],
+        feat,
+        prices,
+        return_suppression_metrics=True,
+    )
+
+    assert actions.tolist() == [[[5]]]
+    assert suppression_metrics["weak_open_confidence_pressures"][0] > 0.0
+    assert suppression_metrics["weak_open_margin_pressures"][0] > 0.0
+
+
 def test_compute_fitness_penalizes_excess_turnover_and_saturation(monkeypatch):
     cg = _load_crypto_genetics()
     period_rets = np.array([[3.0, 3.0], [3.0, 3.0]], dtype=np.float64)
@@ -571,6 +601,245 @@ def test_compute_fitness_penalizes_invalid_open_logit_pressure(monkeypatch):
     )
 
     assert fits[0] > fits[1] + 7.0
+
+
+def test_compute_fitness_penalizes_weak_open_abstention_pressure(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([[4.0, 4.0], [4.0, 4.0]], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    weak_confidence = np.array([[0.0, 0.0], [0.40, 0.40]], dtype=np.float64)
+    weak_margin = np.array([[0.0, 0.0], [0.20, 0.20]], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "OPEN_CONFIDENCE_PENALTY_W", 20.0, raising=False)
+    monkeypatch.setattr(cg, "OPEN_LOGIT_MARGIN_PENALTY_W", 30.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_weak_open_confidence_pressures=weak_confidence,
+        period_weak_open_margin_pressures=weak_margin,
+    )
+
+    assert fits[0] > fits[1] + 12.0
+
+
+def test_compute_fitness_penalizes_excess_zero_period_collapse(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.25, 0.25, 0.25, 0.25],
+        [0.00, 0.00, 0.00, 1.00],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "POS_RATE_BONUS_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_GAMMA", 0.0, raising=False)
+    monkeypatch.setattr(cg, "WIN1_FITNESS_WEIGHT", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_W_WIN_5PCT", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_W_BONUS_20", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MAX_ZERO_PERIOD_RATE", 0.25, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_ZERO_PERIOD_PENALTY_W", 40.0, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > fits[1] + 15.0
+
+
+def test_compute_fitness_hard_rejects_zero_period_collapse(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30],
+        [0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 2.40],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "POS_RATE_BONUS_W", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_GATE_SENTINEL", -1.0e8, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MAX_ZERO_PERIOD_RATE", 0.50, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_MEAN_RET", -1.0e9, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MAX_RATE", 1.01, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > -1.0e6
+    assert fits[1] <= -9.0e7
+
+
+def test_compute_fitness_hard_rejects_micro_positive_hold_profile(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25],
+        [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "POS_RATE_BONUS_W", 5.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_GATE_SENTINEL", -1.0e8, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MAX_ZERO_PERIOD_RATE", 1.01, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_MEAN_RET", -1.0e9, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MAX_RET", 0.10, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MAX_RATE", 0.75, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MEAN_RET_CEILING", 0.20, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > -1.0e6
+    assert fits[1] <= -9.0e7
+
+
+def test_compute_fitness_hard_rejects_non_positive_mean_return(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.25, 0.25, 0.25, 0.25],
+        [-0.20, 0.20, -0.20, 0.20],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_GATE_SENTINEL", -1.0e8, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MAX_ZERO_PERIOD_RATE", 1.01, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_MEAN_RET", 0.01, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MAX_RATE", 1.01, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > -1.0e6
+    assert fits[1] <= -9.0e7
+
+
+def test_compute_fitness_penalizes_internal_wfa_fold_degradation(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35],
+        [0.95, 0.95, 0.95, 0.95, 0.95, 0.95, -1.35, -1.35],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    neutralized = {
+        "ROBUST_FITNESS_ENABLED": False,
+        "TRADE_REWARD_W": 0.0,
+        "TURNOVER_PENALTY_W": 0.0,
+        "MAX_POSITION_SATURATION_PENALTY_W": 0.0,
+        "MAX_POSITION_SATURATION_MAX_PENALTY_W": 0.0,
+        "INVALID_OPEN_LOGIT_PENALTY_W": 0.0,
+        "INVALID_OPEN_LOGIT_MAX_PENALTY_W": 0.0,
+        "OPEN_CONFIDENCE_PENALTY_W": 0.0,
+        "OPEN_LOGIT_MARGIN_PENALTY_W": 0.0,
+        "ACTION_FEASIBILITY_PENALTY_W": 0.0,
+        "CAPACITY_BAR_PENALTY_W": 0.0,
+        "CAPACITY_BAR_MAX_PENALTY_W": 0.0,
+        "SAME_SIDE_OPEN_PENALTY_W": 0.0,
+        "FITNESS_DIRECTION_BIAS_PENALTY_W": 0.0,
+        "FITNESS_PERSISTENT_DIRECTION_BIAS_PENALTY_W": 0.0,
+        "POS_RATE_BONUS_W": 0.0,
+        "FITNESS_GAMMA": 0.0,
+        "FITNESS_ALPHA": 0.0,
+        "FITNESS_BETA": 0.0,
+        "FITNESS_DELTA": 0.0,
+        "FITNESS_THETA": 0.0,
+        "FITNESS_NEGATIVE_PERIOD_PENALTY_W": 0.0,
+        "FITNESS_WORST_PERIOD_FLOOR_PENALTY_W": 0.0,
+        "FITNESS_OUTLIER_CONC_PENALTY_W": 0.0,
+        "FITNESS_MEAN_RET_FLOOR_PENALTY_W": 0.0,
+        "NEG_STREAK_PEN_W": 0.0,
+        "CALMAR_WEIGHT_ADJ": 0.0,
+        "FITNESS_CORE_ROBUST_BLEND": 0.0,
+        "WIN1_FITNESS_WEIGHT": 0.0,
+        "FITNESS_W_WIN_5PCT": 0.0,
+        "FITNESS_W_BONUS_20": 0.0,
+        "FITNESS_HARD_MAX_ZERO_PERIOD_RATE": 1.01,
+        "FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE": 0.0,
+        "FITNESS_HARD_MIN_MEAN_RET": -1.0e9,
+        "FITNESS_MICRO_POSITIVE_MAX_RATE": 1.01,
+    }
+    for name, value in neutralized.items():
+        monkeypatch.setattr(cg, name, value, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_FOLD_COUNT", 4, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_MIN_FOLD_MEAN_RET", 0.05, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_FOLD_PENALTY_W", 50.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_HARD_MIN_FOLD_MEAN_RET", -1.0e9, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > fits[1] + 40.0
+
+
+def test_compute_fitness_hard_rejects_bad_internal_wfa_fold(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35],
+        [0.95, 0.95, 0.95, 0.95, 0.95, 0.95, -1.35, -1.35],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_GATE_SENTINEL", -1.0e8, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MAX_ZERO_PERIOD_RATE", 1.01, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE", 0.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_HARD_MIN_MEAN_RET", -1.0e9, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_MICRO_POSITIVE_MAX_RATE", 1.01, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_FOLD_COUNT", 4, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_WFA_HARD_MIN_FOLD_MEAN_RET", 0.0, raising=False)
+
+    fits = cg._compute_fitness(period_rets, period_dds, trade_rates)
+
+    assert fits[0] > -1.0e6
+    assert fits[1] <= -9.0e7
+
+
+def test_compute_fitness_penalizes_persistent_one_sided_direction(monkeypatch):
+    cg = _load_crypto_genetics()
+    period_rets = np.array([
+        [0.8, 0.8, 0.8, 0.8],
+        [0.8, 0.8, 0.8, 0.8],
+    ], dtype=np.float64)
+    period_dds = np.zeros_like(period_rets)
+    trade_rates = np.full_like(period_rets, 0.03)
+    direction_biases = np.array([
+        [-1.0, 1.0, -1.0, 1.0],
+        [-1.0, -1.0, -1.0, -1.0],
+    ], dtype=np.float64)
+
+    monkeypatch.setattr(cg, "ROBUST_FITNESS_ENABLED", False)
+    monkeypatch.setattr(cg, "TRADE_REWARD_W", 0.0)
+    monkeypatch.setattr(cg, "TURNOVER_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "MAX_POSITION_SATURATION_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "INVALID_OPEN_LOGIT_PENALTY_W", 0.0)
+    monkeypatch.setattr(cg, "FITNESS_DIRECTION_BIAS_MAX_ABS", 0.50, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_DIRECTION_BIAS_PENALTY_W", 20.0, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_PERSISTENT_DIRECTION_BIAS_MAX_ABS", 0.25, raising=False)
+    monkeypatch.setattr(cg, "FITNESS_PERSISTENT_DIRECTION_BIAS_PENALTY_W", 30.0, raising=False)
+
+    fits = cg._compute_fitness(
+        period_rets,
+        period_dds,
+        trade_rates,
+        period_net_direction_biases=direction_biases,
+    )
+
+    assert fits[0] > fits[1] + 20.0
 
 
 def test_compute_fitness_penalizes_capacity_occupation(monkeypatch):
@@ -820,6 +1089,59 @@ def test_contract_evaluator_reports_action_contract_metrics(monkeypatch):
     assert report["contract_metrics"]["mean_invalid_open_logit_pressure"] == 0.21
     assert report["contract_metrics"]["max_invalid_open_logit_pressure"] == 0.25
     assert report["position_state_features_enabled"] is False
+
+
+def test_contract_evaluator_aggregates_weak_open_abstention_pressure():
+    tool = _load_contract_eval_tool()
+
+    rows = [
+        {
+            "period": "2025-01",
+            "turnover_rate": 0.10,
+            "effective_turnover_rate": 0.08,
+            "saturation_rate": 0.02,
+            "invalid_open_logit_pressure": 0.03,
+            "weak_open_confidence_pressure": 0.20,
+            "weak_open_margin_pressure": 0.10,
+            "raw_capacity_bar_rate": 0.04,
+            "same_side_open_rate": 0.01,
+            "mean_long_slot_rate": 0.30,
+            "mean_short_slot_rate": 0.20,
+            "mean_position_slot_rate": 0.50,
+            "mean_net_direction_bias": 0.20,
+            "mean_capacity_usage": 0.15,
+            "max_open_positions": 2,
+            "capacity_bar_rate": 0.05,
+        },
+        {
+            "period": "2025-02",
+            "turnover_rate": 0.20,
+            "effective_turnover_rate": 0.18,
+            "saturation_rate": 0.04,
+            "invalid_open_logit_pressure": 0.06,
+            "weak_open_confidence_pressure": 0.40,
+            "weak_open_margin_pressure": 0.30,
+            "raw_capacity_bar_rate": 0.08,
+            "same_side_open_rate": 0.02,
+            "mean_long_slot_rate": 0.10,
+            "mean_short_slot_rate": 0.30,
+            "mean_position_slot_rate": 0.40,
+            "mean_net_direction_bias": -0.50,
+            "mean_capacity_usage": 0.25,
+            "max_open_positions": 3,
+            "capacity_bar_rate": 0.10,
+        },
+    ]
+
+    metrics = tool._aggregate_contract_metrics_from_period_rows(
+        rows,
+        execution_lag_bars=1,
+    )
+
+    assert metrics["mean_weak_open_confidence_pressure"] == pytest.approx(0.30)
+    assert metrics["max_weak_open_confidence_pressure"] == pytest.approx(0.40)
+    assert metrics["mean_weak_open_margin_pressure"] == pytest.approx(0.20)
+    assert metrics["max_weak_open_margin_pressure"] == pytest.approx(0.30)
 
 
 def test_contract_evaluator_uses_crash_aware_regime_labels():
@@ -1676,6 +1998,62 @@ def _genetics_selection_report(*, baseline_mean: float, candidate_mean: float,
     }
 
 
+def _genetics_multi_selection_report(
+    series_by_path: dict[str, list[float]],
+    *,
+    regimes: list[str] | None = None,
+) -> dict:
+    first_rets = next(iter(series_by_path.values()))
+    regimes = regimes or ["neutral"] * len(first_rets)
+
+    def genome(path: str, rets: list[float]) -> dict:
+        arr = np.asarray(rets, dtype=np.float64)
+        return {
+            "path": path,
+            "position_state_features_enabled": False,
+            "modes": [{
+                "mode": "fee_fixed_nextbar",
+                "fitness": float(arr.mean()),
+                "period_stats": {
+                    "mean_ret": float(arr.mean()),
+                    "min_ret": float(arr.min()),
+                    "max_ret": float(arr.max()),
+                    "positive_period_pct": float(np.mean(arr > 0.0) * 100.0),
+                },
+                "robust_score": {
+                    "max_positive_contribution_pct": 30.0,
+                    "passes_default_gates": True,
+                },
+                "contract_metrics": {
+                    "mean_turnover_rate": 0.01,
+                    "max_turnover_rate": 0.01,
+                    "mean_saturation_rate": 0.01,
+                    "max_saturation_rate": 0.01,
+                    "mean_invalid_open_logit_pressure": 0.0,
+                    "max_invalid_open_logit_pressure": 0.0,
+                    "periods": [
+                        {
+                            "period": f"p{i}",
+                            "regime": regime,
+                            "turnover_rate": 0.01,
+                            "saturation_rate": 0.01,
+                            "invalid_open_logit_pressure": 0.0,
+                        }
+                        for i, regime in enumerate(regimes)
+                    ],
+                },
+                "period_rets": list(rets),
+            }],
+        }
+
+    return {
+        "genomes": [
+            genome(path, rets)
+            for path, rets in series_by_path.items()
+        ]
+    }
+
+
 def _genetics_regime_selection_report(
     *,
     baseline_rets: list[float],
@@ -1798,6 +2176,41 @@ def test_genetics_candidate_selector_accepts_validation_winner():
     assert selected["selected_is_baseline"] is False
     assert selected["selected_path"] == "candidate.npy"
     assert selected["candidates"][0]["accepted"] is True
+
+
+def test_genetics_candidate_selector_uses_guard_reports_to_reject_fragile_winner():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_multi_selection_report({
+        "baseline.npy": [0.20, 0.20],
+        "fragile.npy": [0.50, 0.50],
+        "stable.npy": [0.40, 0.40],
+    })
+    validation = _genetics_multi_selection_report({
+        "baseline.npy": [0.10, 0.10],
+        "fragile.npy": [0.80, 0.80],
+        "stable.npy": [0.50, 0.50],
+    })
+    guard = _genetics_multi_selection_report({
+        "baseline.npy": [0.10, 0.10],
+        "fragile.npy": [-0.50, -0.40],
+        "stable.npy": [0.20, 0.20],
+    })
+
+    selected = selector.select_candidate(
+        train,
+        validation,
+        guard_reports=[guard],
+        min_validation_mean_delta=0.05,
+        min_validation_min_ret_delta=0.0,
+    )
+
+    by_path = {item["path"]: item for item in selected["candidates"]}
+    assert selected["selected_path"] == "stable.npy"
+    assert by_path["fragile.npy"]["accepted"] is False
+    assert "guard_0_mean_ret" in by_path["fragile.npy"]["failures"]
+    assert by_path["stable.npy"]["accepted"] is True
 
 
 def test_genetics_candidate_selector_fitness_v3_rejects_costly_validation_winner():
@@ -2254,6 +2667,41 @@ def test_regime_router_selector_uses_guard_reports_to_reject_fragile_maps():
     assert selected["selected_regime_map"]["neutral"] == "baseline.npy"
     assert selected["selected_regime_map"]["bullish"] == "baseline.npy"
     assert "guard_0_mean_ret" in selected["candidates"][0]["failures"]
+
+
+def test_regime_router_selector_scores_guard_stability_for_accepted_maps():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    regimes = ["neutral", "neutral"]
+    train = _genetics_multi_selection_report({
+        "baseline.npy": [0.10, 0.10],
+        "fragile.npy": [0.45, 0.45],
+        "stable.npy": [0.40, 0.40],
+    }, regimes=regimes)
+    validation = _genetics_multi_selection_report({
+        "baseline.npy": [0.10, 0.10],
+        "fragile.npy": [0.52, 0.52],
+        "stable.npy": [0.50, 0.50],
+    }, regimes=regimes)
+    guard = _genetics_multi_selection_report({
+        "baseline.npy": [0.10, 0.10],
+        "fragile.npy": [0.11, 0.11],
+        "stable.npy": [0.40, 0.40],
+    }, regimes=regimes)
+
+    selected = selector.select_regime_router(
+        train,
+        validation,
+        guard_reports=[guard],
+        allowed_candidate_regimes=["neutral"],
+        min_validation_periods=1,
+    )
+
+    assert selected["selected_is_baseline"] is False
+    assert selected["selected_regime_map"]["neutral"] == "stable.npy"
+    assert selected["validation"]["mean_ret"] == pytest.approx(0.50)
+    assert selected["guards"][0]["mean_ret"] == pytest.approx(0.40)
 
 
 def test_regime_router_selector_can_restrict_candidate_regimes_for_specialists():

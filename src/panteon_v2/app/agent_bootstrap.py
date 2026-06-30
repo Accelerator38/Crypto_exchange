@@ -1112,39 +1112,33 @@ def _register_genetics_core_agent(
     module = __import__(module_path, fromlist=[class_name])
     cls = getattr(module, class_name)
     genome_path = _resolve_genetics_core_genome_path()
-    source = "legacy_default_constructor"
-    source_meta_path: Path | None = None
-    if genome_path is not None:
-        if not genome_path.exists():
-            raise FileNotFoundError(
-                f"{GENETICS_CORE_GENOME_ENV} points to missing genome: {genome_path}"
-            )
-        genome = np.load(genome_path).astype(np.float32).ravel()
-        expected_genome_size = getattr(module, "GENOME_SIZE", None)
-        if expected_genome_size is not None and genome.size != int(expected_genome_size):
-            raise ValueError(
-                f"GeneticsCore genome size mismatch for {genome_path}: "
-                f"{genome.size} != {int(expected_genome_size)}"
-            )
-        instance = cls(genome=genome)
-        source = "explicit_core_genome"
-        for candidate in (
-            genome_path.with_name(f"{genome_path.stem}_meta.json"),
-            genome_path.parent / "best_genome_meta.json",
-        ):
-            if candidate.exists():
-                source_meta_path = candidate.resolve()
-                break
-    else:
-        if _env_flag(GENETICS_CORE_REQUIRE_REAL_ENV, False):
-            raise FileNotFoundError(
-                "GeneticsCore real genome source is required but no "
-                f"{GENETICS_CORE_GENOME_ENV} or default best_genome.npy was found"
-            )
-        log.warning(
-            "GeneticsCore genome source was not found; using legacy default constructor"
+    if genome_path is None:
+        raise FileNotFoundError(
+            "GeneticsCore requires a real genome source; set "
+            f"{GENETICS_CORE_GENOME_ENV} or provide "
+            "Genetics_DL_Agents/Agents/genetics/best_genome.npy"
         )
-        instance = cls()
+    source = "explicit_core_genome"
+    source_meta_path: Path | None = None
+    if not genome_path.exists():
+        raise FileNotFoundError(
+            f"{GENETICS_CORE_GENOME_ENV} points to missing genome: {genome_path}"
+        )
+    genome = np.load(genome_path).astype(np.float32).ravel()
+    expected_genome_size = getattr(module, "GENOME_SIZE", None)
+    if expected_genome_size is not None and genome.size != int(expected_genome_size):
+        raise ValueError(
+            f"GeneticsCore genome size mismatch for {genome_path}: "
+            f"{genome.size} != {int(expected_genome_size)}"
+        )
+    instance = cls(genome=genome)
+    for candidate in (
+        genome_path.with_name(f"{genome_path.stem}_meta.json"),
+        genome_path.parent / "best_genome_meta.json",
+    ):
+        if candidate.exists():
+            source_meta_path = candidate.resolve()
+            break
 
     adapter = GeneticsV2AgentAdapter(
         label="GeneticsCore",
@@ -1152,9 +1146,8 @@ def _register_genetics_core_agent(
         portfolio_value_fn=portfolio_value_fn,
     )
     adapter.genetics_signal_source = source
-    if genome_path is not None:
-        adapter.source_genome_path = str(genome_path)
-        setattr(instance, "source_genome_path", str(genome_path))
+    adapter.source_genome_path = str(genome_path)
+    setattr(instance, "source_genome_path", str(genome_path))
     if source_meta_path is not None:
         adapter.source_meta_path = str(source_meta_path)
     registry.register(adapter, replace=True)

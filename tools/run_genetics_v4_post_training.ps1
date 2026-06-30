@@ -160,6 +160,7 @@ Invoke-LoggedPython "select_single_fitness_v4" @(
     "tools\select_genetics_candidate.py",
     "--train-report", $trainReport,
     "--validation-report", $validationReport,
+    "--guard-report", $oosReport,
     "--final-report", $oosReport,
     "--final-report", $finalReport,
     "--out", (Join-Path $RunDir "selection_single_fitness_v4.json"),
@@ -182,10 +183,12 @@ Invoke-LoggedPython "select_router_fitness_v4" @(
     "--allowed-candidate-regime", "bearish",
     "--allowed-candidate-regime", "neutral",
     "--allowed-candidate-regime", "bullish",
+    "--guard-report", $oosReport,
     "--final-report", $oosReport,
     "--final-report", $finalReport,
     "--out", (Join-Path $RunDir "selection_router_fitness_v4.json"),
     "--exchange", $Exchange,
+    "--use-fitness-v4-robust",
     "--min-validation-mean-delta", "0.0",
     "--min-validation-min-ret-delta", "0.0",
     "--min-positive-period-pct", "50.0",
@@ -195,6 +198,13 @@ Invoke-LoggedPython "select_router_fitness_v4" @(
     "--min-validation-periods", "6",
     "--min-validation-regime-periods", "1",
     "--min-oos-regime-periods", "1"
+)
+
+Invoke-LoggedPython "report_genetic_core_v2_experiment" @(
+    "tools\report_genetic_core_v2_experiment.py",
+    "--run-dir", $RunDir,
+    "--mode", "fee_fixed_nextbar",
+    "--out", (Join-Path $RunDir "genetic_core_v2_experiment_summary.json")
 )
 
 Write-Step "post-training v4 pipeline completed"

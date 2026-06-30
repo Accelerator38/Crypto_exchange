@@ -427,6 +427,9 @@ def _summaries(report: Dict[str, Any], *, mode: str) -> List[Dict[str, Any]]:
                     contract.get("mean_invalid_open_logit_pressure", 0.0),
                 )
             ),
+            "mean_long_slot_rate": float(contract.get("mean_long_slot_rate", 0.0)),
+            "mean_short_slot_rate": float(contract.get("mean_short_slot_rate", 0.0)),
+            "mean_net_direction_bias": float(contract.get("mean_net_direction_bias", 0.0)),
             "min_per_symbol_lcb": min_per_symbol_lcb,
             "max_drawdown_pct": max_drawdown_pct,
             "period_rets": list(mode_payload.get("period_rets", [])),
@@ -495,13 +498,29 @@ def _fitness_v4_from_mode(mode_payload: Dict[str, Any]) -> Dict[str, Any]:
     ]
     return fitness_v4_robust_score(
         period_rets,
+        period_lcbs_pct=values("min_per_symbol_lcb"),
+        period_max_drawdowns_pct=values("max_drawdown_pct"),
         period_turnover_rates=values("turnover_rate"),
         period_effective_turnover_rates=values("effective_turnover_rate"),
         period_saturation_rates=values("saturation_rate"),
         period_invalid_open_pressures=values("invalid_open_logit_pressure"),
         period_costs_pct=values("cost_pct"),
         period_slippage_pct=values("slippage_pct"),
+        period_min_notional_pressures=values("min_notional_pressure"),
+        period_precision_costs_pct=values("precision_cost_pct"),
+        period_bad_signal_key_rates=values("bad_signal_key_rate"),
+        period_long_slot_rates=values("mean_long_slot_rate"),
+        period_short_slot_rates=values("mean_short_slot_rate"),
+        period_net_direction_biases=values("mean_net_direction_bias"),
         period_regimes=regimes,
+    )
+
+
+def _stability_delta_score(candidate: Dict[str, Any], baseline: Dict[str, Any]) -> float:
+    return float(
+        (candidate["mean_ret"] - baseline["mean_ret"]) * 10.0
+        + (candidate["min_ret"] - baseline["min_ret"]) * 3.0
+        + (candidate["positive_period_pct"] - baseline["positive_period_pct"]) * 0.02
     )
 
 
@@ -531,6 +550,9 @@ def _period_summary_for_map(
     saturation_rates: List[float] = []
     invalid_open_pressures: List[float] = []
     drawdowns: List[float] = []
+    long_slot_rates: List[float] = []
+    short_slot_rates: List[float] = []
+    net_direction_biases: List[float] = []
     for idx, row in enumerate(baseline_periods):
         regime = str(row.get("regime", "neutral"))
         path = regime_map.get(regime, fallback_path)
@@ -543,11 +565,17 @@ def _period_summary_for_map(
         saturation_rate = float(selected_period.get("saturation_rate", 0.0))
         invalid_open_pressure = float(selected_period.get("invalid_open_logit_pressure", 0.0))
         max_drawdown_pct = float(selected_period.get("max_drawdown_pct", 0.0) or 0.0)
+        long_slot_rate = float(selected_period.get("mean_long_slot_rate", 0.0) or 0.0)
+        short_slot_rate = float(selected_period.get("mean_short_slot_rate", 0.0) or 0.0)
+        net_direction_bias = float(selected_period.get("mean_net_direction_bias", 0.0) or 0.0)
         selected_rets.append(float(rets[idx]))
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
         invalid_open_pressures.append(invalid_open_pressure)
         drawdowns.append(max_drawdown_pct)
+        long_slot_rates.append(long_slot_rate)
+        short_slot_rates.append(short_slot_rate)
+        net_direction_biases.append(net_direction_bias)
         selected_rows.append({
             "period": row.get("period", str(idx)),
             "regime": regime,
@@ -557,6 +585,9 @@ def _period_summary_for_map(
             "saturation_rate": saturation_rate,
             "invalid_open_logit_pressure": invalid_open_pressure,
             "max_drawdown_pct": max_drawdown_pct,
+            "mean_long_slot_rate": long_slot_rate,
+            "mean_short_slot_rate": short_slot_rate,
+            "mean_net_direction_bias": net_direction_bias,
         })
 
     if selected_rets:
@@ -577,12 +608,19 @@ def _period_summary_for_map(
         )
         max_invalid_open_logit_pressure = max(invalid_open_pressures)
         max_drawdown_pct = max(drawdowns)
+        mean_long_slot_rate = sum(long_slot_rates) / len(long_slot_rates)
+        mean_short_slot_rate = sum(short_slot_rates) / len(short_slot_rates)
+        mean_abs_net_direction_bias = (
+            sum(abs(value) for value in net_direction_biases)
+            / len(net_direction_biases)
+        )
     else:
         mean_ret = min_ret = max_ret = positive_period_pct = 0.0
         mean_turnover_rate = max_turnover_rate = 0.0
         mean_saturation_rate = max_saturation_rate = 0.0
         mean_invalid_open_logit_pressure = max_invalid_open_logit_pressure = 0.0
         max_drawdown_pct = 0.0
+        mean_long_slot_rate = mean_short_slot_rate = mean_abs_net_direction_bias = 0.0
 
     return {
         "mean_ret": float(mean_ret),
@@ -596,6 +634,9 @@ def _period_summary_for_map(
         "mean_invalid_open_logit_pressure": float(mean_invalid_open_logit_pressure),
         "max_invalid_open_logit_pressure": float(max_invalid_open_logit_pressure),
         "max_drawdown_pct": float(max_drawdown_pct),
+        "mean_long_slot_rate": float(mean_long_slot_rate),
+        "mean_short_slot_rate": float(mean_short_slot_rate),
+        "mean_abs_net_direction_bias": float(mean_abs_net_direction_bias),
         "min_per_symbol_lcb": None,
         "period_rets": selected_rets,
         "periods": selected_rows,
@@ -656,6 +697,7 @@ def select_regime_router(
     best_map = baseline_map
     best_train = baseline_train
     best_validation = baseline_validation
+    best_guards = baseline_guards
     best_score = float("-inf")
     candidates: List[Dict[str, Any]] = []
 
@@ -728,15 +770,21 @@ def select_regime_router(
             if guard["max_invalid_open_logit_pressure"] > max_invalid_open_pressure:
                 failures.append(f"guard_{guard_idx}_invalid_open_pressure")
 
+        guard_stability_score = sum(
+            _stability_delta_score(guard, baseline_guard)
+            for guard, baseline_guard in zip(guards, baseline_guards)
+        )
         score = (
             train_mean_delta
             + validation_mean_delta * 10.0
             + validation_min_delta * 3.0
+            + guard_stability_score
         )
         item = {
             "accepted": not failures,
             "failures": failures,
             "score": float(score),
+            "guard_stability_score": float(guard_stability_score),
             "regime_map": regime_map,
             "train": train,
             "validation": validation,
@@ -748,6 +796,7 @@ def select_regime_router(
             best_map = regime_map
             best_train = train
             best_validation = validation
+            best_guards = guards
 
     selected_is_baseline = best_map == baseline_map
     promotion_failures: List[str] = []
@@ -786,6 +835,7 @@ def select_regime_router(
         "selection_score": None if selected_is_baseline else float(best_score),
         "train": best_train,
         "validation": best_validation,
+        "guards": best_guards,
         "baseline_train": baseline_train,
         "baseline_validation": baseline_validation,
         "baseline_guards": baseline_guards,
@@ -967,8 +1017,11 @@ def select_candidate(
     validation_report: Dict[str, Any],
     *,
     mode: str = "fee_fixed_nextbar",
+    guard_reports: List[Dict[str, Any]] | None = None,
     min_validation_mean_delta: float = 0.0,
     min_validation_min_ret_delta: float = 0.0,
+    min_guard_mean_delta: float = 0.0,
+    min_guard_min_ret_delta: float = 0.0,
     min_positive_period_pct: float = 0.0,
     max_turnover_rate: float = 0.10,
     max_saturation_rate: float = 0.10,
@@ -985,6 +1038,13 @@ def select_candidate(
     best = baseline
     best_score = float("-inf")
     candidates: List[Dict[str, Any]] = []
+    guard_reports = list(guard_reports or [])
+    guard_items_by_report: List[tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]] = []
+    for guard_report in guard_reports:
+        guard_items = {item["path"]: item for item in _summaries(guard_report, mode=mode)}
+        if baseline["path"] not in guard_items:
+            raise ValueError(f"baseline genome not found in guard report: {baseline['path']}")
+        guard_items_by_report.append((guard_items[baseline["path"]], guard_items))
 
     for candidate in validation_items[1:]:
         failures: List[str] = []
@@ -1021,11 +1081,45 @@ def select_candidate(
         validation_min_delta = candidate["min_ret"] - baseline["min_ret"]
         if validation_mean_delta <= 0.0 and validation_min_delta <= 0.0:
             failures.append("validation_tie")
+        guards: List[Dict[str, Any]] = []
+        guard_stability_score = 0.0
+        for guard_idx, (baseline_guard, guard_items) in enumerate(guard_items_by_report):
+            guard_item = guard_items.get(candidate["path"])
+            if guard_item is None:
+                failures.append(f"guard_{guard_idx}_missing")
+                continue
+            guard_mean_delta = guard_item["mean_ret"] - baseline_guard["mean_ret"]
+            guard_min_delta = guard_item["min_ret"] - baseline_guard["min_ret"]
+            guard_positive_delta = (
+                guard_item["positive_period_pct"] - baseline_guard["positive_period_pct"]
+            )
+            if guard_mean_delta < min_guard_mean_delta:
+                failures.append(f"guard_{guard_idx}_mean_ret")
+            if guard_min_delta < min_guard_min_ret_delta:
+                failures.append(f"guard_{guard_idx}_min_ret")
+            if guard_positive_delta < 0.0:
+                failures.append(f"guard_{guard_idx}_positive_period_pct")
+            if guard_item["mean_turnover_rate"] > max_turnover_rate:
+                failures.append(f"guard_{guard_idx}_turnover")
+            if guard_item["mean_saturation_rate"] > max_saturation_rate:
+                failures.append(f"guard_{guard_idx}_saturation")
+            if guard_item["mean_invalid_open_logit_pressure"] > max_invalid_open_pressure:
+                failures.append(f"guard_{guard_idx}_invalid_open_pressure")
+            guard_stability_score += _stability_delta_score(guard_item, baseline_guard)
+            guards.append({
+                "index": guard_idx,
+                "baseline": baseline_guard,
+                "candidate": guard_item,
+                "mean_ret_delta": float(guard_mean_delta),
+                "min_ret_delta": float(guard_min_delta),
+                "positive_period_pct_delta": float(guard_positive_delta),
+            })
         score = (
             validation_mean_delta * 10.0
             + validation_min_delta * 3.0
             + train_mean_delta
             + (candidate["positive_period_pct"] - baseline["positive_period_pct"]) * 0.02
+            + guard_stability_score
         )
         if use_fitness_v3_robust:
             score += (
@@ -1040,8 +1134,10 @@ def select_candidate(
             "accepted": not failures,
             "failures": failures,
             "score": score,
+            "guard_stability_score": float(guard_stability_score),
             "train": train_item,
             "validation": candidate,
+            "guards": guards,
         }
         candidates.append(item)
         if not failures and score > best_score:
@@ -1060,10 +1156,16 @@ def select_candidate(
         "promotion_failures": promotion_failures,
         "baseline_path": baseline["path"],
         "baseline_validation": baseline,
+        "baseline_guards": [
+            baseline_guard
+            for baseline_guard, _items in guard_items_by_report
+        ],
         "selection_score": None if selected_is_baseline else best_score,
         "thresholds": {
             "min_validation_mean_delta": min_validation_mean_delta,
             "min_validation_min_ret_delta": min_validation_min_ret_delta,
+            "min_guard_mean_delta": min_guard_mean_delta,
+            "min_guard_min_ret_delta": min_guard_min_ret_delta,
             "min_positive_period_pct": min_positive_period_pct,
             "max_turnover_rate": max_turnover_rate,
             "max_saturation_rate": max_saturation_rate,
@@ -1260,12 +1362,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ("train", train_report),
         ("validation", validation_report),
     ]
+    guard_reports = [_load_json(Path(path)) for path in args.guard_report or []]
+    reports_for_strict.extend(
+        (f"guard_{idx}", report)
+        for idx, report in enumerate(guard_reports)
+    )
     if args.regime_router:
-        guard_reports = [_load_json(Path(path)) for path in args.guard_report or []]
-        reports_for_strict.extend(
-            (f"guard_{idx}", report)
-            for idx, report in enumerate(guard_reports)
-        )
         selection = select_regime_router(
             train_report,
             validation_report,
@@ -1335,8 +1437,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             train_report,
             validation_report,
             mode=args.mode,
+            guard_reports=guard_reports,
             min_validation_mean_delta=args.min_validation_mean_delta,
             min_validation_min_ret_delta=args.min_validation_min_ret_delta,
+            min_guard_mean_delta=args.min_guard_mean_delta,
+            min_guard_min_ret_delta=args.min_guard_min_ret_delta,
             min_positive_period_pct=args.min_positive_period_pct,
             max_turnover_rate=args.max_turnover_rate,
             max_saturation_rate=args.max_saturation_rate,

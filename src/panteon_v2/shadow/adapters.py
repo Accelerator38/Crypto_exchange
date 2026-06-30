@@ -13,6 +13,7 @@ Component:
 from __future__ import annotations
 
 import copy
+import math
 from collections import deque
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -48,6 +49,16 @@ def map_genetics_legacy_action(value: Any) -> Optional[Action]:
         return _GENETICS_LEGACY_ACTION_MAP.get(int(value))
     except (TypeError, ValueError):
         return None
+
+
+def _finite_float_or_none(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
 
 
 def _invoke_v1_agent(
@@ -111,6 +122,39 @@ def _map_v1_actions(
 
 def _compact_symbol_key(symbol: Any) -> str:
     return str(symbol or "").strip().upper().replace("/", "").replace("-", "").replace("_", "")
+
+
+def _trace_for_symbol(trace: Mapping[str, object], symbol: str) -> Mapping[str, object]:
+    by_symbol = trace.get("by_symbol")
+    if isinstance(by_symbol, Mapping):
+        clean_symbol = _compact_symbol_key(symbol)
+        for raw_key, raw_payload in by_symbol.items():
+            if _compact_symbol_key(raw_key) != clean_symbol:
+                continue
+            if isinstance(raw_payload, Mapping):
+                return raw_payload
+            return {}
+    return trace
+
+
+def _trace_float(
+    trace: Mapping[str, object],
+    symbol: str,
+    names: Iterable[str],
+) -> Optional[float]:
+    symbol_trace = _trace_for_symbol(trace, symbol)
+    for name in names:
+        if name in symbol_trace:
+            value = _finite_float_or_none(symbol_trace.get(name))
+            if value is not None:
+                return value
+    if symbol_trace is not trace:
+        for name in names:
+            if name in trace:
+                value = _finite_float_or_none(trace.get(name))
+                if value is not None:
+                    return value
+    return None
 
 
 def _map_v1_diagnostics(raw: Any, market: MarketSnapshot) -> Dict[str, Dict[str, Any]]:
@@ -420,6 +464,9 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
         v1_agent: Any,
         portfolio_value_fn: Optional[Callable[[], float]] = None,
         allowed_open_regimes: Optional[Iterable[Any]] = None,
+        min_action_confidence_for_open: float = 0.35,
+        min_logit_margin_for_open: float = 0.05,
+        min_regime_confidence_for_open: float = 0.45,
     ) -> None:
         super().__init__(
             label=label,
@@ -428,6 +475,9 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             action_mapper=map_genetics_legacy_action,
         )
         self.allowed_open_regimes = _normalize_open_regimes(allowed_open_regimes)
+        self.min_action_confidence_for_open = max(0.0, float(min_action_confidence_for_open))
+        self.min_logit_margin_for_open = max(0.0, float(min_logit_margin_for_open))
+        self.min_regime_confidence_for_open = max(0.0, float(min_regime_confidence_for_open))
         self.last_regime_adaptive_output_bias: Dict[str, object] = {}
 
     def clone_for_shadow(self) -> "GeneticsV2AgentAdapter":
@@ -437,6 +487,9 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             v1_agent=cloned_v1,
             portfolio_value_fn=self.portfolio_value_fn,
             allowed_open_regimes=self.allowed_open_regimes,
+            min_action_confidence_for_open=self.min_action_confidence_for_open,
+            min_logit_margin_for_open=self.min_logit_margin_for_open,
+            min_regime_confidence_for_open=self.min_regime_confidence_for_open,
         )
         for attr in (
             "source_genome_path",
@@ -473,6 +526,7 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
                 )
                 for sym, action in result.items()
             }
+        result = self._apply_open_abstention(market, result)
         self._act_cache[key] = dict(result)
         self._act_trace_cache[key] = dict(self.last_regime_adaptive_output_bias)
         if len(self._act_cache) > self._act_cache_max_size:
@@ -480,6 +534,72 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
             self._act_cache.pop(expired_key)
             self._act_trace_cache.pop(expired_key, None)
         return result
+
+    def _apply_open_abstention(
+        self,
+        market: MarketSnapshot,
+        result: Mapping[str, Action],
+    ) -> Dict[str, Action]:
+        if (
+            self.min_action_confidence_for_open <= 0.0
+            and self.min_logit_margin_for_open <= 0.0
+            and self.min_regime_confidence_for_open <= 0.0
+        ):
+            return dict(result)
+
+        trace: Mapping[str, object] = self.last_regime_adaptive_output_bias or {}
+        out: Dict[str, Action] = {}
+        for sym, action in result.items():
+            if not action.is_open:
+                out[sym] = action
+                continue
+
+            regime_confidence = _trace_float(
+                trace,
+                sym,
+                ("regime_confidence", "market_regime_confidence"),
+            )
+            if regime_confidence is None:
+                regime_confidence = _finite_float_or_none(
+                    market.regime_features_for_symbol(sym).get("regime_confidence")
+                )
+            if regime_confidence is None:
+                regime_confidence = float(getattr(market, "regime_confidence", 1.0))
+            if (
+                self.min_regime_confidence_for_open > 0.0
+                and regime_confidence < self.min_regime_confidence_for_open
+            ):
+                out[sym] = Action.HOLD
+                continue
+
+            action_confidence = _trace_float(
+                trace,
+                sym,
+                ("action_confidence", "confidence", "probability", "max_probability"),
+            )
+            if (
+                action_confidence is not None
+                and self.min_action_confidence_for_open > 0.0
+                and action_confidence < self.min_action_confidence_for_open
+            ):
+                out[sym] = Action.HOLD
+                continue
+
+            logit_margin = _trace_float(
+                trace,
+                sym,
+                ("logit_margin", "margin", "selected_logit_margin"),
+            )
+            if (
+                logit_margin is not None
+                and self.min_logit_margin_for_open > 0.0
+                and logit_margin < self.min_logit_margin_for_open
+            ):
+                out[sym] = Action.HOLD
+                continue
+
+            out[sym] = action
+        return out
 
     def _regime_adaptive_output_bias_enabled(self) -> bool:
         return bool(getattr(self.v1_agent, "_regime_adaptive_output_bias_enabled", False))
@@ -595,9 +715,13 @@ class GeneticsV2AgentAdapter(V1AgentAdapter):
                 if self.allowed_open_regimes is None
                 else tuple(sorted(regime.label for regime in self.allowed_open_regimes))
             ),
+            round(self.min_action_confidence_for_open, 10),
+            round(self.min_logit_margin_for_open, 10),
+            round(self.min_regime_confidence_for_open, 10),
             int(market.bar),
             getattr(market.timestamp, "isoformat", lambda: "")(),
             market.regime.label,
+            round(float(market.regime_confidence), 10),
             tuple(sorted(
                 (str(sym), regime.label)
                 for sym, regime in market.regimes_by_symbol.items()

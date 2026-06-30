@@ -346,6 +346,10 @@ SAME_SIDE_OPEN_PENALTY_W = _gscfg_f(_GS, 'same_side_open_penalty_w', 20.00)
 INVALID_OPEN_LOGIT_MARGIN = _gscfg_f(_GS, 'invalid_open_logit_margin', 0.25)
 INVALID_OPEN_LOGIT_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_penalty_w', 2.00)
 INVALID_OPEN_LOGIT_MAX_PENALTY_W = _gscfg_f(_GS, 'invalid_open_logit_max_penalty_w', 0.00)
+OPEN_CONFIDENCE_MIN = _gscfg_f(_GS, 'open_confidence_min', 0.35)
+OPEN_CONFIDENCE_PENALTY_W = _gscfg_f(_GS, 'open_confidence_penalty_w', 0.00)
+OPEN_LOGIT_MARGIN_MIN = _gscfg_f(_GS, 'open_logit_margin_min', 0.08)
+OPEN_LOGIT_MARGIN_PENALTY_W = _gscfg_f(_GS, 'open_logit_margin_penalty_w', 0.00)
 ACTION_FEASIBILITY_SATURATION_TARGET = _gscfg_f(_GS, 'action_feasibility_saturation_target', 0.25)
 ACTION_FEASIBILITY_INVALID_OPEN_TARGET = _gscfg_f(_GS, 'action_feasibility_invalid_open_target', 0.05)
 ACTION_FEASIBILITY_PENALTY_W = _gscfg_f(_GS, 'action_feasibility_penalty_w', 0.00)
@@ -369,6 +373,27 @@ FITNESS_WORST_PERIOD_RET_FLOOR = _gscfg_f(_GS, 'fitness_worst_period_ret_floor',
 FITNESS_WORST_PERIOD_FLOOR_PENALTY_W = _gscfg_f(_GS, 'fitness_worst_period_floor_penalty_w', 80.0)
 FITNESS_NEGATIVE_PERIOD_TARGET = _gscfg_f(_GS, 'fitness_negative_period_target', 0.0)
 FITNESS_NEGATIVE_PERIOD_PENALTY_W = _gscfg_f(_GS, 'fitness_negative_period_penalty_w', 6.0)
+FITNESS_DIRECTION_BIAS_MAX_ABS = _gscfg_f(_GS, 'fitness_direction_bias_max_abs', 0.85)
+FITNESS_DIRECTION_BIAS_PENALTY_W = _gscfg_f(_GS, 'fitness_direction_bias_penalty_w', 3.0)
+FITNESS_MAX_ZERO_PERIOD_RATE = _gscfg_f(_GS, 'fitness_max_zero_period_rate', 1.0)
+FITNESS_ZERO_PERIOD_PENALTY_W = _gscfg_f(_GS, 'fitness_zero_period_penalty_w', 0.0)
+FITNESS_PERSISTENT_DIRECTION_BIAS_MAX_ABS = _gscfg_f(_GS, 'fitness_persistent_direction_bias_max_abs', 1.0)
+FITNESS_PERSISTENT_DIRECTION_BIAS_PENALTY_W = _gscfg_f(_GS, 'fitness_persistent_direction_bias_penalty_w', 0.0)
+FITNESS_HARD_GATE_SENTINEL = _gscfg_f(_GS, 'fitness_hard_gate_sentinel', -1.0e8)
+FITNESS_HARD_MAX_ZERO_PERIOD_RATE = _gscfg_f(_GS, 'fitness_hard_max_zero_period_rate', 1.01)
+FITNESS_ACTIVE_PERIOD_MIN_ABS_RET = _gscfg_f(_GS, 'fitness_active_period_min_abs_ret', 0.10)
+FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE = _gscfg_f(_GS, 'fitness_hard_min_active_period_rate', 0.0)
+FITNESS_HARD_MIN_MEAN_RET = _gscfg_f(_GS, 'fitness_hard_min_mean_ret', -1.0e9)
+FITNESS_MICRO_POSITIVE_MAX_RET = _gscfg_f(_GS, 'fitness_micro_positive_max_ret', 0.10)
+FITNESS_MICRO_POSITIVE_MAX_RATE = _gscfg_f(_GS, 'fitness_micro_positive_max_rate', 1.01)
+FITNESS_MICRO_POSITIVE_MEAN_RET_CEILING = _gscfg_f(_GS, 'fitness_micro_positive_mean_ret_ceiling', 0.20)
+FITNESS_WFA_FOLD_COUNT = _gscfg_i(_GS, 'fitness_wfa_fold_count', 0)
+FITNESS_WFA_MIN_FOLD_MEAN_RET = _gscfg_f(_GS, 'fitness_wfa_min_fold_mean_ret', -1.0e9)
+FITNESS_WFA_FOLD_PENALTY_W = _gscfg_f(_GS, 'fitness_wfa_fold_penalty_w', 0.0)
+FITNESS_WFA_FOLD_DISPERSION_PENALTY_W = _gscfg_f(_GS, 'fitness_wfa_fold_dispersion_penalty_w', 0.0)
+FITNESS_WFA_HARD_MIN_FOLD_MEAN_RET = _gscfg_f(_GS, 'fitness_wfa_hard_min_fold_mean_ret', -1.0e9)
+FITNESS_WFA_MIN_POSITIVE_FOLD_RATE = _gscfg_f(_GS, 'fitness_wfa_min_positive_fold_rate', 0.0)
+FITNESS_WFA_POSITIVE_FOLD_PENALTY_W = _gscfg_f(_GS, 'fitness_wfa_positive_fold_penalty_w', 0.0)
 REGIME_GENOME_MIN_FITNESS = _gscfg_f(_GS, 'regime_genome_min_fitness', 0.0)
 
 # ── [6] Пороги вознаграждения за период ───────────────────────────────────────
@@ -433,6 +458,14 @@ else:
     TRAIN_BAR          = _gscfg_i(_GS, 'train_bar',       60)     # BAR при fallback
     TRAIN_INITIAL_CAPITAL = _gscfg_f(_GS, 'train_initial_capital', 10000.0)
 
+TRAIN_FEE = _gscfg_f(_GS, 'train_fee', TRAIN_FEE)
+TRAIN_SLIPPAGE = _gscfg_f(_GS, 'train_slippage', TRAIN_SLIPPAGE)
+TRAIN_FUTURES_FEE = _gscfg_f(_GS, 'train_futures_fee', TRAIN_FUTURES_FEE)
+TRAIN_FUNDING_RATE = _gscfg_f(_GS, 'train_funding_rate', TRAIN_FUNDING_RATE)
+TRAIN_SPREAD = _gscfg_f(_GS, 'train_spread', 0.0)
+TRAIN_MIN_NOTIONAL_USD = _gscfg_f(_GS, 'train_min_notional_usd', 0.0)
+TRAIN_QUANTITY_PRECISION_STEP = _gscfg_f(_GS, 'train_quantity_precision_step', 0.0)
+
 # ── [8] BC / agent seeding ────────────────────────────────────────────────────
 BC_ENABLED      = _gscfg_b(_GS, 'bc_enabled',      False)   # OFF по умолчанию
 BC_AUTO_DISCOVERY = _gscfg_b(_GS, 'bc_auto_discovery', False)
@@ -441,6 +474,7 @@ BC_LR           = _gscfg_f(_GS, 'bc_lr',           0.003)
 BC_EPOCHS       = _gscfg_i(_GS, 'bc_epochs',       50)
 BC_NOISE        = _gscfg_f(_GS, 'bc_noise',        0.015)
 BC_MAX_BARS     = _gscfg_i(_GS, 'bc_max_bars',     4000)
+BC_MIN_ACTIVE_RATIO = _gscfg_f(_GS, 'bc_min_active_ratio', 0.03)
 BC_REGIMES_PER_TYPE = _gscfg_i(_GS, 'bc_regimes_per_type', 2)
 _asl_raw = _GS.get('agent_seed_list', '').strip()
 AGENT_SEED_LIST = [x.strip() for x in _asl_raw.split(',') if x.strip()] if _asl_raw else []
@@ -574,11 +608,11 @@ TRAIN_EXECUTION_LAG_BARS   = max(0, _gscfg_i(_GS, 'train_execution_lag_bars', 1)
 
 
 def _spot_fee_total() -> float:
-    return float(TRAIN_FEE + TRAIN_SLIPPAGE)
+    return float(TRAIN_FEE + TRAIN_SLIPPAGE + TRAIN_SPREAD * 0.5)
 
 
 def _futures_fee_total() -> float:
-    return float(TRAIN_FUTURES_FEE + TRAIN_SLIPPAGE)
+    return float(TRAIN_FUTURES_FEE + TRAIN_SLIPPAGE + TRAIN_SPREAD * 0.5)
 
 
 def _swap_fee_total() -> float:
@@ -1623,6 +1657,8 @@ def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
     same_side_open = np.zeros(G, dtype=np.float64)
     capacity_usage = np.zeros(G, dtype=np.float64)
     capacity_bars = np.zeros(G, dtype=np.float64)
+    long_slots = np.zeros(G, dtype=np.float64)
+    short_slots = np.zeros(G, dtype=np.float64)
     spot_open = np.zeros((G, NC), dtype=bool)
     fut_side = np.zeros((G, NC), dtype=np.int8)
     occupied = np.zeros((G, NC), dtype=bool)
@@ -1662,17 +1698,31 @@ def _action_contract_metrics(actions_arr: np.ndarray) -> Dict[str, np.ndarray]:
                     if not spot_open[g, c]:
                         occupied[g, c] = False
                         n_pos[g] = max(0, n_pos[g] - 1)
+            long_now = spot_open[g] | (fut_side[g] > 0)
+            short_now = fut_side[g] < 0
+            long_slots[g] += float(long_now.sum())
+            short_slots[g] += float(short_now.sum())
             if max_positions > 0:
                 capacity_usage[g] += min(1.0, max(0.0, n_pos[g] / float(max_positions)))
                 if n_pos[g] >= max_positions:
                     capacity_bars[g] += 1.0
 
+    directional_total = long_slots + short_slots
+    net_direction_bias = np.divide(
+        long_slots - short_slots,
+        directional_total,
+        out=np.zeros_like(directional_total),
+        where=directional_total > 0.0,
+    )
     return {
         "turnover_rates": turnover / denom,
         "saturation_rates": saturated / denom,
         "same_side_open_rates": same_side_open / denom,
         "capacity_usage_rates": capacity_usage / max(T, 1),
         "capacity_bar_rates": capacity_bars / max(T, 1),
+        "mean_long_slot_rates": long_slots / denom,
+        "mean_short_slot_rates": short_slots / denom,
+        "net_direction_biases": net_direction_bias,
     }
 
 
@@ -1922,6 +1972,8 @@ def _batch_forward_position_aware_numpy(
     n_pos = np.zeros(G, dtype=np.int32)
     suppressed_saturation = np.zeros(G, dtype=np.float64)
     invalid_open_logit_pressure = np.zeros(G, dtype=np.float64)
+    weak_open_confidence_pressure = np.zeros(G, dtype=np.float64)
+    weak_open_margin_pressure = np.zeros(G, dtype=np.float64)
     same_side_open_attempts = np.zeros(G, dtype=np.float64)
     capacity_usage = np.zeros(G, dtype=np.float64)
     capacity_bars = np.zeros(G, dtype=np.float64)
@@ -1997,6 +2049,31 @@ def _batch_forward_position_aware_numpy(
                 same_bar_pressure * same_bar_suppressed_open.astype(np.float64)
             ).sum(axis=1)
         actions[:, t, :] = adjusted
+        if open_logits:
+            selected_idx = np.clip(selected.astype(np.int64), 0, N_ACTIONS - 1)
+            stable_logits = logits - logits.max(axis=-1, keepdims=True)
+            exp_logits = np.exp(np.clip(stable_logits, -80.0, 0.0))
+            probs = exp_logits / (exp_logits.sum(axis=-1, keepdims=True) + 1e-9)
+            selected_conf = np.take_along_axis(
+                probs,
+                selected_idx[:, :, None],
+                axis=-1,
+            )[:, :, 0]
+            sorted_logits = np.sort(logits, axis=-1)
+            selected_margin = (
+                sorted_logits[:, :, -1] - sorted_logits[:, :, -2]
+                if N_ACTIONS > 1
+                else np.zeros((G, NC), dtype=np.float32)
+            )
+            executable_open = selected_open & (adjusted != 0)
+            weak_open_confidence_pressure += (
+                np.maximum(0.0, float(OPEN_CONFIDENCE_MIN) - selected_conf)
+                * executable_open.astype(np.float64)
+            ).sum(axis=1)
+            weak_open_margin_pressure += (
+                np.maximum(0.0, float(OPEN_LOGIT_MARGIN_MIN) - selected_margin)
+                * executable_open.astype(np.float64)
+            ).sum(axis=1)
         if max_positions > 0:
             capacity_usage += np.clip(n_pos.astype(np.float64) / float(max_positions), 0.0, 1.0)
             capacity_bars += (n_pos >= max_positions).astype(np.float64)
@@ -2006,6 +2083,8 @@ def _batch_forward_position_aware_numpy(
         return actions, {
             "saturation_rates": suppressed_saturation / denom,
             "invalid_open_logit_pressures": invalid_open_logit_pressure / denom,
+            "weak_open_confidence_pressures": weak_open_confidence_pressure / denom,
+            "weak_open_margin_pressures": weak_open_margin_pressure / denom,
             "same_side_open_rates": same_side_open_attempts / denom,
             "capacity_usage_rates": capacity_usage / max(T, 1),
             "capacity_bar_rates": capacity_bars / max(T, 1),
@@ -2417,6 +2496,92 @@ def _compute_robust_fitness_adjustment(period_rets: np.ndarray) -> np.ndarray:
     )
 
 
+def _sanitize_fitness_array(fitness: np.ndarray) -> np.ndarray:
+    """Make invalid fitness values lose selection instead of winning argmax."""
+    return np.nan_to_num(
+        np.asarray(fitness, dtype=np.float64),
+        nan=-1.0e9,
+        posinf=-1.0e9,
+        neginf=-1.0e9,
+    )
+
+
+_FITNESS_INVALID_DEBUG_EMITTED = False
+
+
+def _maybe_log_invalid_fitness_debug(
+    fitness: np.ndarray,
+    *,
+    period_rets: np.ndarray,
+    period_dds: np.ndarray,
+    period_trade_rates: np.ndarray,
+    period_daily_pvs: Optional[List[np.ndarray]],
+    period_regime_weights: Optional[np.ndarray],
+    period_saturation_rates: Optional[np.ndarray],
+    period_invalid_open_logit_pressures: Optional[np.ndarray],
+    period_weak_open_confidence_pressures: Optional[np.ndarray],
+    period_weak_open_margin_pressures: Optional[np.ndarray],
+    period_capacity_bar_rates: Optional[np.ndarray],
+    period_same_side_open_rates: Optional[np.ndarray],
+    period_net_direction_biases: Optional[np.ndarray],
+) -> None:
+    global _FITNESS_INVALID_DEBUG_EMITTED
+    if _FITNESS_INVALID_DEBUG_EMITTED:
+        return
+    if np.all(np.isfinite(fitness)):
+        return
+    _FITNESS_INVALID_DEBUG_EMITTED = True
+
+    def _stats(name: str, value) -> str:
+        arr = np.asarray(value, dtype=np.float64)
+        finite = np.isfinite(arr)
+        finite_values = arr[finite]
+        if finite_values.size:
+            min_v = float(finite_values.min())
+            max_v = float(finite_values.max())
+        else:
+            min_v = float("nan")
+            max_v = float("nan")
+        return (
+            f"{name}: shape={arr.shape} finite={int(finite.sum())}/{arr.size} "
+            f"nan={int(np.isnan(arr).sum())} posinf={int(np.isposinf(arr).sum())} "
+            f"neginf={int(np.isneginf(arr).sum())} min={min_v:.6g} max={max_v:.6g}"
+        )
+
+    print("  [fitness-debug] invalid raw fitness detected; sanitizing to penalty")
+    print("  [fitness-debug] " + _stats("fitness", fitness))
+    print("  [fitness-debug] " + _stats("period_rets", period_rets))
+    print("  [fitness-debug] " + _stats("period_dds", period_dds))
+    print("  [fitness-debug] " + _stats("period_trade_rates", period_trade_rates))
+    if period_regime_weights is not None:
+        print("  [fitness-debug] " + _stats("period_regime_weights", period_regime_weights))
+    if period_saturation_rates is not None:
+        print("  [fitness-debug] " + _stats("period_saturation_rates", period_saturation_rates))
+    if period_invalid_open_logit_pressures is not None:
+        print("  [fitness-debug] " + _stats("period_invalid_open_logit_pressures", period_invalid_open_logit_pressures))
+    if period_weak_open_confidence_pressures is not None:
+        print("  [fitness-debug] " + _stats("period_weak_open_confidence_pressures", period_weak_open_confidence_pressures))
+    if period_weak_open_margin_pressures is not None:
+        print("  [fitness-debug] " + _stats("period_weak_open_margin_pressures", period_weak_open_margin_pressures))
+    if period_capacity_bar_rates is not None:
+        print("  [fitness-debug] " + _stats("period_capacity_bar_rates", period_capacity_bar_rates))
+    if period_same_side_open_rates is not None:
+        print("  [fitness-debug] " + _stats("period_same_side_open_rates", period_same_side_open_rates))
+    if period_net_direction_biases is not None:
+        print("  [fitness-debug] " + _stats("period_net_direction_biases", period_net_direction_biases))
+    if period_daily_pvs is not None:
+        bad = 0
+        for idx, pv in enumerate(period_daily_pvs):
+            if pv is None:
+                continue
+            arr = np.asarray(pv, dtype=np.float64)
+            if not np.all(np.isfinite(arr)):
+                bad += 1
+                print("  [fitness-debug] " + _stats(f"daily_pv[{idx}]", arr))
+                if bad >= 5:
+                    break
+
+
 def _compute_fitness(period_rets: np.ndarray,
                      period_dds: np.ndarray,
                      period_trade_rates: np.ndarray,
@@ -2424,8 +2589,11 @@ def _compute_fitness(period_rets: np.ndarray,
                      period_regime_weights: Optional[np.ndarray] = None,
                      period_saturation_rates: Optional[np.ndarray] = None,
                      period_invalid_open_logit_pressures: Optional[np.ndarray] = None,
+                     period_weak_open_confidence_pressures: Optional[np.ndarray] = None,
+                     period_weak_open_margin_pressures: Optional[np.ndarray] = None,
                      period_capacity_bar_rates: Optional[np.ndarray] = None,
-                     period_same_side_open_rates: Optional[np.ndarray] = None
+                     period_same_side_open_rates: Optional[np.ndarray] = None,
+                     period_net_direction_biases: Optional[np.ndarray] = None
                      ) -> np.ndarray:
     """
     3-фазный адаптивный фитнес v8.
@@ -2467,6 +2635,17 @@ def _compute_fitness(period_rets: np.ndarray,
     down_std = np.sqrt(((losses ** 2) * w_norm[None, :]).sum(axis=1))
     mean_dd  = period_dds.mean(axis=1)
     zero_p   = (np.abs(period_rets) < ZERO_THRESH).mean(axis=1)
+    active_period_rate = (
+        np.abs(period_rets) >= float(FITNESS_ACTIVE_PERIOD_MIN_ABS_RET)
+    ).mean(axis=1)
+    micro_positive_rate = (
+        (period_rets > 0.0)
+        & (period_rets <= float(FITNESS_MICRO_POSITIVE_MAX_RET))
+    ).mean(axis=1)
+    zero_period_pen = (
+        np.maximum(0.0, zero_p - float(FITNESS_MAX_ZERO_PERIOD_RATE))
+        * float(FITNESS_ZERO_PERIOD_PENALTY_W)
+    )
 
     worst_ret = period_rets.min(axis=1)
     worst_pen = np.where(worst_ret < MIN_RET_THRESH,
@@ -2495,6 +2674,7 @@ def _compute_fitness(period_rets: np.ndarray,
     )
     if period_saturation_rates is not None:
         saturation_arr = np.asarray(period_saturation_rates, dtype=np.float64)
+        saturation_arr = np.nan_to_num(saturation_arr, nan=0.0, posinf=1.0, neginf=0.0)
         if saturation_arr.shape == period_rets.shape:
             mean_saturation_rate = saturation_arr.mean(axis=1)
             max_saturation_rate = saturation_arr.max(axis=1)
@@ -2511,6 +2691,7 @@ def _compute_fitness(period_rets: np.ndarray,
     saturation_max_pen = max_saturation_rate * float(MAX_POSITION_SATURATION_MAX_PENALTY_W)
     if period_invalid_open_logit_pressures is not None:
         pressure_arr = np.asarray(period_invalid_open_logit_pressures, dtype=np.float64)
+        pressure_arr = np.nan_to_num(pressure_arr, nan=0.0, posinf=1.0, neginf=0.0)
         if pressure_arr.shape == period_rets.shape:
             mean_invalid_open_pressure = pressure_arr.mean(axis=1)
             max_invalid_open_pressure = pressure_arr.max(axis=1)
@@ -2529,6 +2710,44 @@ def _compute_fitness(period_rets: np.ndarray,
     invalid_open_logit_max_pen = (
         max_invalid_open_pressure * float(INVALID_OPEN_LOGIT_MAX_PENALTY_W)
     )
+    if period_weak_open_confidence_pressures is not None:
+        weak_conf_arr = np.asarray(period_weak_open_confidence_pressures, dtype=np.float64)
+        weak_conf_arr = np.nan_to_num(weak_conf_arr, nan=0.0, posinf=1.0, neginf=0.0)
+        if weak_conf_arr.shape == period_rets.shape:
+            mean_weak_open_confidence_pressure = weak_conf_arr.mean(axis=1)
+            max_weak_open_confidence_pressure = weak_conf_arr.max(axis=1)
+        elif weak_conf_arr.shape == (G,):
+            mean_weak_open_confidence_pressure = weak_conf_arr
+            max_weak_open_confidence_pressure = weak_conf_arr
+        else:
+            mean_weak_open_confidence_pressure = np.zeros(G, dtype=np.float64)
+            max_weak_open_confidence_pressure = np.zeros(G, dtype=np.float64)
+    else:
+        mean_weak_open_confidence_pressure = np.zeros(G, dtype=np.float64)
+        max_weak_open_confidence_pressure = np.zeros(G, dtype=np.float64)
+    if period_weak_open_margin_pressures is not None:
+        weak_margin_arr = np.asarray(period_weak_open_margin_pressures, dtype=np.float64)
+        weak_margin_arr = np.nan_to_num(weak_margin_arr, nan=0.0, posinf=1.0, neginf=0.0)
+        if weak_margin_arr.shape == period_rets.shape:
+            mean_weak_open_margin_pressure = weak_margin_arr.mean(axis=1)
+            max_weak_open_margin_pressure = weak_margin_arr.max(axis=1)
+        elif weak_margin_arr.shape == (G,):
+            mean_weak_open_margin_pressure = weak_margin_arr
+            max_weak_open_margin_pressure = weak_margin_arr
+        else:
+            mean_weak_open_margin_pressure = np.zeros(G, dtype=np.float64)
+            max_weak_open_margin_pressure = np.zeros(G, dtype=np.float64)
+    else:
+        mean_weak_open_margin_pressure = np.zeros(G, dtype=np.float64)
+        max_weak_open_margin_pressure = np.zeros(G, dtype=np.float64)
+    weak_open_confidence_pen = (
+        (mean_weak_open_confidence_pressure + max_weak_open_confidence_pressure)
+        * float(OPEN_CONFIDENCE_PENALTY_W)
+    )
+    weak_open_margin_pen = (
+        (mean_weak_open_margin_pressure + max_weak_open_margin_pressure)
+        * float(OPEN_LOGIT_MARGIN_PENALTY_W)
+    )
     feasibility_sat_excess = (
         np.maximum(0.0, mean_saturation_rate - float(ACTION_FEASIBILITY_SATURATION_TARGET))
         + np.maximum(0.0, max_saturation_rate - float(ACTION_FEASIBILITY_SATURATION_TARGET))
@@ -2542,6 +2761,7 @@ def _compute_fitness(period_rets: np.ndarray,
     ) * float(ACTION_FEASIBILITY_PENALTY_W)
     if period_capacity_bar_rates is not None:
         capacity_arr = np.asarray(period_capacity_bar_rates, dtype=np.float64)
+        capacity_arr = np.nan_to_num(capacity_arr, nan=0.0, posinf=1.0, neginf=0.0)
         if capacity_arr.shape == period_rets.shape:
             mean_capacity_bar_rate = capacity_arr.mean(axis=1)
             max_capacity_bar_rate = capacity_arr.max(axis=1)
@@ -2564,6 +2784,7 @@ def _compute_fitness(period_rets: np.ndarray,
     )
     if period_same_side_open_rates is not None:
         same_side_arr = np.asarray(period_same_side_open_rates, dtype=np.float64)
+        same_side_arr = np.nan_to_num(same_side_arr, nan=0.0, posinf=1.0, neginf=0.0)
         if same_side_arr.shape == period_rets.shape:
             mean_same_side_open_rate = same_side_arr.mean(axis=1)
             max_same_side_open_rate = same_side_arr.max(axis=1)
@@ -2582,6 +2803,32 @@ def _compute_fitness(period_rets: np.ndarray,
             + np.maximum(0.0, max_same_side_open_rate - float(SAME_SIDE_OPEN_TARGET))
         )
         * float(SAME_SIDE_OPEN_PENALTY_W)
+    )
+    if period_net_direction_biases is not None:
+        direction_arr = np.asarray(period_net_direction_biases, dtype=np.float64)
+        direction_arr = np.nan_to_num(direction_arr, nan=0.0, posinf=1.0, neginf=-1.0)
+        if direction_arr.shape == period_rets.shape:
+            max_abs_direction_bias = np.abs(direction_arr).max(axis=1)
+            persistent_abs_direction_bias = np.abs(direction_arr.mean(axis=1))
+        elif direction_arr.shape == (G,):
+            max_abs_direction_bias = np.abs(direction_arr)
+            persistent_abs_direction_bias = np.abs(direction_arr)
+        else:
+            max_abs_direction_bias = np.zeros(G, dtype=np.float64)
+            persistent_abs_direction_bias = np.zeros(G, dtype=np.float64)
+    else:
+        max_abs_direction_bias = np.zeros(G, dtype=np.float64)
+        persistent_abs_direction_bias = np.zeros(G, dtype=np.float64)
+    direction_bias_pen = (
+        np.maximum(0.0, max_abs_direction_bias - float(FITNESS_DIRECTION_BIAS_MAX_ABS))
+        * float(FITNESS_DIRECTION_BIAS_PENALTY_W)
+    )
+    persistent_direction_bias_pen = (
+        np.maximum(
+            0.0,
+            persistent_abs_direction_bias - float(FITNESS_PERSISTENT_DIRECTION_BIAS_MAX_ABS),
+        )
+        * float(FITNESS_PERSISTENT_DIRECTION_BIAS_PENALTY_W)
     )
 
     # ── Daily snapshot metrics ────────────────────────────────────────────────
@@ -2725,6 +2972,34 @@ def _compute_fitness(period_rets: np.ndarray,
         np.maximum(0.0, negative_period_rate - float(FITNESS_NEGATIVE_PERIOD_TARGET))
         * float(FITNESS_NEGATIVE_PERIOD_PENALTY_W)
     )
+    wfa_fold_count = min(max(0, int(FITNESS_WFA_FOLD_COUNT)), P)
+    if wfa_fold_count >= 2:
+        fold_means = np.column_stack([
+            period_rets[:, idx].mean(axis=1)
+            for idx in np.array_split(np.arange(P), wfa_fold_count)
+            if len(idx) > 0
+        ])
+        min_wfa_fold_mean = fold_means.min(axis=1)
+        wfa_fold_dispersion = fold_means.std(axis=1)
+        wfa_positive_fold_rate = (fold_means > 0.0).mean(axis=1)
+    else:
+        min_wfa_fold_mean = mean_r.copy()
+        wfa_fold_dispersion = np.zeros(G, dtype=np.float64)
+        wfa_positive_fold_rate = np.ones(G, dtype=np.float64)
+    wfa_fold_pen = (
+        np.maximum(0.0, float(FITNESS_WFA_MIN_FOLD_MEAN_RET) - min_wfa_fold_mean)
+        * float(FITNESS_WFA_FOLD_PENALTY_W)
+    )
+    wfa_fold_dispersion_pen = (
+        wfa_fold_dispersion * float(FITNESS_WFA_FOLD_DISPERSION_PENALTY_W)
+    )
+    wfa_positive_fold_pen = (
+        np.maximum(
+            0.0,
+            float(FITNESS_WFA_MIN_POSITIVE_FOLD_RATE) - wfa_positive_fold_rate,
+        )
+        * float(FITNESS_WFA_POSITIVE_FOLD_PENALTY_W)
+    )
 
     # ══ ЕДИНАЯ СБАЛАНСИРОВАННАЯ ФОРМУЛА v2 (FIX 3+4) ═══════════════════════════
     #
@@ -2756,6 +3031,7 @@ def _compute_fitness(period_rets: np.ndarray,
           - FITNESS_ALPHA * 0.5  * down_std               # штраф за downside volatility
           - FITNESS_BETA  * 0.5  * mean_dd                # штраф за просадку
           - FITNESS_GAMMA * 0.4  * zero_p                 # штраф за пассивность
+          - zero_period_pen                               # penalty for empty-month/HOLD collapse
           - FITNESS_DELTA * 0.35 * worst_pen              # штраф за катастрофы
           - FITNESS_THETA * 0.4  * bear_regime_pen        # штраф за слабые режимы
           - FITNESS_EPSILON * 0.25 * inactivity_pen       # штраф за бездействие
@@ -2764,20 +3040,58 @@ def _compute_fitness(period_rets: np.ndarray,
           - saturation_max_pen                            # penalty for concentrated impossible opens
           - invalid_open_logit_pen                        # penalty for preferring impossible opens
           - invalid_open_logit_max_pen                    # penalty for concentrated invalid-open pressure
+          - weak_open_confidence_pen                      # penalty for opens live abstention would reject
+          - weak_open_margin_pen                          # penalty for weak action/hold logit separation
           - action_feasibility_pen                        # feasibility-first action contract gate
           - capacity_bar_pen                              # penalty for staying at full position capacity
           - capacity_bar_max_pen                          # penalty for capacity concentrated in one period
           - same_side_open_pen                            # penalty for repeated same-direction open attempts
+          - direction_bias_pen                            # penalty for one-sided long/short exposure collapse
+          - persistent_direction_bias_pen                 # penalty for persistent split-level long/short collapse
           - 0.20            * stop_pen                    # штраф за частые стопы
           - neg_streak_pen                                # FIX 4: штраф за серию убытков
           - outlier_concentration_pen                     # core anti-overfit guard
           - mean_return_floor_pen                         # do not reward low-return safety
           - worst_period_floor_pen                        # do not hide a bad month behind outlier gains
+          - wfa_fold_pen                                  # train-time rolling fold degradation
+          - wfa_fold_dispersion_pen                       # train-time fold concentration
+          - wfa_positive_fold_pen                         # train-time fold-level consistency
           - negative_period_pen)                          # do not hide losing months behind low turnover
 
     if ROBUST_FITNESS_ENABLED:
         fitness = fitness + _compute_robust_fitness_adjustment(period_rets)
-    return fitness
+    hard_gate = np.zeros(G, dtype=bool)
+    if float(FITNESS_HARD_MAX_ZERO_PERIOD_RATE) <= 1.0:
+        hard_gate |= zero_p > float(FITNESS_HARD_MAX_ZERO_PERIOD_RATE)
+    if float(FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE) > 0.0:
+        hard_gate |= active_period_rate < float(FITNESS_HARD_MIN_ACTIVE_PERIOD_RATE)
+    if float(FITNESS_HARD_MIN_MEAN_RET) > -1.0e8:
+        hard_gate |= mean_r <= float(FITNESS_HARD_MIN_MEAN_RET)
+    if float(FITNESS_MICRO_POSITIVE_MAX_RATE) <= 1.0:
+        hard_gate |= (
+            (micro_positive_rate > float(FITNESS_MICRO_POSITIVE_MAX_RATE))
+            & (mean_r <= float(FITNESS_MICRO_POSITIVE_MEAN_RET_CEILING))
+        )
+    if float(FITNESS_WFA_HARD_MIN_FOLD_MEAN_RET) > -1.0e8:
+        hard_gate |= min_wfa_fold_mean <= float(FITNESS_WFA_HARD_MIN_FOLD_MEAN_RET)
+    if np.any(hard_gate):
+        fitness = np.where(hard_gate, float(FITNESS_HARD_GATE_SENTINEL), fitness)
+    _maybe_log_invalid_fitness_debug(
+        fitness,
+        period_rets=period_rets,
+        period_dds=period_dds,
+        period_trade_rates=period_trade_rates,
+        period_daily_pvs=period_daily_pvs,
+        period_regime_weights=period_regime_weights,
+        period_saturation_rates=period_saturation_rates,
+        period_invalid_open_logit_pressures=period_invalid_open_logit_pressures,
+        period_weak_open_confidence_pressures=period_weak_open_confidence_pressures,
+        period_weak_open_margin_pressures=period_weak_open_margin_pressures,
+        period_capacity_bar_rates=period_capacity_bar_rates,
+        period_same_side_open_rates=period_same_side_open_rates,
+        period_net_direction_biases=period_net_direction_biases,
+    )
+    return _sanitize_fitness_array(fitness)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2872,7 +3186,9 @@ class GPUEvaluator:
 
     def evaluate(self, population, precomp, rw_override: Optional[Dict[str, float]] = None):
         G = len(population)
-        rl, dl, trl, satl, pressurel, capl, same_side_l = [], [], [], [], [], [], []
+        rl, dl, trl = [], [], []
+        satl, pressurel, weak_conf_l, weak_margin_l = [], [], [], []
+        capl, same_side_l, dir_l = [], [], []
         daily_pvs: List[Optional[np.ndarray]] = []
         regime_weights = []
 
@@ -2910,6 +3226,16 @@ class GPUEvaluator:
                 if suppression_metrics is not None
                 else np.zeros(G, dtype=np.float64)
             )
+            weak_conf_l.append(
+                suppression_metrics["weak_open_confidence_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
+            weak_margin_l.append(
+                suppression_metrics["weak_open_margin_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
             capl.append(
                 suppression_metrics["capacity_bar_rates"]
                 if suppression_metrics is not None
@@ -2920,6 +3246,7 @@ class GPUEvaluator:
                 if suppression_metrics is not None
                 else contract_metrics["same_side_open_rates"]
             )
+            dir_l.append(contract_metrics["net_direction_biases"])
             daily_pvs.append(dpv)
 
         ret_mat = np.column_stack(rl)
@@ -2927,8 +3254,11 @@ class GPUEvaluator:
         tr_mat  = np.column_stack(trl)
         sat_mat = np.column_stack(satl)
         pressure_mat = np.column_stack(pressurel)
+        weak_conf_mat = np.column_stack(weak_conf_l)
+        weak_margin_mat = np.column_stack(weak_margin_l)
         cap_mat = np.column_stack(capl)
         same_side_mat = np.column_stack(same_side_l)
+        dir_mat = np.column_stack(dir_l)
         rw_arr  = np.array(regime_weights, dtype=np.float64)
         fits    = _compute_fitness(
             ret_mat,
@@ -2938,8 +3268,11 @@ class GPUEvaluator:
             rw_arr,
             sat_mat,
             pressure_mat,
+            weak_conf_mat,
+            weak_margin_mat,
             cap_mat,
             same_side_mat,
+            dir_mat,
         )
 
         # ── Pareto-ranking бонус по режимам ────────────────────────────────────
@@ -2951,7 +3284,7 @@ class GPUEvaluator:
                                                 PARETO_BONUS_WEIGHT)
             fits = fits + pareto_bonus
 
-        return fits, [ret_mat[g].tolist() for g in range(G)]
+        return _sanitize_fitness_array(fits), [ret_mat[g].tolist() for g in range(G)]
 
     def _batch_forward(self, population, feat, prices=None):
         if POSITION_STATE_FEATURES_ENABLED and (not CURRENCY_SELECTION_ENABLED or CURRENCY_LEARNING_ENABLED) and prices is not None:
@@ -3088,7 +3421,9 @@ def _worker_task(gbytes: bytes):
     W1, b1, W2, b2, W3, b3, W4, b4 = _unpack(genome)
     IC = _W_IC or 100_000.0
     snap_every = _get_snap_every()
-    rl, dl, trl, satl, pressurel, capl, same_side_l = [], [], [], [], [], [], []
+    rl, dl, trl = [], [], []
+    satl, pressurel, weak_conf_l, weak_margin_l = [], [], [], []
+    capl, same_side_l, dir_l = [], [], []
     dpv_list = []
     rw_list  = []
     for entry in _W_PRECOMP:
@@ -3126,6 +3461,16 @@ def _worker_task(gbytes: bytes):
             if suppression_metrics is not None
             else 0.0
         ))
+        weak_conf_l.append(float(
+            suppression_metrics["weak_open_confidence_pressures"][0]
+            if suppression_metrics is not None
+            else 0.0
+        ))
+        weak_margin_l.append(float(
+            suppression_metrics["weak_open_margin_pressures"][0]
+            if suppression_metrics is not None
+            else 0.0
+        ))
         capl.append(float(
             suppression_metrics["capacity_bar_rates"][0]
             if suppression_metrics is not None
@@ -3136,6 +3481,7 @@ def _worker_task(gbytes: bytes):
             if suppression_metrics is not None
             else contract_metrics["same_side_open_rates"][0]
         ))
+        dir_l.append(float(contract_metrics["net_direction_biases"][0]))
         dpv_list.append(dpv)
     if not rl:
         return -100.0, []
@@ -3144,8 +3490,11 @@ def _worker_task(gbytes: bytes):
     tr_arr = np.array(trl, dtype=np.float64)[None]
     sat_arr = np.array(satl, dtype=np.float64)[None]
     pressure_arr = np.array(pressurel, dtype=np.float64)[None]
+    weak_conf_arr = np.array(weak_conf_l, dtype=np.float64)[None]
+    weak_margin_arr = np.array(weak_margin_l, dtype=np.float64)[None]
     cap_arr = np.array(capl, dtype=np.float64)[None]
     same_side_arr = np.array(same_side_l, dtype=np.float64)[None]
+    dir_arr = np.array(dir_l, dtype=np.float64)[None]
     rw_arr = np.array(rw_list, dtype=np.float64)
     return float(_compute_fitness(
         r_arr,
@@ -3155,8 +3504,11 @@ def _worker_task(gbytes: bytes):
         rw_arr,
         sat_arr,
         pressure_arr,
+        weak_conf_arr,
+        weak_margin_arr,
         cap_arr,
         same_side_arr,
+        dir_arr,
     )[0]), rl
 
 
@@ -3404,7 +3756,7 @@ def _bc_worker(args):
     # Критерий фильтрации:
     #   active_ratio = доля шагов с ненулевым действием < 3% → ПРОПУСТИТЬ
     _raw_active_ratio = float((y != 0).mean())
-    if _raw_active_ratio < 0.03:
+    if _raw_active_ratio < float(BC_MIN_ACTIVE_RATIO):
         return agent_name, None, logs + [
             f"    [BC] {agent_name}: ПРОПУЩЕН (active_ratio={_raw_active_ratio:.1%} < 3% "
             f"— агент почти не торгует, засорит сеть стратегией 'hold everything')"]
@@ -4396,7 +4748,9 @@ class GeneticTrainer:
             return self.ev.evaluate(island_pop, island_precomp, rw_override=rw_override)
 
         # ── CPU path: батчевый numpy forward ──────────────────────────────
-        rl_all, dl_all, trl_all, sat_all, pressure_all, cap_all, same_side_all = [], [], [], [], [], [], []
+        rl_all, dl_all, trl_all = [], [], []
+        sat_all, pressure_all, weak_conf_all, weak_margin_all = [], [], [], []
+        cap_all, same_side_all, dir_all = [], [], []
         dpv_all: List[Optional[np.ndarray]] = []
         rw_list: List[float] = []
 
@@ -4438,6 +4792,16 @@ class GeneticTrainer:
                 if suppression_metrics is not None
                 else np.zeros(G, dtype=np.float64)
             )
+            weak_conf_all.append(
+                suppression_metrics["weak_open_confidence_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
+            weak_margin_all.append(
+                suppression_metrics["weak_open_margin_pressures"]
+                if suppression_metrics is not None
+                else np.zeros(G, dtype=np.float64)
+            )
             cap_all.append(
                 suppression_metrics["capacity_bar_rates"]
                 if suppression_metrics is not None
@@ -4448,6 +4812,7 @@ class GeneticTrainer:
                 if suppression_metrics is not None
                 else contract_metrics["same_side_open_rates"]
             )
+            dir_all.append(contract_metrics["net_direction_biases"])
             dpv_all.append(dpv_g)
 
         if not rl_all:
@@ -4459,8 +4824,11 @@ class GeneticTrainer:
         self._last_eval_trade_rates = tr_mat
         sat_mat = np.column_stack(sat_all)
         pressure_mat = np.column_stack(pressure_all)
+        weak_conf_mat = np.column_stack(weak_conf_all)
+        weak_margin_mat = np.column_stack(weak_margin_all)
         cap_mat = np.column_stack(cap_all)
         same_side_mat = np.column_stack(same_side_all)
+        dir_mat = np.column_stack(dir_all)
         rw_arr  = np.array(rw_list, dtype=np.float64)
         fits    = _compute_fitness(
             ret_mat,
@@ -4470,8 +4838,11 @@ class GeneticTrainer:
             rw_arr,
             sat_mat,
             pressure_mat,
+            weak_conf_mat,
+            weak_margin_mat,
             cap_mat,
             same_side_mat,
+            dir_mat,
         )
         rets_list = [ret_mat[g].tolist() for g in range(G)]
         return fits, rets_list
@@ -4799,7 +5170,7 @@ class GeneticTrainer:
         fits: np.ndarray,
         trade_rates: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        adjusted = np.asarray(fits, dtype=np.float64).copy()
+        adjusted = _sanitize_fitness_array(fits).copy()
         self._activation_selection_stats = {
             "enabled": bool(ACTIVE_ELITE_ENABLED),
             "active": 0,
@@ -7005,6 +7376,30 @@ class GeneticsAgent:
         logits = self._apply_regime_adaptive_output_bias_to_logits(logits)
         raw  = logits.argmax(axis=1)
         acts = {s: 0 for s in prices}
+        by_symbol_trace = {}
+        try:
+            stable_logits = logits - logits.max(axis=1, keepdims=True)
+            exp_logits = np.exp(np.clip(stable_logits, -80.0, 0.0))
+            probs = exp_logits / (exp_logits.sum(axis=1, keepdims=True) + 1e-9)
+            sorted_logits = np.sort(logits, axis=1)
+            margins = sorted_logits[:, -1] - sorted_logits[:, -2] if logits.shape[1] > 1 else np.zeros(NC)
+            for i, s in enumerate(syms):
+                selected = int(raw[i])
+                confidence = float(probs[i, selected]) if 0 <= selected < probs.shape[1] else 0.0
+                by_symbol_trace[s] = {
+                    "selected_action": selected,
+                    "action_confidence": confidence,
+                    "confidence": confidence,
+                    "logit_margin": float(margins[i]),
+                    "regime_confidence": float(self._regime_conf),
+                }
+            self.last_regime_adaptive_output_bias = {
+                **dict(getattr(self, "last_regime_adaptive_output_bias", {}) or {}),
+                "regime_confidence": float(self._regime_conf),
+                "by_symbol": by_symbol_trace,
+            }
+        except Exception:
+            pass
 
         # ── Выбор оптимальных валют (live-режим) ─────────────────────────────
         # При CURRENCY_LEARNING_ENABLED=True: нейросеть сама выбирает монеты через

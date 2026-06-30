@@ -278,6 +278,27 @@ def test_core_registration_uses_explicit_genome_source(tmp_path, monkeypatch):
     assert adapter.genetics_signal_source == "explicit_core_genome"
 
 
+def test_core_registration_requires_real_genome_source(monkeypatch):
+    from panteon_v2.app import agent_bootstrap
+
+    module = _install_fake_crypto_genetics(monkeypatch)
+    module.GeneticsAgent = _DefaultingFakeGeneticsAgent
+
+    with monkeypatch.context() as mp:
+        mp.delenv("PANTEON_V2_GENETICS_CORE_GENOME", raising=False)
+        mp.delenv("PANTEON_V2_REQUIRE_REAL_GENETICS_CORE", raising=False)
+        mp.setattr(agent_bootstrap, "_ensure_paths", lambda: None)
+        mp.setattr(agent_bootstrap, "_resolve_genetics_core_genome_path", lambda: None)
+        registry = AgentRegistry()
+
+        with pytest.raises(ImportError, match="GeneticsCore requires a real genome"):
+            agent_bootstrap.register_optional_agents(
+                registry,
+                optional_agent_labels=("GeneticsCore",),
+                skip_on_error=False,
+            )
+
+
 def test_manifest_router_registers_when_manifest_env_is_set_and_label_requested(
     tmp_path,
     monkeypatch,

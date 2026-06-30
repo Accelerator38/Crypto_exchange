@@ -355,6 +355,89 @@ class TestGeneticsV2AgentAdapter(unittest.TestCase):
         self.assertEqual(result["BTC"], Action.HOLD)
         self.assertEqual(result["ETH"], Action.FUT_CLOSE_ALL)
 
+    def test_genetics_abstention_holds_low_confidence_opens_only(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.last_regime_adaptive_output_bias = {}
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                self.last_regime_adaptive_output_bias = {
+                    "confidence": 0.25,
+                    "logit_margin": 0.75,
+                    "regime_confidence": 0.90,
+                }
+                return {"BTC": 3, "ETH": 5}
+
+        wrapped = GeneticsV2AgentAdapter(
+            "GeneticsCore",
+            LegacyGeneticsAgent(),
+            min_action_confidence_for_open=0.50,
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regime="bullish",
+            regime_confidence=0.95,
+        )
+
+        result = wrapped.act(snap)
+
+        self.assertEqual(result["BTC"], Action.HOLD)
+        self.assertEqual(result["ETH"], Action.FUT_CLOSE_ALL)
+
+    def test_genetics_abstention_holds_weak_logit_margin(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.last_regime_adaptive_output_bias = {}
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                self.last_regime_adaptive_output_bias = {
+                    "confidence": 0.90,
+                    "logit_margin": 0.04,
+                    "regime_confidence": 0.95,
+                }
+                return {"BTC": 4}
+
+        wrapped = GeneticsV2AgentAdapter(
+            "GeneticsCore",
+            LegacyGeneticsAgent(),
+            min_logit_margin_for_open=0.10,
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bearish",
+            regime_confidence=0.95,
+        )
+
+        self.assertEqual(wrapped.act(snap)["BTC"], Action.HOLD)
+
+    def test_genetics_abstention_holds_low_regime_confidence(self):
+        class LegacyGeneticsAgent:
+            def __init__(self):
+                self.last_regime_adaptive_output_bias = {}
+
+            def act(self, prices, volumes, month=None, portfolio_value=None):
+                self.last_regime_adaptive_output_bias = {
+                    "confidence": 0.90,
+                    "logit_margin": 0.75,
+                }
+                return {"BTC": 3}
+
+        wrapped = GeneticsV2AgentAdapter(
+            "GeneticsCore",
+            LegacyGeneticsAgent(),
+            min_regime_confidence_for_open=0.70,
+        )
+        snap = make_market_snapshot(
+            bar=1,
+            prices={"BTC": 100.0},
+            regime="bullish",
+            regime_confidence=0.45,
+        )
+
+        self.assertEqual(wrapped.act(snap)["BTC"], Action.HOLD)
+
     def test_regime_router_uses_selected_agent_only_when_confident(self):
         class LegacyGeneticsAgent:
             def __init__(self, action):

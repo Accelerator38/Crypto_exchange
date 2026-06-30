@@ -362,32 +362,56 @@ def fitness_v3_robust_score(
 def fitness_v4_robust_score(
     period_rets: Sequence[float],
     *,
+    period_lcbs_pct: Sequence[float] | None = None,
+    period_max_drawdowns_pct: Sequence[float] | None = None,
     period_turnover_rates: Sequence[float] | None = None,
     period_effective_turnover_rates: Sequence[float] | None = None,
     period_saturation_rates: Sequence[float] | None = None,
     period_invalid_open_pressures: Sequence[float] | None = None,
     period_costs_pct: Sequence[float] | None = None,
     period_slippage_pct: Sequence[float] | None = None,
+    period_min_notional_pressures: Sequence[float] | None = None,
+    period_precision_costs_pct: Sequence[float] | None = None,
+    period_bad_signal_key_rates: Sequence[float] | None = None,
+    period_long_slot_rates: Sequence[float] | None = None,
+    period_short_slot_rates: Sequence[float] | None = None,
+    period_net_direction_biases: Sequence[float] | None = None,
     period_regimes: Sequence[str] | None = None,
     required_regimes: Sequence[str] = FITNESS_V4_REGIMES,
     max_single_period_contribution_pct: float = 30.0,
     max_turnover_rate: float = 0.20,
     max_saturation_rate: float = 0.15,
     max_invalid_open_pressure: float = 0.25,
+    max_direction_bias_abs: float = 0.85,
+    max_zero_period_pct: float = 35.0,
+    zero_period_threshold_pct: float = 0.05,
+    max_persistent_direction_bias_abs: float = 0.50,
+    min_regime_positive_rate: float = 0.50,
     min_positive_period_pct: float = 50.0,
     cvar_loss_penalty_weight: float = 0.50,
+    lcb_weight: float = 0.25,
+    calmar_weight: float = 0.25,
     downside_penalty_weight: float = 0.30,
     turnover_penalty_weight: float = 2.00,
     saturation_penalty_weight: float = 3.00,
     invalid_open_penalty_weight: float = 1.50,
     concentration_penalty_weight: float = 0.03,
     cost_penalty_weight: float = 1.00,
+    min_notional_penalty_weight: float = 1.00,
+    precision_cost_penalty_weight: float = 1.00,
+    bad_signal_key_penalty_weight: float = 4.00,
+    direction_bias_penalty_weight: float = 3.00,
+    zero_period_penalty_weight: float = 0.20,
+    persistent_direction_bias_penalty_weight: float = 3.00,
+    regime_collapse_penalty_weight: float = 2.00,
 ) -> dict[str, Any]:
     """Compute the v4 robust genetics utility.
 
     v4 is a promotion/selection utility, not a raw-return score: it starts from
-    regime-balanced return and subtracts tail risk, downside, turnover,
-    saturation, invalid-open pressure, costs, and single-period concentration.
+    regime-balanced return with LCB/Calmar support and subtracts tail risk,
+    downside, turnover, saturation, invalid-open pressure, execution costs,
+    bad signal-key pressure, one-sided directional exposure, regime collapse,
+    and single-period concentration.
     Returns are in percent points; rates are fractions.
     """
 
@@ -401,12 +425,29 @@ def fitness_v4_robust_score(
         }
 
     n = int(rets.size)
+    lcb_inputs = _aligned_array(period_lcbs_pct, n)
+    drawdowns = _aligned_array(period_max_drawdowns_pct, n)
     turnover = _aligned_array(period_turnover_rates, n)
     effective_turnover = _aligned_array(period_effective_turnover_rates, n)
     saturation = _aligned_array(period_saturation_rates, n)
     invalid_pressure = _aligned_array(period_invalid_open_pressures, n)
     costs = _aligned_array(period_costs_pct, n)
     slippage = _aligned_array(period_slippage_pct, n)
+    min_notional_pressure = _aligned_array(period_min_notional_pressures, n)
+    precision_costs = _aligned_array(period_precision_costs_pct, n)
+    bad_signal_key_rates = _aligned_array(period_bad_signal_key_rates, n)
+    long_slot_rates = _aligned_array(period_long_slot_rates, n)
+    short_slot_rates = _aligned_array(period_short_slot_rates, n)
+    supplied_direction_biases = period_net_direction_biases is not None
+    net_direction_biases = _aligned_array(period_net_direction_biases, n)
+    if not supplied_direction_biases:
+        directional_total = long_slot_rates + short_slot_rates
+        net_direction_biases = np.divide(
+            long_slot_rates - short_slot_rates,
+            directional_total,
+            out=np.zeros_like(directional_total),
+            where=directional_total > 0.0,
+        )
     regimes = _aligned_regimes(period_regimes, n)
 
     regime_means: dict[str, float] = {}
@@ -423,6 +464,14 @@ def fitness_v4_robust_score(
         float(np.mean([regime_means[regime] for regime in required]))
         if required
         else float(rets.mean())
+    )
+    regime_positive_rate = (
+        float(
+            sum(1 for regime in required if regime_means.get(regime, 0.0) > 0.0)
+            / len(required)
+        )
+        if required
+        else 1.0
     )
 
     sorted_rets = np.sort(rets)
@@ -444,8 +493,19 @@ def fitness_v4_robust_score(
     )
 
     mean_ret = float(rets.mean())
+    lcb_ret = (
+        float(lcb_inputs.mean())
+        if np.any(lcb_inputs)
+        else float(mean_ret - 1.645 * rets.std(ddof=0) / math.sqrt(max(n, 1)))
+    )
+    max_drawdown_pct = float(np.maximum(drawdowns, 0.0).max())
+    mean_drawdown_pct = float(np.maximum(drawdowns, 0.0).mean())
+    calmar_ret = float(mean_ret / (mean_drawdown_pct + 5.0) * 5.0)
     min_ret = float(rets.min())
     positive_period_pct = float((rets > 0.0).mean() * 100.0)
+    zero_period_pct = float(
+        (np.abs(rets) <= float(zero_period_threshold_pct)).mean() * 100.0
+    )
     mean_turnover = float(turnover.mean())
     mean_effective_turnover = float(effective_turnover.mean())
     max_turnover = float(turnover.max())
@@ -455,6 +515,39 @@ def fitness_v4_robust_score(
     max_invalid = float(invalid_pressure.max())
     mean_cost = float(np.abs(costs).mean())
     mean_slippage = float(np.abs(slippage).mean())
+    mean_min_notional_pressure = float(np.maximum(min_notional_pressure, 0.0).mean())
+    mean_precision_cost = float(np.abs(precision_costs).mean())
+    mean_bad_signal_key_rate = float(np.maximum(bad_signal_key_rates, 0.0).mean())
+    mean_long_slot_rate = float(np.maximum(long_slot_rates, 0.0).mean())
+    mean_short_slot_rate = float(np.maximum(short_slot_rates, 0.0).mean())
+    mean_net_direction_bias = float(net_direction_biases.mean())
+    mean_abs_net_direction_bias = float(np.abs(net_direction_biases).mean())
+    max_abs_net_direction_bias = float(np.abs(net_direction_biases).max())
+    direction_bias_excess = max(
+        0.0,
+        max_abs_net_direction_bias - float(max_direction_bias_abs),
+    )
+    zero_period_excess = max(
+        0.0,
+        zero_period_pct - float(max_zero_period_pct),
+    )
+    persistent_direction_bias_abs = abs(mean_net_direction_bias)
+    persistent_direction_bias_excess = max(
+        0.0,
+        persistent_direction_bias_abs - float(max_persistent_direction_bias_abs),
+    )
+    regime_collapse_excess = max(
+        0.0,
+        float(min_regime_positive_rate) - regime_positive_rate,
+    )
+    direction_bias_penalty = direction_bias_excess * float(direction_bias_penalty_weight)
+    zero_period_penalty = zero_period_excess * float(zero_period_penalty_weight)
+    persistent_direction_bias_penalty = persistent_direction_bias_excess * float(
+        persistent_direction_bias_penalty_weight
+    )
+    regime_collapse_penalty = regime_collapse_excess * float(
+        regime_collapse_penalty_weight
+    )
     crash_floor_ret = float(regime_means.get("crash", 0.0))
 
     penalty = (
@@ -466,8 +559,20 @@ def fitness_v4_robust_score(
         + max_invalid * float(invalid_open_penalty_weight)
         + concentration_excess * float(concentration_penalty_weight)
         + (mean_cost + mean_slippage) * float(cost_penalty_weight)
+        + mean_min_notional_pressure * float(min_notional_penalty_weight)
+        + mean_precision_cost * float(precision_cost_penalty_weight)
+        + mean_bad_signal_key_rate * float(bad_signal_key_penalty_weight)
+        + direction_bias_penalty
+        + zero_period_penalty
+        + persistent_direction_bias_penalty
+        + regime_collapse_penalty
     )
-    fitness = float(regime_balanced_mean - penalty)
+    fitness = float(
+        regime_balanced_mean
+        + lcb_ret * float(lcb_weight)
+        + calmar_ret * float(calmar_weight)
+        - penalty
+    )
 
     failed: list[str] = []
     failed.extend(f"missing_regime:{regime}" for regime in missing_regimes)
@@ -481,15 +586,28 @@ def fitness_v4_robust_score(
         failed.append("saturation")
     if max_invalid > max_invalid_open_pressure:
         failed.append("invalid_open_pressure")
+    if max_abs_net_direction_bias > max_direction_bias_abs:
+        failed.append("direction_bias")
+    if zero_period_pct > max_zero_period_pct:
+        failed.append("zero_period_collapse")
+    if persistent_direction_bias_abs > max_persistent_direction_bias_abs:
+        failed.append("persistent_direction_bias")
+    if regime_positive_rate < min_regime_positive_rate:
+        failed.append("regime_collapse")
 
     return {
         "n_periods": n,
         "fitness_v4_robust": fitness,
         "mean_ret": mean_ret,
+        "lcb_ret": lcb_ret,
+        "calmar_ret": calmar_ret,
         "regime_balanced_mean_ret": regime_balanced_mean,
         "regime_mean_rets": regime_means,
+        "regime_positive_rate": regime_positive_rate,
         "min_ret": min_ret,
         "crash_floor_ret": crash_floor_ret,
+        "max_drawdown_pct": max_drawdown_pct,
+        "mean_drawdown_pct": mean_drawdown_pct,
         "cvar_5_ret": cvar_5_ret,
         "cvar_loss": float(cvar_loss),
         "downside_deviation": downside_deviation,
@@ -505,6 +623,23 @@ def fitness_v4_robust_score(
         "max_invalid_open_pressure": max_invalid,
         "mean_cost_pct": mean_cost,
         "mean_slippage_pct": mean_slippage,
+        "mean_min_notional_pressure": mean_min_notional_pressure,
+        "mean_precision_cost_pct": mean_precision_cost,
+        "mean_bad_signal_key_rate": mean_bad_signal_key_rate,
+        "mean_long_slot_rate": mean_long_slot_rate,
+        "mean_short_slot_rate": mean_short_slot_rate,
+        "mean_net_direction_bias": mean_net_direction_bias,
+        "mean_abs_net_direction_bias": mean_abs_net_direction_bias,
+        "max_abs_net_direction_bias": max_abs_net_direction_bias,
+        "persistent_direction_bias_abs": persistent_direction_bias_abs,
+        "zero_period_pct": zero_period_pct,
+        "zero_period_excess_pct": float(zero_period_excess),
+        "direction_bias_penalty": float(direction_bias_penalty),
+        "zero_period_penalty": float(zero_period_penalty),
+        "persistent_direction_bias_penalty": float(
+            persistent_direction_bias_penalty
+        ),
+        "regime_collapse_penalty": float(regime_collapse_penalty),
         "penalty": penalty,
         "failed_gates": failed,
         "passes_default_gates": not failed,

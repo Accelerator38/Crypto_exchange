@@ -20,6 +20,39 @@ if ([string]::IsNullOrWhiteSpace($Exchange)) {
 }
 $Exchange = $Exchange.ToUpperInvariant()
 
+if ($TrainStartDate -ne "2022-01-01" -or $TrainEndDate -ne "2023-12-31") {
+    throw "GeneticCore training train window must be exactly 2022-01-01..2023-12-31"
+}
+
+$ProvenBcSeedAgents = @("LiveOIBreakout", "MomentumScalper", "ResearchValidatorAgent")
+$CostProfile = switch ($Exchange) {
+    "MEXC" {
+        @{
+            train_fee = "0.0004"
+            train_futures_fee = "0.0002"
+            train_funding_rate = "0.0001"
+            train_spread = "0.0002"
+            train_slippage = "0.0001"
+            train_min_notional_usd = "5.0"
+            train_quantity_precision_step = "0.001"
+        }
+    }
+    "BITGET" {
+        @{
+            train_fee = "0.0006"
+            train_futures_fee = "0.0004"
+            train_funding_rate = "0.0001"
+            train_spread = "0.0002"
+            train_slippage = "0.00015"
+            train_min_notional_usd = "5.0"
+            train_quantity_precision_step = "0.001"
+        }
+    }
+    default {
+        throw "Unsupported exchange for GeneticCore cost profile: $Exchange"
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($RunDir)) {
     $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $RunDir = Join-Path $Root ("Results\neiro_genetics\" + $Exchange.ToUpperInvariant() + "\heavy_evolution_v4_$stamp")
@@ -59,7 +92,47 @@ $overrides = @(
     "n_workers = 1",
     "bc_enabled = on",
     "bc_auto_discovery = off",
-    "agent_seed_list = Panteon_Flash",
+    "bc_min_active_ratio = 0.005",
+    ("agent_seed_list = {0}" -f ($ProvenBcSeedAgents -join ",")),
+    "exchange_cost_profile = $Exchange",
+    ("train_fee = {0}" -f $CostProfile["train_fee"]),
+    ("train_futures_fee = {0}" -f $CostProfile["train_futures_fee"]),
+    ("train_funding_rate = {0}" -f $CostProfile["train_funding_rate"]),
+    ("train_spread = {0}" -f $CostProfile["train_spread"]),
+    ("train_slippage = {0}" -f $CostProfile["train_slippage"]),
+    ("train_min_notional_usd = {0}" -f $CostProfile["train_min_notional_usd"]),
+    ("train_quantity_precision_step = {0}" -f $CostProfile["train_quantity_precision_step"]),
+    "open_confidence_min = 0.45",
+    "open_confidence_penalty_w = 25.0",
+    "open_logit_margin_min = 0.12",
+    "open_logit_margin_penalty_w = 35.0",
+    "robust_concentration_max_pct = 20.0",
+    "robust_concentration_penalty_w = 0.75",
+    "robust_positive_period_target = 0.60",
+    "robust_positive_period_penalty_w = 7.5",
+    "fitness_outlier_concentration_max_pct = 12.5",
+    "fitness_outlier_concentration_penalty_w = 1.20",
+    "fitness_direction_bias_max_abs = 0.50",
+    "fitness_direction_bias_penalty_w = 20.0",
+    "fitness_max_zero_period_rate = 0.25",
+    "fitness_zero_period_penalty_w = 25.0",
+    "fitness_persistent_direction_bias_max_abs = 0.25",
+    "fitness_persistent_direction_bias_penalty_w = 30.0",
+    "fitness_hard_gate_sentinel = -100000000.0",
+    "fitness_hard_max_zero_period_rate = 0.50",
+    "fitness_active_period_min_abs_ret = 0.10",
+    "fitness_hard_min_active_period_rate = 0.35",
+    "fitness_hard_min_mean_ret = 0.05",
+    "fitness_micro_positive_max_ret = 0.10",
+    "fitness_micro_positive_max_rate = 0.75",
+    "fitness_micro_positive_mean_ret_ceiling = 0.20",
+    "fitness_wfa_fold_count = 4",
+    "fitness_wfa_min_fold_mean_ret = 0.05",
+    "fitness_wfa_fold_penalty_w = 45.0",
+    "fitness_wfa_fold_dispersion_penalty_w = 4.0",
+    "fitness_wfa_hard_min_fold_mean_ret = -1000000000.0",
+    "fitness_wfa_min_positive_fold_rate = 0.75",
+    "fitness_wfa_positive_fold_penalty_w = 25.0",
     "train_start_date = $TrainStartDate",
     "train_end_date = $TrainEndDate"
 )
@@ -81,6 +154,14 @@ if (Test-Path -LiteralPath $baselineSource) {
     population = $Population
     generations = $Generations
     position_state_features_enabled = $positionState
+    walk_forward_contract = @{
+        train = @($TrainStartDate, $TrainEndDate)
+        validation = @("2024-01-01", "2024-12-31")
+        oos = @("2025-01-01", "2025-12-31")
+        sanity = @("2026-01-01", "2026-06-30")
+    }
+    bc_seed_agents = $ProvenBcSeedAgents
+    exchange_cost_profile = $CostProfile
     settings_file = $runSettings
     baseline_genome = if (Test-Path -LiteralPath $baselineCopy) { $baselineCopy } else { $null }
 } | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $RunDir "launch_manifest.json") -Encoding UTF8

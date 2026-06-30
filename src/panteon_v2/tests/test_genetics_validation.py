@@ -155,6 +155,92 @@ def test_fitness_v4_prefers_regime_balanced_utility_over_single_outlier():
     assert spiky["passes_default_gates"] is False
 
 
+def test_fitness_v4_penalizes_one_sided_direction_bias():
+    balanced = fitness_v4_robust_score(
+        [0.6, 0.6, 0.6, 0.6],
+        period_long_slot_rates=[0.10, 0.10, 0.10, 0.10],
+        period_short_slot_rates=[0.10, 0.10, 0.10, 0.10],
+        period_net_direction_biases=[0.0, 0.0, 0.0, 0.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    short_only = fitness_v4_robust_score(
+        [0.6, 0.6, 0.6, 0.6],
+        period_long_slot_rates=[0.0, 0.0, 0.0, 0.0],
+        period_short_slot_rates=[0.35, 0.35, 0.35, 0.35],
+        period_net_direction_biases=[-1.0, -1.0, -1.0, -1.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    assert balanced["fitness_v4_robust"] > short_only["fitness_v4_robust"]
+    assert short_only["direction_bias_penalty"] > 0.0
+    assert "direction_bias" in short_only["failed_gates"]
+
+
+def test_fitness_v4_penalizes_empty_period_collapse():
+    stable = fitness_v4_robust_score(
+        [0.25, 0.25, 0.25, 0.25],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+        max_zero_period_pct=25.0,
+        zero_period_penalty_weight=40.0,
+    )
+    collapsed = fitness_v4_robust_score(
+        [0.0, 0.0, 0.0, 1.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+        max_zero_period_pct=25.0,
+        zero_period_penalty_weight=40.0,
+    )
+
+    assert stable["zero_period_pct"] == 0.0
+    assert collapsed["zero_period_pct"] == 75.0
+    assert collapsed["zero_period_penalty"] > 0.0
+    assert stable["fitness_v4_robust"] > collapsed["fitness_v4_robust"]
+    assert "zero_period_collapse" in collapsed["failed_gates"]
+
+
+def test_fitness_v4_penalizes_persistent_one_sided_direction_bias():
+    alternating = fitness_v4_robust_score(
+        [0.6, 0.6, 0.6, 0.6],
+        period_net_direction_biases=[-1.0, 1.0, -1.0, 1.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+        max_direction_bias_abs=0.50,
+        direction_bias_penalty_weight=20.0,
+        max_persistent_direction_bias_abs=0.25,
+        persistent_direction_bias_penalty_weight=30.0,
+    )
+    short_only = fitness_v4_robust_score(
+        [0.6, 0.6, 0.6, 0.6],
+        period_net_direction_biases=[-1.0, -1.0, -1.0, -1.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+        max_direction_bias_abs=0.50,
+        direction_bias_penalty_weight=20.0,
+        max_persistent_direction_bias_abs=0.25,
+        persistent_direction_bias_penalty_weight=30.0,
+    )
+
+    assert alternating["direction_bias_penalty"] == short_only["direction_bias_penalty"]
+    assert alternating["persistent_direction_bias_penalty"] == 0.0
+    assert short_only["persistent_direction_bias_penalty"] > 0.0
+    assert alternating["fitness_v4_robust"] > short_only["fitness_v4_robust"]
+    assert "persistent_direction_bias" in short_only["failed_gates"]
+
+
+def test_fitness_v4_penalizes_regime_collapse():
+    balanced = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    collapsed = fitness_v4_robust_score(
+        [-0.3, -0.2, -0.1, 1.9],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    assert balanced["regime_positive_rate"] == 1.0
+    assert collapsed["regime_positive_rate"] == 0.25
+    assert balanced["fitness_v4_robust"] > collapsed["fitness_v4_robust"]
+    assert collapsed["regime_collapse_penalty"] > 0.0
+    assert "regime_collapse" in collapsed["failed_gates"]
+
+
 def test_fitness_v4_uplift_gate_rejects_oos_and_final_sanity_degradation():
     baseline_validation = fitness_v4_robust_score(
         [0.4, 0.4, 0.4, 0.4],

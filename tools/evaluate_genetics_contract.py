@@ -723,6 +723,8 @@ def _contract_metrics_for_genome(
     turnover_rates: list[float] = []
     saturation_rates: list[float] = []
     invalid_open_logit_pressures: list[float] = []
+    weak_open_confidence_pressures: list[float] = []
+    weak_open_margin_pressures: list[float] = []
     capacity_bar_rates: list[float] = []
     same_side_open_rates: list[float] = []
 
@@ -763,6 +765,16 @@ def _contract_metrics_for_genome(
             if suppression_metrics is not None
             else 0.0
         )
+        weak_open_confidence_pressure = float(
+            suppression_metrics.get("weak_open_confidence_pressures", np.zeros(1, dtype=np.float64))[0]
+            if suppression_metrics is not None
+            else 0.0
+        )
+        weak_open_margin_pressure = float(
+            suppression_metrics.get("weak_open_margin_pressures", np.zeros(1, dtype=np.float64))[0]
+            if suppression_metrics is not None
+            else 0.0
+        )
         raw_capacity_bar_rate = float(
             suppression_metrics["capacity_bar_rates"][0]
             if suppression_metrics is not None
@@ -783,6 +795,8 @@ def _contract_metrics_for_genome(
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
         invalid_open_logit_pressures.append(invalid_open_logit_pressure)
+        weak_open_confidence_pressures.append(weak_open_confidence_pressure)
+        weak_open_margin_pressures.append(weak_open_margin_pressure)
         capacity_bar_rates.append(raw_capacity_bar_rate)
         same_side_open_rates.append(same_side_open_rate)
         period_rows.append({
@@ -794,6 +808,8 @@ def _contract_metrics_for_genome(
             "effective_turnover_rate": effective_turnover_rate,
             "saturation_rate": saturation_rate,
             "invalid_open_logit_pressure": invalid_open_logit_pressure,
+            "weak_open_confidence_pressure": weak_open_confidence_pressure,
+            "weak_open_margin_pressure": weak_open_margin_pressure,
             "raw_capacity_bar_rate": raw_capacity_bar_rate,
             "same_side_open_rate": same_side_open_rate,
             **exposure_metrics,
@@ -812,6 +828,10 @@ def _contract_metrics_for_genome(
             "max_saturation_rate": 0.0,
             "mean_invalid_open_logit_pressure": 0.0,
             "max_invalid_open_logit_pressure": 0.0,
+            "mean_weak_open_confidence_pressure": 0.0,
+            "max_weak_open_confidence_pressure": 0.0,
+            "mean_weak_open_margin_pressure": 0.0,
+            "max_weak_open_margin_pressure": 0.0,
             "mean_raw_capacity_bar_rate": 0.0,
             "max_raw_capacity_bar_rate": 0.0,
             "mean_same_side_open_rate": 0.0,
@@ -830,6 +850,8 @@ def _contract_metrics_for_genome(
         dtype=np.float64,
     )
     invalid_open_pressure_arr = np.asarray(invalid_open_logit_pressures, dtype=np.float64)
+    weak_open_confidence_arr = np.asarray(weak_open_confidence_pressures, dtype=np.float64)
+    weak_open_margin_arr = np.asarray(weak_open_margin_pressures, dtype=np.float64)
     raw_capacity_bar_arr = np.asarray(capacity_bar_rates, dtype=np.float64)
     same_side_open_arr = np.asarray(same_side_open_rates, dtype=np.float64)
     long_slot_arr = np.asarray(
@@ -866,6 +888,10 @@ def _contract_metrics_for_genome(
         "max_saturation_rate": float(saturation_arr.max()),
         "mean_invalid_open_logit_pressure": float(invalid_open_pressure_arr.mean()),
         "max_invalid_open_logit_pressure": float(invalid_open_pressure_arr.max()),
+        "mean_weak_open_confidence_pressure": float(weak_open_confidence_arr.mean()),
+        "max_weak_open_confidence_pressure": float(weak_open_confidence_arr.max()),
+        "mean_weak_open_margin_pressure": float(weak_open_margin_arr.mean()),
+        "max_weak_open_margin_pressure": float(weak_open_margin_arr.max()),
         "mean_raw_capacity_bar_rate": float(raw_capacity_bar_arr.mean()),
         "max_raw_capacity_bar_rate": float(raw_capacity_bar_arr.max()),
         "mean_same_side_open_rate": float(same_side_open_arr.mean()),
@@ -897,6 +923,10 @@ def _aggregate_contract_metrics_from_period_rows(
             "max_saturation_rate": 0.0,
             "mean_invalid_open_logit_pressure": 0.0,
             "max_invalid_open_logit_pressure": 0.0,
+            "mean_weak_open_confidence_pressure": 0.0,
+            "max_weak_open_confidence_pressure": 0.0,
+            "mean_weak_open_margin_pressure": 0.0,
+            "max_weak_open_margin_pressure": 0.0,
             "mean_raw_capacity_bar_rate": 0.0,
             "max_raw_capacity_bar_rate": 0.0,
             "mean_same_side_open_rate": 0.0,
@@ -927,6 +957,10 @@ def _aggregate_contract_metrics_from_period_rows(
         "max_saturation_rate": max_of("saturation_rate"),
         "mean_invalid_open_logit_pressure": mean_of("invalid_open_logit_pressure"),
         "max_invalid_open_logit_pressure": max_of("invalid_open_logit_pressure"),
+        "mean_weak_open_confidence_pressure": mean_of("weak_open_confidence_pressure"),
+        "max_weak_open_confidence_pressure": max_of("weak_open_confidence_pressure"),
+        "mean_weak_open_margin_pressure": mean_of("weak_open_margin_pressure"),
+        "max_weak_open_margin_pressure": max_of("weak_open_margin_pressure"),
         "mean_raw_capacity_bar_rate": mean_of("raw_capacity_bar_rate"),
         "max_raw_capacity_bar_rate": max_of("raw_capacity_bar_rate"),
         "mean_same_side_open_rate": mean_of("same_side_open_rate"),
