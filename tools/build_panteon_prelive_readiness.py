@@ -513,29 +513,36 @@ def check_live_status_section(
         timestamp = _status_timestamp(status)
         age_hours = None
         passed = True
+        pid = int(status.get("pid") or status.get("active_pid") or 0)
+        looks_running = str(status.get("run_state") or "").lower() == "running" or str(
+            status.get("feed_status") or ""
+        ).lower() == "active"
+        pid_running = _pid_exists(pid, active_pids)
         if timestamp is None:
             passed = False
             _add_blocker(blockers, f"live_status.{key}.timestamp_missing", f"{key}: status timestamp is missing")
         else:
             age_hours = (now - timestamp).total_seconds() / 3600.0
             if age_hours > float(max_status_age_hours):
-                passed = False
-                _add_blocker(
-                    blockers,
-                    f"live_status.{key}.stale_status",
-                    f"{key}: latest status is stale ({age_hours:.1f}h old)",
-                    status_path=str(status_path),
-                )
-        pid = int(status.get("pid") or status.get("active_pid") or 0)
-        looks_running = str(status.get("run_state") or "").lower() == "running" or str(
-            status.get("feed_status") or ""
-        ).lower() == "active"
-        pid_running = _pid_exists(pid, active_pids)
+                if looks_running and pid_running:
+                    passed = False
+                    _add_blocker(
+                        blockers,
+                        f"live_status.{key}.stale_status",
+                        f"{key}: active live status is stale ({age_hours:.1f}h old)",
+                        status_path=str(status_path),
+                    )
+                else:
+                    _add_warning(
+                        warnings,
+                        f"live_status.{key}.stale_inactive_status",
+                        f"{key}: latest status is stale ({age_hours:.1f}h old), but no matching live process is running",
+                        status_path=str(status_path),
+                    )
         if looks_running and not pid_running:
-            passed = False
-            _add_blocker(
-                blockers,
-                f"live_status.{key}.pid_not_running",
+            _add_warning(
+                warnings,
+                f"live_status.{key}.orphan_running_status",
                 f"{key}: status says running/active but pid {pid} is not running",
                 status_path=str(status_path),
             )
@@ -677,8 +684,10 @@ def check_exchange_rules_section(
 def check_promotion_section(
     project_root: Path,
     blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
     *,
     promotion_selection_path: str | Path | None = None,
+    required: bool = False,
 ) -> dict[str, Any]:
     selection_path = Path(promotion_selection_path) if promotion_selection_path else None
     if selection_path is not None and not selection_path.is_absolute():
@@ -692,10 +701,21 @@ def check_promotion_section(
                 "Results/neiro_genetics/**/selection_*.json",
             ),
         )
-    section: dict[str, Any] = {"passed": True, "selection_path": str(selection_path or "")}
+    section: dict[str, Any] = {
+        "passed": True,
+        "required": bool(required),
+        "selection_path": str(selection_path or ""),
+    }
     if selection_path is None:
-        _add_blocker(blockers, "promotion.selection_missing", "genetics promotion selection is missing")
-        section["passed"] = False
+        if required:
+            _add_blocker(blockers, "promotion.selection_missing", "genetics promotion selection is missing")
+            section["passed"] = False
+        else:
+            _add_warning(
+                warnings,
+                "promotion.selection_missing_rnd_only",
+                "genetics promotion selection is missing, but GeneticsCore is not enabled in live path",
+            )
         return section
     try:
         selection = _load_json(selection_path)
@@ -713,7 +733,7 @@ def check_promotion_section(
     failures = list(selection.get("promotion_failures") or [])
     section.update(
         {
-            "passed": promotion_eligible,
+            "passed": promotion_eligible or not required,
             "promotion_eligible": promotion_eligible,
             "paper_trading_eligible": paper_eligible,
             "live_trading_eligible": live_eligible,
@@ -725,14 +745,32 @@ def check_promotion_section(
         }
     )
     if not promotion_eligible:
-        _add_blocker(
-            blockers,
-            "promotion.not_eligible",
-            "latest genetics selection is not promotion_eligible",
-            selection_path=str(selection_path),
-            failures=failures,
-        )
+        if required:
+            _add_blocker(
+                blockers,
+                "promotion.not_eligible",
+                "latest genetics selection is not promotion_eligible",
+                selection_path=str(selection_path),
+                failures=failures,
+            )
+        else:
+            _add_warning(
+                warnings,
+                "promotion.not_eligible_rnd_only",
+                "latest genetics selection is not promotion_eligible, but GeneticsCore is not enabled in live path",
+                selection_path=str(selection_path),
+                failures=failures,
+            )
     return section
+
+
+def _settings_requires_genetics_promotion(settings_section: Mapping[str, Any]) -> bool:
+    return bool(
+        settings_section.get("genetics_core_live_admission_keys")
+        or settings_section.get("genetics_bypass_enabled_keys")
+        or settings_section.get("genetics_probation_execution_enabled_keys")
+        or settings_section.get("genetics_core_primary_enabled_keys")
+    )
 
 
 def runbook_section(
@@ -839,7 +877,9 @@ def build_readiness_report(
         sections["promotion"] = check_promotion_section(
             root,
             blockers,
+            warnings,
             promotion_selection_path=promotion_selection_path,
+            required=_settings_requires_genetics_promotion(sections["settings"]),
         )
     sections["runbook"] = runbook_section(
         exchanges=exchange_keys,

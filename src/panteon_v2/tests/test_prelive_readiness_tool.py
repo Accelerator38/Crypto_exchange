@@ -4,7 +4,7 @@ import importlib
 from datetime import datetime, timedelta, timezone
 
 
-def test_readiness_blocks_genetics_live_admission_and_stale_status(tmp_path):
+def test_readiness_warns_on_orphan_stale_status_without_live_process(tmp_path):
     tool = importlib.import_module("tools.build_panteon_prelive_readiness")
     now = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
     settings_path = tmp_path / "settings.txt"
@@ -46,12 +46,56 @@ def test_readiness_blocks_genetics_live_admission_and_stale_status(tmp_path):
     )
 
     blocker_ids = {item["id"] for item in report["blockers"]}
+    warning_ids = {item["id"] for item in report["warnings"]}
     assert report["passed"] is False
     assert "settings.genetics_core_live_admission" in blocker_ids
     assert "settings.genetics_bypass_enabled" in blocker_ids
     assert "settings.genetics_probation_execution_enabled" in blocker_ids
+    assert "live_status.MEXC.stale_status" not in blocker_ids
+    assert "live_status.MEXC.pid_not_running" not in blocker_ids
+    assert "live_status.MEXC.stale_inactive_status" in warning_ids
+    assert "live_status.MEXC.orphan_running_status" in warning_ids
+
+
+def test_readiness_blocks_stale_status_for_running_live_pid(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    now = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+    (tmp_path / "settings.txt").write_text(
+        "\n".join(
+            [
+                "v2_flash_live_real_actor_whitelist = LiveOIBreakout",
+                "mexc_v2_genetics_probation_execution_enabled = off",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    session_dir = tmp_path / "Results" / "MEXC" / "2026-06-25_14-23-38_v2"
+    session_dir.mkdir(parents=True)
+    (session_dir / "status.json").write_text(
+        (
+            "{"
+            '"timestamp_utc":"'
+            + (now - timedelta(hours=49)).isoformat()
+            + '","run_state":"running","feed_status":"active",'
+            '"active_pid":12345,"mode":"live_futures"}'
+        ),
+        encoding="utf-8",
+    )
+
+    report = tool.build_readiness_report(
+        project_root=tmp_path,
+        exchanges=("MEXC",),
+        now=now,
+        active_pids={12345},
+        include_git=False,
+        include_live_preflight=False,
+        include_exchange_rules=False,
+        include_promotion=False,
+    )
+
+    blocker_ids = {item["id"] for item in report["blockers"]}
+    assert report["passed"] is False
     assert "live_status.MEXC.stale_status" in blocker_ids
-    assert "live_status.MEXC.pid_not_running" in blocker_ids
 
 
 def test_readiness_passes_when_project_settings_are_safe(tmp_path):
@@ -127,6 +171,80 @@ def test_readiness_blocks_stale_settings_snapshot(tmp_path):
     blocker_ids = {item["id"] for item in report["blockers"]}
     assert report["passed"] is False
     assert "settings.snapshot_stale" in blocker_ids
+
+
+def test_genetics_promotion_is_warning_when_genetics_not_live_path(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    (tmp_path / "settings.txt").write_text(
+        "\n".join(
+            [
+                "v2_flash_live_real_actor_whitelist = LiveOIBreakout",
+                "v2_flash_genetics_core_primary_enabled = off",
+                "mexc_v2_genetics_probation_execution_enabled = off",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    selection_path = tmp_path / "selection_router_fitness_v4.json"
+    selection_path.write_text(
+        '{"promotion_eligible":false,"promotion_failures":["baseline_selected"]}',
+        encoding="utf-8",
+    )
+
+    report = tool.build_readiness_report(
+        project_root=tmp_path,
+        exchanges=("MEXC",),
+        now=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        active_pids=set(),
+        include_git=False,
+        include_live_status=False,
+        include_live_preflight=False,
+        include_exchange_rules=False,
+        promotion_selection_path=selection_path,
+    )
+
+    blocker_ids = {item["id"] for item in report["blockers"]}
+    warning_ids = {item["id"] for item in report["warnings"]}
+    assert report["sections"]["promotion"]["passed"] is True
+    assert report["sections"]["promotion"]["required"] is False
+    assert "promotion.not_eligible" not in blocker_ids
+    assert "promotion.not_eligible_rnd_only" in warning_ids
+
+
+def test_genetics_promotion_blocks_when_genetics_live_path_enabled(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    (tmp_path / "settings.txt").write_text(
+        "\n".join(
+            [
+                "v2_flash_live_real_actor_whitelist = GeneticsCore",
+                "v2_flash_genetics_core_primary_enabled = on",
+                "mexc_v2_genetics_probation_execution_enabled = off",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    selection_path = tmp_path / "selection_router_fitness_v4.json"
+    selection_path.write_text(
+        '{"promotion_eligible":false,"promotion_failures":["baseline_selected"]}',
+        encoding="utf-8",
+    )
+
+    report = tool.build_readiness_report(
+        project_root=tmp_path,
+        exchanges=("MEXC",),
+        now=datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc),
+        active_pids=set(),
+        include_git=False,
+        include_live_status=False,
+        include_live_preflight=False,
+        include_exchange_rules=False,
+        promotion_selection_path=selection_path,
+    )
+
+    blocker_ids = {item["id"] for item in report["blockers"]}
+    assert report["sections"]["promotion"]["passed"] is False
+    assert report["sections"]["promotion"]["required"] is True
+    assert "promotion.not_eligible" in blocker_ids
 
 
 def test_readiness_markdown_lists_blockers_and_canary_command():
