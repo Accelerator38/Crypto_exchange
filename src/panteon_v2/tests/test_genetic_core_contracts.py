@@ -5,6 +5,8 @@ import pytest
 from panteon_v2.analysis.genetic_core_contracts import (
     GENETIC_CORE_WALK_FORWARD_WINDOWS,
     PROVEN_BC_SEED_AGENTS,
+    TEACHER_FEATURE_POLICY,
+    TEACHER_RUNTIME_LOGITS_ENABLED,
     exchange_cost_profile,
     genetic_core_training_score,
     validate_genetic_core_training_contract,
@@ -31,6 +33,26 @@ def test_genetic_core_walk_forward_contract_is_fixed():
     )
     assert contract.windows["sanity"] == ("2026-01-01", "2026-06-30")
     assert contract.bc_seed_agents == PROVEN_BC_SEED_AGENTS
+
+
+def test_teacher_logits_remain_research_only_until_oos_stabilizes():
+    contract = validate_genetic_core_training_contract(
+        train_start="2022-01-01",
+        train_end="2023-12-31",
+        validation_start="2024-01-01",
+        validation_end="2024-12-31",
+        oos_start="2025-01-01",
+        oos_end="2025-12-31",
+        sanity_start="2026-01-01",
+        sanity_end="2026-06-30",
+        bc_seed_agents=PROVEN_BC_SEED_AGENTS,
+        exchange="MEXC",
+    )
+
+    assert TEACHER_RUNTIME_LOGITS_ENABLED is False
+    assert TEACHER_FEATURE_POLICY == "research_after_oos_stabilization"
+    assert contract.teacher_runtime_logits_enabled is False
+    assert contract.teacher_feature_policy == TEACHER_FEATURE_POLICY
 
 
 def test_genetic_core_contract_rejects_window_drift():

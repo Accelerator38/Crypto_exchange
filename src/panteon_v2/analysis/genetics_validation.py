@@ -13,6 +13,11 @@ import numpy as np
 
 FITNESS_V3_REGIMES = ("crash", "bearish", "neutral", "bullish")
 FITNESS_V4_REGIMES = FITNESS_V3_REGIMES
+FITNESS_V4_PROMOTION_HARD_BLOCK_GATES = frozenset({
+    "direction_bias",
+    "persistent_direction_bias",
+    "regime_collapse",
+})
 
 
 def _period_year(period: str) -> int:
@@ -662,10 +667,11 @@ def evaluate_fitness_v4_uplift_gate(
 ) -> dict[str, Any]:
     """Gate candidates by Flash uplift against the matched baseline.
 
-    The pass criteria are deliberately split-level: mean uplift >= 0, min-return
-    uplift >= 0, positive-period rate not worse, and action-contract metrics
-    within gates. Fitness v4 is reported as a diagnostic and can be made a hard
-    validation requirement with ``min_validation_fitness_delta``.
+    Promotion requires validation, OOS, and final sanity payloads. The pass
+    criteria are deliberately split-level: mean uplift >= 0, min-return uplift
+    >= 0, positive-period rate not worse, and action-contract metrics within
+    gates. Direction bias and regime collapse are hard promotion blocks, even
+    when the raw fitness value is otherwise positive.
     """
 
     failures: list[str] = []
@@ -695,6 +701,8 @@ def evaluate_fitness_v4_uplift_gate(
             max_invalid_open_pressure=max_invalid_open_pressure,
             max_single_period_contribution_pct=max_single_period_contribution_pct,
         )
+    else:
+        failures.append("missing_oos")
 
     final_payload: dict[str, Any] | None = None
     if baseline_final_sanity is not None and candidate_final_sanity is not None:
@@ -708,6 +716,8 @@ def evaluate_fitness_v4_uplift_gate(
             max_invalid_open_pressure=max_invalid_open_pressure,
             max_single_period_contribution_pct=max_single_period_contribution_pct,
         )
+    else:
+        failures.append("missing_final_sanity")
 
     failures = list(dict.fromkeys(failures))
     return {
@@ -792,6 +802,8 @@ def evaluate_fitness_v3_promotion_gate(
             "min_ret_delta": float(oos_min_delta),
             "crash_floor_delta": float(oos_crash_delta),
         }
+    else:
+        failures.append("missing_oos")
 
     final_payload: dict[str, Any] | None = None
     if baseline_final_sanity is not None and candidate_final_sanity is not None:
@@ -816,6 +828,8 @@ def evaluate_fitness_v3_promotion_gate(
             "mean_ret_delta": float(final_mean_delta),
             "crash_floor_delta": float(final_crash_delta),
         }
+    else:
+        failures.append("missing_final_sanity")
 
     failures = list(dict.fromkeys(failures))
     return {
@@ -877,6 +891,21 @@ def _extend_score_gate_failures(
         failures.append(f"{prefix}_{gate}")
 
 
+def _extend_fitness_v4_hard_block_failures(
+    failures: list[str],
+    score: dict[str, Any],
+    *,
+    prefix: str,
+) -> None:
+    for raw_gate in score.get("failed_gates", []) or []:
+        gate = str(raw_gate)
+        if (
+            gate in FITNESS_V4_PROMOTION_HARD_BLOCK_GATES
+            or gate.startswith("missing_regime:")
+        ):
+            failures.append(f"hard_block:{prefix}_{gate}")
+
+
 def _fitness_v4_split_uplift(
     failures: list[str],
     *,
@@ -921,6 +950,7 @@ def _fitness_v4_split_uplift(
     ):
         failures.append(f"{prefix}_single_period_concentration")
     _extend_score_gate_failures(failures, candidate, prefix=prefix)
+    _extend_fitness_v4_hard_block_failures(failures, candidate, prefix=prefix)
 
     return {
         "mean_ret_delta": float(mean_delta),

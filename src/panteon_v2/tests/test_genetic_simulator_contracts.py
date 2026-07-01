@@ -135,6 +135,62 @@ def test_genetics_v4_launchers_are_exchange_scoped_to_local_retrodate():
     assert '[string]$DataDir = "Retrodate"' in post_script
 
 
+def test_genetics_v4_training_uses_active_wfa_hard_floor():
+    root = Path(__file__).resolve().parents[3]
+    start_script = (root / "tools" / "start_genetics_v4_heavy_training.ps1").read_text(
+        encoding="utf-8"
+    )
+    base_settings = (
+        root / "Genetics_DL_Agents" / "settings_genetic.txt"
+    ).read_text(encoding="utf-8")
+
+    assert "[double]$WfaHardMinFoldMeanRet = 0.0" in start_script
+    assert (
+        '"fitness_wfa_hard_min_fold_mean_ret = $WfaHardMinFoldMeanRet"'
+        in start_script
+    )
+    assert "wfa_hard_min_fold_mean_ret = $WfaHardMinFoldMeanRet" in start_script
+    assert "fitness_wfa_hard_min_fold_mean_ret = 0.0" in base_settings
+    assert "fitness_wfa_hard_min_fold_mean_ret = -1000000000.0" not in start_script
+    assert "fitness_wfa_hard_min_fold_mean_ret = -1000000000.0" not in base_settings
+
+
+def test_genetics_v4_training_exposes_fitness_ablation_presets():
+    root = Path(__file__).resolve().parents[3]
+    start_script = (root / "tools" / "start_genetics_v4_heavy_training.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        '[ValidateSet("none", "no_wfa_soft_penalty", "no_concentration", '
+        '"no_direction_bias", "no_micro_positive")]'
+    ) in start_script
+    assert '[string]$FitnessAblationPreset = "none"' in start_script
+    assert '"fitness_wfa_fold_penalty_w = 0.0"' in start_script
+    assert '"fitness_wfa_fold_dispersion_penalty_w = 0.0"' in start_script
+    assert '"fitness_wfa_positive_fold_penalty_w = 0.0"' in start_script
+    assert '"fitness_outlier_concentration_penalty_w = 0.0"' in start_script
+    assert '"fitness_direction_bias_penalty_w = 0.0"' in start_script
+    assert '"fitness_micro_positive_max_rate = 1.0"' in start_script
+    assert "fitness_ablation_preset = $FitnessAblationPreset" in start_script
+
+
+def test_genetics_v4_post_training_reprices_contract_reports_before_selection():
+    root = Path(__file__).resolve().parents[3]
+    post_script = (root / "tools" / "run_genetics_v4_post_training.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    repricer_index = post_script.index("tools\\reprice_genetics_report_costs.py")
+    single_selection_index = post_script.index('Invoke-LoggedPython "select_single_fitness_v4"')
+    router_selection_index = post_script.index('Invoke-LoggedPython "select_router_fitness_v4"')
+
+    assert "function Reprice-ContractReport" in post_script
+    assert ".raw_costs.json" in post_script
+    assert repricer_index < single_selection_index
+    assert repricer_index < router_selection_index
+
+
 def _patch_minimal_sim_config(monkeypatch, cg, *, spot_fee, futures_fee):
     monkeypatch.setattr(cg, "TRAIN_FEE", spot_fee)
     monkeypatch.setattr(cg, "TRAIN_FUTURES_FEE", futures_fee)

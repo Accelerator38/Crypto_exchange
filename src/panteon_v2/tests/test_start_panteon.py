@@ -61,6 +61,15 @@ def test_parse_trade_regime_singlton_normalizes_common_actor_alias():
     assert parsed.singleton_actor == "GeneticsCore"
 
 
+def test_parse_trade_regime_accepts_correct_singleton_spelling():
+    launcher = _load_launcher()
+
+    parsed = launcher._parse_trade_regime("singleton(genetic_core)")
+
+    assert parsed.mode == "singlton"
+    assert parsed.singleton_actor == "GeneticsCore"
+
+
 def test_unified_launcher_worker_args_use_new_entrypoint():
     launcher = _load_launcher()
 
@@ -69,6 +78,42 @@ def test_unified_launcher_worker_args_use_new_entrypoint():
         "--worker",
         "BITGET",
     )
+
+
+def test_unified_launcher_worker_args_preserve_singleton_trade_regime():
+    launcher = _load_launcher()
+    parsed = launcher._parse_trade_regime("singleton(genetic_core)")
+
+    assert launcher._worker_args("BITGET", parsed) == (
+        "Start_panteon.py",
+        "--worker",
+        "BITGET",
+        "--trade-regime",
+        "singlton(GeneticsCore)",
+    )
+
+
+def test_unified_launcher_main_accepts_trade_regime_override_for_dry_run(capsys):
+    launcher = _load_launcher()
+
+    with patch.object(launcher, "_lock_is_held", return_value=False):
+        exit_code = launcher.main(
+            [
+                "--only",
+                "BITGET",
+                "--dry-run",
+                "--trade-regime",
+                "singleton(genetic_core)",
+            ]
+        )
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "trade_regime=singlton actor=GeneticsCore" in out
+    assert (
+        "would launch Start_panteon.py --worker BITGET "
+        "--trade-regime singlton(GeneticsCore)"
+    ) in out
 
 
 def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
@@ -96,6 +141,39 @@ def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
     spawn.assert_not_called()
     assert result.status == "preflight_failed"
     assert "live preflight failed" in result.message
+
+
+def test_unified_launcher_blocks_live_singleton_without_explicit_override(tmp_path):
+    launcher = _load_launcher()
+    lock_path = tmp_path / "panteon_v2_bitget.lock"
+    parsed = launcher._parse_trade_regime("singlton(GeneticsCore)")
+
+    with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
+        launcher,
+        "_lock_is_held",
+        return_value=False,
+    ), patch.dict(
+        os.environ,
+        {"BITGET_TRADING_MODE": "live_futures"},
+        clear=True,
+    ), patch.object(
+        launcher,
+        "_live_preflight_result",
+    ) as preflight, patch.object(
+        launcher,
+        "_spawn_child",
+    ) as spawn:
+        result = launcher._launch_exchange(
+            "BITGET",
+            dry_run=False,
+            parsed_regime=parsed,
+        )
+
+    preflight.assert_not_called()
+    spawn.assert_not_called()
+    assert result.status == "blocked"
+    assert "live singleton launch blocked" in result.message
+    assert "PANTEON_ALLOW_LIVE_SINGLETON=1" in result.message
 
 
 def test_unified_launcher_main_returns_nonzero_when_preflight_fails(tmp_path):

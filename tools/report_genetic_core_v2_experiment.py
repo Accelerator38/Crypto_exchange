@@ -17,6 +17,10 @@ from panteon_v2.analysis.genetic_core_v2_experiments import (  # noqa: E402
     score_specialist_router,
     summarize_singleton_candidate,
 )
+from panteon_v2.analysis.genetic_core_contracts import (  # noqa: E402
+    TEACHER_FEATURE_POLICY,
+    TEACHER_RUNTIME_LOGITS_ENABLED,
+)
 
 
 DEFAULT_REPORTS = {
@@ -203,8 +207,10 @@ def _theory_verdicts(
             "reason": f"minimum holdout regime positive rate was {min_regime_rate:.2f}",
         },
         "teacher_features": {
-            "verdict": "inconclusive",
-            "reason": "current run used teacher BC seeds, but runtime teacher logits were not added",
+            "verdict": "deferred",
+            "policy": TEACHER_FEATURE_POLICY,
+            "runtime_logits_enabled": TEACHER_RUNTIME_LOGITS_ENABLED,
+            "reason": "keep teacher logits/features as R&D until OOS and sanity results stabilize",
         },
         "architecture_change": {
             "verdict": "deferred",

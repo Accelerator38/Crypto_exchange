@@ -11,6 +11,7 @@ trade_regime = "singlton(GeneticsCore)"
 ``multi`` runs the normal Panteon/Flash actor selection. ``singlton(<actor>)``
 allows only the named actor to send real orders; the rest of the runtime keeps
 collecting shadow/statistical evidence where the production pipeline supports it.
+The same mode can be passed at launch time with ``--trade-regime``.
 """
 
 from __future__ import annotations
@@ -60,6 +61,8 @@ INITIAL_CAPITAL_ENV: dict[str, str] = {
 
 ON_VALUES = {"1", "ON", "TRUE", "YES", "Y"}
 VIRTUAL_TRADING_MODES = {"paper", "paper_live_feed", "shadow_live_feed"}
+TRADE_REGIME_ENV = "PANTEON_TRADE_REGIME"
+SINGLETON_LIVE_ENV = "PANTEON_ALLOW_LIVE_SINGLETON"
 LOCK_OFFSET = 4096
 SRC_DIR = PROJECT_ROOT / "src"
 RUNTIME_DIR = SRC_DIR / "panteon_runtime"
@@ -113,17 +116,32 @@ def _load_env() -> None:
         return
 
 
+def _configured_trade_regime_raw(raw: str | None = None) -> str:
+    if raw is not None:
+        return str(raw)
+    return os.getenv(TRADE_REGIME_ENV, trade_regime)
+
+
 def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
-    text = str(trade_regime if raw is None else raw).strip()
+    text = _configured_trade_regime_raw(raw).strip()
     lower = text.lower()
     if lower == "multi":
         return TradeRegime("multi")
-    if lower.startswith("singlton(") and text.endswith(")"):
+    if (
+        lower.startswith("singlton(")
+        or lower.startswith("singleton(")
+    ) and text.endswith(")"):
         actor = text[text.find("(") + 1 : -1].strip()
         if not actor:
-            raise ValueError("trade_regime singlton(...) requires an actor name")
+            raise ValueError("trade_regime singleton(...) requires an actor name")
         return TradeRegime("singlton", _canonical_actor_label(actor))
     raise ValueError("trade_regime must be 'multi' or 'singlton(<actor>)'")
+
+
+def _trade_regime_cli_value(parsed_regime: TradeRegime) -> str:
+    if parsed_regime.mode == "multi":
+        return "multi"
+    return f"singlton({parsed_regime.singleton_actor})"
 
 
 def _normalization_key(text: str) -> str:
@@ -141,6 +159,10 @@ def _enabled_exchanges(config: Mapping[str, str] = EXCHANGES) -> tuple[str, ...]
         if str(value or "").strip().upper() in ON_VALUES:
             enabled.append(str(exchange).upper())
     return tuple(enabled)
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().upper() in ON_VALUES
 
 
 def _selected_exchanges(raw: str) -> tuple[str, ...]:
@@ -163,8 +185,14 @@ def _python_executable() -> str:
     return str(candidate) if candidate.exists() else sys.executable
 
 
-def _worker_args(exchange: str) -> tuple[str, str, str]:
-    return ("Start_panteon.py", "--worker", exchange.upper())
+def _worker_args(
+    exchange: str,
+    parsed_regime: TradeRegime | None = None,
+) -> tuple[str, ...]:
+    args = ["Start_panteon.py", "--worker", exchange.upper()]
+    if parsed_regime is not None and parsed_regime.mode != "multi":
+        args.extend(["--trade-regime", _trade_regime_cli_value(parsed_regime)])
+    return tuple(args)
 
 
 def _lock_path(exchange: str) -> Path:
@@ -220,7 +248,11 @@ def _lock_owner_hint(path: Path) -> str:
     )
 
 
-def _spawn_child(exchange: str, python_executable: str) -> int:
+def _spawn_child(
+    exchange: str,
+    python_executable: str,
+    parsed_regime: TradeRegime | None = None,
+) -> int:
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     out_path = log_dir / f"panteon_{exchange.lower()}_launcher.out.log"
@@ -231,10 +263,10 @@ def _spawn_child(exchange: str, python_executable: str) -> int:
     ) as err_handle:
         out_handle.write(
             f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] launching {exchange} "
-            f"via {' '.join(_worker_args(exchange))}\n"
+            f"via {' '.join(_worker_args(exchange, parsed_regime))}\n"
         )
         process = subprocess.Popen(
-            [python_executable, *_worker_args(exchange)],
+            [python_executable, *_worker_args(exchange, parsed_regime)],
             cwd=str(PROJECT_ROOT),
             stdout=out_handle,
             stderr=err_handle,
@@ -296,6 +328,24 @@ def _launch_mode(exchange: str) -> str:
     return os.getenv(MODE_ENV[exchange], "live_futures").strip().lower()
 
 
+def _singleton_live_block_message(
+    exchange: str,
+    launch_mode: str,
+    parsed_regime: TradeRegime,
+) -> str:
+    if (
+        parsed_regime.mode == "singlton"
+        and launch_mode not in VIRTUAL_TRADING_MODES
+        and not _env_flag_enabled(SINGLETON_LIVE_ENV)
+    ):
+        return (
+            f"{exchange} live singleton launch blocked: use "
+            f"{MODE_ENV[exchange]}=paper for baseline/shadow runs or set "
+            f"{SINGLETON_LIVE_ENV}=1."
+        )
+    return ""
+
+
 def _live_preflight_result(exchange: str, launch_mode: str):
     if launch_mode in VIRTUAL_TRADING_MODES:
         return None
@@ -353,7 +403,10 @@ def _singleton_flash_config(exchange: str, actor_label: str):
     )
 
 
-def _run_exchange_worker(exchange: str) -> int:
+def _run_exchange_worker(
+    exchange: str,
+    parsed_regime: TradeRegime | None = None,
+) -> int:
     exchange = exchange.upper()
     if exchange not in EXCHANGES:
         print(f"[Start_panteon] unknown exchange worker: {exchange}", file=sys.stderr)
@@ -361,11 +414,16 @@ def _run_exchange_worker(exchange: str) -> int:
 
     _prepare_imports()
     _load_env()
-    parsed_regime = _parse_trade_regime()
+    parsed_regime = parsed_regime or _parse_trade_regime()
 
     launch_mode = _launch_mode(exchange)
     os.environ["CRYPTO_EXCHANGE"] = exchange
     os.environ[MODE_ENV[exchange]] = launch_mode
+
+    singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
+    if singleton_block:
+        print(f"[Start_panteon] {singleton_block}", file=sys.stderr)
+        return 2
 
     _block_system_python_for_live(exchange, launch_mode)
     _acquire_instance_lock(exchange)
@@ -417,6 +475,7 @@ def _launch_exchange(
     *,
     dry_run: bool = False,
     python_executable: str | None = None,
+    parsed_regime: TradeRegime | None = None,
 ) -> LaunchResult:
     exchange = exchange.upper()
     if exchange not in EXCHANGES:
@@ -432,11 +491,16 @@ def _launch_exchange(
         return LaunchResult(
             exchange,
             "dry_run",
-            f"would launch {' '.join(_worker_args(exchange))}",
+            f"would launch {' '.join(_worker_args(exchange, parsed_regime))}",
         )
 
     _load_env()
     launch_mode = _launch_mode(exchange)
+    parsed_regime = parsed_regime or _parse_trade_regime()
+    singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
+    if singleton_block:
+        return LaunchResult(exchange, "blocked", singleton_block)
+
     preflight = _live_preflight_result(exchange, launch_mode)
     if preflight is not None and not preflight.passed:
         reasons = ", ".join(preflight.reasons) or "unknown"
@@ -447,19 +511,26 @@ def _launch_exchange(
         )
 
     try:
-        pid = _spawn_child(exchange, python_executable or _python_executable())
+        pid = _spawn_child(
+            exchange,
+            python_executable or _python_executable(),
+            parsed_regime,
+        )
     except Exception as exc:
         return LaunchResult(exchange, "failed", str(exc))
     return LaunchResult(
         exchange,
         "launched",
-        f"started {' '.join(_worker_args(exchange))}",
+        f"started {' '.join(_worker_args(exchange, parsed_regime))}",
         pid,
     )
 
 
-def _print_plan(selected: Sequence[str]) -> None:
-    parsed_regime = _parse_trade_regime()
+def _print_plan(
+    selected: Sequence[str],
+    parsed_regime: TradeRegime | None = None,
+) -> None:
+    parsed_regime = parsed_regime or _parse_trade_regime()
     print("[Start_panteon] exchange switches:")
     for exchange, value in EXCHANGES.items():
         marker = "selected" if exchange in selected else "off"
@@ -478,24 +549,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Start Panteon trading processes.")
     parser.add_argument("--only", default="", help="Comma-separated exchange filter.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--trade-regime",
+        default=None,
+        help="Trading regime: multi or singlton(<actor>). 'singleton' spelling is accepted.",
+    )
     parser.add_argument("--worker", choices=tuple(EXCHANGES), default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
+    try:
+        parsed_regime = _parse_trade_regime(args.trade_regime)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     if args.worker:
-        return _run_exchange_worker(str(args.worker).upper())
+        return _run_exchange_worker(str(args.worker).upper(), parsed_regime)
 
     selected = _selected_exchanges(args.only)
-    _print_plan(selected)
+    _print_plan(selected, parsed_regime)
     if not selected:
         print("[Start_panteon] no exchanges selected")
         return 0
 
     failed = False
     for exchange in selected:
-        result = _launch_exchange(exchange, dry_run=bool(args.dry_run))
+        result = _launch_exchange(
+            exchange,
+            dry_run=bool(args.dry_run),
+            parsed_regime=parsed_regime,
+        )
         pid_text = f" pid={result.pid}" if result.pid is not None else ""
         print(f"[Start_panteon] {exchange}: {result.status}{pid_text} - {result.message}")
-        failed = failed or result.status in {"failed", "preflight_failed"}
+        failed = failed or result.status in {"failed", "preflight_failed", "blocked"}
     return 2 if failed else 0
 
 

@@ -19,6 +19,8 @@ PROVEN_BC_SEED_AGENTS: tuple[str, ...] = (
     "MomentumScalper",
     "ResearchValidatorAgent",
 )
+TEACHER_FEATURE_POLICY = "research_after_oos_stabilization"
+TEACHER_RUNTIME_LOGITS_ENABLED = False
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,8 @@ class GeneticCoreTrainingContract:
     windows: Mapping[str, tuple[str, str]]
     bc_seed_agents: tuple[str, ...]
     exchange_cost_profile: ExchangeCostProfile
+    teacher_feature_policy: str
+    teacher_runtime_logits_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -135,6 +139,8 @@ def validate_genetic_core_training_contract(
         windows=provided,
         bc_seed_agents=normalized_agents,
         exchange_cost_profile=exchange_cost_profile(exchange),
+        teacher_feature_policy=TEACHER_FEATURE_POLICY,
+        teacher_runtime_logits_enabled=TEACHER_RUNTIME_LOGITS_ENABLED,
     )
 
 

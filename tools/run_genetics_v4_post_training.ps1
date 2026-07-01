@@ -50,6 +50,19 @@ function Invoke-LoggedPython($Name, [string[]]$ArgsList) {
     }
 }
 
+function Reprice-ContractReport($Name, [string]$ReportPath) {
+    $directory = [System.IO.Path]::GetDirectoryName($ReportPath)
+    $stem = [System.IO.Path]::GetFileNameWithoutExtension($ReportPath)
+    $rawPath = [System.IO.Path]::Combine($directory, ($stem + ".raw_costs.json"))
+    Copy-Item -LiteralPath $ReportPath -Destination $rawPath -Force
+    Invoke-LoggedPython "reprice_$Name" @(
+        "tools\reprice_genetics_report_costs.py",
+        "--report", $rawPath,
+        "--exchange", $Exchange,
+        "--out", $ReportPath
+    )
+}
+
 if ($WaitPid -gt 0) {
     Write-Step "waiting for heavy training pid=$WaitPid"
     Wait-Process -Id $WaitPid
@@ -155,6 +168,11 @@ $evalFinalArgs = @(
     "--exchange", $Exchange
 )
 Invoke-LoggedPython "eval_final_sanity_2026_h1" $evalFinalArgs
+
+Reprice-ContractReport "contract_train_2022_2023" $trainReport
+Reprice-ContractReport "contract_validation_2024" $validationReport
+Reprice-ContractReport "contract_oos_2025" $oosReport
+Reprice-ContractReport "contract_final_sanity_2026_h1" $finalReport
 
 Invoke-LoggedPython "select_single_fitness_v4" @(
     "tools\select_genetics_candidate.py",

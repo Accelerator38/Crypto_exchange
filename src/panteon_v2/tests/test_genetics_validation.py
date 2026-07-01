@@ -288,6 +288,70 @@ def test_fitness_v4_uplift_gate_rejects_oos_and_final_sanity_degradation():
     assert "final_sanity_turnover" in gate["promotion_failures"]
 
 
+def test_fitness_v4_promotion_requires_validation_oos_and_final_sanity():
+    baseline_validation = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_validation = fitness_v4_robust_score(
+        [0.5, 0.5, 0.5, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    gate = evaluate_fitness_v4_uplift_gate(
+        baseline_validation=baseline_validation,
+        candidate_validation=candidate_validation,
+    )
+
+    assert gate["promotion_eligible"] is False
+    assert "missing_oos" in gate["promotion_failures"]
+    assert "missing_final_sanity" in gate["promotion_failures"]
+    assert gate["oos"] is None
+    assert gate["final_sanity"] is None
+
+
+def test_fitness_v4_promotion_hard_blocks_direction_and_regime_collapse():
+    baseline_validation = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_validation = fitness_v4_robust_score(
+        [0.6, 0.6, 0.6, 0.6],
+        period_net_direction_biases=[-1.0, -1.0, -1.0, -1.0],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    baseline_oos = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_oos = fitness_v4_robust_score(
+        [-0.1, -0.1, -0.1, 1.9],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    baseline_final = fitness_v4_robust_score(
+        [0.4, 0.4, 0.4, 0.4],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+    candidate_final = fitness_v4_robust_score(
+        [0.5, 0.5, 0.5, 0.5],
+        period_regimes=["crash", "bearish", "neutral", "bullish"],
+    )
+
+    gate = evaluate_fitness_v4_uplift_gate(
+        baseline_validation=baseline_validation,
+        candidate_validation=candidate_validation,
+        baseline_oos=baseline_oos,
+        candidate_oos=candidate_oos,
+        baseline_final_sanity=baseline_final,
+        candidate_final_sanity=candidate_final,
+    )
+
+    assert gate["promotion_eligible"] is False
+    assert "hard_block:validation_direction_bias" in gate["promotion_failures"]
+    assert "hard_block:validation_persistent_direction_bias" in gate["promotion_failures"]
+    assert "hard_block:oos_regime_collapse" in gate["promotion_failures"]
+
+
 def test_fitness_v3_gate_rejects_validation_tie_oos_loss_and_crash_floor_loss():
     baseline_validation = fitness_v3_robust_score(
         [1.0, 0.8, 0.6, 0.5],

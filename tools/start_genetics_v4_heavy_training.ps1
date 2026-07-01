@@ -7,6 +7,9 @@ param(
     [string]$DataDir = "Retrodate",
     [int]$Population = 900,
     [int]$Generations = 100,
+    [ValidateSet("none", "no_wfa_soft_penalty", "no_concentration", "no_direction_bias", "no_micro_positive")]
+    [string]$FitnessAblationPreset = "none",
+    [double]$WfaHardMinFoldMeanRet = 0.0,
     [switch]$PositionStateFeatures,
     [switch]$NoPostTraining
 )
@@ -84,6 +87,8 @@ $overrides = @(
     "n_generations = $Generations",
     "cpu_batch_evaluator = on",
     "position_state_features_enabled = $positionState",
+    "teacher_runtime_logits_enabled = off",
+    "teacher_feature_policy = research_after_oos_stabilization",
     "continue_training = off",
     "load_best_genome = off",
     "load_extra_genomes = off",
@@ -130,12 +135,46 @@ $overrides = @(
     "fitness_wfa_min_fold_mean_ret = 0.05",
     "fitness_wfa_fold_penalty_w = 45.0",
     "fitness_wfa_fold_dispersion_penalty_w = 4.0",
-    "fitness_wfa_hard_min_fold_mean_ret = -1000000000.0",
+    "fitness_wfa_hard_min_fold_mean_ret = $WfaHardMinFoldMeanRet",
     "fitness_wfa_min_positive_fold_rate = 0.75",
     "fitness_wfa_positive_fold_penalty_w = 25.0",
     "train_start_date = $TrainStartDate",
     "train_end_date = $TrainEndDate"
 )
+$ablationOverrides = switch ($FitnessAblationPreset) {
+    "none" {
+        @()
+    }
+    "no_wfa_soft_penalty" {
+        @(
+            "fitness_wfa_fold_penalty_w = 0.0",
+            "fitness_wfa_fold_dispersion_penalty_w = 0.0",
+            "fitness_wfa_positive_fold_penalty_w = 0.0"
+        )
+    }
+    "no_concentration" {
+        @(
+            "robust_concentration_penalty_w = 0.0",
+            "fitness_outlier_concentration_penalty_w = 0.0"
+        )
+    }
+    "no_direction_bias" {
+        @(
+            "fitness_direction_bias_penalty_w = 0.0",
+            "fitness_persistent_direction_bias_penalty_w = 0.0"
+        )
+    }
+    "no_micro_positive" {
+        @(
+            "fitness_micro_positive_max_rate = 1.0",
+            "fitness_micro_positive_mean_ret_ceiling = 1000000000.0"
+        )
+    }
+}
+if ($ablationOverrides.Count -gt 0) {
+    $overrides += @("", "# fitness ablation overrides: $FitnessAblationPreset")
+    $overrides += $ablationOverrides
+}
 Add-Content -Path $runSettings -Value $overrides -Encoding UTF8
 
 $baselineSource = Join-Path $Root "Genetics_DL_Agents\Agents\genetics\best_genome.npy"
@@ -153,7 +192,11 @@ if (Test-Path -LiteralPath $baselineSource) {
     train_end_date = $TrainEndDate
     population = $Population
     generations = $Generations
+    fitness_ablation_preset = $FitnessAblationPreset
+    wfa_hard_min_fold_mean_ret = $WfaHardMinFoldMeanRet
     position_state_features_enabled = $positionState
+    teacher_runtime_logits_enabled = $false
+    teacher_feature_policy = "research_after_oos_stabilization"
     walk_forward_contract = @{
         train = @($TrainStartDate, $TrainEndDate)
         validation = @("2024-01-01", "2024-12-31")

@@ -474,6 +474,66 @@ class TestShadowAttribution(unittest.TestCase):
 
 
 class TestStartupFailClosed(unittest.TestCase):
+    def test_project_settings_keep_genetics_core_out_of_live_admission_until_promotion(self):
+        from panteon_v2.app.startup import (
+            _flash_allocator_config_from_settings,
+            _live_execution_config_from_settings,
+        )
+
+        settings = _read_project_settings()
+        forbidden = {
+            "V_GeneticsCore",
+            "GeneticsCore",
+            "agent:GeneticsCore",
+            "Solo_GeneticsCore",
+            "ensemble:Solo_GeneticsCore",
+        }
+
+        for exchange in ("MEXC", "BITGET"):
+            flash = _flash_allocator_config_from_settings(
+                settings,
+                exchange_name=exchange,
+            )
+            live = _live_execution_config_from_settings(
+                settings,
+                exchange_name=exchange,
+            )
+
+            self.assertFalse(
+                forbidden & set(flash.live_real_actor_whitelist),
+                exchange,
+            )
+            self.assertFalse(
+                forbidden & set(flash.range_low_vol_real_actor_allowlist),
+                exchange,
+            )
+            self.assertFalse(
+                forbidden & set(flash.promotion_derived_actor_labels),
+                exchange,
+            )
+            self.assertFalse(flash.flash_genetics_core_primary_enabled, exchange)
+            self.assertFalse(live.genetics_probation_execution_enabled, exchange)
+            self.assertFalse(
+                flash.genetics_probation_bypass_min_closed_enabled,
+                exchange,
+            )
+            self.assertFalse(
+                flash.genetics_probation_bypass_trend_gate_enabled,
+                exchange,
+            )
+            self.assertFalse(
+                flash.genetics_probation_bypass_terminal_deny_enabled,
+                exchange,
+            )
+            self.assertFalse(
+                flash.genetics_probation_bypass_regime_edge_enabled,
+                exchange,
+            )
+            self.assertFalse(
+                flash.genetics_probation_bypass_pnl_enabled,
+                exchange,
+            )
+
     def test_mexc_live_genetics_core_daily_limit_is_micro_probation(self):
         from panteon_v2.app.startup import _live_execution_config_from_settings
 
@@ -516,7 +576,7 @@ class TestStartupFailClosed(unittest.TestCase):
             1,
         )
 
-    def test_live_range_low_vol_uses_profile_allowlist_and_micro_genetics(self):
+    def test_live_range_low_vol_uses_profile_allowlist_without_genetics_live_admission(self):
         from panteon_v2.app.startup import (
             _flash_allocator_config_from_settings,
             _flash_stale_position_exit_config_from_settings,
@@ -553,14 +613,6 @@ class TestStartupFailClosed(unittest.TestCase):
             self.assertIn(label, mexc_flash.range_low_vol_real_actor_allowlist)
             self.assertIn(label, bitget_flash.range_low_vol_real_actor_allowlist)
         self.assertIn(
-            "GeneticsCore",
-            mexc_flash.range_low_vol_real_actor_allowlist,
-        )
-        self.assertIn(
-            "agent:GeneticsCore",
-            mexc_flash.range_low_vol_real_actor_allowlist,
-        )
-        self.assertIn(
             "LiveOIBreakout",
             bitget_flash.range_low_vol_real_actor_allowlist,
         )
@@ -568,8 +620,22 @@ class TestStartupFailClosed(unittest.TestCase):
             "LiveOIBreakout",
             mexc_flash.range_low_vol_real_actor_allowlist,
         )
+        for forbidden in (
+            "GeneticsCore",
+            "agent:GeneticsCore",
+            "Solo_GeneticsCore",
+            "ensemble:Solo_GeneticsCore",
+        ):
+            self.assertNotIn(
+                forbidden,
+                mexc_flash.range_low_vol_real_actor_allowlist,
+            )
+            self.assertNotIn(
+                forbidden,
+                bitget_flash.range_low_vol_real_actor_allowlist,
+            )
 
-        self.assertTrue(mexc_live.genetics_probation_execution_enabled)
+        self.assertFalse(mexc_live.genetics_probation_execution_enabled)
         self.assertEqual(mexc_live.genetics_probation_labels, ("GeneticsCore",))
         self.assertNotIn(
             "GeneticsRegimeAdaptiveBias",
@@ -603,7 +669,7 @@ class TestStartupFailClosed(unittest.TestCase):
             )
         )
 
-        self.assertTrue(bitget_live.genetics_probation_execution_enabled)
+        self.assertFalse(bitget_live.genetics_probation_execution_enabled)
         self.assertEqual(bitget_live.genetics_probation_labels, ("GeneticsCore",))
         self.assertEqual(bitget_live.genetics_probation_risk_mult, 0.08)
         self.assertEqual(
