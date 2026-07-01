@@ -779,7 +779,6 @@ def runbook_section(
     symbols: Sequence[str],
     exchange_rules_path: str,
 ) -> dict[str, Any]:
-    first_exchange = str(next(iter(exchanges), "MEXC")).strip().upper() or "MEXC"
     symbols_arg = ",".join(symbols)
     return {
         "commands": {
@@ -796,14 +795,16 @@ def runbook_section(
             ),
             "single_exchange_paper_canary": (
                 "python tools/run_panteon3_single_component_canary.py "
-                f"--exchange {first_exchange} --actor LiveOIBreakout --max-bars 3 "
-                "--max-idle-polls 18 --sleep-between-polls-sec 5"
+                "--exchange MEXC --exchange BITGET --actor LiveOIBreakout "
+                "--results-root Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar "
+                "--reports-dir Reports/Panteon3Canary/prelive_liveoibreakout_65bar "
+                "--max-bars 65 --max-idle-polls 120 --sleep-between-polls-sec 1"
             ),
             "canary_summary": (
                 "python tools/run_panteon3_live_canary_check.py "
-                "--results-root Results/Panteon3SingleComponentCanary "
+                "--results-root Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar "
                 "--reports-dir Reports/Panteon3Canary --lookback-minutes 4320 "
-                f"--exchange {first_exchange}"
+                "--exchange MEXC --exchange BITGET"
             ),
             "readiness": (
                 "python tools/build_panteon_prelive_readiness.py "

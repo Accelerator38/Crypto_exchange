@@ -275,3 +275,22 @@ def test_readiness_markdown_lists_blockers_and_canary_command():
 
     assert "live_preflight.MEXC.matrix_missing" in markdown
     assert "run_panteon3_single_component_canary.py" in markdown
+
+
+def test_runbook_uses_long_isolated_dual_exchange_canary():
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+
+    runbook = tool.runbook_section(
+        exchanges=("MEXC", "BITGET"),
+        symbols=("BTC", "ETH"),
+        exchange_rules_path="Reports/PreLive/exchange_futures_rules_latest.json",
+    )
+
+    canary = runbook["commands"]["single_exchange_paper_canary"]
+    summary = runbook["commands"]["canary_summary"]
+    assert "--exchange MEXC --exchange BITGET" in canary
+    assert "--max-bars 65" in canary
+    assert "--max-idle-polls 120" in canary
+    assert "Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar" in canary
+    assert "Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar" in summary
+    assert "--exchange MEXC --exchange BITGET" in summary
