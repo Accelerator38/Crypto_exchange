@@ -1147,24 +1147,33 @@ class TestBootstrap(unittest.TestCase):
             cfg.denied_actor_keys,
             ("agent:PlayerFunding", "ensemble:DefaultEnsemble"),
         )
+        for key in (
+            "ensemble:Solo_A|BTC/USDT|FUT_LONG_FULL",
+            "ensemble:Solo_A|BTC|FUT_LONG_FULL",
+            "ensemble:Solo_A|BTCUSDT|FUT_LONG_FULL",
+            "ensemble:Solo_A|BTC|SPOT_BUY_FULL",
+            "A|BTC|FUT_LONG_FULL",
+            "agent:LiveB|ETH/USDT|SPOT_BUY_FULL",
+            "agent:LiveB|ETH|SPOT_BUY_FULL",
+            "agent:LiveB|ETHUSDT|SPOT_BUY_FULL",
+            "agent:LiveB|ETH|FUT_LONG_FULL",
+        ):
+            self.assertIn(key, cfg.denied_signal_keys)
         self.assertEqual(
-            cfg.denied_signal_keys,
-            (
-                "ensemble:Solo_A|BTC/USDT|FUT_LONG_FULL",
-                "ensemble:Solo_A|BTC|FUT_LONG_FULL",
-                "ensemble:Solo_A|BTCUSDT|FUT_LONG_FULL",
-                "agent:LiveB|ETH/USDT|SPOT_BUY_FULL",
-                "agent:LiveB|ETH|SPOT_BUY_FULL",
-                "agent:LiveB|ETHUSDT|SPOT_BUY_FULL",
-            ),
+            len(cfg.denied_signal_keys),
+            len(set(cfg.denied_signal_keys)),
         )
+        for key in (
+            "ensemble:Solo_C|ATOM/USDT|FUT_SHORT_FULL",
+            "ensemble:Solo_C|ATOM|FUT_SHORT_FULL",
+            "ensemble:Solo_C|ATOMUSDT|FUT_SHORT_FULL",
+            "ensemble:Solo_C|ATOM|FUT_SHORT_HALF",
+            "C|ATOM|FUT_SHORT_FULL",
+        ):
+            self.assertIn(key, cfg.terminal_denied_signal_keys)
         self.assertEqual(
-            cfg.terminal_denied_signal_keys,
-            (
-                "ensemble:Solo_C|ATOM/USDT|FUT_SHORT_FULL",
-                "ensemble:Solo_C|ATOM|FUT_SHORT_FULL",
-                "ensemble:Solo_C|ATOMUSDT|FUT_SHORT_FULL",
-            ),
+            len(cfg.terminal_denied_signal_keys),
+            len(set(cfg.terminal_denied_signal_keys)),
         )
         self.assertEqual(cfg.denied_open_symbols, ("ATOM/USDT", "FIL/USDT"))
         self.assertEqual(cfg.denied_open_regimes, (Regime.NEUTRAL, Regime.CRASH))
@@ -1211,8 +1220,14 @@ class TestBootstrap(unittest.TestCase):
             "v2_flash_terminal_denied_signal_keys": (
                 "agent:GeneticsCore|BTC|FUT_SHORT_FULL"
             ),
+            "v2_flash_terminal_denied_signal_keys_extra": (
+                "agent:Fallback|ETH|FUT_LONG_FULL"
+            ),
             "v2_flash_terminal_denied_context_signal_keys": (
                 "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol"
+            ),
+            "v2_flash_terminal_denied_context_signal_keys_extra": (
+                "agent:Fallback|ETH|FUT_LONG_FULL|bullish"
             ),
             "bitget_v2_flash_controlled_exploration_enabled": "true",
             "bitget_v2_flash_controlled_exploration_allowed_reasons": (
@@ -1239,8 +1254,14 @@ class TestBootstrap(unittest.TestCase):
             "bitget_v2_flash_terminal_denied_signal_keys": (
                 "agent:Legacy|BTC|FUT_SHORT_FULL"
             ),
+            "bitget_v2_flash_terminal_denied_signal_keys_extra": (
+                "agent:LiveOIBreakout|SOL|FUT_SHORT_FULL"
+            ),
             "bitget_v2_flash_terminal_denied_context_signal_keys": (
                 "agent:LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol"
+            ),
+            "bitget_v2_flash_terminal_denied_context_signal_keys_extra": (
+                "agent:LiveOIBreakout|ADA|FUT_SHORT_FULL|range_low_vol"
             ),
         }
 
@@ -1256,7 +1277,15 @@ class TestBootstrap(unittest.TestCase):
             mexc.terminal_denied_signal_keys,
         )
         self.assertIn(
+            "agent:Fallback|ETH|FUT_LONG_FULL",
+            mexc.terminal_denied_signal_keys,
+        )
+        self.assertIn(
             "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol",
+            mexc.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:Fallback|ETH|FUT_LONG_FULL|bullish",
             mexc.terminal_denied_context_signal_keys,
         )
 
@@ -1297,6 +1326,10 @@ class TestBootstrap(unittest.TestCase):
             "agent:Legacy|BTC|FUT_SHORT_FULL",
             bitget.terminal_denied_signal_keys,
         )
+        self.assertIn(
+            "agent:LiveOIBreakout|SOL|FUT_SHORT_FULL",
+            bitget.terminal_denied_signal_keys,
+        )
         self.assertNotIn(
             "agent:GeneticsCore|BTC|FUT_SHORT_FULL|range_low_vol",
             bitget.terminal_denied_context_signal_keys,
@@ -1304,6 +1337,26 @@ class TestBootstrap(unittest.TestCase):
         self.assertIn(
             "agent:LiveOIBreakout|BNB|FUT_SHORT_HALF|range_low_vol",
             bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:LiveOIBreakout|ADA|FUT_SHORT_FULL|range_low_vol",
+            bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:LiveOIBreakout|*|*|range_low_vol",
+            bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:CarryFlowAgentV2|*|FUT_LONG_FULL|*",
+            bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertIn(
+            "agent:LiveVolCompress|*|*|*",
+            bitget.terminal_denied_context_signal_keys,
+        )
+        self.assertNotIn(
+            "agent:LiveOIBreakout|*|*|range_low_vol",
+            mexc.terminal_denied_context_signal_keys,
         )
 
     def test_leaderboard_players_include_standalone_strategy_pool_without_activity(self):

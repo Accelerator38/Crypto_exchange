@@ -1,0 +1,76 @@
+{
+  "exchange": "BITGET",
+  "data_dir": "Retrodate/mexc_bitget_futures",
+  "default_years": "2026",
+  "default_max_bars": 720,
+  "default_window_skip_bars": [0, 240],
+  "hypotheses": [
+    {
+      "id": "liveoi_transition_breakout",
+      "actor": "LiveOIBreakout",
+      "single_component_candidate_label": "LiveOIBreakout",
+      "symbols": ["BTC", "ETH", "SOL", "BNB"],
+      "min_filled": 20,
+      "min_closed_trades": 10,
+      "min_profitable_windows": 2,
+      "min_positive_regimes": 2,
+      "max_drawdown_usd": 0.2,
+      "extra_runner_args": [
+        "--flash-terminal-deny-context-signal-key",
+        "agent:LiveOIBreakout|*|*|range_low_vol"
+      ]
+    },
+    {
+      "id": "carryflow_short_funding",
+      "actor": "CarryFlowAgentV2",
+      "single_component_candidate_label": "CarryFlowAgentV2",
+      "symbols": ["BTC", "ETH", "SOL", "BNB", "LINK"],
+      "min_filled": 20,
+      "min_closed_trades": 10,
+      "min_profitable_windows": 2,
+      "min_positive_regimes": 1,
+      "min_positive_symbols": 2,
+      "max_drawdown_usd": 0.2,
+      "include_derivatives_context_actors": true
+    },
+    {
+      "id": "livevolcompress_confirmed_breakout",
+      "actor": "LiveVolCompress",
+      "single_component_candidate_label": "LiveVolCompress",
+      "symbols": ["BTC", "ETH", "SOL", "BNB"],
+      "min_filled": 20,
+      "min_closed_trades": 10,
+      "min_profitable_windows": 2,
+      "min_positive_regimes": 1,
+      "max_drawdown_usd": 0.2
+    },
+    {
+      "id": "liveregimepullback_trend_only",
+      "actor": "LiveRegimePullback",
+      "single_component_candidate_label": "LiveRegimePullback",
+      "symbols": ["BTC", "ETH", "SOL", "BNB", "LINK"],
+      "min_filled": 20,
+      "min_closed_trades": 10,
+      "min_profitable_windows": 2,
+      "min_positive_regimes": 2,
+      "max_drawdown_usd": 0.2,
+      "extra_runner_args": [
+        "--flash-terminal-deny-context-signal-key",
+        "agent:LiveRegimePullback|*|*|range_low_vol"
+      ]
+    },
+    {
+      "id": "best_slice_all_candidates",
+      "actor": "best_per_slice",
+      "single_component_candidate_label": "LiveOIBreakout",
+      "symbols": ["BTC", "ETH", "SOL", "BNB", "LINK"],
+      "min_filled": 20,
+      "min_closed_trades": 10,
+      "min_profitable_windows": 2,
+      "min_positive_regimes": 1,
+      "min_positive_symbols": 1,
+      "max_drawdown_usd": 0.2,
+      "include_derivatives_context_actors": true
+    }
+  ]
+}

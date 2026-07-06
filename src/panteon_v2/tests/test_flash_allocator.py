@@ -665,6 +665,103 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(close_decision.selected_actor, "NeutralCloseAgent")
         self.assertEqual(close_decision.signal.action, Action.FUT_CLOSE_ALL)
 
+    def test_terminal_context_deny_supports_range_low_vol_actor_wildcard(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        agent = FakeAgent("LiveOIBreakout", {"BTC/USDT": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "LiveOIBreakout", Regime.RANGE_LOW_VOL, 12, 2.0, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                terminal_denied_context_signal_keys=(
+                    "agent:LiveOIBreakout|*|*|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC/USDT": 100.0}),
+            agents=[agent],
+            players=[],
+            signal_id_start=1,
+        )[0]
+
+        row = next(row for row in decision.candidates if row.label == "LiveOIBreakout")
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(decision.reason, "flash_signal_terminal_deny_key")
+        self.assertEqual(row.reason, "flash_signal_terminal_deny_key")
+
+    def test_terminal_context_deny_supports_direction_regime_wildcards(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        long_agent = FakeAgent("CarryFlowAgentV2", {"BTC/USDT": Action.FUT_LONG_FULL})
+        short_agent = FakeAgent("CarryFlowAgentV2", {"BTC/USDT": Action.FUT_SHORT_FULL})
+        _add_perf(perf, "CarryFlowAgentV2", Regime.NEUTRAL, 12, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                terminal_denied_context_signal_keys=(
+                    "agent:CarryFlowAgentV2|*|FUT_LONG_FULL|*",
+                ),
+            ),
+        )
+
+        long_decision = allocator.decide(
+            make_market(regime=Regime.NEUTRAL, prices={"BTC/USDT": 100.0}),
+            agents=[long_agent],
+            players=[],
+            signal_id_start=1,
+        )[0]
+        short_decision = allocator.decide(
+            make_market(regime=Regime.NEUTRAL, prices={"BTC/USDT": 100.0}),
+            agents=[short_agent],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(long_decision.selected_actor, "NoTrade")
+        self.assertEqual(long_decision.reason, "flash_signal_terminal_deny_key")
+        self.assertEqual(short_decision.selected_actor, "CarryFlowAgentV2")
+        self.assertEqual(short_decision.signal.action, Action.FUT_SHORT_FULL)
+
+    def test_terminal_context_deny_actor_wildcard_blocks_opens_but_not_closes(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        open_agent = FakeAgent("LiveVolCompress", {"BTC/USDT": Action.FUT_LONG_FULL})
+        close_agent = FakeAgent("LiveVolCompress", {"BTC/USDT": Action.FUT_CLOSE_ALL})
+        _add_perf(perf, "LiveVolCompress", Regime.BULLISH, 12, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                terminal_denied_context_signal_keys=(
+                    "agent:LiveVolCompress|*|*|*",
+                ),
+            ),
+        )
+
+        open_decision = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC/USDT": 100.0}),
+            agents=[open_agent],
+            players=[],
+            signal_id_start=1,
+        )[0]
+        close_decision = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC/USDT": 100.0}),
+            agents=[close_agent],
+            players=[],
+            signal_id_start=10,
+            open_position_sides_by_symbol={"BTC/USDT": "long"},
+        )[0]
+
+        self.assertEqual(open_decision.selected_actor, "NoTrade")
+        self.assertEqual(open_decision.reason, "flash_signal_terminal_deny_key")
+        self.assertEqual(close_decision.selected_actor, "LiveVolCompress")
+        self.assertEqual(close_decision.signal.action, Action.FUT_CLOSE_ALL)
+
     def test_no_trade_fallback_preserves_top_rejected_actor_reason(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -1237,6 +1334,41 @@ class TestFlashAllocator(unittest.TestCase):
         ]
         self.assertEqual(row.reason, "controlled_exploration_negative_outcome")
 
+    def test_controlled_exploration_negative_outcome_is_regime_scoped_when_known(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "ColdExplorer", Regime.BULLISH, 10, 0.01, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        )
+
+        allocator.record_controlled_exploration_outcome(
+            actor_label="ColdExplorer",
+            symbol="BTC",
+            action=Action.FUT_LONG_FULL,
+            regime=Regime.RANGE_LOW_VOL,
+            realized_pnl=-0.01,
+        )
+        decision = allocator.decide(
+            make_market(regime=Regime.BULLISH, prices={"BTC": 100.0}),
+            agents=[FakeAgent("ColdExplorer", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"ColdExplorer": (3.0, 12)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "ColdExplorer")
+        self.assertEqual(decision.reason, "controlled_exploration")
+
     def test_controlled_exploration_blocks_negative_component_memory_prior(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
@@ -1596,6 +1728,303 @@ class TestFlashAllocator(unittest.TestCase):
         assert decision.reason == "promotion_derived_router"
         assert decision.signal.action == Action.FUT_LONG_FULL
         assert decision.signal.risk_mult == 0.03
+
+    def test_promotion_derived_router_does_not_resurrect_terminal_context_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "LiveOIBreakout", Regime.RANGE_LOW_VOL, 10, 1.0, start_id=1)
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveOIBreakout",
+                symbol="ADA",
+                regime="range_low_vol",
+                action="SPOT_BUY_FULL",
+                bar=4,
+                closed_trades=10,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+                terminal_denied_context_signal_keys=(
+                    "agent:LiveOIBreakout|ADA|SPOT_BUY_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.SPOT_BUY_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_promotion_derived_router_does_not_resurrect_no_evidence_terminal_context_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveOIBreakout",
+                symbol="ADA",
+                regime="bullish",
+                action="FUT_SHORT_HALF",
+                bar=4,
+                closed_trades=10,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+                terminal_denied_context_signal_keys=(
+                    "agent:LiveOIBreakout|ADA|FUT_SHORT_HALF|bullish",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.MIXED_ROTATIONAL,
+                regimes_by_symbol={"ADA": Regime.BULLISH},
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.FUT_SHORT_HALF})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_base_label_terminal_context_deny_blocks_agent_alias(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("no_evidence",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                terminal_denied_context_signal_keys=(
+                    "LiveOIBreakout|ADA|FUT_LONG_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_terminal_context_deny_futures_long_blocks_spot_long_alias(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("no_evidence",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                terminal_denied_context_signal_keys=(
+                    "LiveOIBreakout|ADA|FUT_LONG_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.SPOT_BUY_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_terminal_context_deny_short_full_blocks_short_half_alias(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("no_evidence",),
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                terminal_denied_context_signal_keys=(
+                    "LiveOIBreakout|ADA|FUT_SHORT_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.FUT_SHORT_HALF})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_promotion_derived_router_respects_base_label_terminal_context_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveOIBreakout",
+                symbol="ADA",
+                regime="range_low_vol",
+                action="FUT_LONG_FULL",
+                bar=4,
+                closed_trades=10,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=5,
+                promotion_derived_min_expectancy=0.0,
+                promotion_derived_risk_mult=0.03,
+                terminal_denied_context_signal_keys=(
+                    "LiveOIBreakout|ADA|FUT_LONG_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=5,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.18},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
+
+    def test_promotion_derived_router_does_not_resurrect_terminal_deny_with_prior(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        memory = ComponentMemory([
+            ComponentStat(
+                actor_label="LiveOIBreakout",
+                symbol="ADA",
+                regime="range_low_vol",
+                action="FUT_LONG_FULL",
+                bar=141,
+                closed_trades=10,
+                expectancy=0.40,
+            )
+        ])
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            component_memory=memory,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=0,
+                promotion_derived_router_enabled=True,
+                promotion_derived_dynamic_best_enabled=True,
+                promotion_derived_min_closed_trades=0,
+                promotion_derived_min_expectancy=-999.0,
+                promotion_derived_risk_mult=1.0,
+                promotion_derived_min_notional_sizing_enabled=True,
+                promotion_derived_min_notional_max_risk_mult=1.0,
+                promotion_derived_default_min_notional_usd=5.0,
+                terminal_denied_context_signal_keys=(
+                    "LiveOIBreakout|ADA|FUT_LONG_FULL|range_low_vol",
+                ),
+            ),
+        ).decide(
+            make_market(
+                bar=142,
+                regime=Regime.RANGE_LOW_VOL,
+                prices={"ADA": 0.1892},
+            ),
+            agents=[FakeAgent("LiveOIBreakout", {"ADA": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=1,
+            min_notional_by_symbol={"ADA": 5.0},
+            account_equity_usd=100.0,
+        )[0]
+
+        assert decision.selected_actor == "NoTrade"
+        assert decision.signal is None
+        row = next(item for item in decision.candidates if item.label == "LiveOIBreakout")
+        assert row.rejected
+        assert row.reason == "flash_signal_terminal_deny_key"
 
     def test_promotion_derived_outcome_memory_blocks_negative_repeat(self):
         perf = PerformanceMemory(trade_fraction=1.0)

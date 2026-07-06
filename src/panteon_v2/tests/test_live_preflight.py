@@ -87,6 +87,43 @@ def test_preflight_blocks_live_when_canary_has_zero_activity(tmp_path):
     assert "canary_zero_fills" in result.reasons
 
 
+def test_preflight_propagates_exchange_canary_fail_reasons(tmp_path):
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {"promotion_verdict": {"passed": True, "fail_reasons": []}},
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": False,
+            "exchanges": {
+                "MEXC": {
+                    "passed": False,
+                    "signals": 1,
+                    "orders": 0,
+                    "fills": 0,
+                    "expectancy_after_costs": 0.0,
+                    "reconcile_ok": True,
+                    "fail_reasons": ["min_notional_blocked"],
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "MEXC",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+        ),
+    )
+
+    assert result.passed is False
+    assert "canary_min_notional_blocked" in result.reasons
+
+
 def test_preflight_blocks_live_when_candidate_loses_to_best_component(tmp_path):
     matrix = _write_json(
         tmp_path / "matrix.json",
@@ -129,6 +166,55 @@ def test_preflight_blocks_live_when_candidate_loses_to_best_component(tmp_path):
 
     assert result.passed is False
     assert "matrix_not_beating_best_component" in result.reasons
+
+
+def test_preflight_accepts_selected_single_component_matrix_artifact(tmp_path):
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {
+            "promotion_verdict": {"passed": True, "fail_reasons": []},
+            "single_component_candidate": {
+                "recommended": False,
+                "label": "LiveOIBreakout",
+                "requires_separate_matrix_artifact": False,
+            },
+            "candidate": {
+                "variant": "single_component__LiveOIBreakout",
+                "realized_pnl_usd": 2.5,
+                "best_component_label": "LiveOIBreakout",
+                "best_component_pnl_usd": 3.0,
+                "panteon_beats_best_component": False,
+            },
+        },
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "exchanges": {
+                "MEXC": {
+                    "passed": True,
+                    "signals": 2,
+                    "orders": 2,
+                    "fills": 2,
+                    "expectancy_after_costs": 0.02,
+                    "reconcile_ok": True,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "MEXC",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+        ),
+    )
+
+    assert "matrix_not_beating_best_component" not in result.reasons
 
 
 def test_preflight_blocks_live_when_matrix_or_canary_is_stale(tmp_path):
@@ -202,3 +288,80 @@ def test_preflight_blocks_live_when_canary_reports_open_positions(tmp_path):
 
     assert result.passed is False
     assert "canary_open_positions" in result.reasons
+
+
+def test_preflight_blocks_live_when_canary_expectancy_gate_disabled(tmp_path):
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {"promotion_verdict": {"passed": True, "fail_reasons": []}},
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "expectancy_gate_required": False,
+            "exchanges": {
+                "MEXC": {
+                    "passed": True,
+                    "expectancy_gate_required": False,
+                    "signals": 1,
+                    "orders": 1,
+                    "fills": 1,
+                    "expectancy_after_costs": -0.02,
+                    "reconcile_ok": True,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "MEXC",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+        ),
+    )
+
+    assert result.passed is False
+    assert "canary_expectancy_gate_disabled" in result.reasons
+
+
+def test_preflight_blocks_live_when_canary_is_calibration_only(tmp_path):
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {"promotion_verdict": {"passed": True, "fail_reasons": []}},
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "calibration_only": True,
+            "actor_overrides": {"CHECK_INT": 1, "MOM_MIN": 0.0015},
+            "exchanges": {
+                "MEXC": {
+                    "passed": True,
+                    "signals": 3,
+                    "orders": 3,
+                    "fills": 3,
+                    "expectancy_after_costs": 0.04,
+                    "reconcile_ok": True,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "MEXC",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+        ),
+    )
+
+    assert result.passed is False
+    assert "canary_calibration_only" in result.reasons
+    assert "canary_actor_overrides" in result.reasons

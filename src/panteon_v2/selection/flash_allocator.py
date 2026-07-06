@@ -193,6 +193,18 @@ def _normalize_regime_value(raw: object) -> Regime:
     )
 
 
+def _outcome_regime_key(raw: object) -> str:
+    if raw in (None, ""):
+        return "*"
+    text = str(raw or "").strip().lower()
+    if text in {"*", "all", "any"}:
+        return "*"
+    try:
+        return _normalize_regime_value(raw).label
+    except ValueError:
+        return text or "*"
+
+
 def _normalize_symbol_tuple(raw: object) -> tuple[str, ...]:
     if raw in (None, ""):
         return ()
@@ -1062,6 +1074,12 @@ _PROMOTION_DERIVED_SOFT_REASONS: frozenset[str] = frozenset({
     "flash_signal_not_promoted",
 })
 
+_PROMOTION_DERIVED_HARD_REASONS: frozenset[str] = frozenset(
+    reason
+    for reason in _CONTROLLED_EXPLORATION_HARD_REASONS
+    if reason not in {"no_evidence", "flash_signal_not_promoted"}
+)
+
 FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "min_score_to_trade": 0.10,
     "min_closed_trades_to_trade": 10,
@@ -1522,7 +1540,7 @@ class FlashAllocator:
         self._config = config
         self._component_memory = component_memory
         self._controlled_exploration_outcomes: Dict[
-            tuple[str, str, str],
+            tuple[str, str, str, str],
             dict[str, float],
         ] = {}
         self._scoring = scoring_config
@@ -1559,9 +1577,10 @@ class FlashAllocator:
         actor_label: str,
         symbol: str,
         action: Action | str,
+        regime: object = None,
         realized_pnl: float,
     ) -> None:
-        """Remember realized exploration outcomes by actor/symbol/open action."""
+        """Remember realized exploration outcomes by actor/symbol/open action/regime."""
         try:
             pnl = float(realized_pnl)
         except (TypeError, ValueError):
@@ -1575,12 +1594,14 @@ class FlashAllocator:
         symbols = _signal_symbol_aliases(symbol)
         if not actor_aliases or not symbols:
             return
+        regime_key = _outcome_regime_key(regime)
         for actor_alias in actor_aliases:
             for symbol_alias in symbols:
                 key = (
                     str(actor_alias or "").strip().lower(),
                     str(symbol_alias or "").strip().upper(),
                     action_name,
+                    regime_key,
                 )
                 bucket = self._controlled_exploration_outcomes.setdefault(
                     key,
@@ -1591,6 +1612,23 @@ class FlashAllocator:
 
     def record_controlled_exploration_execution_result(self, result: object) -> None:
         """Ingest filled close outcomes from TradeExecutor.ExecutionResult."""
+        context_outcomes = tuple(
+            getattr(result, "closed_position_actor_context_outcomes", ()) or ()
+        )
+        if context_outcomes:
+            for outcome in context_outcomes:
+                if len(outcome) < 6:
+                    continue
+                actor_label, symbol, action, _side, regime, realized_pnl = outcome[:6]
+                self.record_controlled_exploration_outcome(
+                    actor_label=str(actor_label or ""),
+                    symbol=str(symbol or ""),
+                    action=str(action or ""),
+                    regime=regime,
+                    realized_pnl=float(realized_pnl or 0.0),
+                )
+            return
+
         outcomes = tuple(getattr(result, "closed_position_actor_outcomes", ()) or ())
         if outcomes:
             for outcome in outcomes:
@@ -2109,6 +2147,18 @@ class FlashAllocator:
             elif self._is_open_symbol_degraded(output, symbol, degraded_open_symbols):
                 rejected = True
                 reason = "flash_symbol_degraded"
+            elif (
+                self._is_signal_terminal_denied(output, symbol, local_regime)
+                and not (
+                    probation_admission
+                    and self._config.genetics_probation_bypass_terminal_deny_enabled
+                )
+            ):
+                rejected = True
+                reason = "flash_signal_terminal_deny_key"
+            elif self._is_signal_denied(output, symbol):
+                rejected = True
+                reason = "flash_signal_deny_key"
             elif output.action.is_open and not metrics.has_data:
                 rejected = True
                 reason = "no_evidence"
@@ -2293,18 +2343,6 @@ class FlashAllocator:
             ):
                 rejected = True
                 reason = "flash_signal_degraded"
-            elif (
-                self._is_signal_terminal_denied(output, symbol, local_regime)
-                and not (
-                    probation_admission
-                    and self._config.genetics_probation_bypass_terminal_deny_enabled
-                )
-            ):
-                rejected = True
-                reason = "flash_signal_terminal_deny_key"
-            elif self._is_signal_denied(output, symbol):
-                rejected = True
-                reason = "flash_signal_deny_key"
             elif (
                 self._config.promotion_manifest_enabled
                 and output.action.is_open
@@ -3793,8 +3831,13 @@ class FlashAllocator:
         key = _signal_deny_key(output.actor_key, symbol, output.action)
         if key in self._config.terminal_denied_signal_keys:
             return True
-        context_key = _signal_context_key(output.actor_key, symbol, output.action, regime)
-        return context_key in self._config.terminal_denied_context_signal_keys
+        return _signal_context_key_matches(
+            self._config.terminal_denied_context_signal_keys,
+            output.actor_key,
+            symbol,
+            output.action,
+            regime,
+        )
 
     def _terminal_denied_top_candidate(
         self,
@@ -4336,6 +4379,7 @@ class FlashAllocator:
                 row,
                 symbol=symbol,
                 action=action,
+                local_regime=local_regime,
             ):
                 blocked_rows.append(
                     replace(row, reason="promotion_derived_negative_outcome")
@@ -4356,9 +4400,9 @@ class FlashAllocator:
                 continue
             if (
                 bool(getattr(row, "rejected", False))
-                and reason not in _PROMOTION_DERIVED_SOFT_REASONS
-                and prior_stat is None
+                and reason in _PROMOTION_DERIVED_HARD_REASONS
             ):
+                blocked_rows.append(row)
                 continue
             closed = (
                 int(prior_stat.closed_trades)
@@ -4425,11 +4469,13 @@ class FlashAllocator:
         *,
         symbol: str,
         action: Action,
+        local_regime: Regime,
     ) -> bool:
         return self._negative_session_outcome_blocked(
             row,
             symbol=symbol,
             action=action,
+            local_regime=local_regime,
             threshold=float(self._config.promotion_derived_min_expectancy),
         )
 
@@ -4439,6 +4485,7 @@ class FlashAllocator:
         *,
         symbol: str,
         action: Action | str,
+        local_regime: Regime,
         threshold: float,
     ) -> bool:
         action_name = _normalize_action_name(action)
@@ -4455,20 +4502,40 @@ class FlashAllocator:
             return False
         for actor_alias in actor_aliases:
             for symbol_alias in symbols:
-                bucket = self._controlled_exploration_outcomes.get((
-                    str(actor_alias or "").strip().lower(),
-                    str(symbol_alias or "").strip().upper(),
-                    action_name,
-                ))
-                if not bucket:
-                    continue
-                closed = float(bucket.get("closed_trades", 0.0) or 0.0)
-                if closed <= 0.0:
-                    continue
-                expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
-                if expectancy < float(threshold):
-                    return True
+                for bucket in self._controlled_exploration_outcome_buckets(
+                    actor_alias=actor_alias,
+                    symbol_alias=symbol_alias,
+                    action_name=action_name,
+                    local_regime=local_regime,
+                ):
+                    closed = float(bucket.get("closed_trades", 0.0) or 0.0)
+                    if closed <= 0.0:
+                        continue
+                    expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
+                    if expectancy < float(threshold):
+                        return True
         return False
+
+    def _controlled_exploration_outcome_buckets(
+        self,
+        *,
+        actor_alias: object,
+        symbol_alias: object,
+        action_name: str,
+        local_regime: Regime,
+    ) -> Tuple[Mapping[str, float], ...]:
+        actor_key = str(actor_alias or "").strip().lower()
+        symbol_key = str(symbol_alias or "").strip().upper()
+        regime_key = _outcome_regime_key(local_regime)
+        buckets: list[Mapping[str, float]] = []
+        for key in (
+            (actor_key, symbol_key, action_name, regime_key),
+            (actor_key, symbol_key, action_name, "*"),
+        ):
+            bucket = self._controlled_exploration_outcomes.get(key)
+            if bucket:
+                buckets.append(bucket)
+        return tuple(buckets)
 
     def _component_prior_stat(
         self,
@@ -4765,19 +4832,18 @@ class FlashAllocator:
         if self._controlled_exploration_outcomes:
             for actor_alias in actor_aliases:
                 for symbol_alias in symbols:
-                    bucket = self._controlled_exploration_outcomes.get((
-                        str(actor_alias or "").strip().lower(),
-                        str(symbol_alias or "").strip().upper(),
-                        action_name,
-                    ))
-                    if not bucket:
-                        continue
-                    closed = float(bucket.get("closed_trades", 0.0) or 0.0)
-                    if closed <= 0.0:
-                        continue
-                    expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
-                    if expectancy < threshold:
-                        return True
+                    for bucket in self._controlled_exploration_outcome_buckets(
+                        actor_alias=actor_alias,
+                        symbol_alias=symbol_alias,
+                        action_name=action_name,
+                        local_regime=local_regime,
+                    ):
+                        closed = float(bucket.get("closed_trades", 0.0) or 0.0)
+                        if closed <= 0.0:
+                            continue
+                        expectancy = float(bucket.get("realized_pnl", 0.0) or 0.0) / closed
+                        if expectancy < threshold:
+                            return True
         if self._controlled_exploration_negative_component_prior_blocked(
             actor_aliases=actor_aliases,
             symbols=symbols,
@@ -4931,9 +4997,14 @@ class FlashAllocator:
             and not probation_terminal_bypass
         ):
             return "flash_signal_terminal_deny_key"
-        context_key = _signal_context_key(actor_key, clean_symbol, action, local_regime)
         if (
-            context_key in self._config.terminal_denied_context_signal_keys
+            _signal_context_key_matches(
+                self._config.terminal_denied_context_signal_keys,
+                actor_key,
+                clean_symbol,
+                action,
+                local_regime,
+            )
             and not probation_terminal_bypass
         ):
             return "flash_signal_terminal_deny_key"
@@ -6068,6 +6139,51 @@ def _signal_context_key(
     )
 
 
+def _signal_context_key_candidates(
+    actor_key: str,
+    symbol: str,
+    action: Action,
+    regime: Regime,
+) -> Tuple[str, ...]:
+    clean_symbol = str(symbol or "").upper()
+    action_name = action.name
+    regime_label = _normalize_regime_value(regime).label
+    symbol_values = (clean_symbol, "*")
+    action_values = (action_name, "*") if action.is_open else (action_name,)
+    regime_values = (regime_label, "*")
+    return tuple(
+        dict.fromkeys(
+            _normalize_signal_context_key(
+                f"{actor_key}|{symbol_value}|{action_value}|{regime_value}"
+            )
+            for symbol_value in symbol_values
+            for action_value in action_values
+            for regime_value in regime_values
+        )
+    )
+
+
+def _signal_context_key_matches(
+    keys: Iterable[str],
+    actor_key: str,
+    symbol: str,
+    action: Action,
+    regime: Regime,
+) -> bool:
+    key_set = set(keys)
+    if not key_set:
+        return False
+    return any(
+        candidate in key_set
+        for candidate in _signal_context_key_candidates(
+            actor_key,
+            symbol,
+            action,
+            regime,
+        )
+    )
+
+
 def _signal_side_key(actor_key: str, symbol: str, action: Action) -> str:
     side = _open_action_direction(action)
     if side not in {"long", "short"}:
@@ -6130,6 +6246,8 @@ def _signal_symbol_aliases(symbol: object) -> Tuple[str, ...]:
     clean = str(symbol or "").strip().upper()
     if not clean:
         return ()
+    if clean == "*":
+        return ("*",)
     aliases: list[str] = [clean]
     if "/" in clean:
         base, quote = clean.split("/", 1)
@@ -6146,6 +6264,57 @@ def _signal_symbol_aliases(symbol: object) -> Tuple[str, ...]:
     return tuple(dict.fromkeys(alias for alias in aliases if alias))
 
 
+def _signal_action_aliases(action: object) -> Tuple[str, ...]:
+    clean = str(action or "").strip().upper()
+    if not clean:
+        return ()
+    if clean == "*":
+        return ("*",)
+    aliases: list[str] = [clean]
+    try:
+        parsed = Action[clean]
+    except KeyError:
+        return tuple(dict.fromkeys(aliases))
+    if parsed == Action.SPOT_BUY_HALF:
+        aliases.append(Action.FUT_LONG_HALF.name)
+    elif parsed == Action.FUT_LONG_HALF:
+        aliases.append(Action.SPOT_BUY_HALF.name)
+    elif parsed == Action.SPOT_BUY_FULL:
+        aliases.append(Action.FUT_LONG_FULL.name)
+    elif parsed == Action.FUT_LONG_FULL:
+        aliases.append(Action.SPOT_BUY_FULL.name)
+    elif parsed == Action.FUT_SHORT_HALF:
+        aliases.append(Action.FUT_SHORT_FULL.name)
+    elif parsed == Action.FUT_SHORT_FULL:
+        aliases.append(Action.FUT_SHORT_HALF.name)
+    return tuple(dict.fromkeys(alias for alias in aliases if alias))
+
+
+def _signal_actor_aliases(actor_key: object) -> Tuple[str, ...]:
+    clean = str(actor_key or "").strip()
+    if not clean:
+        return ()
+    aliases: list[str] = [clean]
+    if clean.startswith("agent:"):
+        base = clean.split(":", 1)[1]
+    elif clean.startswith("ensemble:"):
+        base = clean.split(":", 1)[1]
+    else:
+        base = clean
+    if base:
+        aliases.append(base)
+        aliases.append(f"agent:{base}")
+        if base.startswith("Solo_"):
+            inner = base[len("Solo_"):]
+            aliases.append(inner)
+            aliases.append(f"agent:{inner}")
+            aliases.append(f"ensemble:{base}")
+        else:
+            aliases.append(f"Solo_{base}")
+            aliases.append(f"ensemble:Solo_{base}")
+    return tuple(dict.fromkeys(alias for alias in aliases if alias))
+
+
 def _normalize_signal_deny_key_variants(raw: object) -> Tuple[str, ...]:
     parts = [part.strip() for part in str(raw or "").split("|")]
     if len(parts) != 3 or not all(parts):
@@ -6154,8 +6323,10 @@ def _normalize_signal_deny_key_variants(raw: object) -> Tuple[str, ...]:
         )
     actor_key, symbol, action = parts
     return tuple(
-        _normalize_signal_deny_key(f"{actor_key}|{alias}|{action}")
-        for alias in _signal_symbol_aliases(symbol)
+        _normalize_signal_deny_key(f"{actor_alias}|{symbol_alias}|{action_alias}")
+        for actor_alias in _signal_actor_aliases(actor_key)
+        for symbol_alias in _signal_symbol_aliases(symbol)
+        for action_alias in _signal_action_aliases(action)
     )
 
 
@@ -6174,9 +6345,11 @@ def _normalize_signal_context_key(raw: object) -> str:
         raise ValueError(
             "Flash signal context key must use 'actor_key|symbol|action|regime' format"
         )
-    signal_key = _normalize_signal_deny_key("|".join(parts[:3]))
-    regime = _normalize_regime_value(parts[3]).label
-    return f"{signal_key}|{regime}"
+    actor_key, symbol, action, regime = parts
+    symbol_key = "*" if symbol == "*" else symbol.upper()
+    action_key = "*" if action == "*" else action.upper()
+    regime_key = "*" if regime == "*" else _normalize_regime_value(regime).label
+    return f"{actor_key}|{symbol_key}|{action_key}|{regime_key}"
 
 
 def _normalize_signal_context_key_variants(raw: object) -> Tuple[str, ...]:
@@ -6185,10 +6358,14 @@ def _normalize_signal_context_key_variants(raw: object) -> Tuple[str, ...]:
         raise ValueError(
             "Flash signal context key must use 'actor_key|symbol|action|regime' format"
         )
-    regime = _normalize_regime_value(parts[3]).label
+    regime = "*" if parts[3] == "*" else _normalize_regime_value(parts[3]).label
     return tuple(
-        f"{signal_key}|{regime}"
-        for signal_key in _normalize_signal_deny_key_variants("|".join(parts[:3]))
+        _normalize_signal_context_key(
+            f"{actor_alias}|{symbol_alias}|{action_alias}|{regime}"
+        )
+        for actor_alias in _signal_actor_aliases(parts[0])
+        for symbol_alias in _signal_symbol_aliases(parts[1])
+        for action_alias in _signal_action_aliases(parts[2])
     )
 
 

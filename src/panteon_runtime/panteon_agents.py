@@ -2482,6 +2482,8 @@ class CarryFlowAgentV2:
     MAX_DATA_AGE_SEC = 20 * 60
     MAX_POS = 4
     ENTRY_COOLDOWN = 120
+    ALLOW_LONG = False
+    ALLOW_SHORT = True
 
     def __init__(self):
         self.h: Dict[str, deque] = {}
@@ -2703,6 +2705,8 @@ class CarryFlowAgentV2:
 
             if fd and oi_chg >= self.OI_SPIKE:
                 if (
+                    self.ALLOW_SHORT
+                    and
                     rate >= self.FUNDING_ENTRY
                     and long_ratio >= self.CROWD_RATIO
                     and basis >= self.BASIS_ENTRY
@@ -2727,6 +2731,8 @@ class CarryFlowAgentV2:
                         edge=edge,
                     )
                 elif (
+                    self.ALLOW_LONG
+                    and
                     rate <= -self.FUNDING_ENTRY
                     and short_ratio >= self.CROWD_RATIO
                     and basis <= -self.BASIS_ENTRY
@@ -2761,7 +2767,7 @@ class CarryFlowAgentV2:
                 continue
 
             if not fd:
-                if trend_up and ext <= -self.EXTREME_EXT and rsi <= self.RSI_OS:
+                if self.ALLOW_LONG and trend_up and ext <= -self.EXTREME_EXT and rsi <= self.RSI_OS:
                     edge=max(-ext-self.EXTREME_EXT,0.0)*100.0+max(self.RSI_OS-rsi,0.0)/100.0-cooldown
                     candidates.append((edge,sym,5,'long',px))
                     _set_signal_diag(
@@ -2772,7 +2778,7 @@ class CarryFlowAgentV2:
                         action=0,
                         edge=edge,
                     )
-                elif trend_dn and ext >= self.EXTREME_EXT and rsi >= self.RSI_OB:
+                elif self.ALLOW_SHORT and trend_dn and ext >= self.EXTREME_EXT and rsi >= self.RSI_OB:
                     edge=max(ext-self.EXTREME_EXT,0.0)*100.0+max(rsi-self.RSI_OB,0.0)/100.0-cooldown
                     candidates.append((edge,sym,7,'short',px))
                     _set_signal_diag(

@@ -110,6 +110,10 @@ class ExecutionResult:
     win_counts_by_player: tuple[tuple[str, int], ...] = ()
     closed_position_outcomes: tuple[tuple[str, str, float], ...] = ()
     closed_position_actor_outcomes: tuple[tuple[str, str, str, str, float], ...] = ()
+    closed_position_actor_context_outcomes: tuple[
+        tuple[str, str, str, str, str, float],
+        ...,
+    ] = ()
 
     @property
     def is_success(self) -> bool:
@@ -601,6 +605,9 @@ class TradeExecutor:
         win_counts_by_player: Dict[str, int] = {}
         closed_position_outcomes: list[tuple[str, str, float]] = []
         closed_position_actor_outcomes: list[tuple[str, str, str, str, float]] = []
+        closed_position_actor_context_outcomes: list[
+            tuple[str, str, str, str, str, float]
+        ] = []
         for event in events:
             label = str(getattr(event, "by_player", "") or "")
             if not label or not hasattr(event, "realized_pnl"):
@@ -609,6 +616,7 @@ class TradeExecutor:
             symbol = str(getattr(event, "sym", "") or "").upper()
             open_action = str(getattr(event, "open_action", "") or "").strip().upper()
             side = str(getattr(event, "side", "") or "").lower()
+            open_regime = str(getattr(event, "open_regime", "") or "").strip()
             if not open_action:
                 if side == "long":
                     open_action = "FUT_LONG_FULL"
@@ -626,6 +634,14 @@ class TradeExecutor:
                             symbol,
                             open_action,
                             side,
+                            pnl,
+                        ))
+                        closed_position_actor_context_outcomes.append((
+                            actor_label,
+                            symbol,
+                            open_action,
+                            side,
+                            open_regime,
                             pnl,
                         ))
             realized_by_player[label] = realized_by_player.get(label, 0.0) + pnl
@@ -653,6 +669,9 @@ class TradeExecutor:
             win_counts_by_player=tuple(sorted(win_counts_by_player.items())),
             closed_position_outcomes=tuple(closed_position_outcomes),
             closed_position_actor_outcomes=tuple(closed_position_actor_outcomes),
+            closed_position_actor_context_outcomes=tuple(
+                closed_position_actor_context_outcomes
+            ),
         )
 
     def _handle_rejected(

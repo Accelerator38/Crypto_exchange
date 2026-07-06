@@ -253,6 +253,14 @@ class TestExecuteSuccess(unittest.TestCase):
             ("A", "BTC", "FUT_LONG_FULL", "long", closed[0].realized_pnl),
             result.closed_position_actor_outcomes,
         )
+        self.assertIn(
+            ("P", "BTC", "FUT_LONG_FULL", "long", "bullish", closed[0].realized_pnl),
+            result.closed_position_actor_context_outcomes,
+        )
+        self.assertIn(
+            ("A", "BTC", "FUT_LONG_FULL", "long", "bullish", closed[0].realized_pnl),
+            result.closed_position_actor_context_outcomes,
+        )
 
     def test_close_fraction_closes_only_that_position_share(self):
         op_sig = _make_signal(sid=1)

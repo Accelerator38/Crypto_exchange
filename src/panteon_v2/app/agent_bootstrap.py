@@ -598,6 +598,19 @@ def _coerce_action(value: Any) -> Optional[Action]:
         return None
 
 
+def _live_oi_breakout_futures_action_mapper(value: Any) -> Optional[Action]:
+    action = _coerce_action(value)
+    if action == Action.SPOT_BUY_HALF:
+        return Action.FUT_LONG_HALF
+    if action == Action.SPOT_BUY_FULL:
+        return Action.FUT_LONG_FULL
+    if action == Action.SPOT_SELL_ALL:
+        return Action.FUT_CLOSE_ALL
+    if action == Action.FUT_SHORT_HALF:
+        return Action.FUT_SHORT_FULL
+    return action
+
+
 def _clone_agent_for_wrapper(agent: Any) -> Optional[Any]:
     clone = getattr(agent, "clone_for_shadow", None)
     if callable(clone):
@@ -1189,6 +1202,12 @@ def _register_from_list(
                 "v1_agent": instance,
                 "portfolio_value_fn": portfolio_value_fn,
             }
+            if (
+                adapter_cls is V1AgentAdapter
+                and futures_replay_signal_fixes_enabled
+                and label == "LiveOIBreakout"
+            ):
+                adapter_kwargs["action_mapper"] = _live_oi_breakout_futures_action_mapper
             if adapter_cls is GeneticsV2AgentAdapter and label == "GeneticsGenomeEnsemble":
                 adapter_kwargs["allowed_open_regimes"] = ("bearish", "crash")
             adapter = adapter_cls(**adapter_kwargs)

@@ -55,6 +55,20 @@ def test_readiness_warns_on_orphan_stale_status_without_live_process(tmp_path):
     assert "live_status.MEXC.pid_not_running" not in blocker_ids
     assert "live_status.MEXC.stale_inactive_status" in warning_ids
     assert "live_status.MEXC.orphan_running_status" in warning_ids
+    stale_warning = next(
+        item for item in report["warnings"] if item["id"] == "live_status.MEXC.stale_inactive_status"
+    )
+    orphan_warning = next(
+        item for item in report["warnings"] if item["id"] == "live_status.MEXC.orphan_running_status"
+    )
+    assert stale_warning["cleanup_hints"] == [
+        "Review or archive stale status: Results\\MEXC\\2026-06-25_14-23-38_v2\\status.json",
+        "Run a fresh isolated paper canary before re-checking readiness",
+    ]
+    assert orphan_warning["cleanup_hints"] == [
+        "Confirm no live MEXC worker owns pid 999999",
+        "Review or archive stale status: Results\\MEXC\\2026-06-25_14-23-38_v2\\status.json",
+    ]
 
 
 def test_readiness_blocks_stale_status_for_running_live_pid(tmp_path):
@@ -294,3 +308,171 @@ def test_runbook_uses_long_isolated_dual_exchange_canary():
     assert "Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar" in canary
     assert "Results/Panteon3SingleComponentCanary_isolated/prelive_liveoibreakout_65bar" in summary
     assert "--exchange MEXC --exchange BITGET" in summary
+
+
+def test_readiness_blocks_failed_matrix_canary_and_activation(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    (tmp_path / "settings.txt").write_text(
+        "bitget_v2_genetics_probation_execution_enabled = off\n",
+        encoding="utf-8",
+    )
+    matrix_dir = tmp_path / "Reports" / "Panteon3PreLiveMatrix" / "latest"
+    canary_dir = tmp_path / "Reports" / "Panteon3Canary" / "latest"
+    matrix_dir.mkdir(parents=True)
+    canary_dir.mkdir(parents=True)
+    (matrix_dir / "panteon3_pre_live_matrix_summary.json").write_text(
+        (
+            "{"
+            '"promotion_verdict":{"passed":false,"fail_reasons":["min_filled"]},'
+            '"candidate":{"filled_signals":7,"closed_trades":3}'
+            "}"
+        ),
+        encoding="utf-8",
+    )
+    (canary_dir / "panteon3_live_canary_summary.json").write_text(
+        (
+            "{"
+            '"passed":false,'
+            '"calibration_only":true,'
+            '"execution_smoke":true,'
+            '"actor_overrides":{"MOM_MIN":0.0015},'
+            '"expectancy_gate_required":true,'
+            '"exchanges":{"BITGET":{'
+            '"passed":false,'
+            '"fail_reasons":["nonpositive_expectancy"],'
+            '"signals":14,"orders":4,"fills":4,'
+            '"expectancy_after_costs":-0.01'
+            "}}"
+            "}"
+        ),
+        encoding="utf-8",
+    )
+    (canary_dir / "live_oi_breakout_activation_report.json").write_text(
+        (
+            "{"
+            '"hard_blocked":true,'
+            '"activation_blockers":["zero_candidate_signals"],'
+            '"candidate_signal_count":0'
+            "}"
+        ),
+        encoding="utf-8",
+    )
+
+    report = tool.build_readiness_report(
+        project_root=tmp_path,
+        exchanges=("BITGET",),
+        include_git=False,
+        include_live_status=False,
+        include_live_preflight=False,
+        include_exchange_rules=False,
+        include_promotion=False,
+        include_artifact_doctor=True,
+    )
+
+    blocker_ids = {item["id"] for item in report["blockers"]}
+    assert report["passed"] is False
+    assert report["sections"]["matrix"]["passed"] is False
+    assert report["sections"]["canary"]["passed"] is False
+    assert report["sections"]["activation"]["passed"] is False
+    assert "matrix.failed" in blocker_ids
+    assert "canary.failed" in blocker_ids
+    assert "canary.calibration_only" in blocker_ids
+    assert "canary.execution_smoke" in blocker_ids
+    assert "canary.actor_overrides" in blocker_ids
+    assert "canary.BITGET.nonpositive_expectancy" in blocker_ids
+    assert "activation.hard_blocked" in blocker_ids
+
+
+def test_readiness_blocks_execution_smoke_canary_even_when_technical_checks_pass(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    (tmp_path / "settings.txt").write_text(
+        "bitget_v2_genetics_probation_execution_enabled = off\n",
+        encoding="utf-8",
+    )
+    canary_dir = tmp_path / "Reports" / "Panteon3Canary" / "latest"
+    canary_dir.mkdir(parents=True)
+    (canary_dir / "panteon3_live_canary_summary.json").write_text(
+        (
+            "{"
+            '"passed":true,'
+            '"execution_smoke":true,'
+            '"expectancy_gate_required":false,'
+            '"exchanges":{"BITGET":{'
+            '"passed":true,'
+            '"signals":1,"orders":1,"fills":1,'
+            '"expectancy_after_costs":-0.01'
+            "}}"
+            "}"
+        ),
+        encoding="utf-8",
+    )
+
+    report = tool.build_readiness_report(
+        project_root=tmp_path,
+        exchanges=("BITGET",),
+        include_git=False,
+        include_live_status=False,
+        include_live_preflight=False,
+        include_exchange_rules=False,
+        include_promotion=False,
+        include_artifact_doctor=True,
+        matrix_summary_path=tmp_path / "missing_matrix.json",
+        activation_report_path=tmp_path / "missing_activation.json",
+    )
+
+    blocker_ids = {item["id"] for item in report["blockers"]}
+    assert report["sections"]["canary"]["passed"] is False
+    assert report["sections"]["canary"]["execution_smoke"] is True
+    assert "canary.execution_smoke" in blocker_ids
+
+
+def test_readiness_markdown_lists_artifact_source_paths(tmp_path):
+    tool = importlib.import_module("tools.build_panteon_prelive_readiness")
+    report = {
+        "generated_at": "2026-07-03T12:00:00+00:00",
+        "passed": False,
+        "blockers": [
+            {
+                "id": "matrix.failed",
+                "message": "matrix promotion verdict failed",
+                "severity": "blocker",
+            }
+        ],
+        "warnings": [],
+        "sections": {
+            "matrix": {
+                "passed": False,
+                "path": str(tmp_path / "matrix.json"),
+                "fail_reasons": ["min_filled"],
+            },
+            "canary": {
+                "passed": False,
+                "path": str(tmp_path / "canary.json"),
+                "terminal_denied_context_signal_keys": [
+                    "agent:LiveOIBreakout|BTC|FUT_SHORT_HALF|range_low_vol",
+                ],
+                "exchanges": {"BITGET": {"passed": False}},
+            },
+            "activation": {
+                "passed": False,
+                "path": str(tmp_path / "activation.json"),
+                "activation_blockers": ["zero_candidate_signals"],
+            },
+            "promotion": {
+                "passed": True,
+                "selection_path": str(tmp_path / "selection.json"),
+                "promotion_eligible": False,
+                "promotion_failures": ["baseline_selected", "oos_holdout_gate"],
+            },
+        },
+    }
+
+    markdown = tool.render_markdown(report)
+
+    assert str(tmp_path / "matrix.json") in markdown
+    assert str(tmp_path / "canary.json") in markdown
+    assert str(tmp_path / "activation.json") in markdown
+    assert "matrix.failed" in markdown
+    assert "agent:LiveOIBreakout|BTC|FUT_SHORT_HALF|range_low_vol" in markdown
+    assert "baseline_selected" in markdown
+    assert "oos_holdout_gate" in markdown

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import math
 import sys
 from datetime import date
 from pathlib import Path
@@ -77,6 +78,17 @@ def apply_strict_promotion_contracts(
     """Mark selection ineligible unless it came from the full exchange/OOS chain."""
 
     failures = list(dict.fromkeys(str(item) for item in selection.get("promotion_failures", [])))
+    if bool(selection.get("selected_is_baseline", False)):
+        failures.append("baseline_selected")
+    selected_regime_map = {
+        str(regime): str(path)
+        for regime, path in dict(selection.get("selected_regime_map") or {}).items()
+        if path
+    }
+    if selected_regime_map:
+        selected_paths = {path for path in selected_regime_map.values() if path}
+        if len(selected_paths) <= 1:
+            failures.append("regime_map_collapsed")
     failures.extend(
         item
         for item in _strict_exchange_failures(
@@ -115,7 +127,9 @@ def apply_strict_promotion_contracts(
                         lcb_value = float(lcb)
                     except (TypeError, ValueError):
                         lcb_value = float("-inf")
-                    if lcb_value <= float(min_per_symbol_lcb):
+                    if not math.isfinite(lcb_value):
+                        failures.append(f"oos_{idx}_per_symbol_lcb_missing")
+                    elif lcb_value <= float(min_per_symbol_lcb):
                         failures.append(f"oos_{idx}_per_symbol_lcb")
             if max_oos_drawdown_pct is not None:
                 dd = candidate.get("max_drawdown_pct")
@@ -126,8 +140,16 @@ def apply_strict_promotion_contracts(
                         dd_value = float(dd)
                     except (TypeError, ValueError):
                         dd_value = float("inf")
-                    if dd_value > float(max_oos_drawdown_pct):
+                    if not math.isfinite(dd_value):
+                        failures.append(f"oos_{idx}_max_drawdown_missing")
+                    elif dd_value > float(max_oos_drawdown_pct):
                         failures.append(f"oos_{idx}_max_drawdown")
+            for metric_name in (
+                "mean_invalid_open_logit_pressure",
+                "max_invalid_open_logit_pressure",
+            ):
+                if metric_name in candidate and not _is_finite_metric(candidate.get(metric_name)):
+                    failures.append(f"oos_{idx}_invalid_open_pressure_nan")
 
     failures = list(dict.fromkeys(failures))
     selection["exchange"] = _normalize_exchange(expected_exchange)
@@ -317,9 +339,19 @@ def _mode_payload(genome_payload: Dict[str, Any], mode: str) -> Dict[str, Any]:
 
 def _float_or_none(value: Any) -> float | None:
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(result):
+        return None
+    return result
+
+
+def _is_finite_metric(value: Any) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _contract_min_per_symbol_lcb(contract: Dict[str, Any]) -> float | None:
@@ -553,6 +585,7 @@ def _period_summary_for_map(
     long_slot_rates: List[float] = []
     short_slot_rates: List[float] = []
     net_direction_biases: List[float] = []
+    per_symbol_lcbs: List[float] = []
     for idx, row in enumerate(baseline_periods):
         regime = str(row.get("regime", "neutral"))
         path = regime_map.get(regime, fallback_path)
@@ -568,6 +601,7 @@ def _period_summary_for_map(
         long_slot_rate = float(selected_period.get("mean_long_slot_rate", 0.0) or 0.0)
         short_slot_rate = float(selected_period.get("mean_short_slot_rate", 0.0) or 0.0)
         net_direction_bias = float(selected_period.get("mean_net_direction_bias", 0.0) or 0.0)
+        per_symbol_lcb = _contract_min_per_symbol_lcb(selected_period)
         selected_rets.append(float(rets[idx]))
         turnover_rates.append(turnover_rate)
         saturation_rates.append(saturation_rate)
@@ -576,6 +610,8 @@ def _period_summary_for_map(
         long_slot_rates.append(long_slot_rate)
         short_slot_rates.append(short_slot_rate)
         net_direction_biases.append(net_direction_bias)
+        if per_symbol_lcb is not None:
+            per_symbol_lcbs.append(float(per_symbol_lcb))
         selected_rows.append({
             "period": row.get("period", str(idx)),
             "regime": regime,
@@ -588,6 +624,7 @@ def _period_summary_for_map(
             "mean_long_slot_rate": long_slot_rate,
             "mean_short_slot_rate": short_slot_rate,
             "mean_net_direction_bias": net_direction_bias,
+            "min_per_symbol_lcb": per_symbol_lcb,
         })
 
     if selected_rets:
@@ -614,6 +651,7 @@ def _period_summary_for_map(
             sum(abs(value) for value in net_direction_biases)
             / len(net_direction_biases)
         )
+        min_per_symbol_lcb = min(per_symbol_lcbs) if per_symbol_lcbs else None
     else:
         mean_ret = min_ret = max_ret = positive_period_pct = 0.0
         mean_turnover_rate = max_turnover_rate = 0.0
@@ -621,6 +659,7 @@ def _period_summary_for_map(
         mean_invalid_open_logit_pressure = max_invalid_open_logit_pressure = 0.0
         max_drawdown_pct = 0.0
         mean_long_slot_rate = mean_short_slot_rate = mean_abs_net_direction_bias = 0.0
+        min_per_symbol_lcb = None
 
     return {
         "mean_ret": float(mean_ret),
@@ -637,7 +676,7 @@ def _period_summary_for_map(
         "mean_long_slot_rate": float(mean_long_slot_rate),
         "mean_short_slot_rate": float(mean_short_slot_rate),
         "mean_abs_net_direction_bias": float(mean_abs_net_direction_bias),
-        "min_per_symbol_lcb": None,
+        "min_per_symbol_lcb": min_per_symbol_lcb,
         "period_rets": selected_rets,
         "periods": selected_rows,
     }
@@ -774,16 +813,28 @@ def select_regime_router(
             _stability_delta_score(guard, baseline_guard)
             for guard, baseline_guard in zip(guards, baseline_guards)
         )
-        score = (
+        score_before_turnover_penalty = (
             train_mean_delta
             + validation_mean_delta * 10.0
             + validation_min_delta * 3.0
             + guard_stability_score
         )
+        turnover_penalty = max(
+            0.0,
+            float(validation["max_turnover_rate"]) - float(max_turnover_rate),
+        ) * 10.0
+        for guard in guards:
+            turnover_penalty += max(
+                0.0,
+                float(guard["max_turnover_rate"]) - float(max_turnover_rate),
+            ) * 5.0
+        score = score_before_turnover_penalty - turnover_penalty
         item = {
             "accepted": not failures,
             "failures": failures,
             "score": float(score),
+            "score_before_turnover_penalty": float(score_before_turnover_penalty),
+            "turnover_penalty": float(turnover_penalty),
             "guard_stability_score": float(guard_stability_score),
             "regime_map": regime_map,
             "train": train,
@@ -825,9 +876,12 @@ def select_regime_router(
             continue
         if validation_regime_counts.get(regime, 0) < min_validation_regime_periods:
             promotion_failures.append(f"validation_regime_coverage:{regime}")
+    selection_failures = ["candidate_equals_baseline"] if selected_is_baseline else []
     return {
         "mode": mode,
         "selected_is_baseline": selected_is_baseline,
+        "selection_failed": bool(selection_failures),
+        "selection_failures": selection_failures,
         "promotion_eligible": not promotion_failures,
         "promotion_failures": promotion_failures,
         "selected_regime_map": best_map,
@@ -1148,10 +1202,13 @@ def select_candidate(
     promotion_failures: List[str] = []
     if selected_is_baseline:
         promotion_failures.append("baseline_selected")
+    selection_failures = ["candidate_equals_baseline"] if selected_is_baseline else []
     return {
         "mode": mode,
         "selected_path": best["path"],
         "selected_is_baseline": selected_is_baseline,
+        "selection_failed": bool(selection_failures),
+        "selection_failures": selection_failures,
         "promotion_eligible": not promotion_failures,
         "promotion_failures": promotion_failures,
         "baseline_path": baseline["path"],

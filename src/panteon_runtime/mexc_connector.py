@@ -61,6 +61,12 @@ def _load_settings(path=None) -> dict:
 
 def _parse_settings(cfg: dict) -> dict:
     def g(k, d=None): return cfg.get(k.lower(), d)
+    def ge(k):
+        for env_key in (k.upper(), k.lower()):
+            v = os.getenv(env_key)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return None
     def gf(k, d):
         try: return float(g(k, d))
         except: return float(d)
@@ -81,6 +87,10 @@ def _parse_settings(cfg: dict) -> dict:
     sym_raw = None
     if exchange_id:
         for key in (f"{exchange_id}_symbols", f"symbols_{exchange_id}"):
+            env_value = ge(key)
+            if env_value is not None:
+                sym_raw = env_value
+                break
             if g(key, None) is not None:
                 sym_raw = g(key)
                 break

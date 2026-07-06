@@ -7,6 +7,7 @@ import unittest
 from panteon_v2.app.agent_bootstrap import (
     ActionFilterAgent,
     _apply_futures_replay_signal_fixes,
+    _live_oi_breakout_futures_action_mapper,
     experimental_flash_agent_labels,
 )
 from panteon_v2.domain.types import Action
@@ -103,6 +104,20 @@ class TestAgentBootstrap(unittest.TestCase):
         untouched = Dummy()
         self.assertFalse(_apply_futures_replay_signal_fixes("OtherActor", untouched))
         self.assertEqual(untouched.EMA_S, 120)
+
+    def test_live_oi_breakout_futures_mapper_normalizes_v1_actions(self):
+        self.assertEqual(
+            _live_oi_breakout_futures_action_mapper(2),
+            Action.FUT_LONG_FULL,
+        )
+        self.assertEqual(
+            _live_oi_breakout_futures_action_mapper(6),
+            Action.FUT_SHORT_FULL,
+        )
+        self.assertEqual(
+            _live_oi_breakout_futures_action_mapper(0),
+            Action.HOLD,
+        )
 
 
 if __name__ == "__main__":

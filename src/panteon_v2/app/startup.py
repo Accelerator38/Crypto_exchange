@@ -1133,6 +1133,19 @@ DEFAULT_COMPACT_CAUSAL_ENTRY_INCLUDE_LABELS: tuple[str, ...] = (
 )
 
 
+DEFAULT_BITGET_REPORT_DERIVED_TERMINAL_DENIED_CONTEXT_SIGNAL_KEYS: tuple[str, ...] = (
+    "agent:LiveOIBreakout|*|*|range_low_vol",
+    "agent:CarryFlowAgentV2|*|*|bearish",
+    "agent:CarryFlowAgentV2|*|FUT_LONG_FULL|*",
+    "agent:CarryFlowAgentV2|*|FUT_LONG_HALF|*",
+    "agent:CarryFlowAgentV2|DOGE/USDT|*|*",
+    "agent:CarryFlowAgentV2|XRP/USDT|*|*",
+    "agent:LiveVolCompress|*|*|*",
+    "agent:NeutralLiquiditySweep|*|*|*",
+    "agent:LiveRegimePullback|*|*|*",
+)
+
+
 def _resolve_compact_causal_entry_include_labels(exchange_name: str) -> tuple[str, ...]:
     settings = _load_exchange_settings(exchange_name)
     configured = _settings_csv_tuple(
@@ -1281,6 +1294,18 @@ def _flash_allocator_config_from_settings(
         for base in base_names:
             out.extend(_exchange_scoped_setting_names(exchange_name, base))
         return tuple(dict.fromkeys(out))
+
+    def csv_merged(*name_groups: Sequence[str]) -> tuple[str, ...]:
+        items: list[str] = []
+        for names in name_groups:
+            items.extend(_settings_csv_tuple(settings, names))
+        return tuple(dict.fromkeys(items))
+
+    report_context_denies = (
+        DEFAULT_BITGET_REPORT_DERIVED_TERMINAL_DENIED_CONTEXT_SIGNAL_KEYS
+        if str(exchange_name or "").strip().upper() == "BITGET"
+        else ()
+    )
 
     return FlashAllocatorConfig(
         min_score_to_trade=_settings_float(
@@ -2508,21 +2533,36 @@ def _flash_allocator_config_from_settings(
                 "flash_denied_signal_keys",
             ),
         ),
-        terminal_denied_signal_keys=_settings_csv_tuple(
-            settings,
+        terminal_denied_signal_keys=csv_merged(
             scoped_names(
                 "panteon_flash_terminal_denied_signal_keys",
                 "v2_flash_terminal_denied_signal_keys",
                 "flash_terminal_denied_signal_keys",
             ),
-        ),
-        terminal_denied_context_signal_keys=_settings_csv_tuple(
-            settings,
             scoped_names(
-                "panteon_flash_terminal_denied_context_signal_keys",
-                "v2_flash_terminal_denied_context_signal_keys",
-                "flash_terminal_denied_context_signal_keys",
+                "panteon_flash_terminal_denied_signal_keys_extra",
+                "v2_flash_terminal_denied_signal_keys_extra",
+                "flash_terminal_denied_signal_keys_extra",
             ),
+        ),
+        terminal_denied_context_signal_keys=tuple(
+            dict.fromkeys(
+                (
+                    *report_context_denies,
+                    *csv_merged(
+                        scoped_names(
+                            "panteon_flash_terminal_denied_context_signal_keys",
+                            "v2_flash_terminal_denied_context_signal_keys",
+                            "flash_terminal_denied_context_signal_keys",
+                        ),
+                        scoped_names(
+                            "panteon_flash_terminal_denied_context_signal_keys_extra",
+                            "v2_flash_terminal_denied_context_signal_keys_extra",
+                            "flash_terminal_denied_context_signal_keys_extra",
+                        ),
+                    ),
+                )
+            )
         ),
         denied_open_symbols=_settings_csv_tuple(
             settings,

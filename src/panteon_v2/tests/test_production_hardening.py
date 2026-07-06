@@ -612,13 +612,21 @@ class TestStartupFailClosed(unittest.TestCase):
         ):
             self.assertIn(label, mexc_flash.range_low_vol_real_actor_allowlist)
             self.assertIn(label, bitget_flash.range_low_vol_real_actor_allowlist)
-        self.assertIn(
+        self.assertNotIn(
             "LiveOIBreakout",
             bitget_flash.range_low_vol_real_actor_allowlist,
         )
         self.assertNotIn(
             "LiveOIBreakout",
             mexc_flash.range_low_vol_real_actor_allowlist,
+        )
+        self.assertEqual(
+            bitget_flash.live_real_actor_whitelist,
+            ("__NO_LIVE_ACTOR_UNTIL_PROMOTION__",),
+        )
+        self.assertEqual(
+            bitget_flash.promotion_derived_actor_labels,
+            ("__NO_LIVE_ACTOR_UNTIL_PROMOTION__",),
         )
         for forbidden in (
             "GeneticsCore",
@@ -814,6 +822,32 @@ class TestStartupFailClosed(unittest.TestCase):
 
         self.assertEqual(bitget_cfg["symbols"], ["BTC", "ETH", "SOL"])
         self.assertIsNone(mexc_cfg["symbols"])
+
+    def test_v1_settings_parser_accepts_exchange_symbol_env_override(self):
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        try:
+            import mexc_connector
+
+            raw = {
+                "symbols": "all",
+                "mexc_symbols": "BTC,ETH,SOL",
+            }
+            with patch.dict(
+                os.environ,
+                {
+                    "CRYPTO_EXCHANGE": "mexc",
+                    "MEXC_SYMBOLS": "BTC,ETH,ADA,LINK",
+                },
+                clear=False,
+            ):
+                cfg = mexc_connector._parse_settings(raw)
+        finally:
+            try:
+                sys.path.remove(str(PANTEON_RUNTIME))
+            except ValueError:
+                pass
+
+        self.assertEqual(cfg["symbols"], ["BTC", "ETH", "ADA", "LINK"])
 
     def test_bitget_bridge_uses_scoped_symbols_before_auto_top_fallback(self):
         sys.path.insert(0, str(PANTEON_RUNTIME))

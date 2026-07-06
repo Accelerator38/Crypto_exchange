@@ -2205,6 +2205,8 @@ def test_genetics_candidate_selector_keeps_baseline_on_validation_tie():
 
     assert selected["selected_is_baseline"] is True
     assert selected["selected_path"] == "baseline.npy"
+    assert selected["selection_failed"] is True
+    assert "candidate_equals_baseline" in selected["selection_failures"]
     assert selected["candidates"][0]["accepted"] is False
     assert "validation_tie" in selected["candidates"][0]["failures"]
 
@@ -2605,6 +2607,84 @@ def test_strict_genetics_promotion_contracts_reject_missing_flash_baseline():
     assert "oos_0_per_symbol_lcb_missing" in result["promotion_failures"]
 
 
+def test_strict_genetics_promotion_contracts_hard_block_baseline_selection_and_nan_metrics():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "selected_is_baseline": True,
+        "promotion_eligible": True,
+        "promotion_failures": [],
+        "final_holdout_gate": {
+            "promotion_eligible": True,
+            "holdouts": [{
+                "index": 0,
+                "mean_ret_delta": 0.10,
+                "candidate": {
+                    "min_per_symbol_lcb": 0.05,
+                    "max_drawdown_pct": 4.0,
+                    "mean_invalid_open_logit_pressure": float("nan"),
+                },
+            }],
+        },
+    }
+
+    result = selector.apply_strict_promotion_contracts(
+        selection,
+        reports=(("train", {"exchange": "MEXC"}),),
+        expected_exchange="MEXC",
+        baseline_kind="flash",
+    )
+
+    assert result["promotion_eligible"] is False
+    assert "baseline_selected" in result["promotion_failures"]
+    assert "oos_0_invalid_open_pressure_nan" in result["promotion_failures"]
+
+
+def test_strict_genetics_promotion_contracts_hard_block_collapsed_regime_map():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "selected_is_baseline": False,
+        "promotion_eligible": True,
+        "promotion_failures": [],
+        "selected_regime_map": {
+            "crash": "candidate.npy",
+            "bearish": "candidate.npy",
+            "neutral": "candidate.npy",
+            "bullish": "candidate.npy",
+        },
+        "baseline_regime_map": {
+            "crash": "baseline.npy",
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+            "bullish": "baseline.npy",
+        },
+        "final_holdout_gate": {
+            "promotion_eligible": True,
+            "holdouts": [{
+                "index": 0,
+                "mean_ret_delta": 0.10,
+                "candidate": {
+                    "min_per_symbol_lcb": 0.05,
+                    "max_drawdown_pct": 4.0,
+                },
+            }],
+        },
+    }
+
+    result = selector.apply_strict_promotion_contracts(
+        selection,
+        reports=(("train", {"exchange": "MEXC"}),),
+        expected_exchange="MEXC",
+        baseline_kind="flash",
+    )
+
+    assert result["promotion_eligible"] is False
+    assert "regime_map_collapsed" in result["promotion_failures"]
+
+
 def test_regime_router_selector_can_improve_unvalidated_regime_without_validation_degradation():
     import importlib
 
@@ -2629,6 +2709,41 @@ def test_regime_router_selector_can_improve_unvalidated_regime_without_validatio
     assert selected["selected_regime_map"]["neutral"] == "candidate.npy"
     assert selected["validation"]["mean_ret"] == pytest.approx(1.0)
     assert selected["train"]["mean_ret"] == pytest.approx(0.75)
+
+
+def test_regime_router_selector_applies_turnover_penalty_before_promotion():
+    import importlib
+
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    train = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.40],
+        regimes=["neutral"],
+        baseline_turnovers=[0.02],
+        candidate_turnovers=[0.20],
+    )
+    validation = _genetics_regime_selection_report(
+        baseline_rets=[0.10],
+        candidate_rets=[0.40],
+        regimes=["neutral"],
+        baseline_turnovers=[0.02],
+        candidate_turnovers=[0.20],
+    )
+
+    selected = selector.select_regime_router(
+        train,
+        validation,
+        max_turnover_rate=0.10,
+    )
+
+    item = next(
+        candidate
+        for candidate in selected["candidates"]
+        if candidate["regime_map"]["neutral"] == "candidate.npy"
+    )
+    assert item["turnover_penalty"] > 0.0
+    assert item["score_before_turnover_penalty"] > item["score"]
+    assert "validation_turnover" in item["failures"]
 
 
 def test_regime_router_selector_rejects_train_gain_with_validation_degradation():

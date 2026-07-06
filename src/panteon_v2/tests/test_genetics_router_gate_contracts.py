@@ -5,7 +5,14 @@ import importlib
 import pytest
 
 
-def _genome(path: str, rets: list[float], turnovers: list[float], saturations: list[float]) -> dict:
+def _genome(
+    path: str,
+    rets: list[float],
+    turnovers: list[float],
+    saturations: list[float],
+    lcbs: list[float] | None = None,
+) -> dict:
+    lcbs = lcbs or [0.0] * len(rets)
     return {
         "path": path,
         "position_state_features_enabled": False,
@@ -42,6 +49,7 @@ def _genome(path: str, rets: list[float], turnovers: list[float], saturations: l
                             "turnover_rate": float(turnovers[idx]),
                             "saturation_rate": float(saturations[idx]),
                             "invalid_open_logit_pressure": 0.0,
+                            "min_per_symbol_lcb": float(lcbs[idx]),
                         }
                         for idx, (regime, ret) in enumerate(zip(["bearish", "neutral"], rets))
                     ],
@@ -59,17 +67,21 @@ def _report(
     candidate_turnovers: list[float] | None = None,
     baseline_saturations: list[float] | None = None,
     candidate_saturations: list[float] | None = None,
+    baseline_lcbs: list[float] | None = None,
+    candidate_lcbs: list[float] | None = None,
 ) -> dict:
     n = len(baseline_rets)
     baseline_turnovers = baseline_turnovers or [0.01] * n
     candidate_turnovers = candidate_turnovers or [0.01] * n
     baseline_saturations = baseline_saturations or [0.01] * n
     candidate_saturations = candidate_saturations or [0.01] * n
+    baseline_lcbs = baseline_lcbs or [0.0] * n
+    candidate_lcbs = candidate_lcbs or [0.0] * n
     return {
         "mode": "fee_fixed_nextbar",
         "genomes": [
-            _genome("baseline.npy", baseline_rets, baseline_turnovers, baseline_saturations),
-            _genome("candidate.npy", candidate_rets, candidate_turnovers, candidate_saturations),
+            _genome("baseline.npy", baseline_rets, baseline_turnovers, baseline_saturations, baseline_lcbs),
+            _genome("candidate.npy", candidate_rets, candidate_turnovers, candidate_saturations, candidate_lcbs),
         ],
     }
 
@@ -132,6 +144,31 @@ def test_regime_router_multisplit_gate_rejects_per_period_max_turnover_and_satur
     assert "oos_0_max_saturation" in gate["promotion_failures"]
     assert gate["holdouts"][0]["candidate"]["mean_turnover_rate"] == pytest.approx(0.095)
     assert gate["holdouts"][0]["candidate"]["max_turnover_rate"] == pytest.approx(0.18)
+
+
+def test_regime_router_multisplit_gate_carries_per_symbol_lcb_from_periods():
+    selector = importlib.import_module("tools.select_genetics_candidate")
+    selection = {
+        "promotion_eligible": True,
+        "selected_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "candidate.npy",
+        },
+        "baseline_regime_map": {
+            "bearish": "baseline.npy",
+            "neutral": "baseline.npy",
+        },
+    }
+    oos = _report(
+        baseline_rets=[0.20, 0.30],
+        candidate_rets=[0.20, 0.35],
+        baseline_lcbs=[0.04, 0.04],
+        candidate_lcbs=[0.04, -0.02],
+    )
+
+    gate = selector.evaluate_regime_router_multisplit_gate(selection, [oos])
+
+    assert gate["holdouts"][0]["candidate"]["min_per_symbol_lcb"] == pytest.approx(-0.02)
 
 
 def _touch_genome(path):

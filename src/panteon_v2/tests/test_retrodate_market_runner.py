@@ -843,23 +843,62 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert config.flash_audit_events_enabled is False
     assert config.shadow_audit_events_enabled is False
     assert config.step_result_retention_enabled is False
-    assert flash_config.denied_signal_keys == (
-        "agent:MomentumScalper|ATOM/USDT|SPOT_BUY_FULL",
-        "agent:MomentumScalper|ATOM|SPOT_BUY_FULL",
-        "agent:MomentumScalper|ATOMUSDT|SPOT_BUY_FULL",
-        "agent:MomentumScalper|MATIC/USDT|SPOT_BUY_FULL",
-        "agent:MomentumScalper|MATIC|SPOT_BUY_FULL",
-        "agent:MomentumScalper|MATICUSDT|SPOT_BUY_FULL",
+    expected_denied = {
+        f"{actor}|{symbol}|{action}"
+        for actor in (
+            "agent:MomentumScalper",
+            "MomentumScalper",
+            "Solo_MomentumScalper",
+            "ensemble:Solo_MomentumScalper",
+        )
+        for symbol in (
+            "ATOM/USDT",
+            "ATOM",
+            "ATOMUSDT",
+            "MATIC/USDT",
+            "MATIC",
+            "MATICUSDT",
+        )
+        for action in ("SPOT_BUY_FULL", "FUT_LONG_FULL")
+    }
+    assert set(flash_config.denied_signal_keys) == expected_denied
+    assert len(flash_config.denied_signal_keys) == len(expected_denied)
+
+    expected_terminal_denied = {
+        f"{actor}|{symbol}|{action}"
+        for actor in (
+            "ensemble:Solo_LiveCrashHunter",
+            "Solo_LiveCrashHunter",
+            "agent:Solo_LiveCrashHunter",
+            "LiveCrashHunter",
+            "agent:LiveCrashHunter",
+        )
+        for symbol in ("ATOM/USDT", "ATOM", "ATOMUSDT")
+        for action in ("FUT_SHORT_FULL", "FUT_SHORT_HALF")
+    }
+    assert set(flash_config.terminal_denied_signal_keys) == expected_terminal_denied
+    assert len(flash_config.terminal_denied_signal_keys) == len(
+        expected_terminal_denied
     )
-    assert flash_config.terminal_denied_signal_keys == (
-        "ensemble:Solo_LiveCrashHunter|ATOM/USDT|FUT_SHORT_FULL",
-        "ensemble:Solo_LiveCrashHunter|ATOM|FUT_SHORT_FULL",
-        "ensemble:Solo_LiveCrashHunter|ATOMUSDT|FUT_SHORT_FULL",
+
+    expected_terminal_context_denied = {
+        f"{actor}|{symbol}|{action}|bullish"
+        for actor in (
+            "ensemble:Solo_MomentumScalper",
+            "Solo_MomentumScalper",
+            "agent:Solo_MomentumScalper",
+            "MomentumScalper",
+            "agent:MomentumScalper",
+        )
+        for symbol in ("APT/USDT", "APT", "APTUSDT")
+        for action in ("FUT_LONG_FULL", "SPOT_BUY_FULL")
+    }
+    assert (
+        set(flash_config.terminal_denied_context_signal_keys)
+        == expected_terminal_context_denied
     )
-    assert flash_config.terminal_denied_context_signal_keys == (
-        "ensemble:Solo_MomentumScalper|APT/USDT|FUT_LONG_FULL|bullish",
-        "ensemble:Solo_MomentumScalper|APT|FUT_LONG_FULL|bullish",
-        "ensemble:Solo_MomentumScalper|APTUSDT|FUT_LONG_FULL|bullish",
+    assert len(flash_config.terminal_denied_context_signal_keys) == len(
+        expected_terminal_context_denied
     )
     assert flash_config.denied_open_symbols == ("ATOM/USDT",)
     assert flash_config.denied_open_regimes == (Regime.NEUTRAL,)
@@ -1050,6 +1089,79 @@ def test_cli_can_promote_legacy_flash_agent_into_real_replay_universe():
     assert getattr(carry, "shadow_only", True) is False
     assert getattr(carry, "paper_trading_eligible", False) is True
     assert getattr(carry, "live_trading_eligible", False) is True
+
+
+def test_cli_can_apply_flash_real_actor_whitelists_for_replay():
+    config = runner._parse_cli_config([
+        "--years",
+        "2026",
+        "--enable-flash",
+        "--flash-live-real-actor-whitelist",
+        "LiveOIBreakout,agent:LiveOIBreakout",
+        "--flash-live-real-actor-whitelist",
+        "Solo_LiveOIBreakout",
+        "--flash-range-low-vol-real-actor-allowlist",
+        "LiveOIBreakout",
+    ])
+
+    flash_config = runner._build_flash_allocator_config(config)
+
+    assert config.flash_live_real_actor_whitelist == (
+        "LiveOIBreakout",
+        "agent:LiveOIBreakout",
+        "Solo_LiveOIBreakout",
+    )
+    assert config.flash_range_low_vol_real_actor_allowlist == (
+        "LiveOIBreakout",
+    )
+    assert flash_config.live_real_actor_whitelist == (
+        "LiveOIBreakout",
+        "agent:LiveOIBreakout",
+        "Solo_LiveOIBreakout",
+    )
+    assert flash_config.range_low_vol_real_actor_allowlist == (
+        "LiveOIBreakout",
+    )
+
+
+def test_single_component_replay_actor_isolates_registry():
+    class StaticAgent:
+        def __init__(self, label):
+            self.label = label
+            self.shadow_only = True
+
+        def act(self, market):
+            return {symbol: Action.HOLD for symbol in market.prices}
+
+    registry = runner.AgentRegistry()
+    registry.register(StaticAgent("LiveOIBreakout"))
+    registry.register(StaticAgent("MomentumScalper"))
+
+    selected = runner._isolate_retro_single_component_actor(
+        registry,
+        "LiveOIBreakout",
+    )
+
+    agent = registry.get("LiveOIBreakout")
+    assert selected == "LiveOIBreakout"
+    assert registry.all_labels() == ["LiveOIBreakout"]
+    assert agent is not None
+    assert getattr(agent, "shadow_only") is False
+    assert getattr(agent, "paper_trading_eligible") is True
+    assert getattr(agent, "live_trading_eligible") is True
+    assert getattr(agent, "single_component_replay_enabled") is True
+
+
+def test_cli_can_enable_single_component_replay_actor():
+    config = runner._parse_cli_config([
+        "--years",
+        "2026",
+        "--enable-flash",
+        "--flash-single-component-replay-actor",
+        "LiveOIBreakout",
+    ])
+
+    assert config.flash_single_component_replay_actor == "LiveOIBreakout"
 
 
 def test_cli_can_enable_futures_replay_signal_fixes():

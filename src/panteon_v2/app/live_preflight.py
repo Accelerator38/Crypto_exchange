@@ -165,6 +165,12 @@ def _validate_matrix_best_component(
     payload: Mapping[str, Any],
     reasons: list[str],
 ) -> None:
+    single_component = payload.get("single_component_candidate")
+    if (
+        isinstance(single_component, Mapping)
+        and single_component.get("requires_separate_matrix_artifact") is False
+    ):
+        return
     candidate = payload.get("candidate")
     if not isinstance(candidate, Mapping):
         return
@@ -193,6 +199,18 @@ def _validate_canary(
     else:
         exchange_payload = payload
 
+    if bool(payload.get("calibration_only")) or bool(exchange_payload.get("calibration_only")):
+        reasons.append("canary_calibration_only")
+    if _has_actor_overrides(payload) or _has_actor_overrides(exchange_payload):
+        reasons.append("canary_actor_overrides")
+
+    raw_fail_reasons = exchange_payload.get("fail_reasons")
+    if isinstance(raw_fail_reasons, Sequence) and not isinstance(raw_fail_reasons, (str, bytes)):
+        for reason in raw_fail_reasons:
+            clean = str(reason or "").strip()
+            if clean:
+                reasons.append(f"canary_{clean}")
+
     if not bool(exchange_payload.get("passed", payload.get("passed", False))):
         reasons.append("canary_failed")
     if _int_metric(exchange_payload, "signals", "signal_count") <= 0:
@@ -201,6 +219,14 @@ def _validate_canary(
         reasons.append("canary_zero_orders")
     if _int_metric(exchange_payload, "fills", "filled", "filled_signals") <= 0:
         reasons.append("canary_zero_fills")
+    if (
+        exchange_payload.get(
+            "expectancy_gate_required",
+            payload.get("expectancy_gate_required", True),
+        )
+        is False
+    ):
+        reasons.append("canary_expectancy_gate_disabled")
     expectancy = _float_metric(
         exchange_payload,
         "expectancy_after_costs",
@@ -219,6 +245,11 @@ def _validate_canary(
         value = exchange_payload.get(key)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and value:
             reasons.append(f"canary_{key}")
+
+
+def _has_actor_overrides(payload: Mapping[str, Any]) -> bool:
+    value = payload.get("actor_overrides")
+    return isinstance(value, Mapping) and bool(value)
 
 
 def _append_stale_reason(

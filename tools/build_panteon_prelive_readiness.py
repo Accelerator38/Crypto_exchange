@@ -431,6 +431,33 @@ def _latest_status_path(project_root: Path, exchange: str) -> Path | None:
     return max(statuses, key=lambda path: path.stat().st_mtime)
 
 
+def _display_path(project_root: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
+
+
+def _stale_status_cleanup_hints(project_root: Path, status_path: Path) -> list[str]:
+    return [
+        f"Review or archive stale status: {_display_path(project_root, status_path)}",
+        "Run a fresh isolated paper canary before re-checking readiness",
+    ]
+
+
+def _orphan_status_cleanup_hints(
+    project_root: Path,
+    status_path: Path,
+    *,
+    exchange: str,
+    pid: int,
+) -> list[str]:
+    return [
+        f"Confirm no live {exchange} worker owns pid {pid}",
+        f"Review or archive stale status: {_display_path(project_root, status_path)}",
+    ]
+
+
 def _pid_exists(pid: int, active_pids: set[int] | None) -> bool:
     if pid <= 0:
         return False
@@ -531,6 +558,7 @@ def check_live_status_section(
                         f"live_status.{key}.stale_status",
                         f"{key}: active live status is stale ({age_hours:.1f}h old)",
                         status_path=str(status_path),
+                        cleanup_hints=_stale_status_cleanup_hints(project_root, status_path),
                     )
                 else:
                     _add_warning(
@@ -538,6 +566,7 @@ def check_live_status_section(
                         f"live_status.{key}.stale_inactive_status",
                         f"{key}: latest status is stale ({age_hours:.1f}h old), but no matching live process is running",
                         status_path=str(status_path),
+                        cleanup_hints=_stale_status_cleanup_hints(project_root, status_path),
                     )
         if looks_running and not pid_running:
             _add_warning(
@@ -545,6 +574,12 @@ def check_live_status_section(
                 f"live_status.{key}.orphan_running_status",
                 f"{key}: status says running/active but pid {pid} is not running",
                 status_path=str(status_path),
+                cleanup_hints=_orphan_status_cleanup_hints(
+                    project_root,
+                    status_path,
+                    exchange=key,
+                    pid=pid,
+                ),
             )
         activity = _activity_summary(status_path.parent / "trading.log")
         if activity["filled"] > 0:
@@ -615,6 +650,310 @@ def _latest_file(root: Path, patterns: Sequence[str]) -> Path | None:
     if not files:
         return None
     return max(files, key=lambda path: path.stat().st_mtime)
+
+
+def _resolve_artifact_path(
+    project_root: Path,
+    explicit_path: str | Path | None,
+    patterns: Sequence[str],
+) -> Path | None:
+    if explicit_path:
+        path = Path(explicit_path)
+        return path if path.is_absolute() else project_root / path
+    return _latest_file(project_root, patterns)
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _has_overrides(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        return bool(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return bool(list(value))
+    return bool(value)
+
+
+def check_matrix_artifact_section(
+    project_root: Path,
+    blockers: list[dict[str, Any]],
+    *,
+    matrix_summary_path: str | Path | None = None,
+) -> dict[str, Any]:
+    path = _resolve_artifact_path(
+        project_root,
+        matrix_summary_path,
+        ("Reports/Panteon3PreLiveMatrix/**/panteon3_pre_live_matrix_summary.json",),
+    )
+    section: dict[str, Any] = {"passed": True, "path": str(path or "")}
+    if path is None or not path.exists():
+        _add_blocker(blockers, "matrix.missing", "pre-live matrix summary is missing")
+        section["passed"] = False
+        return section
+    try:
+        payload = _load_json(path)
+    except Exception as exc:
+        _add_blocker(blockers, "matrix.invalid", f"pre-live matrix summary is invalid: {exc}")
+        section["passed"] = False
+        return section
+    if not isinstance(payload, Mapping):
+        _add_blocker(blockers, "matrix.invalid", "pre-live matrix summary is not an object")
+        section["passed"] = False
+        return section
+    verdict = payload.get("promotion_verdict")
+    if not isinstance(verdict, Mapping):
+        _add_blocker(blockers, "matrix.verdict_missing", "pre-live matrix has no promotion_verdict object")
+        section["passed"] = False
+        return section
+    fail_reasons = list(verdict.get("fail_reasons") or [])
+    candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else {}
+    section.update(
+        {
+            "passed": bool(verdict.get("passed", False)),
+            "fail_reasons": fail_reasons,
+            "candidate_variant": str(candidate.get("variant") or candidate.get("base_variant") or ""),
+            "filled_signals": _as_int(candidate.get("filled_signals")),
+            "closed_trades": _as_int(candidate.get("closed_trades")),
+            "expectancy_usd": _as_float(candidate.get("expectancy_usd")),
+            "cost_attribution_present": bool(candidate.get("cost_attribution_present", False)),
+        }
+    )
+    if not section["passed"]:
+        _add_blocker(
+            blockers,
+            "matrix.failed",
+            "pre-live matrix promotion verdict failed",
+            matrix_summary_path=str(path),
+            fail_reasons=fail_reasons,
+        )
+    return section
+
+
+def check_canary_artifact_section(
+    project_root: Path,
+    exchanges: Sequence[str],
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    *,
+    canary_summary_path: str | Path | None = None,
+) -> dict[str, Any]:
+    path = _resolve_artifact_path(
+        project_root,
+        canary_summary_path,
+        ("Reports/Panteon3Canary/**/panteon3_live_canary_summary.json",),
+    )
+    section: dict[str, Any] = {"passed": True, "path": str(path or ""), "exchanges": {}}
+    if path is None or not path.exists():
+        _add_blocker(blockers, "canary.missing", "paper/live canary summary is missing")
+        section["passed"] = False
+        return section
+    try:
+        payload = _load_json(path)
+    except Exception as exc:
+        _add_blocker(blockers, "canary.invalid", f"paper/live canary summary is invalid: {exc}")
+        section["passed"] = False
+        return section
+    if not isinstance(payload, Mapping):
+        _add_blocker(blockers, "canary.invalid", "paper/live canary summary is not an object")
+        section["passed"] = False
+        return section
+    exchanges_payload = payload.get("exchanges")
+    if not isinstance(exchanges_payload, Mapping):
+        _add_blocker(blockers, "canary.exchanges_missing", "paper/live canary has no exchanges object")
+        section["passed"] = False
+        return section
+
+    actor_overrides = payload.get("actor_overrides")
+    calibration_only = bool(payload.get("calibration_only", False))
+    execution_smoke = bool(payload.get("execution_smoke", False))
+    expectancy_gate_required = bool(payload.get("expectancy_gate_required", True))
+    section.update(
+        {
+            "passed": bool(payload.get("passed", False)),
+            "generated_at": str(payload.get("generated_at") or ""),
+            "calibration_only": calibration_only,
+            "execution_smoke": execution_smoke,
+            "actor_overrides": actor_overrides or {},
+            "expectancy_gate_required": expectancy_gate_required,
+        }
+    )
+    if not section["passed"]:
+        _add_blocker(
+            blockers,
+            "canary.failed",
+            "paper/live canary summary failed",
+            canary_summary_path=str(path),
+        )
+    if execution_smoke:
+        section["passed"] = False
+        _add_blocker(
+            blockers,
+            "canary.execution_smoke",
+            "latest canary is execution-smoke and cannot promote to live",
+            canary_summary_path=str(path),
+        )
+    if calibration_only:
+        _add_blocker(
+            blockers,
+            "canary.calibration_only",
+            "latest canary is calibration-only and cannot promote to live",
+            canary_summary_path=str(path),
+        )
+    if _has_overrides(actor_overrides):
+        _add_blocker(
+            blockers,
+            "canary.actor_overrides",
+            "latest canary used actor overrides and cannot promote to live",
+            canary_summary_path=str(path),
+            actor_overrides=actor_overrides,
+        )
+
+    for exchange in exchanges:
+        key = str(exchange or "").strip().upper()
+        item = exchanges_payload.get(key)
+        if not isinstance(item, Mapping):
+            _add_blocker(
+                blockers,
+                f"canary.{key}.missing_exchange",
+                f"{key}: canary exchange summary is missing",
+                canary_summary_path=str(path),
+            )
+            section["exchanges"][key] = {"passed": False}
+            section["passed"] = False
+            continue
+        signals = _as_int(item.get("signals"))
+        orders = _as_int(item.get("orders"))
+        fills = _as_int(item.get("fills"))
+        expectancy = _as_float(item.get("expectancy_after_costs"))
+        fail_reasons = list(item.get("fail_reasons") or [])
+        exchange_passed = bool(item.get("passed", False))
+        exchange_section = {
+            "passed": exchange_passed,
+            "fail_reasons": fail_reasons,
+            "signals": signals,
+            "orders": orders,
+            "fills": fills,
+            "expectancy_after_costs": expectancy,
+            "mode": str(item.get("mode") or ""),
+            "status_path": str(item.get("status_path") or ""),
+            "negative_context_signal_keys": list(item.get("negative_context_signal_keys") or []),
+        }
+        section["exchanges"][key] = exchange_section
+        if not exchange_passed:
+            _add_blocker(
+                blockers,
+                f"canary.{key}.failed",
+                f"{key}: canary exchange summary failed",
+                canary_summary_path=str(path),
+                fail_reasons=fail_reasons,
+            )
+        if signals <= 0:
+            _add_blocker(blockers, f"canary.{key}.zero_signals", f"{key}: canary produced zero signals")
+        if orders <= 0:
+            _add_blocker(blockers, f"canary.{key}.zero_orders", f"{key}: canary produced zero orders")
+        if fills <= 0:
+            _add_blocker(blockers, f"canary.{key}.zero_fills", f"{key}: canary produced zero fills")
+        if expectancy_gate_required and expectancy <= 0:
+            _add_blocker(
+                blockers,
+                f"canary.{key}.nonpositive_expectancy",
+                f"{key}: canary expectancy after costs is non-positive",
+                expectancy_after_costs=expectancy,
+            )
+        if exchange_section["negative_context_signal_keys"]:
+            _add_warning(
+                warnings,
+                f"canary.{key}.negative_contexts",
+                f"{key}: canary has negative closed-trade contexts",
+                negative_context_signal_keys=exchange_section["negative_context_signal_keys"],
+            )
+        section["passed"] = section["passed"] and exchange_passed and signals > 0 and orders > 0 and fills > 0
+        if expectancy_gate_required:
+            section["passed"] = section["passed"] and expectancy > 0
+    return section
+
+
+def check_activation_artifact_section(
+    project_root: Path,
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    *,
+    activation_report_path: str | Path | None = None,
+) -> dict[str, Any]:
+    path = _resolve_artifact_path(
+        project_root,
+        activation_report_path,
+        ("Reports/Panteon3Canary/**/live_oi_breakout_activation_report.json",),
+    )
+    section: dict[str, Any] = {"passed": True, "path": str(path or "")}
+    if path is None or not path.exists():
+        _add_blocker(blockers, "activation.missing", "LiveOIBreakout activation report is missing")
+        section["passed"] = False
+        return section
+    try:
+        payload = _load_json(path)
+    except Exception as exc:
+        _add_blocker(blockers, "activation.invalid", f"activation report is invalid: {exc}")
+        section["passed"] = False
+        return section
+    if not isinstance(payload, Mapping):
+        _add_blocker(blockers, "activation.invalid", "activation report is not an object")
+        section["passed"] = False
+        return section
+    hard_blocked = bool(payload.get("hard_blocked", False))
+    activation_blockers = list(payload.get("activation_blockers") or [])
+    diagnostic_warnings = list(payload.get("diagnostic_warnings") or [])
+    candidate_signal_count = _as_int(payload.get("candidate_signal_count"))
+    section.update(
+        {
+            "passed": not hard_blocked and candidate_signal_count > 0,
+            "hard_blocked": hard_blocked,
+            "activation_blockers": activation_blockers,
+            "diagnostic_warnings": diagnostic_warnings,
+            "candidate_signal_count": candidate_signal_count,
+            "real_check_count": _as_int(payload.get("real_check_count")),
+            "wait_check_count": _as_int(payload.get("wait_check_count")),
+            "sufficient_real_checks": bool(payload.get("sufficient_real_checks", False)),
+            "sufficient_real_checks_per_file": bool(
+                payload.get("sufficient_real_checks_per_file", False)
+            ),
+        }
+    )
+    if hard_blocked:
+        _add_blocker(
+            blockers,
+            "activation.hard_blocked",
+            "LiveOIBreakout activation report is hard-blocked",
+            activation_report_path=str(path),
+            activation_blockers=activation_blockers,
+        )
+    if candidate_signal_count <= 0:
+        _add_blocker(
+            blockers,
+            "activation.zero_candidate_signals",
+            "LiveOIBreakout activation report has zero candidate signals",
+            activation_report_path=str(path),
+        )
+    for warning in diagnostic_warnings:
+        warning_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(warning or "warning"))
+        _add_warning(
+            warnings,
+            f"activation.{warning_id}",
+            f"LiveOIBreakout activation diagnostic warning: {warning}",
+            activation_report_path=str(path),
+        )
+    return section
 
 
 def check_exchange_rules_section(
@@ -826,8 +1165,12 @@ def build_readiness_report(
     include_live_preflight: bool = True,
     include_exchange_rules: bool = True,
     include_promotion: bool = True,
+    include_artifact_doctor: bool = False,
     exchange_rules_path: str | Path | None = None,
     promotion_selection_path: str | Path | None = None,
+    matrix_summary_path: str | Path | None = None,
+    canary_summary_path: str | Path | None = None,
+    activation_report_path: str | Path | None = None,
     settings_snapshot_path: str | Path | None = None,
     max_status_age_hours: float = 24.0,
     live_preflight_max_age_hours: float = 24.0,
@@ -866,6 +1209,25 @@ def build_readiness_report(
             blockers,
             now=current,
             max_age_hours=float(live_preflight_max_age_hours),
+        )
+    if include_artifact_doctor:
+        sections["matrix"] = check_matrix_artifact_section(
+            root,
+            blockers,
+            matrix_summary_path=matrix_summary_path,
+        )
+        sections["canary"] = check_canary_artifact_section(
+            root,
+            exchange_keys,
+            blockers,
+            warnings,
+            canary_summary_path=canary_summary_path,
+        )
+        sections["activation"] = check_activation_artifact_section(
+            root,
+            blockers,
+            warnings,
+            activation_report_path=activation_report_path,
         )
     if include_exchange_rules:
         sections["exchange_rules"] = check_exchange_rules_section(
@@ -936,6 +1298,61 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             continue
         verdict = "PASS" if payload.get("passed") else "BLOCKED"
         lines.append(f"- {name}: {verdict}")
+        source_path = payload.get("path") or payload.get("selection_path")
+        if source_path:
+            lines.append(f"  - source: {source_path}")
+        if payload.get("execution_smoke"):
+            lines.append("  - execution_smoke: true")
+        fail_reasons = payload.get("fail_reasons")
+        if isinstance(fail_reasons, Sequence) and not isinstance(fail_reasons, (str, bytes)) and fail_reasons:
+            lines.append(f"  - fail_reasons: {', '.join(str(item) for item in fail_reasons)}")
+        promotion_failures = payload.get("promotion_failures")
+        if (
+            isinstance(promotion_failures, Sequence)
+            and not isinstance(promotion_failures, (str, bytes))
+            and promotion_failures
+        ):
+            lines.append(
+                f"  - promotion_failures: {', '.join(str(item) for item in promotion_failures)}"
+            )
+        activation_blockers = payload.get("activation_blockers")
+        if (
+            isinstance(activation_blockers, Sequence)
+            and not isinstance(activation_blockers, (str, bytes))
+            and activation_blockers
+        ):
+            lines.append(
+                f"  - activation_blockers: {', '.join(str(item) for item in activation_blockers)}"
+            )
+        terminal_denied_context_signal_keys = payload.get(
+            "terminal_denied_context_signal_keys"
+        )
+        if (
+            isinstance(terminal_denied_context_signal_keys, Sequence)
+            and not isinstance(terminal_denied_context_signal_keys, (str, bytes))
+            and terminal_denied_context_signal_keys
+        ):
+            joined_keys = ", ".join(
+                str(item) for item in terminal_denied_context_signal_keys
+            )
+            lines.append(f"  - terminal_denied_context_signal_keys: {joined_keys}")
+        exchange_payloads = payload.get("exchanges")
+        if isinstance(exchange_payloads, Mapping):
+            exchange_summaries = []
+            for exchange, exchange_payload in exchange_payloads.items():
+                if not isinstance(exchange_payload, Mapping):
+                    continue
+                exchange_verdict = "PASS" if exchange_payload.get("passed") else "BLOCKED"
+                metrics = []
+                for key in ("signals", "orders", "fills", "expectancy_after_costs"):
+                    if key in exchange_payload:
+                        metrics.append(f"{key}={exchange_payload.get(key)}")
+                if metrics:
+                    exchange_summaries.append(f"{exchange}:{exchange_verdict} ({', '.join(metrics)})")
+                else:
+                    exchange_summaries.append(f"{exchange}:{exchange_verdict}")
+            if exchange_summaries:
+                lines.append(f"  - exchanges: {'; '.join(exchange_summaries)}")
     runbook = sections.get("runbook") if isinstance(sections, Mapping) else None
     commands = runbook.get("commands") if isinstance(runbook, Mapping) else None
     if isinstance(commands, Mapping) and commands:
@@ -962,6 +1379,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS))
     parser.add_argument("--exchange-rules", default="")
     parser.add_argument("--promotion-selection", default="")
+    parser.add_argument("--matrix-summary", default="")
+    parser.add_argument("--canary-summary", default="")
+    parser.add_argument("--activation-report", default="")
     parser.add_argument("--settings-snapshot", default="")
     parser.add_argument(
         "--write-settings-snapshot",
@@ -976,6 +1396,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--skip-live-preflight", action="store_true")
     parser.add_argument("--skip-exchange-rules", action="store_true")
     parser.add_argument("--skip-promotion", action="store_true")
+    parser.add_argument("--skip-artifact-doctor", action="store_true")
     args = parser.parse_args(argv)
 
     now = _aware_utc()
@@ -1009,8 +1430,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_live_preflight=not args.skip_live_preflight,
         include_exchange_rules=not args.skip_exchange_rules,
         include_promotion=not args.skip_promotion,
+        include_artifact_doctor=not args.skip_artifact_doctor,
         exchange_rules_path=args.exchange_rules or None,
         promotion_selection_path=args.promotion_selection or None,
+        matrix_summary_path=args.matrix_summary or None,
+        canary_summary_path=args.canary_summary or None,
+        activation_report_path=args.activation_report or None,
         settings_snapshot_path=settings_snapshot,
         max_status_age_hours=float(args.max_status_age_hours),
         live_preflight_max_age_hours=float(args.live_preflight_max_age_hours),

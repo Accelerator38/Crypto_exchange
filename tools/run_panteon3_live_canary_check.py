@@ -9,6 +9,21 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 DEFAULT_EXCHANGES = ("MEXC", "BITGET")
+FEE_KEYS = (
+    "fees_usd",
+    "fee_usd",
+    "total_fees_usd",
+    "total_fees",
+    "fees",
+    "fee",
+    "commission_usd",
+    "commission_usdt",
+    "commission",
+    "cumulative_fee",
+)
+FUNDING_KEYS = ("funding_usd", "total_funding_usd", "total_funding", "funding")
+SLIPPAGE_KEYS = ("slippage_usd", "total_slippage_usd", "total_slippage", "slippage")
+COST_NESTED_KEYS = ("trade", "fill", "order", "execution", "info")
 
 
 def build_canary_summary(
@@ -18,6 +33,12 @@ def build_canary_summary(
     exchanges: Sequence[str] = DEFAULT_EXCHANGES,
     now: datetime | None = None,
     lookback_minutes: float = 360.0,
+    require_positive_expectancy: bool = True,
+    calibration_only: bool = False,
+    actor_overrides: Mapping[str, Any] | None = None,
+    terminal_denied_context_signal_keys: Sequence[str] | None = None,
+    candidate_policy: Mapping[str, Any] | None = None,
+    execution_smoke: bool = False,
 ) -> dict[str, Any]:
     current = _aware_utc(now)
     root = Path(results_root)
@@ -32,13 +53,35 @@ def build_canary_summary(
             exchange_key,
             now=current,
             lookback_minutes=lookback_minutes,
+            require_positive_expectancy=bool(require_positive_expectancy),
         )
 
     summary = {
         "generated_at": current.isoformat(),
+        "expectancy_gate_required": bool(require_positive_expectancy),
+        "calibration_only": bool(calibration_only),
+        "execution_smoke": bool(execution_smoke),
+        "actor_overrides": _clean_metadata_mapping(actor_overrides),
+        "terminal_denied_context_signal_keys": _clean_string_list(
+            terminal_denied_context_signal_keys
+        ),
+        "candidate_policy": _clean_json_mapping(candidate_policy),
         "passed": bool(exchange_payloads) and all(item.get("passed") for item in exchange_payloads.values()),
         "exchanges": exchange_payloads,
+        "cross_exchange_diagnostics": _cross_exchange_diagnostics(exchange_payloads),
     }
+    if bool(calibration_only) or actor_overrides:
+        for item in exchange_payloads.values():
+            item["calibration_only"] = bool(calibration_only)
+            item["actor_overrides"] = _clean_metadata_mapping(actor_overrides)
+    if execution_smoke:
+        for item in exchange_payloads.values():
+            item["execution_smoke"] = True
+    if terminal_denied_context_signal_keys:
+        for item in exchange_payloads.values():
+            item["terminal_denied_context_signal_keys"] = _clean_string_list(
+                terminal_denied_context_signal_keys
+            )
     _write_summary_files(report_root, current, summary)
     return summary
 
@@ -49,15 +92,25 @@ def _build_exchange_canary(
     *,
     now: datetime,
     lookback_minutes: float,
+    require_positive_expectancy: bool,
 ) -> dict[str, Any]:
     session_dir = _latest_session_dir(results_root, exchange)
     if session_dir is None:
-        return _exchange_failure(exchange, "session_missing")
+        return _exchange_failure(
+            exchange,
+            "session_missing",
+            require_positive_expectancy=bool(require_positive_expectancy),
+        )
 
     status_path = session_dir / "status.json"
     status = _load_json(status_path)
     if not isinstance(status, Mapping):
-        return _exchange_failure(exchange, "status_invalid", session_dir=session_dir)
+        return _exchange_failure(
+            exchange,
+            "status_invalid",
+            session_dir=session_dir,
+            require_positive_expectancy=bool(require_positive_expectancy),
+        )
 
     rows = _recent_rows(
         _iter_jsonl(session_dir / "causal_entry_decisions.jsonl"),
@@ -80,10 +133,25 @@ def _build_exchange_canary(
     fills = sum(_row_fill_count(row) for row in rows) + sum(_event_fill_count(row) for row in event_rows)
     open_positions = _open_positions_payload(status)
 
-    pnl_payload = _pnl_payload(rows, event_rows, status)
+    pnl_payload = _pnl_payload(
+        rows,
+        event_rows,
+        status,
+        supplemental_rows=context_event_rows,
+    )
     expectancy = _expectancy_after_costs(pnl_payload, fills)
     reconcile_ok, reconcile_warnings = _reconcile_status(status)
     health_warnings = _health_warnings(status)
+    cost_attribution = _cost_attribution_payload(
+        rows,
+        event_rows,
+        status,
+        fills=fills,
+        supplemental_rows=context_event_rows,
+    )
+    if not bool(cost_attribution["complete"]):
+        health_warnings = sorted(set([*health_warnings, "cost_attribution_missing"]))
+    execution_block_diagnostics = _execution_block_diagnostics(context_event_rows)
     negative_contexts = _negative_closed_trade_contexts(context_event_rows)
     negative_context_keys = sorted({
         key
@@ -95,12 +163,22 @@ def _build_exchange_canary(
         orders=orders,
         fills=fills,
         expectancy_after_costs=expectancy,
+        require_positive_expectancy=bool(require_positive_expectancy),
         reconcile_ok=reconcile_ok,
         reconcile_warnings=reconcile_warnings,
         health_warnings=health_warnings,
+        cost_attribution_missing=not bool(cost_attribution["complete"]),
+        min_notional_blocked_count=int(execution_block_diagnostics["min_notional_blocked_count"]),
         owned_open_position_count=int(open_positions["owned_open_position_count"]),
         status=status,
     )
+    zero_signal_diagnostics = _zero_signal_diagnostics(
+        exchange=exchange,
+        decision_rows=rows,
+        context_event_rows=context_event_rows,
+        signals=signals,
+    )
+    context_symbols = _context_symbols(context_event_rows)
 
     return {
         "exchange": exchange,
@@ -115,10 +193,13 @@ def _build_exchange_canary(
         "orders": orders,
         "fills": fills,
         "expectancy_after_costs": round(expectancy, 10),
+        "expectancy_gate_required": bool(require_positive_expectancy),
         "gross_pnl_usd": round(float(pnl_payload["gross_pnl_usd"]), 10),
         "fees_usd": round(float(pnl_payload["fees_usd"]), 10),
         "funding_usd": round(float(pnl_payload["funding_usd"]), 10),
         "slippage_usd": round(float(pnl_payload["slippage_usd"]), 10),
+        "cost_attribution": cost_attribution,
+        "execution_block_diagnostics": execution_block_diagnostics,
         "reconcile_ok": reconcile_ok,
         "reconcile_warnings": reconcile_warnings,
         "health_warnings": health_warnings,
@@ -130,14 +211,54 @@ def _build_exchange_canary(
         "external_open_position_symbols": open_positions["external_open_position_symbols"],
         "negative_closed_trade_contexts": negative_contexts,
         "negative_context_signal_keys": negative_context_keys,
+        "context_symbols": context_symbols,
         "rows_evaluated": len(rows),
         "event_rows_evaluated": len(event_rows),
         "context_event_rows_evaluated": len(context_event_rows),
+        "zero_signal_diagnostics": zero_signal_diagnostics,
         "fail_reasons": fail_reasons,
     }
 
 
-def _exchange_failure(exchange: str, reason: str, *, session_dir: Path | None = None) -> dict[str, Any]:
+def _clean_metadata_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    out: dict[str, Any] = {}
+    for key, raw in value.items():
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            continue
+        if isinstance(raw, (str, int, float, bool)) or raw is None:
+            out[clean_key] = raw
+        else:
+            out[clean_key] = str(raw)
+    return out
+
+
+def _clean_json_mapping(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    try:
+        encoded = json.dumps(value, sort_keys=True, default=str)
+        decoded = json.loads(encoded)
+    except (TypeError, ValueError):
+        return _clean_metadata_mapping(value)
+    return decoded if isinstance(decoded, dict) else {}
+
+
+def _clean_string_list(values: Sequence[str] | None) -> list[str]:
+    if values is None:
+        return []
+    return list(dict.fromkeys(str(item or "").strip() for item in values if str(item or "").strip()))
+
+
+def _exchange_failure(
+    exchange: str,
+    reason: str,
+    *,
+    session_dir: Path | None = None,
+    require_positive_expectancy: bool = True,
+) -> dict[str, Any]:
     return {
         "exchange": exchange,
         "passed": False,
@@ -146,6 +267,7 @@ def _exchange_failure(exchange: str, reason: str, *, session_dir: Path | None = 
         "orders": 0,
         "fills": 0,
         "expectancy_after_costs": 0.0,
+        "expectancy_gate_required": bool(require_positive_expectancy),
         "reconcile_ok": False,
         "reconcile_warnings": [],
         "health_warnings": [],
@@ -157,6 +279,7 @@ def _exchange_failure(exchange: str, reason: str, *, session_dir: Path | None = 
         "external_open_position_symbols": [],
         "negative_closed_trade_contexts": [],
         "negative_context_signal_keys": [],
+        "execution_block_diagnostics": _empty_execution_block_diagnostics(),
         "context_event_rows_evaluated": 0,
         "fail_reasons": [reason],
     }
@@ -246,33 +369,28 @@ def _pnl_payload(
     rows: Sequence[Mapping[str, Any]],
     event_rows: Sequence[Mapping[str, Any]],
     status: Mapping[str, Any],
+    supplemental_rows: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, float]:
     combined = list(rows) + list(event_rows)
     gross = sum(_first_float(row, "realized_pnl_usd", "pnl_usd", "realized_pnl", "pnl") for row in combined)
-    fees = sum(
-        _first_float(row, "fees_usd", "fee_usd", "fees", "fee")
-        + _nested_trade_float(row, "fees_usd", "fee_usd", "fees", "fee")
-        for row in combined
-    )
-    funding = sum(
-        _first_float(row, "funding_usd", "funding")
-        + _nested_trade_float(row, "funding_usd", "funding")
-        for row in combined
-    )
-    slippage = sum(
-        _first_float(row, "slippage_usd", "slippage")
-        + _nested_trade_float(row, "slippage_usd", "slippage")
-        for row in combined
-    )
+    fees = _sum_payload_costs(combined, FEE_KEYS)
+    funding = _sum_payload_costs(combined, FUNDING_KEYS)
+    slippage = _sum_payload_costs(combined, SLIPPAGE_KEYS)
 
     if gross == 0.0:
         gross = _first_float(status, "realized_pnl_usd", "pnl_usd", "realized_pnl", "pnl")
     if fees == 0.0:
-        fees = _first_float(status, "fees_usd", "total_fees_usd", "total_fees", "fees")
+        fees = _first_float(status, *FEE_KEYS)
+    if fees == 0.0:
+        fees = _sum_payload_costs(supplemental_rows, FEE_KEYS)
     if funding == 0.0:
-        funding = _first_float(status, "funding_usd", "total_funding_usd", "total_funding", "funding")
+        funding = _first_float(status, *FUNDING_KEYS)
+    if funding == 0.0:
+        funding = _sum_payload_costs(supplemental_rows, FUNDING_KEYS)
     if slippage == 0.0:
-        slippage = _first_float(status, "slippage_usd", "total_slippage_usd", "total_slippage", "slippage")
+        slippage = _first_float(status, *SLIPPAGE_KEYS)
+    if slippage == 0.0:
+        slippage = _sum_payload_costs(supplemental_rows, SLIPPAGE_KEYS)
 
     return {
         "gross_pnl_usd": gross,
@@ -281,6 +399,110 @@ def _pnl_payload(
         "slippage_usd": slippage,
         "direct_expectancy": _first_float(status, "expectancy_after_costs", "expectancy_usd", "expectancy"),
     }
+
+
+def _cost_attribution_payload(
+    rows: Sequence[Mapping[str, Any]],
+    event_rows: Sequence[Mapping[str, Any]],
+    status: Mapping[str, Any],
+    *,
+    fills: int,
+    supplemental_rows: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    observed: list[str] = []
+    fee_value = 0.0
+    for scope, payload in [("status", status)]:
+        for key in FEE_KEYS:
+            if key in payload:
+                observed.append(f"{scope}.{key}")
+                fee_value += abs(_first_float(payload, key))
+    for scope, source_rows in (
+        ("row", [*rows, *event_rows]),
+        ("context", list(supplemental_rows)),
+    ):
+        for idx, row in enumerate(source_rows):
+            for key in FEE_KEYS:
+                if key in row:
+                    observed.append(f"{scope}[{idx}].{key}")
+                    fee_value += abs(_first_float(row, key))
+            for nested_key in COST_NESTED_KEYS:
+                nested = row.get(nested_key)
+                if not isinstance(nested, Mapping):
+                    continue
+                for key in FEE_KEYS:
+                    if key in nested:
+                        observed.append(f"{scope}[{idx}].{nested_key}.{key}")
+                        fee_value += abs(_first_float(nested, key))
+
+    complete = fills <= 0 or fee_value > 0.0
+    if complete:
+        missing = []
+    elif observed:
+        missing = ["fee_nonzero"]
+    else:
+        missing = ["fee"]
+    return {
+        "complete": bool(complete),
+        "observed_keys": sorted(set(observed)),
+        "missing": missing,
+    }
+
+
+def _sum_payload_costs(rows: Sequence[Mapping[str, Any]], keys: Sequence[str]) -> float:
+    fill_total = 0.0
+    fill_seen: set[str] = set()
+    fallback_total = 0.0
+    for idx, row in enumerate(rows):
+        cost = _row_payload_cost(row, keys)
+        if cost == 0.0:
+            continue
+        fallback_total += cost
+        if _event_fill_count(row) <= 0:
+            continue
+        identity = _payload_cost_identity(row) or f"row:{idx}"
+        if identity in fill_seen:
+            continue
+        fill_seen.add(identity)
+        fill_total += cost
+    return fill_total if fill_seen else fallback_total
+
+
+def _row_payload_cost(row: Mapping[str, Any], keys: Sequence[str]) -> float:
+    direct = _first_float(row, *keys)
+    if direct != 0.0:
+        return direct
+    nested_total = 0.0
+    for nested_key in COST_NESTED_KEYS:
+        nested = row.get(nested_key)
+        if isinstance(nested, Mapping):
+            nested_total += _first_float(nested, *keys)
+    return nested_total
+
+
+def _payload_cost_identity(row: Mapping[str, Any]) -> str:
+    nested_values: list[Any] = []
+    for nested_key in COST_NESTED_KEYS:
+        nested = row.get(nested_key)
+        if isinstance(nested, Mapping):
+            nested_values.extend([
+                nested.get("exchange_order_id"),
+                nested.get("order_id"),
+                nested.get("signal_id"),
+            ])
+    values = [
+        row.get("order_id"),
+        row.get("exchange_order_id"),
+        *nested_values,
+        row.get("trace_id"),
+        row.get("signal_id"),
+        row.get("timestamp"),
+        row.get("timestamp_utc"),
+    ]
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _expectancy_after_costs(payload: Mapping[str, float], fills: int) -> float:
@@ -347,6 +569,151 @@ def _actor_key_aliases(actor_label: str) -> tuple[str, ...]:
             aliases.append(f"Solo_{clean}")
             aliases.append(f"ensemble:Solo_{clean}")
     return tuple(dict.fromkeys(aliases))
+
+
+def _zero_signal_diagnostics(
+    *,
+    exchange: str,
+    decision_rows: Sequence[Mapping[str, Any]],
+    context_event_rows: Sequence[Mapping[str, Any]],
+    signals: int,
+) -> dict[str, Any]:
+    if signals > 0 or not context_event_rows:
+        return {"enabled": False}
+    symbols = _context_symbols(context_event_rows)
+    reason_counts: dict[str, int] = {}
+    for row in context_event_rows:
+        reason = str(
+            row.get("first_rejection_reason")
+            or row.get("rejection_reason")
+            or row.get("deny_reason")
+            or row.get("reason")
+            or ""
+        ).strip()
+        if reason:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    return {
+        "enabled": True,
+        "exchange": exchange,
+        "decision_rows": len(decision_rows),
+        "context_event_rows": len(context_event_rows),
+        "symbols_with_context": symbols,
+        "first_rejection_reason_counts": dict(sorted(reason_counts.items())),
+    }
+
+
+def _empty_execution_block_diagnostics() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "blocked_count": 0,
+        "first_blocked_reason_counts": {},
+        "min_notional_blocked_count": 0,
+        "blocked_symbols": [],
+        "blocked_actions": [],
+        "first_blocked_examples": [],
+    }
+
+
+def _execution_block_diagnostics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    reason_counts: dict[str, int] = {}
+    symbols: set[str] = set()
+    actions: set[str] = set()
+    examples: list[dict[str, str]] = []
+    min_notional_blocked = 0
+
+    for row in rows:
+        if "executionattributed" not in _event_name(row).replace(" ", ""):
+            continue
+        status = str(row.get("status") or row.get("attribution_bucket") or "").strip().lower()
+        bucket = str(row.get("attribution_bucket") or "").strip().lower()
+        if status != "blocked" and bucket != "blocked":
+            continue
+
+        reason = str(row.get("reason") or row.get("blocked_reason") or "").strip()
+        symbol = str(row.get("symbol") or row.get("sym") or "").strip().upper()
+        action = str(row.get("action") or "").strip().upper()
+        timestamp = str(row.get("timestamp") or row.get("timestamp_utc") or "").strip()
+
+        if reason:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            if _is_min_notional_block_reason(reason):
+                min_notional_blocked += 1
+        if symbol:
+            symbols.add(symbol)
+        if action:
+            actions.add(action)
+        if len(examples) < 5:
+            examples.append({
+                "symbol": symbol,
+                "action": action,
+                "reason": reason,
+                "timestamp": timestamp,
+            })
+
+    if not reason_counts and not examples:
+        return _empty_execution_block_diagnostics()
+
+    return {
+        "enabled": True,
+        "blocked_count": sum(reason_counts.values()) if reason_counts else len(examples),
+        "first_blocked_reason_counts": dict(sorted(reason_counts.items())),
+        "min_notional_blocked_count": min_notional_blocked,
+        "blocked_symbols": sorted(symbols),
+        "blocked_actions": sorted(actions),
+        "first_blocked_examples": examples,
+    }
+
+
+def _is_min_notional_block_reason(reason: str) -> bool:
+    text = str(reason or "").lower()
+    return "min_notional" in text or ("notional" in text and ("< min" in text or "min $" in text))
+
+
+def _context_symbols(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    return sorted({
+        str(row.get("symbol") or row.get("sym") or row.get("asset") or "").strip().upper()
+        for row in rows
+        if str(row.get("symbol") or row.get("sym") or row.get("asset") or "").strip()
+    })
+
+
+def _cross_exchange_diagnostics(
+    exchange_payloads: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for zero_exchange, zero_payload in exchange_payloads.items():
+        if _safe_int_from_payload(zero_payload, "signals") > 0:
+            continue
+        if _safe_int_from_payload(zero_payload, "context_event_rows_evaluated") <= 0:
+            continue
+        for active_exchange, active_payload in exchange_payloads.items():
+            if active_exchange == zero_exchange:
+                continue
+            if _safe_int_from_payload(active_payload, "signals") <= 0:
+                continue
+            diagnostics.append({
+                "zero_signal_exchange": str(zero_exchange),
+                "active_exchange": str(active_exchange),
+                "signals_delta": (
+                    _safe_int_from_payload(zero_payload, "signals")
+                    - _safe_int_from_payload(active_payload, "signals")
+                ),
+                "context_event_rows_delta": (
+                    _safe_int_from_payload(zero_payload, "context_event_rows_evaluated")
+                    - _safe_int_from_payload(active_payload, "context_event_rows_evaluated")
+                ),
+                "suspect_layers": ["symbol_mapping", "contract_filters", "min_notional"],
+                "zero_signal_symbols": list(zero_payload.get("context_symbols") or []),
+                "active_symbols": list(active_payload.get("context_symbols") or []),
+            })
+    return diagnostics
+
+
+def _safe_int_from_payload(payload: Mapping[str, Any], key: str) -> int:
+    try:
+        return int(payload.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _reconcile_status(status: Mapping[str, Any]) -> tuple[bool, list[str]]:
@@ -420,9 +787,12 @@ def _fail_reasons(
     orders: int,
     fills: int,
     expectancy_after_costs: float,
+    require_positive_expectancy: bool,
     reconcile_ok: bool,
     reconcile_warnings: Sequence[str],
     health_warnings: Sequence[str],
+    cost_attribution_missing: bool,
+    min_notional_blocked_count: int,
     owned_open_position_count: int,
     status: Mapping[str, Any],
 ) -> list[str]:
@@ -433,7 +803,7 @@ def _fail_reasons(
         reasons.append("zero_orders")
     if fills <= 0:
         reasons.append("zero_fills")
-    if expectancy_after_costs <= 0.0:
+    if require_positive_expectancy and expectancy_after_costs <= 0.0:
         reasons.append("nonpositive_expectancy")
     if not reconcile_ok:
         reasons.append("reconcile_failed")
@@ -441,6 +811,10 @@ def _fail_reasons(
         reasons.append("reconcile_warnings")
     if health_warnings:
         reasons.append("health_warnings")
+    if cost_attribution_missing:
+        reasons.append("cost_attribution_missing")
+    if min_notional_blocked_count > 0:
+        reasons.append("min_notional_blocked")
     if owned_open_position_count > 0:
         reasons.append("open_positions_not_flat")
     if _feed_not_active_is_failure(status, owned_open_position_count=owned_open_position_count):
@@ -584,18 +958,34 @@ def _max_int(payload: Mapping[str, Any], *keys: str) -> int:
 
 def _first_float(payload: Mapping[str, Any], *keys: str) -> float:
     for key in keys:
-        try:
-            return float(payload.get(key))
-        except (TypeError, ValueError):
-            continue
+        value = _float_value(payload.get(key))
+        if value is not None:
+            return value
     return 0.0
 
 
+def _float_value(value: Any) -> float | None:
+    if isinstance(value, Mapping):
+        for key in ("cost", "amount", "value", "total", "usdt", "usd"):
+            nested = _float_value(value.get(key))
+            if nested is not None:
+                return nested
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _nested_trade_float(payload: Mapping[str, Any], *keys: str) -> float:
-    trade = payload.get("trade")
-    if not isinstance(trade, Mapping):
-        return 0.0
-    return _first_float(trade, *keys)
+    for nested_key in COST_NESTED_KEYS:
+        nested = payload.get(nested_key)
+        if not isinstance(nested, Mapping):
+            continue
+        value = _first_float(nested, *keys)
+        if value != 0.0:
+            return value
+    return 0.0
 
 
 def _sequence_len(value: Any) -> int:

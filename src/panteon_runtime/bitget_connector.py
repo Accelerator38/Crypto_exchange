@@ -26,6 +26,15 @@ import ccxt  # type: ignore
 import mexc_connector as mexc
 from bitget_api import BitgetDirectClient
 
+try:
+    from bitget_funding import BitgetFundingDataFetcher
+    from panteon_agents import set_fetcher as _set_panteon_fetcher
+    _HAS_BITGET_FUNDING = True
+except Exception:
+    BitgetFundingDataFetcher = None  # type: ignore
+    _set_panteon_fetcher = None  # type: ignore
+    _HAS_BITGET_FUNDING = False
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -848,6 +857,7 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         self._tf_kline = cfg.get("tf_kline", "1m")
         self._cfg_bar = cfg.get("bar", 60)
         self.funding = None
+        self._bitget_funding_start_attempted = False
         self.max_live_positions_negative_pnl = BITGET_MAX_LIVE_POSITIONS_NEGATIVE_PNL
 
         configured_symbols = cfg.get("symbols") or _bitget_setting_symbol_list("symbols")
@@ -961,7 +971,33 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
             self.slippage,
         )
 
+    def _start_bitget_funding_fetcher(self) -> None:
+        if self.funding is not None:
+            return
+        if self._bitget_funding_start_attempted:
+            return
+        self._bitget_funding_start_attempted = True
+        if not _HAS_BITGET_FUNDING or BitgetFundingDataFetcher is None:
+            log.warning("[bitget funding] fetcher unavailable; LiveOIBreakout will not see OI")
+            return
+        try:
+            fetcher = BitgetFundingDataFetcher(symbols=self.symbols)
+            initial = fetcher.fetch_all()
+            if not initial:
+                log.warning("[bitget funding] initial fetch returned no symbols; OI fetcher not registered")
+                return
+            fetcher.start()
+            self.funding = fetcher
+            if _set_panteon_fetcher is not None:
+                _set_panteon_fetcher(fetcher)
+            log.info("[bitget funding] Fetcher started for %d symbols", len(initial))
+        except Exception as e:
+            self.funding = None
+            log.warning("[bitget funding] start failed: %s", e)
+
     def warmup(self, n_bars: int = WARMUP_BARS) -> None:
+        if self.mode == "live_futures" and self.funding is None:
+            self._start_bitget_funding_fetcher()
         BAR = self._cfg_bar
         ACTIVE_WARMUP_BARS = max(3 * 24 * BAR, 1)
         log.info(
@@ -1012,6 +1048,8 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         self._warmup_end = self._bar
 
     def _fetch_market(self) -> tuple:
+        if self.mode == "live_futures" and self.funding is None:
+            self._start_bitget_funding_fetcher()
         prices = {}
         volumes = {}
         spot_batch_failed = False

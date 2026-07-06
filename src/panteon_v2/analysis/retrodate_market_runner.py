@@ -269,6 +269,53 @@ def _promote_retro_flash_legacy_real_agents(
     )
 
 
+def _base_actor_label(raw: str) -> str:
+    text = str(raw or "").strip()
+    if ":" in text:
+        text = text.split(":", 1)[1].strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ("Solo_", "V_"):
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+    return text
+
+
+def _registry_lookup_labels(actor_label: str) -> tuple[str, ...]:
+    base = _base_actor_label(actor_label)
+    return tuple(dict.fromkeys((actor_label, base, f"V_{base}", f"Solo_{base}")))
+
+
+def _isolate_retro_single_component_actor(
+    registry: AgentRegistry,
+    actor_label: str,
+) -> str:
+    selected = ""
+    for label in _registry_lookup_labels(actor_label):
+        if label and registry.get(label) is not None:
+            selected = label
+            break
+    if not selected:
+        raise RuntimeError(
+            f"single-component replay actor {actor_label!r} is not registered; "
+            f"available={registry.all_labels()}"
+        )
+
+    for label in list(registry.all_labels()):
+        if label != selected:
+            registry.unregister(label)
+
+    agent = registry.get(selected)
+    if agent is not None:
+        setattr(agent, "shadow_only", False)
+        setattr(agent, "paper_trading_eligible", True)
+        setattr(agent, "live_trading_eligible", True)
+        setattr(agent, "single_component_replay_enabled", True)
+    return selected
+
+
 @dataclass(frozen=True)
 class RetrodateMarketConfig:
     """Configuration for a Retrodate market replay benchmark."""
@@ -461,6 +508,9 @@ class RetrodateMarketConfig:
     flash_promotion_derived_max_leverage: float = 1.0
     flash_component_memory_jsonl: str = ""
     flash_legacy_real_agent_labels: tuple[str, ...] = ()
+    flash_live_real_actor_whitelist: tuple[str, ...] = ()
+    flash_range_low_vol_real_actor_allowlist: tuple[str, ...] = ()
+    flash_single_component_replay_actor: str = ""
     futures_replay_signal_fixes_enabled: bool = False
     flash_volatility_risk_sizing_enabled: bool = False
     flash_volatility_risk_target_pct: float = 2.0
@@ -921,6 +971,21 @@ class RetrodateMarketConfig:
             self,
             "flash_legacy_real_agent_labels",
             _normalize_label_tuple(self.flash_legacy_real_agent_labels),
+        )
+        object.__setattr__(
+            self,
+            "flash_live_real_actor_whitelist",
+            _normalize_label_tuple(self.flash_live_real_actor_whitelist),
+        )
+        object.__setattr__(
+            self,
+            "flash_range_low_vol_real_actor_allowlist",
+            _normalize_label_tuple(self.flash_range_low_vol_real_actor_allowlist),
+        )
+        object.__setattr__(
+            self,
+            "flash_single_component_replay_actor",
+            str(self.flash_single_component_replay_actor or "").strip(),
         )
         raw_genetics_confirmation_labels = self.flash_genetics_confirmation_labels
         genetics_confirmation_labels = (
@@ -1461,13 +1526,21 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         registered_agent_labels = list(dict.fromkeys(
             [*registered_agent_labels, *promoted_legacy_real_labels]
         ))
+    single_component_replay_actor = ""
+    if config.flash_single_component_replay_actor:
+        single_component_replay_actor = _isolate_retro_single_component_actor(
+            registry,
+            config.flash_single_component_replay_actor,
+        )
+        registered_agent_labels = [single_component_replay_actor]
     shadow_registry = registry
     if (
-        config.experimental_flash_actors_enabled
+        not single_component_replay_actor
+        and config.experimental_flash_actors_enabled
         and config.experimental_flash_real_actors_enabled
     ):
         registered_agent_labels.extend(register_experimental_flash_agents(registry))
-    elif config.experimental_flash_actors_enabled:
+    elif not single_component_replay_actor and config.experimental_flash_actors_enabled:
         shadow_registry = _clone_registry_with_experimental_flash_agents(registry)
         registered_agent_labels.extend(
             label
@@ -1488,7 +1561,11 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         registry=registry,
         exchange=exchange,
         initial_capital=config.initial_capital,
-        profiles=(config.player_profiles or None),
+        profiles=(
+            ()
+            if single_component_replay_actor
+            else (config.player_profiles or None)
+        ),
         strategist_config=strategist_config,
         live_execution_config=_build_live_execution_config(config),
         risk_config=_build_risk_config(config),
@@ -1499,6 +1576,22 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         perf_max_returns_history=int(config.perf_max_returns_history),
         voting_directional=bool(config.voting_directional),
     )
+    if single_component_replay_actor:
+        setattr(pipeline, "profiles", ())
+        setattr(pipeline, "manual_quarantine_labels", ())
+        setattr(pipeline, "quarantine_override_labels", (single_component_replay_actor,))
+        setattr(pipeline, "single_component_replay_actor", single_component_replay_actor)
+        qm = getattr(pipeline, "qm", None)
+        release = getattr(qm, "force_release_override", None)
+        if callable(release):
+            try:
+                release(
+                    single_component_replay_actor,
+                    reason="single_component_replay",
+                    bar=0,
+                )
+            except TypeError:
+                release(single_component_replay_actor)
     # Гибрид: режимы, где используется strategist-путь вместо flash.
     _hybrid_regimes = []
     for name in config.hybrid_strategist_regimes:
@@ -2228,6 +2321,15 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         flash_component_memory_jsonl=str(args.flash_component_memory_jsonl or ""),
         flash_legacy_real_agent_labels=_normalize_label_tuple(
             args.flash_legacy_real_agent_label
+        ),
+        flash_live_real_actor_whitelist=_normalize_label_tuple(
+            args.flash_live_real_actor_whitelist
+        ),
+        flash_range_low_vol_real_actor_allowlist=_normalize_label_tuple(
+            args.flash_range_low_vol_real_actor_allowlist
+        ),
+        flash_single_component_replay_actor=(
+            args.flash_single_component_replay_actor
         ),
         futures_replay_signal_fixes_enabled=bool(
             args.enable_futures_replay_signal_fixes
@@ -3069,6 +3171,32 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "candidate universe for replay. Can be repeated or comma-separated."
         ),
     )
+    parser.add_argument(
+        "--flash-live-real-actor-whitelist",
+        action="append",
+        default=[],
+        help=(
+            "Restrict real Flash opens to this actor label/family in replay. "
+            "Can be repeated or comma-separated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-range-low-vol-real-actor-allowlist",
+        action="append",
+        default=[],
+        help=(
+            "Allow this actor label/family through range/low-vol real-actor "
+            "gates in replay. Can be repeated or comma-separated."
+        ),
+    )
+    parser.add_argument(
+        "--flash-single-component-replay-actor",
+        default="",
+        help=(
+            "Replay-only isolation: keep only this actor in the real registry "
+            "and disable player profiles for the run."
+        ),
+    )
     parser.add_argument("--enable-flash-volatility-risk-sizing", action="store_true")
     parser.add_argument("--flash-volatility-risk-target-pct", type=float, default=2.0)
     parser.add_argument("--flash-volatility-risk-min-volatility-pct", type=float, default=0.5)
@@ -3797,6 +3925,10 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         ),
         selected_subset_risk_min_mult=config.flash_selected_subset_risk_min_mult,
         selected_subset_risk_max_mult=config.flash_selected_subset_risk_max_mult,
+        live_real_actor_whitelist=config.flash_live_real_actor_whitelist,
+        range_low_vol_real_actor_allowlist=(
+            config.flash_range_low_vol_real_actor_allowlist
+        ),
         max_signals_per_actor=config.flash_max_signals_per_actor,
         open_overextension_guard_enabled=config.flash_overextension_guard_enabled,
         overextension_lookback_bars=config.flash_overextension_lookback_bars,
@@ -7267,6 +7399,15 @@ def _write_run_summary(
         "flash_component_memory_jsonl": config.flash_component_memory_jsonl,
         "flash_legacy_real_agent_labels": list(
             config.flash_legacy_real_agent_labels
+        ),
+        "flash_live_real_actor_whitelist": list(
+            config.flash_live_real_actor_whitelist
+        ),
+        "flash_range_low_vol_real_actor_allowlist": list(
+            config.flash_range_low_vol_real_actor_allowlist
+        ),
+        "flash_single_component_replay_actor": (
+            config.flash_single_component_replay_actor
         ),
         "futures_replay_signal_fixes_enabled": (
             config.futures_replay_signal_fixes_enabled

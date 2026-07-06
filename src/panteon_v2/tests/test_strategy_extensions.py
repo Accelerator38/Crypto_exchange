@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timezone
 import sys
 import types
@@ -144,6 +145,78 @@ class TestNewStrategyAgents(unittest.TestCase):
                 self.assertFalse(getattr(agent, "shadow_only", False))
                 self.assertTrue(getattr(agent, "live_trading_eligible", False))
                 self.assertTrue(getattr(agent, "paper_trading_eligible", False))
+
+    def test_carry_flow_disables_long_entries_while_preserving_shorts(self):
+        import panteon_agents
+        from panteon_agents import CarryFlowAgentV2
+
+        class Funding:
+            def __init__(self, payload):
+                self.payload = dict(payload)
+
+            def get(self, _symbol):
+                return dict(self.payload)
+
+        def prepared_agent():
+            agent = CarryFlowAgentV2()
+            agent.CHECK_INT = 1
+            agent.EMA_FAST = 3
+            agent.EMA_SLOW = 5
+            agent.RSI_N = 2
+            agent.OI_SPIKE = 0.01
+            agent.RSI_OB = 0
+            agent.RSI_OS = 100
+            agent.EXTREME_EXT = 0.0
+            agent.h["ETH"] = deque([100.0] * 10, maxlen=20)
+            agent.oi_h["ETH"] = deque([100.0], maxlen=16)
+            agent.pos["ETH"] = None
+            agent.ep["ETH"] = 0.0
+            agent.et["ETH"] = 0
+            return agent
+
+        try:
+            panteon_agents.set_fetcher(Funding({
+                "funding_rate": -0.001,
+                "long_ratio": 0.30,
+                "short_ratio": 0.70,
+                "mark_price": 99.0,
+                "index_price": 100.0,
+                "open_interest_usdt": 110.0,
+            }))
+            long_blocked = prepared_agent()
+            long_actions = long_blocked.act(
+                {"ETH": 100.0},
+                {"ETH": 1000.0},
+                bar_index=10,
+            )
+
+            panteon_agents.set_fetcher(Funding({
+                "funding_rate": 0.001,
+                "long_ratio": 0.70,
+                "short_ratio": 0.30,
+                "mark_price": 101.0,
+                "index_price": 100.0,
+                "open_interest_usdt": 110.0,
+            }))
+            short_allowed = prepared_agent()
+            short_actions = short_allowed.act(
+                {"ETH": 100.0},
+                {"ETH": 1000.0},
+                bar_index=10,
+            )
+        finally:
+            panteon_agents.set_fetcher(None)
+
+        self.assertEqual(long_actions["ETH"], Action.HOLD)
+        self.assertNotEqual(
+            long_blocked.last_signal_diagnostics["ETH"]["reason"],
+            "candidate_long",
+        )
+        self.assertEqual(short_actions["ETH"], Action.FUT_SHORT_FULL)
+        self.assertEqual(
+            short_allowed.last_signal_diagnostics["ETH"]["reason"],
+            "candidate_short",
+        )
 
 
 class TestExperimentalFlashAgents(unittest.TestCase):
