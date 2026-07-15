@@ -529,6 +529,9 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "expected_edge_below_cost",
         "--flash-controlled-exploration-allowed-reason",
         "range_low_vol_actor_not_allowed,shadow_unconfirmed",
+        "--flash-controlled-exploration-allow-range-low-vol-actor-not-allowed",
+        "--flash-controlled-exploration-range-low-vol-allowed-direction",
+        "short",
         "--flash-controlled-exploration-risk-mult",
         "0.07",
         "--flash-controlled-exploration-min-shadow-score",
@@ -553,6 +556,14 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "--flash-controlled-exploration-apply-leverage-to-notional",
         "--flash-controlled-exploration-max-leverage",
         "3",
+        "--flash-controlled-exploration-loss-budget-usd",
+        "0.2",
+        "--flash-controlled-exploration-loss-budget-adverse-move-pct",
+        "5.0",
+        "--flash-controlled-exploration-stop-loss-pct",
+        "3.5",
+        "--flash-controlled-exploration-session-loss-budget-usd",
+        "0.2",
         "--enable-flash-causal-actor-router",
         "--flash-causal-actor-router-min-closed-trades",
         "7",
@@ -776,6 +787,14 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
         "range_low_vol_actor_not_allowed",
         "shadow_unconfirmed",
     )
+    assert (
+        flash_config.controlled_exploration_allow_range_low_vol_actor_not_allowed
+        is True
+    )
+    assert (
+        flash_config.controlled_exploration_range_low_vol_allowed_directions
+        == ("short",)
+    )
     assert flash_config.controlled_exploration_risk_mult == 0.07
     assert flash_config.controlled_exploration_min_shadow_score == 2.5
     assert flash_config.controlled_exploration_min_shadow_closed == 12
@@ -789,6 +808,10 @@ def test_cli_and_flash_allocator_config_accept_flash_flags():
     assert flash_config.controlled_exploration_default_min_notional_usd == 5.10
     assert flash_config.controlled_exploration_apply_leverage_to_notional is True
     assert flash_config.controlled_exploration_max_leverage == 3.0
+    assert flash_config.controlled_exploration_loss_budget_usd == 0.2
+    assert flash_config.controlled_exploration_loss_budget_adverse_move_pct == 5.0
+    assert flash_config.controlled_exploration_stop_loss_pct == 3.5
+    assert flash_config.controlled_exploration_session_loss_budget_usd == 0.2
     assert flash_config.causal_actor_router_enabled is True
     assert flash_config.causal_actor_router_min_closed_trades == 7
     assert flash_config.causal_actor_router_min_expectancy == 0.03

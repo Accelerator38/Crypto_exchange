@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -1190,7 +1191,7 @@ class TestFlashAllocator(unittest.TestCase):
         self.assertEqual(row.reason, "controlled_exploration:expected_edge_below_cost")
         self.assertAlmostEqual(row.risk_mult, 0.05)
 
-    def test_controlled_exploration_allows_range_low_vol_only_when_reason_is_configured(self):
+    def test_controlled_exploration_does_not_bypass_range_low_vol_actor_deny(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         qm = QuarantineManager(seed=set())
         _add_perf(perf, "RangeActor", Regime.RANGE_LOW_VOL, 10, 2.0, start_id=1)
@@ -1217,9 +1218,203 @@ class TestFlashAllocator(unittest.TestCase):
             shadow_confirmation={"RangeActor": (2.5, 11)},
         )[0]
 
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertIsNone(decision.signal)
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:range_low_vol_actor_not_allowed",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "RangeActor"
+        ]
+        self.assertTrue(row.rejected)
+        self.assertEqual(row.reason, "range_low_vol_actor_not_allowed")
+
+    def test_controlled_exploration_can_explicitly_probe_range_low_vol_actor_deny(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RangeActor", Regime.RANGE_LOW_VOL, 10, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("range_low_vol_actor_not_allowed",),
+                controlled_exploration_allow_range_low_vol_actor_not_allowed=True,
+                controlled_exploration_range_low_vol_allowed_directions=("short",),
+                controlled_exploration_risk_mult=0.08,
+                controlled_exploration_min_shadow_score=2.0,
+                controlled_exploration_min_shadow_closed=10,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC": 100.0}),
+            agents=[FakeAgent("RangeActor", {"BTC": Action.FUT_SHORT_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"RangeActor": (2.5, 11)},
+        )[0]
+
         self.assertEqual(decision.selected_actor, "RangeActor")
+        self.assertEqual(decision.reason, "controlled_exploration")
+        self.assertIn("range_low_vol_actor_not_allowed", decision.selected_reasons)
         self.assertEqual(decision.signal.action, Action.FUT_SHORT_FULL)
         self.assertAlmostEqual(decision.signal.risk_mult, 0.08)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "RangeActor"
+        ]
+        self.assertFalse(row.rejected)
+        self.assertEqual(
+            row.reason,
+            "controlled_exploration:range_low_vol_actor_not_allowed",
+        )
+
+    def test_controlled_exploration_blocks_range_low_vol_direction_not_allowed(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RangeActor", Regime.RANGE_LOW_VOL, 10, 2.0, start_id=1)
+
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("range_low_vol_actor_not_allowed",),
+                controlled_exploration_allow_range_low_vol_actor_not_allowed=True,
+                controlled_exploration_range_low_vol_allowed_directions=("short",),
+                controlled_exploration_risk_mult=0.08,
+                controlled_exploration_min_shadow_score=2.0,
+                controlled_exploration_min_shadow_closed=10,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC": 100.0}),
+            agents=[FakeAgent("RangeActor", {"BTC": Action.FUT_LONG_FULL})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"RangeActor": (2.5, 11)},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertIsNone(decision.signal)
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_range_low_vol_direction_block",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "RangeActor"
+        ]
+        self.assertEqual(
+            row.reason,
+            "controlled_exploration_range_low_vol_direction_block",
+        )
+
+    def test_controlled_exploration_allows_confirmed_range_low_vol_short_probe(self):
+        class ConfirmedCompressAgent:
+            label = "LiveVolCompress"
+
+            def act(self, market):
+                self.last_signal_diagnostics = {
+                    "BTC": {
+                        "reason": "candidate_short",
+                        "squeeze_ok": True,
+                        "short_momentum_gap": 0.002,
+                        "edge": 0.42,
+                    }
+                }
+                return {"BTC": Action.FUT_SHORT_HALF}
+
+        allocator = FlashAllocator(
+            perf=PerformanceMemory(trade_fraction=1.0),
+            qm=QuarantineManager(seed=set()),
+            config=FlashAllocatorConfig(
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("range_low_vol_actor_not_allowed",),
+                controlled_exploration_allow_range_low_vol_actor_not_allowed=True,
+                controlled_exploration_range_low_vol_allowed_directions=("short",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC": 100.0}),
+            agents=[ConfirmedCompressAgent()],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "LiveVolCompress")
+        self.assertEqual(decision.reason, "controlled_exploration")
+        self.assertEqual(decision.signal.action, Action.FUT_SHORT_HALF)
+        self.assertAlmostEqual(decision.signal.risk_mult, 0.05)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveVolCompress"
+        ]
+        self.assertFalse(row.has_data)
+        self.assertFalse(row.rejected)
+        self.assertEqual(
+            row.reason,
+            "controlled_exploration:range_low_vol_actor_not_allowed",
+        )
+
+    def test_controlled_exploration_blocks_unconfirmed_range_low_vol_short_probe(self):
+        class WeakCompressAgent:
+            label = "LiveVolCompress"
+
+            def act(self, market):
+                self.last_signal_diagnostics = {
+                    "BTC": {
+                        "reason": "candidate_short",
+                        "squeeze_ok": True,
+                        "short_momentum_gap": 0.002,
+                        "edge": -0.01,
+                    }
+                }
+                return {"BTC": Action.FUT_SHORT_HALF}
+
+        allocator = FlashAllocator(
+            perf=PerformanceMemory(trade_fraction=1.0),
+            qm=QuarantineManager(seed=set()),
+            config=FlashAllocatorConfig(
+                range_low_vol_real_actor_allowlist=("DefaultEnsemble",),
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("range_low_vol_actor_not_allowed",),
+                controlled_exploration_allow_range_low_vol_actor_not_allowed=True,
+                controlled_exploration_range_low_vol_allowed_directions=("short",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+            ),
+        )
+
+        decision = allocator.decide(
+            make_market(regime=Regime.RANGE_LOW_VOL, prices={"BTC": 100.0}),
+            agents=[WeakCompressAgent()],
+            players=[],
+            signal_id_start=10,
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertIsNone(decision.signal)
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:range_low_vol_actor_not_allowed",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "LiveVolCompress"
+        ]
+        self.assertTrue(row.rejected)
+        self.assertEqual(row.reason, "range_low_vol_actor_not_allowed")
 
     def test_controlled_exploration_does_not_bypass_hard_symbol_deny(self):
         perf = PerformanceMemory(trade_fraction=1.0)
@@ -1489,6 +1684,194 @@ class TestFlashAllocator(unittest.TestCase):
             "TooSmallActor"
         ]
         self.assertEqual(row.reason, "controlled_exploration_min_notional_risk_too_high")
+
+    def test_controlled_exploration_blocks_when_min_notional_loss_exceeds_budget(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "BudgetActor", Regime.BULLISH, 10, 0.01, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                controlled_exploration_max_daily_trades=3,
+                controlled_exploration_min_notional_sizing_enabled=True,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_min_notional_max_risk_mult=0.10,
+                controlled_exploration_loss_budget_usd=0.20,
+                controlled_exploration_loss_budget_adverse_move_pct=5.0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("BudgetActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"BudgetActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(
+            decision.reason,
+            "no_real_admission:controlled_exploration_loss_budget_exceeded",
+        )
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "BudgetActor"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_loss_budget_exceeded")
+
+    def test_controlled_exploration_stop_pct_satisfies_loss_budget_and_sets_stop(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "StopBudgetActor", Regime.BULLISH, 10, 0.01, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                controlled_exploration_max_daily_trades=3,
+                controlled_exploration_min_notional_sizing_enabled=True,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_min_notional_max_risk_mult=0.10,
+                controlled_exploration_loss_budget_usd=0.20,
+                controlled_exploration_loss_budget_adverse_move_pct=5.0,
+                controlled_exploration_stop_loss_pct=3.5,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("StopBudgetActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"StopBudgetActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "StopBudgetActor")
+        self.assertEqual(decision.reason, "controlled_exploration")
+        self.assertAlmostEqual(decision.signal.metadata["stop_loss_pct"], 3.5)
+        self.assertAlmostEqual(decision.signal.metadata["stop_price"], 96.5)
+        self.assertEqual(
+            decision.signal.metadata["stop_source"],
+            "controlled_exploration",
+        )
+
+    def test_controlled_exploration_session_budget_blocks_when_remaining_risk_is_too_small(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "SessionBudgetActor", Regime.BULLISH, 10, 0.01, start_id=1)
+        allocator = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                fee_aware_admission_enabled=True,
+                controlled_exploration_enabled=True,
+                controlled_exploration_allowed_reasons=("expected_edge_below_cost",),
+                controlled_exploration_risk_mult=0.05,
+                controlled_exploration_min_shadow_score=0.0,
+                controlled_exploration_min_shadow_closed=0,
+                controlled_exploration_max_daily_trades=3,
+                controlled_exploration_min_notional_sizing_enabled=True,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_min_notional_max_risk_mult=0.10,
+                controlled_exploration_loss_budget_usd=0.20,
+                controlled_exploration_loss_budget_adverse_move_pct=5.0,
+                controlled_exploration_stop_loss_pct=3.5,
+                controlled_exploration_session_loss_budget_usd=0.20,
+            ),
+        )
+
+        first = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("SessionBudgetActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            shadow_confirmation={"SessionBudgetActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+        self.assertEqual(first.selected_actor, "SessionBudgetActor")
+
+        allocator.record_controlled_exploration_execution_result(SimpleNamespace(
+            closed_position_actor_context_outcomes=(
+                (
+                    "SessionBudgetActor",
+                    "BTC",
+                    Action.SPOT_BUY_HALF,
+                    "long",
+                    Regime.BULLISH,
+                    -0.10,
+                ),
+            )
+        ))
+        second = allocator.decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("SessionBudgetActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=20,
+            shadow_confirmation={"SessionBudgetActor": (1.0, 1)},
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+
+        self.assertEqual(second.selected_actor, "NoTrade")
+        self.assertEqual(
+            second.reason,
+            "no_real_admission:controlled_exploration_session_loss_budget_exceeded",
+        )
+        row = {candidate.label: candidate for candidate in second.candidates}[
+            "SessionBudgetActor"
+        ]
+        self.assertEqual(
+            row.reason,
+            "controlled_exploration_session_loss_budget_exceeded",
+        )
+
+    def test_loss_budget_blocks_regular_open_selection(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        qm = QuarantineManager(seed=set())
+        _add_perf(perf, "RegularActor", Regime.BULLISH, 10, 0.50, start_id=1)
+
+        decision = FlashAllocator(
+            perf=perf,
+            qm=qm,
+            config=FlashAllocatorConfig(
+                min_closed_trades_to_trade=1,
+                controlled_exploration_account_equity_usd=1000.0,
+                controlled_exploration_capital_fraction=0.10,
+                controlled_exploration_loss_budget_usd=0.20,
+                controlled_exploration_loss_budget_adverse_move_pct=5.0,
+            ),
+        ).decide(
+            make_market(prices={"BTC": 100.0}),
+            agents=[FakeAgent("RegularActor", {"BTC": Action.SPOT_BUY_HALF})],
+            players=[],
+            signal_id_start=10,
+            min_notional_by_symbol={"BTC": 5.0},
+        )[0]
+
+        self.assertEqual(decision.selected_actor, "NoTrade")
+        self.assertEqual(decision.reason, "controlled_exploration_loss_budget_exceeded")
+        self.assertIsNone(decision.signal)
+        row = {candidate.label: candidate for candidate in decision.candidates}[
+            "RegularActor"
+        ]
+        self.assertEqual(row.reason, "controlled_exploration_loss_budget_exceeded")
 
     def test_causal_actor_router_flag_prefers_prior_expectancy_over_actionable_boost(self):
         perf = PerformanceMemory(trade_fraction=1.0)

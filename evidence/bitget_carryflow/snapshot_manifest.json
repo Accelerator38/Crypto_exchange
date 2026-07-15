@@ -1,0 +1,39 @@
+{
+  "schema_version": "panteon.evidence_snapshot.v1",
+  "captured_at": "2026-07-15T07:15:03.7531442Z",
+  "exchange": "BITGET",
+  "market_type": "swap",
+  "symbols": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "LINK"],
+  "orders_enabled": false,
+  "segments": [
+    {
+      "id": "hourly_root_v1_20260712",
+      "status": "finalized_power_interruption",
+      "path": "segments/hourly_root_v1_20260712/carryflow_evidence_tape.jsonl",
+      "file_sha256": "31a87f8b4ab638a703311b722a47abfca11197a6698b18858798f07d9942f586",
+      "head_sha256": "bfa9d636f4169ca8bfe321c0e32bee14ff8b1b99b17e42c4e42a32c6429af336",
+      "collector_source_revision": "d863585914af2679b582858d7f195c9554d20b18",
+      "samples": 58,
+      "complete_samples": 58,
+      "context_coverage_pct": 100.0,
+      "first_observed_at": "2026-07-12T14:00:51.867069+00:00",
+      "last_observed_at": "2026-07-14T23:00:48.840322+00:00",
+      "replay_manifest_sha256": "e405c3f915004ffcf08525cf201d101ccfa8cffaa269f0ff576c2938dd4d291b",
+      "replay_runtime_fingerprint_sha256": "b9ce78a0a7e1cd43ab1afd7dca41d0e83ddc05145d85884d47ce095126fb2e8b",
+      "replay_result": "zero_candidate_signals"
+    },
+    {
+      "id": "hourly_root_v2_recovery_20260715_precommit",
+      "status": "finalized_before_source_revision_change",
+      "path": "segments/hourly_root_v2_recovery_20260715_precommit/carryflow_evidence_tape.jsonl",
+      "file_sha256": "677920a82072957c6ff53f57d3ba72708d4302a1c888df25c41ad6010b96371d",
+      "head_sha256": "99f41ba9f95ff8364af43951246d2942240e42d68e6c1eabd79cc2fec03dd11d",
+      "collector_source_revision": "d863585914af2679b582858d7f195c9554d20b18",
+      "samples": 2,
+      "complete_samples": 2,
+      "context_coverage_pct": 100.0,
+      "first_observed_at": "2026-07-15T06:00:52.558074+00:00",
+      "last_observed_at": "2026-07-15T07:00:48.739931+00:00"
+    }
+  ]
+}

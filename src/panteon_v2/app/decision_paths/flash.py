@@ -18,6 +18,10 @@ log = logging.getLogger(__name__)
 GENETICS_CONTRA_NO_BACKFILL_REASON = "genetics_contra_no_backfill"
 
 
+def _no_flash_close_signals(*args: Any, **kwargs: Any) -> list[Any]:
+    return []
+
+
 def _flash_exchange_from_pipeline(pipeline: object) -> object | None:
     exchange = getattr(pipeline, "exchange", None)
     if exchange is not None:
@@ -93,6 +97,7 @@ class FlashDecisionPathCallbacks:
     kill_switch_reason: Callable[..., Any]
     flash_causal_decision_payload: Callable[..., Any]
     step_result_type: type
+    flash_stop_loss_close_signals: Callable[..., Any] = _no_flash_close_signals
 
 
 def run_flash_decision_path(
@@ -251,12 +256,25 @@ def run_flash_decision_path(
     raw_signals = [decision.signal for decision in decisions if decision.signal is not None]
     if raw_signals:
         signal_id_counter = max(signal.id for signal in raw_signals) + 1
+    stop_loss_close_signals = callbacks.flash_stop_loss_close_signals(
+        pipeline,
+        market,
+        signal_id_start=signal_id_counter,
+    )
+    if stop_loss_close_signals:
+        signal_id_counter = max(signal.id for signal in stop_loss_close_signals) + 1
+        raw_signals = stop_loss_close_signals + raw_signals
+    stop_loss_symbols = {
+        str(getattr(signal, "sym", "") or "").upper()
+        for signal in stop_loss_close_signals
+    }
     stale_close_signals = callbacks.flash_stale_position_close_signals(
         pipeline,
         market,
         signal_id_start=signal_id_counter,
         max_age_bars=callbacks.flash_stale_position_exit_max_age_bars(pipeline),
         require_nonpositive_unrealized=callbacks.flash_stale_position_exit_requires_loss(pipeline),
+        excluded_symbols=stop_loss_symbols,
     )
     if stale_close_signals:
         signal_id_counter = max(signal.id for signal in stale_close_signals) + 1
@@ -265,7 +283,7 @@ def run_flash_decision_path(
         pipeline,
         market,
         signal_id_start=signal_id_counter,
-        excluded_symbols={
+        excluded_symbols=stop_loss_symbols | {
             str(getattr(signal, "sym", "") or "").upper()
             for signal in stale_close_signals
         },
@@ -277,7 +295,7 @@ def run_flash_decision_path(
         pipeline,
         market,
         signal_id_start=signal_id_counter,
-        excluded_symbols={
+        excluded_symbols=stop_loss_symbols | {
             str(getattr(signal, "sym", "") or "").upper()
             for signal in tuple(stale_close_signals) + tuple(regime_exit_close_signals)
         },

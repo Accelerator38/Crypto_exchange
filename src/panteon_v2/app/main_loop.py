@@ -1252,6 +1252,7 @@ def _run_flash_decision_path(
             flash_previous_actor_key_from_decision=_flash_previous_actor_key_from_decision,
             flash_register_degradation_signal_keys=_flash_register_degradation_signal_keys,
             emit_flash_audit_events=_emit_flash_audit_events,
+            flash_stop_loss_close_signals=_flash_stop_loss_close_signals,
             flash_stale_position_close_signals=_flash_stale_position_close_signals,
             flash_stale_position_exit_max_age_bars=_flash_stale_position_exit_max_age_bars,
             flash_stale_position_exit_requires_loss=_flash_stale_position_exit_requires_loss,
@@ -4320,6 +4321,74 @@ def _partial_profit_lock_open_signal_keys(pos: object) -> set[str]:
     }
 
 
+def _flash_stop_loss_close_signals(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_start: int,
+    excluded_symbols: Optional[set[str]] = None,
+) -> List[Signal]:
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return []
+    excluded = {str(symbol or "").upper() for symbol in (excluded_symbols or set())}
+    try:
+        open_positions = tracker.all_open() or {}
+    except Exception:
+        log.debug("flash stop-loss guard failed to read tracker", exc_info=True)
+        return []
+
+    signals: List[Signal] = []
+    sid = int(signal_id_start)
+    for sym, pos in sorted(open_positions.items()):
+        if is_external_position(pos):
+            continue
+        symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        if symbol in excluded:
+            continue
+        stop_price = _safe_float_or_none(getattr(pos, "stop_price", 0.0))
+        if stop_price is None or stop_price <= 0.0:
+            continue
+        market_price = float(market.prices.get(symbol, 0.0) or 0.0)
+        if market_price <= 0.0:
+            continue
+        side = str(getattr(pos, "side", "") or "").lower()
+        if side == "long":
+            triggered = market_price <= stop_price
+        elif side == "short":
+            triggered = market_price >= stop_price
+        else:
+            continue
+        if not triggered:
+            continue
+        stop_loss_pct = _safe_float_or_none(getattr(pos, "stop_loss_pct", 0.0))
+        open_action = str(getattr(pos, "open_action", "") or "").upper()
+        close_action = (
+            Action.SPOT_SELL_ALL
+            if open_action.startswith("SPOT_")
+            else Action.FUT_CLOSE_ALL
+        )
+        signals.append(Signal(
+            id=sid,
+            bar=market.bar,
+            sym=symbol,
+            action=close_action,
+            price=float(stop_price),
+            regime=market.regime,
+            by_player="Panteon_Flash",
+            by_agent="StopLossGuard",
+            timestamp=market.timestamp,
+            metadata={
+                "stop_price": float(stop_price),
+                "stop_loss_pct": float(stop_loss_pct or 0.0),
+                "stop_trigger_price": float(market_price),
+                "stop_source": "controlled_exploration",
+            },
+        ))
+        sid += 1
+    return signals
+
+
 def _flash_partial_profit_lock_close_signals(
     pipeline: ProductionPipeline,
     market: MarketSnapshot,
@@ -4402,6 +4471,7 @@ def _flash_stale_position_close_signals(
     signal_id_start: int,
     max_age_bars: int,
     require_nonpositive_unrealized: bool = True,
+    excluded_symbols: Optional[set[str]] = None,
 ) -> List[Signal]:
     max_age = max(0, int(max_age_bars or 0))
     if max_age <= 0:
@@ -4409,6 +4479,7 @@ def _flash_stale_position_close_signals(
     tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
     if tracker is None or not callable(getattr(tracker, "all_open", None)):
         return []
+    excluded = {str(symbol or "").upper() for symbol in (excluded_symbols or set())}
 
     signals: List[Signal] = []
     sid = int(signal_id_start)
@@ -4429,6 +4500,8 @@ def _flash_stale_position_close_signals(
         entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
         qty = float(getattr(pos, "qty", 0.0) or 0.0)
         symbol = str(getattr(pos, "sym", sym) or sym).upper()
+        if symbol in excluded:
+            continue
         market_price = float(market.prices.get(symbol, 0.0) or 0.0)
         if require_nonpositive_unrealized:
             if market_price <= 0:

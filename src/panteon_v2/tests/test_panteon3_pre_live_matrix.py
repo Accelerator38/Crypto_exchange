@@ -102,6 +102,19 @@ def test_build_matrix_plan_has_four_safe_replay_variants(tmp_path):
     exploration = _flags(plan[1])
     assert "--enable-flash-controlled-exploration" in exploration
     assert "--enable-flash-controlled-exploration-min-notional-sizing" in exploration
+    assert (
+        "--flash-controlled-exploration-allow-range-low-vol-actor-not-allowed"
+        in exploration
+    )
+    assert (
+        exploration[
+            exploration.index(
+                "--flash-controlled-exploration-range-low-vol-allowed-direction"
+            )
+            + 1
+        ]
+        == "short"
+    )
     assert "--flash-controlled-exploration-min-rolling-expectancy" in exploration
     assert "--enable-flash-causal-actor-router" not in exploration
     assert "--enable-flash-promotion-derived-router" not in exploration
@@ -215,6 +228,10 @@ def test_build_matrix_plan_can_add_single_component_candidate(tmp_path):
     assert range_allowlist_labels == whitelist_labels
     assert "--enable-flash-controlled-exploration" in component
     assert "--flash-controlled-exploration-allowed-reason" in component
+    assert (
+        "--flash-controlled-exploration-allow-range-low-vol-actor-not-allowed"
+        not in component
+    )
     controlled_reasons = [
         component[index + 1]
         for index, arg in enumerate(component)
@@ -310,6 +327,42 @@ def test_build_matrix_plan_carries_extra_runner_args(tmp_path):
         assert command[command.index("--initial-capital") + 1] == "500.0"
         assert command[command.index("--risk-capital-fraction") + 1] == "0.05"
         assert "--disable-hard-policy" in command
+
+
+def test_build_matrix_plan_applies_candidate_runner_args_only_to_candidate_variant(tmp_path):
+    module = _load_tool()
+
+    plan = module.build_matrix_plan(
+        python_executable="python",
+        results_root=tmp_path / "runs",
+        years="2026",
+        max_bars=120,
+        stride_minutes=60,
+        initial_capital=1000.0,
+        risk_capital_fraction=0.10,
+        candidate_variant="controlled_exploration",
+        candidate_runner_args=[
+            "--flash-terminal-deny-context-signal-key",
+            "agent:PlayerFunding|ETH/USDT|SPOT_BUY_HALF|neutral",
+            "--flash-controlled-exploration-capital-fraction",
+            "0.052",
+        ],
+    )
+
+    baseline = _flags(plan[0])
+    controlled = _flags(plan[1])
+    router = _flags(plan[2])
+    panteon = _flags(plan[3])
+
+    assert "--flash-terminal-deny-context-signal-key" not in baseline
+    assert "--flash-terminal-deny-context-signal-key" not in router
+    assert "--flash-terminal-deny-context-signal-key" not in panteon
+    assert "--flash-terminal-deny-context-signal-key" in controlled
+    assert "agent:PlayerFunding|ETH/USDT|SPOT_BUY_HALF|neutral" in controlled
+    assert controlled[-2:] == [
+        "--flash-controlled-exploration-capital-fraction",
+        "0.052",
+    ]
 
 
 def test_build_matrix_plan_can_expand_multiple_replay_windows(tmp_path):
@@ -838,6 +891,62 @@ def test_collect_matrix_summary_flags_empty_skip_windows(tmp_path):
     assert "accounting_warnings_present" in summary["promotion_verdict"]["fail_reasons"]
 
 
+def test_collect_matrix_summary_can_ignore_stale_orphan_variants(tmp_path):
+    module = _load_tool()
+    results_root = tmp_path / "runs"
+    for variant in ("skip_0__baseline", "skip_0__panteon3_candidate"):
+        _write_variant_run(
+            results_root,
+            variant,
+            selected=2,
+            filled=2,
+            blocked=0,
+            rejected=0,
+            closed=1,
+            pnl=0.2,
+            gross_profit=0.2,
+            gross_loss=-0.01,
+            windows=[0.2],
+            regimes=[0.2],
+        )
+    for variant in ("skip_480__baseline", "skip_480__panteon3_candidate"):
+        _write_variant_run(
+            results_root,
+            variant,
+            selected=0,
+            filled=0,
+            blocked=0,
+            rejected=0,
+            closed=0,
+            pnl=0.0,
+            gross_profit=0.0,
+            gross_loss=0.0,
+            windows=[],
+            regimes=[],
+        )
+
+    summary = module.collect_matrix_summary(
+        results_root,
+        candidate_variant="panteon3_candidate",
+        allowed_variants=["skip_0__baseline", "skip_0__panteon3_candidate"],
+        min_filled=1,
+        min_closed_trades=1,
+        max_blocked=0,
+        max_rejected=0,
+        require_positive_expectancy=True,
+        min_profitable_windows=1,
+        min_positive_regimes=1,
+        require_beats_baseline=False,
+    )
+
+    assert [row["variant"] for row in summary["rows"]] == [
+        "skip_0__baseline",
+        "skip_0__panteon3_candidate",
+    ]
+    assert summary["accounting_warnings"] == []
+    assert summary["promotion_verdict"]["passed"] is True
+
+
 def test_collect_matrix_summary_recommends_single_component_without_unblocking_router(tmp_path):
     module = _load_tool()
     results_root = tmp_path / "runs"
@@ -1153,6 +1262,78 @@ def test_collect_matrix_summary_reports_failed_prelive_gates(tmp_path):
         "positive_regimes 0 < min_positive_regimes 1",
         "candidate_pnl_usd -0.2 <= baseline_pnl_usd 0.1",
     ]
+
+
+def test_collect_matrix_summary_can_compare_baseline_by_pnl_per_drawdown(tmp_path):
+    module = _load_tool()
+    results_root = tmp_path / "runs"
+    _write_variant_run(
+        results_root,
+        "baseline",
+        selected=30,
+        filled=30,
+        blocked=0,
+        rejected=0,
+        closed=15,
+        pnl=5.0,
+        gross_profit=6.0,
+        gross_loss=-1.0,
+        windows=[5.0],
+        regimes=[5.0],
+        max_drawdown_usd=5.0,
+    )
+    _write_variant_run(
+        results_root,
+        "panteon3_candidate",
+        selected=20,
+        filled=20,
+        blocked=0,
+        rejected=0,
+        closed=10,
+        pnl=1.0,
+        gross_profit=1.2,
+        gross_loss=-0.2,
+        windows=[1.0],
+        regimes=[1.0],
+        max_drawdown_usd=0.2,
+    )
+
+    raw_summary = module.collect_matrix_summary(
+        results_root,
+        candidate_variant="panteon3_candidate",
+        min_filled=20,
+        min_closed_trades=10,
+        max_blocked=0,
+        max_rejected=0,
+        require_positive_expectancy=True,
+        min_profitable_windows=1,
+        min_positive_regimes=1,
+        require_beats_baseline=True,
+        max_drawdown_usd=0.2,
+    )
+    risk_adjusted_summary = module.collect_matrix_summary(
+        results_root,
+        candidate_variant="panteon3_candidate",
+        min_filled=20,
+        min_closed_trades=10,
+        max_blocked=0,
+        max_rejected=0,
+        require_positive_expectancy=True,
+        min_profitable_windows=1,
+        min_positive_regimes=1,
+        require_beats_baseline=True,
+        baseline_compare_mode="pnl_per_drawdown",
+        max_drawdown_usd=0.2,
+    )
+
+    assert raw_summary["promotion_verdict"]["passed"] is False
+    assert raw_summary["promotion_verdict"]["fail_reasons"] == [
+        "candidate_pnl_usd 1.0 <= baseline_pnl_usd 5.0",
+    ]
+    assert risk_adjusted_summary["candidate"]["pnl_per_drawdown"] == pytest.approx(5.0)
+    assert risk_adjusted_summary["baseline"]["pnl_per_drawdown"] == pytest.approx(1.0)
+    assert risk_adjusted_summary["promotion_gates"]["baseline_compare_mode"] == "pnl_per_drawdown"
+    assert risk_adjusted_summary["promotion_verdict"]["passed"] is True
 
 
 def test_collect_matrix_summary_aggregates_multi_window_candidate(tmp_path):

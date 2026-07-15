@@ -43,6 +43,18 @@ def test_bitget_funding_fetcher_converts_open_interest_to_usdt():
             assert market == "BTC/USDT:USDT"
             return {"openInterestAmount": 2.0, "openInterestValue": None}
 
+        def publicMixGetV2MixMarketAccountLongShort(self, params):
+            assert params == {"symbol": "BTCUSDT", "period": "5m"}
+            return {
+                "data": [
+                    {
+                        "longAccountRatio": "0.65",
+                        "shortAccountRatio": "0.35",
+                        "ts": "1714020600000",
+                    }
+                ]
+            }
+
     exchange = Exchange()
     fetcher = BitgetFundingDataFetcher(symbols=["BTC"], exchange=exchange)
 
@@ -52,8 +64,66 @@ def test_bitget_funding_fetcher_converts_open_interest_to_usdt():
     assert cache["BTC"]["funding_rate"] == 0.0002
     assert cache["BTC"]["open_interest_base"] == 2.0
     assert cache["BTC"]["open_interest_usdt"] == 202.0
+    assert cache["BTC"]["long_ratio"] == 0.65
+    assert cache["BTC"]["short_ratio"] == 0.35
+    assert cache["BTC"]["long_short_source"] == "account_long_short_v2"
+    assert cache["BTC"]["context_complete"] is False  # index price absent in fixture
     assert fetcher.get("BTC")["open_interest_usdt"] == 202.0
     assert fetcher.get_global()["total_oi_usdt"] == 202.0
+
+
+def test_bitget_funding_fetcher_falls_back_to_v3_account_ratios(monkeypatch):
+    import bitget_funding
+    from bitget_funding import BitgetFundingDataFetcher
+
+    monkeypatch.setattr(bitget_funding.time, "time", lambda: 1_783_858_800.0)
+
+    class Exchange:
+        def load_markets(self):
+            return None
+
+        def fetch_ticker(self, _market):
+            return {"last": 100.0, "markPrice": 101.0}
+
+        def fetch_funding_rate(self, _market):
+            return {
+                "fundingRate": 0.0002,
+                "markPrice": 101.0,
+                "indexPrice": 100.0,
+            }
+
+        def fetch_open_interest(self, _market):
+            return {"openInterestAmount": 2.0}
+
+        def publicMixGetV2MixMarketAccountLongShort(self, _params):
+            raise RuntimeError("40054 empty")
+
+        def request(self, path, api, method, params):
+            assert path == "v3/market/futures-account-long-short"
+            assert api == ["public", "common"]
+            assert method == "GET"
+            assert params == {"symbol": "BNBUSDT", "period": "5m"}
+            return {
+                "data": [
+                    {
+                        "longAccountRatio": "0.69",
+                        "shortAccountRatio": "0.31",
+                        "ts": "1783858800000",
+                    }
+                ]
+            }
+
+    fetcher = BitgetFundingDataFetcher(symbols=["BNB"], exchange=Exchange())
+    cache = fetcher.fetch_all()
+
+    assert cache["BNB"]["long_ratio"] == 0.69
+    assert cache["BNB"]["short_ratio"] == 0.31
+    assert cache["BNB"]["long_short_source"] == "futures_account_long_short_v3"
+    assert cache["BNB"]["long_short_ratio_age_sec"] == 0.0
+    assert cache["BNB"]["context_complete"] is True
+    assert fetcher.get_global()["ratio_source_counts"] == {
+        "futures_account_long_short_v3": 1
+    }
 
 
 def test_bitget_bridge_registers_funding_fetcher_before_market_fetch(monkeypatch, tmp_path):

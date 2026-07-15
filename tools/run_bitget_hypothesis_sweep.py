@@ -19,13 +19,13 @@ def _csv(values: object) -> str:
     return ""
 
 
-def _append_extra_runner_args(command: list[str], values: object) -> None:
+def _append_runner_args(command: list[str], *, flag: str, values: object) -> None:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
         return
     for value in values:
         text = str(value).strip()
         if text:
-            command.append(f"--extra-runner-arg={text}")
+            command.append(f"{flag}={text}")
 
 
 def _validate_manifest(manifest: Mapping[str, Any]) -> None:
@@ -47,14 +47,22 @@ def build_sweep_commands(
         if not isinstance(item, Mapping):
             continue
         hypothesis_id = str(item["id"])
-        label = str(item["single_component_candidate_label"])
+        label = str(item.get("single_component_candidate_label") or "").strip()
+        candidate_variant = str(item.get("candidate_variant") or "").strip()
+        if not candidate_variant:
+            if not label:
+                raise ValueError(
+                    f"hypothesis {hypothesis_id!r} must define candidate_variant "
+                    "or single_component_candidate_label"
+                )
+            candidate_variant = f"single_component__{label}"
         result_dir = results_root / hypothesis_id
         report_dir = reports_root / hypothesis_id
         command = [
             python_executable,
             "tools/run_panteon3_pre_live_matrix.py",
             "--data-dir",
-            str(manifest.get("data_dir", "Retrodate/mexc_bitget_futures")),
+            str(item.get("data_dir", manifest.get("data_dir", "Retrodate/mexc_bitget_futures"))),
             "--results-root",
             str(result_dir),
             "--reports-dir",
@@ -65,10 +73,8 @@ def build_sweep_commands(
             str(item.get("max_bars", manifest.get("default_max_bars", 480))),
             "--window-skip-bars",
             _csv(item.get("window_skip_bars", manifest.get("default_window_skip_bars", [0]))),
-            "--single-component-candidate-label",
-            label,
             "--candidate-variant",
-            f"single_component__{label}",
+            candidate_variant,
             "--min-filled",
             str(item.get("min_filled", 20)),
             "--min-closed-trades",
@@ -84,17 +90,39 @@ def build_sweep_commands(
             "--require-cost-attribution",
             "--fail-on-promotion-failure",
         ]
+        if label:
+            command.extend(["--single-component-candidate-label", label])
+        baseline_compare_mode = str(
+            item.get(
+                "baseline_compare_mode",
+                manifest.get("default_baseline_compare_mode", ""),
+            )
+            or ""
+        ).strip()
+        if baseline_compare_mode:
+            command.extend(["--baseline-compare-mode", baseline_compare_mode])
         if bool(item.get("include_derivatives_context_actors", False)):
             command.append("--include-derivatives-context-actors")
-        _append_extra_runner_args(command, item.get("extra_runner_args", []))
+        _append_runner_args(
+            command,
+            flag="--extra-runner-arg",
+            values=item.get("extra_runner_args", []),
+        )
+        _append_runner_args(
+            command,
+            flag="--candidate-runner-arg",
+            values=item.get("candidate_runner_args", []),
+        )
         commands.append({
             "id": hypothesis_id,
             "actor": str(item.get("actor") or ""),
             "single_component_candidate_label": label,
+            "candidate_variant": candidate_variant,
             "command": command,
             "results_root": str(result_dir),
             "reports_dir": str(report_dir),
             "symbols": list(item.get("symbols") or []),
+            "candidate_runner_args": list(item.get("candidate_runner_args") or []),
         })
     return commands
 

@@ -37,6 +37,8 @@ class TrackedPosition:
     open_regime:    str = ""
     funding_open:   float = 0.0
     partial_profit_locked: bool = False
+    stop_price:     float = 0.0
+    stop_loss_pct:  float = 0.0
 
 
 class PositionTracker:
@@ -94,6 +96,8 @@ class PositionTracker:
                 "open_regime": str(position.open_regime or ""),
                 "funding_open": float(position.funding_open),
                 "partial_profit_locked": bool(position.partial_profit_locked),
+                "stop_price": float(position.stop_price),
+                "stop_loss_pct": float(position.stop_loss_pct),
             }
         return out
 
@@ -142,6 +146,8 @@ class PositionTracker:
                 open_regime=str(raw_payload.get("open_regime") or ""),
                 funding_open=_safe_float(raw_payload.get("funding_open")),
                 partial_profit_locked=bool(raw_payload.get("partial_profit_locked", False)),
+                stop_price=max(0.0, _safe_float(raw_payload.get("stop_price"))),
+                stop_loss_pct=max(0.0, _safe_float(raw_payload.get("stop_loss_pct"))),
             ))
 
     # ── Mutation ────────────────────────────────────────────────────
@@ -159,6 +165,7 @@ class PositionTracker:
             # Защита от рассинхрона
             pass  # доверяем trade.side как actual
         sym = trade.sym
+        metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
         if sym in self._positions:
             # Существующая позиция остаётся (новый open signal на занятом sym
             # должен был быть отфильтрован RiskLimits). Игнорируем.
@@ -177,6 +184,8 @@ class PositionTracker:
             open_action=signal.action.name,
             open_regime=signal.regime.label,
             funding_open=trade.funding,
+            stop_price=max(0.0, _safe_float(metadata.get("stop_price"))),
+            stop_loss_pct=max(0.0, _safe_float(metadata.get("stop_loss_pct"))),
         )
         self._positions[sym] = pos
         return [PositionOpened(

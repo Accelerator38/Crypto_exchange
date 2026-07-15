@@ -226,6 +226,7 @@ class MarketSnapshot:
     technicals_by_symbol: Dict[str, TechnicalIndicators] = field(default_factory=dict)
     regimes_by_symbol: Dict[str, Regime] = field(default_factory=dict)
     regime_features_by_symbol: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    cadence_timestamp: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         regime = (

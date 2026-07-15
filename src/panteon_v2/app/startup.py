@@ -66,6 +66,26 @@ def _is_virtual_exchange_mode(mode: str) -> bool:
     return str(mode or "").strip().lower() in VIRTUAL_EXCHANGE_MODES
 
 
+def _direct_bitget_live_preflight_failure(exchange: str, mode: str) -> str:
+    """Protect direct worker starts that bypass Start_panteon.py."""
+    if _is_virtual_exchange_mode(mode):
+        return ""
+    if str(exchange or "").strip().upper() != "BITGET":
+        return ""
+    from .live_preflight import config_from_env, run_live_preflight
+
+    project_root = Path(__file__).resolve().parents[3]
+    result = run_live_preflight(
+        "BITGET",
+        mode,
+        config=config_from_env(project_root),
+    )
+    if result.passed:
+        return ""
+    reasons = ", ".join(result.reasons) or "unknown"
+    return f"BITGET live preflight failed: {reasons}"
+
+
 def _resolve_initial_capital(
     *,
     exchange_adapter: Exchange,
@@ -1522,6 +1542,38 @@ def _flash_allocator_config_from_settings(
                 "flash_controlled_exploration_max_leverage",
             ),
             1.0,
+        ),
+        controlled_exploration_loss_budget_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_loss_budget_usd",
+                "flash_controlled_exploration_loss_budget_usd",
+            ),
+            0.0,
+        ),
+        controlled_exploration_loss_budget_adverse_move_pct=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_loss_budget_adverse_move_pct",
+                "flash_controlled_exploration_loss_budget_adverse_move_pct",
+            ),
+            0.0,
+        ),
+        controlled_exploration_stop_loss_pct=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_stop_loss_pct",
+                "flash_controlled_exploration_stop_loss_pct",
+            ),
+            0.0,
+        ),
+        controlled_exploration_session_loss_budget_usd=_settings_float(
+            settings,
+            scoped_names(
+                "v2_flash_controlled_exploration_session_loss_budget_usd",
+                "flash_controlled_exploration_session_loss_budget_usd",
+            ),
+            0.0,
         ),
         causal_actor_router_enabled=_settings_bool(
             settings,
@@ -3766,6 +3818,10 @@ def start_production(
     log.info("=" * 70)
     log.info("Panteon v2 production startup: %s mode=%s", exchange, mode)
     log.info("=" * 70)
+    preflight_failure = _direct_bitget_live_preflight_failure(exchange, mode)
+    if preflight_failure:
+        log.error(preflight_failure)
+        return 2
     os.environ["CRYPTO_EXCHANGE"] = exchange.upper()
     os.environ[f"{exchange.upper()}_TRADING_MODE"] = mode
     if allow_live_feed_fallback is None:

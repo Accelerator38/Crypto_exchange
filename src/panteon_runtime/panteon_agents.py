@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import json
+import math
 import os
 import sys
 import time
@@ -2512,6 +2513,16 @@ class CarryFlowAgentV2:
         fd = _get_funding(sym)
         if not fd:
             return {}
+        if "age_sec" in fd:
+            try:
+                age_sec = float(fd["age_sec"])
+            except (TypeError, ValueError):
+                return {}
+            if not math.isfinite(age_sec) or age_sec < 0:
+                return {}
+            if age_sec > self.MAX_DATA_AGE_SEC:
+                return {}
+            return fd
         updated_ts = float(fd.get("updated_ts", 0) or 0)
         if updated_ts > 0 and (time.time() - updated_ts) > self.MAX_DATA_AGE_SEC:
             return {}
@@ -2587,6 +2598,20 @@ class CarryFlowAgentV2:
                 "entry_price": ep,
                 "held_bars": held,
                 "funding_present": bool(fd),
+                "derivatives_context_complete": bool(
+                    fd
+                    and fd.get(
+                        "context_complete",
+                        bool(
+                            "funding_rate" in fd
+                            and float(fd.get("open_interest_usdt", 0) or 0) > 0
+                            and float(fd.get("long_ratio", 0) or 0) > 0
+                            and float(fd.get("short_ratio", 0) or 0) > 0
+                            and float(fd.get("mark_price", 0) or 0) > 0
+                            and float(fd.get("index_price", 0) or 0) > 0
+                        ),
+                    )
+                ),
                 "funding_rate": rate,
                 "funding_entry": self.FUNDING_ENTRY,
                 "long_ratio": long_ratio,

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from ..policy.manifest import ManifestError, PolicyTarget, load_policy_manifest
 
 
 VIRTUAL_TRADING_MODES = frozenset({"paper", "paper_live_feed", "shadow_live_feed"})
@@ -19,6 +22,7 @@ class LivePreflightResult:
     reasons: tuple[str, ...] = ()
     matrix_summary_path: str = ""
     canary_summary_path: str = ""
+    policy_manifest_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,10 @@ class LivePreflightConfig:
     project_root: str | Path
     matrix_summary_path: str | Path | None = None
     canary_summary_path: str | Path | None = None
+    policy_manifest_path: str | Path | None = None
+    expected_policy_sha256: str = ""
+    require_bitget_policy_v1: bool = False
+    require_clean_git: bool = False
     max_age_hours: float = 24.0
     now: datetime | None = None
 
@@ -61,6 +69,7 @@ def run_live_preflight(
             "Reports/Panteon3Canary/latest_canary_summary.json",
         ),
     )
+    policy_manifest_path = _configured_policy_manifest_path(config, root=root)
 
     matrix_payload = _load_json(matrix_path, reasons, missing_reason="matrix_missing")
     canary_payload = _load_json(canary_path, reasons, missing_reason="canary_missing")
@@ -86,11 +95,25 @@ def run_live_preflight(
         )
         _validate_canary(canary_payload, str(exchange or "").strip().upper(), reasons)
 
+    if (
+        bool(config.require_bitget_policy_v1)
+        and str(exchange or "").strip().upper() == "BITGET"
+    ):
+        _validate_bitget_policy_manifest(
+            policy_manifest_path,
+            expected_sha256=str(config.expected_policy_sha256 or ""),
+            root=root,
+            now=now,
+            require_clean_git=bool(config.require_clean_git),
+            reasons=reasons,
+        )
+
     return LivePreflightResult(
         passed=not reasons,
         reasons=tuple(dict.fromkeys(reasons)),
         matrix_summary_path=str(matrix_path or ""),
         canary_summary_path=str(canary_path or ""),
+        policy_manifest_path=str(policy_manifest_path or ""),
     )
 
 
@@ -100,7 +123,99 @@ def config_from_env(project_root: str | Path) -> LivePreflightConfig:
         max_age_hours = float(raw_max_age)
     except (TypeError, ValueError):
         max_age_hours = 24.0
-    return LivePreflightConfig(project_root=project_root, max_age_hours=max_age_hours)
+    # The real launcher uses this factory. Bitget live therefore cannot fall
+    # back to the legacy Flash path; tests and read-only reports can still build
+    # an explicit config with require_bitget_policy_v1=False.
+    return LivePreflightConfig(
+        project_root=project_root,
+        policy_manifest_path=(
+            os.getenv("BITGET_POLICY_MANIFEST_V1")
+            or "Runtime/BITGET/active_policy_manifest_v1.json"
+        ),
+        expected_policy_sha256=os.getenv("BITGET_POLICY_MANIFEST_SHA256", ""),
+        require_bitget_policy_v1=True,
+        require_clean_git=True,
+        max_age_hours=max_age_hours,
+    )
+
+
+def _configured_policy_manifest_path(
+    config: LivePreflightConfig,
+    *,
+    root: Path,
+) -> Path | None:
+    raw = str(config.policy_manifest_path or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else root / path
+
+
+def _validate_bitget_policy_manifest(
+    path: Path | None,
+    *,
+    expected_sha256: str,
+    root: Path,
+    now: datetime,
+    require_clean_git: bool,
+    reasons: list[str],
+) -> None:
+    pin = str(expected_sha256 or "").strip().lower()
+    if not pin:
+        reasons.append("policy_manifest_sha256_pin_missing")
+        return
+    if path is None:
+        reasons.append("policy_manifest_missing")
+        return
+    try:
+        loaded = load_policy_manifest(
+            path,
+            project_root=root,
+            expected_sha256=pin,
+            now=now,
+            verify_artifacts=True,
+            required_target=PolicyTarget.MICRO_LIVE,
+            required_exchange="BITGET",
+        )
+    except ManifestError as exc:
+        reasons.extend(f"policy_manifest_invalid:{reason}" for reason in exc.reasons)
+        return
+
+    revision, dirty, git_error = _git_state(root)
+    if git_error:
+        reasons.append(f"policy_runtime_git_error:{git_error}")
+        return
+    source_revision = loaded.manifest.source_revision
+    if not revision.startswith(source_revision):
+        reasons.append("policy_manifest_source_revision_mismatch")
+    if require_clean_git and dirty:
+        reasons.append("policy_runtime_git_dirty")
+
+
+def _git_state(root: Path) -> tuple[str, bool, str]:
+    try:
+        revision_result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if revision_result.returncode != 0:
+            return "", False, "revision_unavailable"
+        revision = revision_result.stdout.strip().lower()
+        status_result = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=normal"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if status_result.returncode != 0:
+            return revision, False, "status_unavailable"
+        return revision, bool(status_result.stdout.strip()), ""
+    except (OSError, subprocess.SubprocessError):
+        return "", False, "command_failed"
 
 
 def _configured_or_latest(

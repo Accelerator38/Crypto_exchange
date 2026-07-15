@@ -20,6 +20,15 @@ PLAN_FILENAME = "panteon3_pre_live_matrix_plan.json"
 RESULTS_FILENAME = "panteon3_pre_live_matrix_results.json"
 SUMMARY_FILENAME = "panteon3_pre_live_matrix_summary.json"
 SUMMARY_MARKDOWN_FILENAME = "panteon3_pre_live_matrix_summary.md"
+BASELINE_COMPARE_MODE_PNL = "pnl"
+BASELINE_COMPARE_MODE_PNL_PER_DRAWDOWN = "pnl_per_drawdown"
+BASELINE_COMPARE_MODE_ALIASES = {
+    "pnl": BASELINE_COMPARE_MODE_PNL,
+    "raw_pnl": BASELINE_COMPARE_MODE_PNL,
+    "pnl_per_drawdown": BASELINE_COMPARE_MODE_PNL_PER_DRAWDOWN,
+    "pnl_per_dd": BASELINE_COMPARE_MODE_PNL_PER_DRAWDOWN,
+    "risk_adjusted": BASELINE_COMPARE_MODE_PNL_PER_DRAWDOWN,
+}
 
 FORBIDDEN_LIVE_ARGS = frozenset({
     "--live",
@@ -146,6 +155,16 @@ def _controlled_exploration_args(
     ]
     for reason in allowed_reasons:
         args.extend(["--flash-controlled-exploration-allowed-reason", reason])
+    if "range_low_vol_actor_not_allowed" in {
+        str(reason).strip() for reason in allowed_reasons
+    }:
+        args.append(
+            "--flash-controlled-exploration-allow-range-low-vol-actor-not-allowed"
+        )
+        args.extend([
+            "--flash-controlled-exploration-range-low-vol-allowed-direction",
+            "short",
+        ])
     return args
 
 
@@ -350,6 +369,8 @@ def build_matrix_plan(
     initial_capital: float,
     risk_capital_fraction: float,
     extra_runner_args: Sequence[str] = (),
+    candidate_variant: str = "panteon3_candidate",
+    candidate_runner_args: Sequence[str] = (),
     window_skip_bars: Sequence[int] = (0,),
     include_derivatives_context_actors: bool = False,
     single_component_candidate_labels: Sequence[str] = (),
@@ -409,6 +430,9 @@ def build_matrix_plan(
                 else base_variant
             )
             results_dir = results_root / variant
+            effective_variant_args = list(variant_args)
+            if base_variant == str(candidate_variant):
+                effective_variant_args.extend(str(arg) for arg in candidate_runner_args)
             command = [
                 python_executable,
                 *_base_runner_args(
@@ -422,7 +446,7 @@ def build_matrix_plan(
                     risk_capital_fraction=risk_capital_fraction,
                     extra_runner_args=extra_runner_args,
                 ),
-                *variant_args,
+                *effective_variant_args,
             ]
             _assert_safe_replay_command(command)
             plan.append({
@@ -460,6 +484,23 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_baseline_compare_mode(mode: str) -> str:
+    key = str(mode or BASELINE_COMPARE_MODE_PNL).strip().lower().replace("-", "_")
+    try:
+        return BASELINE_COMPARE_MODE_ALIASES[key]
+    except KeyError as exc:
+        allowed = ", ".join(sorted(BASELINE_COMPARE_MODE_ALIASES))
+        raise ValueError(f"unknown baseline_compare_mode {mode!r}; expected one of: {allowed}") from exc
+
+
+def _pnl_per_drawdown(row: Mapping[str, Any]) -> float:
+    pnl = _safe_float(row.get("realized_pnl_usd"))
+    drawdown = abs(_safe_float(row.get("max_drawdown_usd")))
+    if drawdown <= 0.0:
+        drawdown = 1e-9
+    return pnl / drawdown
 
 
 def _direction_from_action(action: object) -> str:
@@ -749,6 +790,7 @@ def _variant_summary_row(variant: str, run_dir: Path) -> dict[str, Any]:
         ),
         "active_rejection_reasons": dict(active_rejections),
     }
+    row["pnl_per_drawdown"] = _pnl_per_drawdown(row)
     row["activation_gap"] = _activation_gap_diagnostics(
         variant=variant,
         flash_summary=flash_summary,
@@ -1072,6 +1114,7 @@ def _aggregate_variant_rows(
     out["max_drawdown_usd"] = max(
         _safe_float(row.get("max_drawdown_usd")) for row in selected
     )
+    out["pnl_per_drawdown"] = _pnl_per_drawdown(out)
     out["positive_symbol_labels"] = positive_symbol_labels
     out["positive_symbols"] = len(positive_symbol_labels)
     out["cost_attribution_present"] = (
@@ -1119,6 +1162,7 @@ def _promotion_fail_reasons(
     min_profitable_windows: int,
     min_positive_regimes: int,
     require_beats_baseline: bool,
+    baseline_compare_mode: str = BASELINE_COMPARE_MODE_PNL,
     min_profit_factor: float = 0.0,
     min_positive_symbols: int = 0,
     max_drawdown_usd: float | None = None,
@@ -1126,6 +1170,7 @@ def _promotion_fail_reasons(
     accounting_warnings: Sequence[str] = (),
 ) -> list[str]:
     reasons: list[str] = []
+    baseline_compare_mode = _normalize_baseline_compare_mode(baseline_compare_mode)
     if _safe_int(candidate.get("filled_signals")) < min_filled:
         reasons.append(
             f"filled_signals {candidate.get('filled_signals')} < min_filled {min_filled}"
@@ -1173,12 +1218,23 @@ def _promotion_fail_reasons(
     if require_cost_attribution and not bool(candidate.get("cost_attribution_present", False)):
         reasons.append("cost_attribution_missing")
     if require_beats_baseline and baseline is not None:
-        candidate_pnl = _safe_float(candidate.get("realized_pnl_usd"))
-        baseline_pnl = _safe_float(baseline.get("realized_pnl_usd"))
-        if candidate_pnl <= baseline_pnl:
-            reasons.append(
-                f"candidate_pnl_usd {candidate_pnl} <= baseline_pnl_usd {baseline_pnl}"
-            )
+        if baseline_compare_mode == BASELINE_COMPARE_MODE_PNL:
+            candidate_pnl = _safe_float(candidate.get("realized_pnl_usd"))
+            baseline_pnl = _safe_float(baseline.get("realized_pnl_usd"))
+            if candidate_pnl <= baseline_pnl:
+                reasons.append(
+                    f"candidate_pnl_usd {candidate_pnl} <= baseline_pnl_usd {baseline_pnl}"
+                )
+        elif baseline_compare_mode == BASELINE_COMPARE_MODE_PNL_PER_DRAWDOWN:
+            candidate_score = _pnl_per_drawdown(candidate)
+            baseline_score = _pnl_per_drawdown(baseline)
+            if candidate_score <= baseline_score:
+                reasons.append(
+                    "candidate_pnl_per_drawdown "
+                    f"{candidate_score:.10g} <= baseline_pnl_per_drawdown {baseline_score:.10g}"
+                )
+        else:
+            raise AssertionError(f"unhandled baseline_compare_mode: {baseline_compare_mode}")
     if accounting_warnings:
         reasons.append("accounting_warnings_present")
     return reasons
@@ -1204,6 +1260,7 @@ def collect_matrix_summary(
     results_root: Path | str,
     *,
     candidate_variant: str = "panteon3_candidate",
+    allowed_variants: Sequence[str] | None = None,
     min_filled: int = 20,
     min_closed_trades: int = 10,
     max_blocked: int = 0,
@@ -1212,12 +1269,15 @@ def collect_matrix_summary(
     min_profitable_windows: int = 1,
     min_positive_regimes: int = 1,
     require_beats_baseline: bool = True,
+    baseline_compare_mode: str = BASELINE_COMPARE_MODE_PNL,
     min_profit_factor: float = 0.0,
     min_positive_symbols: int = 0,
     max_drawdown_usd: float | None = None,
     require_cost_attribution: bool = False,
 ) -> dict[str, Any]:
+    baseline_compare_mode = _normalize_baseline_compare_mode(baseline_compare_mode)
     results_root = Path(results_root)
+    allowed_variant_names = {str(variant) for variant in (allowed_variants or []) if str(variant)}
     rows: list[dict[str, Any]] = []
     candidate_slice_rows: list[dict[str, Any]] = []
     for variant_dir in sorted(path for path in results_root.iterdir() if path.is_dir()):
@@ -1225,6 +1285,8 @@ def collect_matrix_summary(
         if run_dir is None:
             continue
         variant_name = variant_dir.name
+        if allowed_variant_names and variant_name not in allowed_variant_names:
+            continue
         if _base_variant_name(variant_name) == candidate_variant:
             candidate_slice_rows.extend(
                 _candidate_slice_rows_from_run(run_dir, variant=variant_name)
@@ -1257,6 +1319,7 @@ def collect_matrix_summary(
         min_profitable_windows=min_profitable_windows,
         min_positive_regimes=min_positive_regimes,
         require_beats_baseline=require_beats_baseline,
+        baseline_compare_mode=baseline_compare_mode,
         min_profit_factor=min_profit_factor,
         min_positive_symbols=min_positive_symbols,
         max_drawdown_usd=max_drawdown_usd,
@@ -1265,6 +1328,7 @@ def collect_matrix_summary(
     )
     return {
         "results_root": _str_path(results_root),
+        "allowed_variants": sorted(allowed_variant_names),
         "rows": rows,
         "candidate": candidate,
         "baseline": baseline,
@@ -1282,6 +1346,7 @@ def collect_matrix_summary(
             "min_profitable_windows": min_profitable_windows,
             "min_positive_regimes": min_positive_regimes,
             "require_beats_baseline": require_beats_baseline,
+            "baseline_compare_mode": baseline_compare_mode,
             "min_profit_factor": min_profit_factor,
             "min_positive_symbols": min_positive_symbols,
             "max_drawdown_usd": max_drawdown_usd,
@@ -1391,6 +1456,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--risk-capital-fraction", type=float, default=0.10)
     parser.add_argument("--extra-runner-arg", action="append", default=[])
     parser.add_argument(
+        "--candidate-runner-arg",
+        action="append",
+        default=[],
+        help=(
+            "Replay runner arg applied only to --candidate-variant runs. "
+            "Use this for policy overlays so baseline remains unmodified."
+        ),
+    )
+    parser.add_argument(
         "--include-derivatives-context-actors",
         action="store_true",
         help=(
@@ -1416,6 +1490,15 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--require-cost-attribution", action="store_true")
     parser.add_argument("--allow-nonpositive-expectancy", action="store_true")
     parser.add_argument("--no-require-beats-baseline", action="store_true")
+    parser.add_argument(
+        "--baseline-compare-mode",
+        choices=sorted(BASELINE_COMPARE_MODE_ALIASES),
+        default=BASELINE_COMPARE_MODE_PNL,
+        help=(
+            "How --require-beats-baseline compares candidate to baseline: "
+            "raw pnl or risk-adjusted pnl_per_drawdown."
+        ),
+    )
     parser.add_argument("--fail-on-promotion-failure", action="store_true")
     return parser.parse_args(argv)
 
@@ -1435,6 +1518,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_profitable_windows=args.min_profitable_windows,
             min_positive_regimes=args.min_positive_regimes,
             require_beats_baseline=not args.no_require_beats_baseline,
+            baseline_compare_mode=args.baseline_compare_mode,
             min_profit_factor=args.min_profit_factor,
             min_positive_symbols=args.min_positive_symbols,
             max_drawdown_usd=args.max_drawdown_usd,
@@ -1461,6 +1545,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         initial_capital=args.initial_capital,
         risk_capital_fraction=args.risk_capital_fraction,
         extra_runner_args=args.extra_runner_arg,
+        candidate_variant=args.candidate_variant,
+        candidate_runner_args=args.candidate_runner_arg,
         include_derivatives_context_actors=args.include_derivatives_context_actors,
         single_component_candidate_labels=args.single_component_candidate_label,
     )
@@ -1475,9 +1561,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if failed and args.stop_on_failure:
         return int(failed[0]["returncode"])
     if not failed:
+        executed_variants = [
+            str(row.get("variant"))
+            for row in rows
+            if str(row.get("variant") or "").strip()
+        ]
         summary = collect_matrix_summary(
             Path(args.results_root),
             candidate_variant=args.candidate_variant,
+            allowed_variants=executed_variants,
             min_filled=args.min_filled,
             min_closed_trades=args.min_closed_trades,
             max_blocked=args.max_blocked,
@@ -1486,6 +1578,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_profitable_windows=args.min_profitable_windows,
             min_positive_regimes=args.min_positive_regimes,
             require_beats_baseline=not args.no_require_beats_baseline,
+            baseline_compare_mode=args.baseline_compare_mode,
             min_profit_factor=args.min_profit_factor,
             min_positive_symbols=args.min_positive_symbols,
             max_drawdown_usd=args.max_drawdown_usd,

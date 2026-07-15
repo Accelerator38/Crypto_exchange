@@ -1,0 +1,146 @@
+{
+  "actor": "CarryFlowAgentV2",
+  "actor_config": {
+    "ALLOW_LONG": false,
+    "ALLOW_SHORT": true,
+    "BASIS_ENTRY": 0.0004,
+    "CHECK_INT": 1,
+    "CROWD_RATIO": 0.58,
+    "EMA_FAST": 12,
+    "EMA_SLOW": 48,
+    "ENTRY_COOLDOWN": 24,
+    "EXTREME_EXT": 0.004,
+    "FUNDING_ENTRY": 8e-05,
+    "FUNDING_EXIT": 2e-05,
+    "HOLD": 48,
+    "MAX_DATA_AGE_SEC": 1200,
+    "MAX_POS": 1,
+    "OI_SPIKE": 0.02,
+    "RSI_N": 14,
+    "RSI_OB": 58,
+    "RSI_OS": 42,
+    "STOP": 0.012,
+    "TARGET": 0.024
+  },
+  "costs": {
+    "round_trip_fee_bps": 8.0,
+    "safety_buffer_bps": 4.0,
+    "slippage_bps": 4.0
+  },
+  "created_at": "2026-07-15T05:19:25.224269+00:00",
+  "data": {
+    "bar_interval_seconds": 3600,
+    "cadence_tolerance_seconds": 0,
+    "max_bar_close_lag_seconds": 120,
+    "max_derivatives_age_seconds": 1200,
+    "required_context_coverage_pct": 95.0
+  },
+  "evidence": [],
+  "exchange": "BITGET",
+  "expires_at": "2026-07-16T05:19:25.224269+00:00",
+  "manifest_sha256": "e405c3f915004ffcf08525cf201d101ccfa8cffaa269f0ff576c2938dd4d291b",
+  "policy_id": "carryflow-neutral-short-btc-eth-sol-bnb-xrp-doge-ada-link-20260715051925",
+  "risk": {
+    "capital_fraction": 0.01,
+    "max_daily_loss_usd": 5.0,
+    "max_holding_minutes": 2880,
+    "max_notional_usd": 10.0,
+    "max_open_positions": 1,
+    "max_signal_age_seconds": 120,
+    "stop_loss_pct": 1.2
+  },
+  "rules": [
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "BTC"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "ETH"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "SOL"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "BNB"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "XRP"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "DOGE"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "ADA"
+    },
+    {
+      "direction": "SHORT",
+      "max_slippage_bps": 5.0,
+      "max_spread_bps": 5.0,
+      "min_expected_move_bps": 16.0,
+      "min_regime_confidence": 0.5,
+      "regime": "neutral",
+      "risk_mult": 1.0,
+      "symbol": "LINK"
+    }
+  ],
+  "runtime_fingerprint_sha256": "b9ce78a0a7e1cd43ab1afd7dca41d0e83ddc05145d85884d47ce095126fb2e8b",
+  "schema_version": "panteon.policy.v1",
+  "signal_model": {
+    "feature": "diagnostic.edge",
+    "intercept_bps": 0.0,
+    "lcb_haircut_bps": 4.0,
+    "max_expected_move_bps": 250.0,
+    "min_feature_value": 0.2,
+    "slope_bps_per_unit": 100.0
+  },
+  "source_revision": "d863585914af2679b582858d7f195c9554d20b18",
+  "target": "replay"
+}

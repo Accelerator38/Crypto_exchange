@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from panteon_v2.app.live_preflight import (
     LivePreflightConfig,
+    config_from_env,
     run_live_preflight,
 )
 
@@ -365,3 +366,61 @@ def test_preflight_blocks_live_when_canary_is_calibration_only(tmp_path):
     assert result.passed is False
     assert "canary_calibration_only" in result.reasons
     assert "canary_actor_overrides" in result.reasons
+
+
+def test_real_launcher_config_hard_requires_bitget_policy_v1(tmp_path, monkeypatch):
+    monkeypatch.delenv("BITGET_POLICY_MANIFEST_V1", raising=False)
+    monkeypatch.delenv("BITGET_POLICY_MANIFEST_SHA256", raising=False)
+
+    config = config_from_env(tmp_path)
+
+    assert config.require_bitget_policy_v1 is True
+    assert config.require_clean_git is True
+    assert config.policy_manifest_path == "Runtime/BITGET/active_policy_manifest_v1.json"
+    assert config.expected_policy_sha256 == ""
+
+
+def test_bitget_live_preflight_blocks_unpinned_policy_even_when_old_gates_pass(tmp_path):
+    now = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {
+            "generated_at": now.isoformat(),
+            "promotion_verdict": {"passed": True, "fail_reasons": []},
+        },
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "generated_at": now.isoformat(),
+            "passed": True,
+            "exchanges": {
+                "BITGET": {
+                    "passed": True,
+                    "signals": 3,
+                    "orders": 3,
+                    "fills": 3,
+                    "expectancy_after_costs": 0.04,
+                    "reconcile_ok": True,
+                    "owned_open_position_count": 0,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "BITGET",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+            policy_manifest_path=tmp_path / "policy.json",
+            expected_policy_sha256="",
+            require_bitget_policy_v1=True,
+            now=now,
+        ),
+    )
+
+    assert result.passed is False
+    assert result.reasons == ("policy_manifest_sha256_pin_missing",)

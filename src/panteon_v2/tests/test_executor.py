@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 from dataclasses import fields, replace
+from datetime import datetime, timezone
 
 from panteon_v2.attribution import (
     EventLog,
@@ -81,6 +82,28 @@ class TestExecuteSuccess(unittest.TestCase):
         self.assertEqual(len(events_sent), 1)
         self.assertEqual(len(events_filled), 1)
         self.assertEqual(len(events_opened), 1)
+
+    def test_fake_exchange_applies_adverse_slippage_on_short_entry_and_exit(self):
+        self.deps["exchange"].set_slippage_pct(0.01)
+        opened = self.exec.execute(
+            _make_signal(action=Action.FUT_SHORT_FULL, price=100.0),
+            balance_usd=1000.0,
+        )
+        closed = self.exec.execute(
+            _make_signal(sid=2, action=Action.FUT_CLOSE_ALL, price=90.0, bar=2),
+            balance_usd=1000.0,
+        )
+
+        self.assertAlmostEqual(opened.trade.fill_price, 99.0)
+        self.assertAlmostEqual(closed.trade.fill_price, 90.9)
+
+    def test_fake_exchange_uses_signal_timestamp_for_deterministic_replay(self):
+        timestamp = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+        signal = replace(_make_signal(), timestamp=timestamp)
+
+        result = self.exec.execute(signal, balance_usd=1000.0)
+
+        self.assertEqual(result.trade.timestamp, timestamp)
 
     def test_events_include_forensic_runtime_context(self):
         self.exec.set_event_context({

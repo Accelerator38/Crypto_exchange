@@ -6,13 +6,112 @@ import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from panteon_v2.app.main_loop import _flash_partial_profit_lock_close_signals
-from panteon_v2.domain.types import Action, Regime
+from panteon_v2.app.main_loop import (
+    _flash_partial_profit_lock_close_signals,
+    _flash_stop_loss_close_signals,
+)
+from panteon_v2.domain.types import Action, Regime, Signal, Trade
 from panteon_v2.execution import PositionTracker, TrackedPosition
 from panteon_v2.tests._helpers import make_market
 
 
 class TestFlashPartialProfitLock(unittest.TestCase):
+    def test_stop_loss_closes_long_at_stop_price(self):
+        tracker = PositionTracker()
+        tracker.force_set(
+            TrackedPosition(
+                open_signal_id=1,
+                sym="BTC/USDT",
+                side="long",
+                entry_price=100.0,
+                qty=1.0,
+                fee_open=0.0,
+                by_player="Panteon_Flash",
+                by_agent="MomentumScalper",
+                opened_at=datetime.now(timezone.utc),
+                opened_bar=10,
+                stop_price=96.5,
+                stop_loss_pct=3.5,
+            )
+        )
+        pipeline = SimpleNamespace(executor=SimpleNamespace(_tracker=tracker))
+
+        signals = _flash_stop_loss_close_signals(
+            pipeline,
+            make_market(bar=13, prices={"BTC/USDT": 96.0}),
+            signal_id_start=20,
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].action, Action.FUT_CLOSE_ALL)
+        self.assertEqual(signals[0].by_agent, "StopLossGuard")
+        self.assertAlmostEqual(signals[0].price, 96.5)
+        self.assertAlmostEqual(signals[0].metadata["stop_trigger_price"], 96.0)
+
+    def test_stop_loss_closes_short_at_stop_price(self):
+        tracker = PositionTracker()
+        tracker.force_set(
+            TrackedPosition(
+                open_signal_id=1,
+                sym="BTC/USDT",
+                side="short",
+                entry_price=100.0,
+                qty=1.0,
+                fee_open=0.0,
+                by_player="Panteon_Flash",
+                by_agent="MomentumScalper",
+                opened_at=datetime.now(timezone.utc),
+                opened_bar=10,
+                stop_price=103.5,
+                stop_loss_pct=3.5,
+            )
+        )
+        pipeline = SimpleNamespace(executor=SimpleNamespace(_tracker=tracker))
+
+        signals = _flash_stop_loss_close_signals(
+            pipeline,
+            make_market(bar=13, prices={"BTC/USDT": 104.0}),
+            signal_id_start=20,
+        )
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].action, Action.FUT_CLOSE_ALL)
+        self.assertAlmostEqual(signals[0].price, 103.5)
+        self.assertEqual(signals[0].metadata["stop_source"], "controlled_exploration")
+
+    def test_tracker_persists_stop_metadata_from_open_signal(self):
+        tracker = PositionTracker()
+        signal = Signal(
+            id=7,
+            bar=1,
+            sym="BTC/USDT",
+            action=Action.FUT_LONG_FULL,
+            price=100.0,
+            regime=Regime.BULLISH,
+            by_player="Panteon_Flash",
+            by_agent="MomentumScalper",
+            metadata={
+                "stop_price": 96.5,
+                "stop_loss_pct": 3.5,
+            },
+        )
+        trade = Trade(
+            signal_id=7,
+            bar=1,
+            sym="BTC/USDT",
+            side="long",
+            qty=1.0,
+            fill_price=100.0,
+            fee=0.01,
+        )
+
+        tracker.on_open(signal=signal, trade=trade)
+
+        position = tracker.get("BTC/USDT")
+        self.assertIsNotNone(position)
+        self.assertAlmostEqual(position.stop_price, 96.5)
+        self.assertAlmostEqual(position.stop_loss_pct, 3.5)
+
     def test_emits_fractional_close_for_unlocked_profitable_position(self):
         tracker = PositionTracker()
         tracker.force_set(

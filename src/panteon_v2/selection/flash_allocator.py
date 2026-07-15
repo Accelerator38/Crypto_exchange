@@ -23,9 +23,20 @@ _SYSTEM_CLOSE_AGENTS = frozenset((
     "PartialProfitLock",
     "ShadowPositionReplay",
     "StalePositionGuard",
+    "StopLossGuard",
 ))
 _QUOTE_ASSET_SUFFIXES = ("USDT", "USDC", "USD")
 _SYMBOL_SEPARATORS = ("/", "-", "_")
+
+
+def _stop_loss_price_for_action(price: float, action: Action, stop_loss_pct: float) -> float:
+    if price <= 0.0 or stop_loss_pct <= 0.0:
+        return 0.0
+    if action.is_long_open:
+        return price * (1.0 - stop_loss_pct / 100.0)
+    if action.is_short_open:
+        return price * (1.0 + stop_loss_pct / 100.0)
+    return 0.0
 
 
 def _actor_cap_override_map(overrides: Sequence[str]) -> dict[str, int]:
@@ -285,6 +296,8 @@ class FlashAllocatorConfig:
     fee_aware_safety_mult: float = 1.5
     controlled_exploration_enabled: bool = False
     controlled_exploration_allowed_reasons: Tuple[str, ...] = ()
+    controlled_exploration_allow_range_low_vol_actor_not_allowed: bool = False
+    controlled_exploration_range_low_vol_allowed_directions: Tuple[str, ...] = ()
     controlled_exploration_risk_mult: float = 0.05
     controlled_exploration_min_shadow_score: float = 2.0
     controlled_exploration_min_shadow_closed: int = 10
@@ -298,6 +311,10 @@ class FlashAllocatorConfig:
     controlled_exploration_default_min_notional_usd: float = 5.0
     controlled_exploration_apply_leverage_to_notional: bool = False
     controlled_exploration_max_leverage: float = 1.0
+    controlled_exploration_loss_budget_usd: float = 0.0
+    controlled_exploration_loss_budget_adverse_move_pct: float = 0.0
+    controlled_exploration_stop_loss_pct: float = 0.0
+    controlled_exploration_session_loss_budget_usd: float = 0.0
     causal_actor_router_enabled: bool = False
     causal_actor_router_min_closed_trades: int = 5
     causal_actor_router_min_expectancy: float = 0.0
@@ -747,6 +764,24 @@ class FlashAllocatorConfig:
             "controlled_exploration_allowed_reasons",
             _normalize_string_tuple(self.controlled_exploration_allowed_reasons),
         )
+        range_dirs = tuple(
+            str(item or "").strip().lower()
+            for item in self.controlled_exploration_range_low_vol_allowed_directions
+            if str(item or "").strip()
+        )
+        invalid_range_dirs = tuple(
+            item for item in range_dirs if item not in {"long", "short"}
+        )
+        if invalid_range_dirs:
+            raise ValueError(
+                "controlled_exploration_range_low_vol_allowed_directions "
+                "must contain only 'long' or 'short'"
+            )
+        object.__setattr__(
+            self,
+            "controlled_exploration_range_low_vol_allowed_directions",
+            tuple(dict.fromkeys(range_dirs)),
+        )
         if self.controlled_exploration_risk_mult < 0:
             raise ValueError("controlled_exploration_risk_mult must be >= 0")
         if self.controlled_exploration_risk_mult > 1.0:
@@ -779,6 +814,20 @@ class FlashAllocatorConfig:
             )
         if self.controlled_exploration_max_leverage < 1.0:
             raise ValueError("controlled_exploration_max_leverage must be >= 1")
+        if self.controlled_exploration_loss_budget_usd < 0:
+            raise ValueError("controlled_exploration_loss_budget_usd must be >= 0")
+        if self.controlled_exploration_loss_budget_adverse_move_pct < 0:
+            raise ValueError(
+                "controlled_exploration_loss_budget_adverse_move_pct must be >= 0"
+            )
+        if self.controlled_exploration_stop_loss_pct < 0:
+            raise ValueError("controlled_exploration_stop_loss_pct must be >= 0")
+        if self.controlled_exploration_stop_loss_pct > 100.0:
+            raise ValueError("controlled_exploration_stop_loss_pct must be <= 100")
+        if self.controlled_exploration_session_loss_budget_usd < 0:
+            raise ValueError(
+                "controlled_exploration_session_loss_budget_usd must be >= 0"
+            )
         if self.causal_actor_router_min_closed_trades < 0:
             raise ValueError("causal_actor_router_min_closed_trades must be >= 0")
         if self.causal_actor_router_exploration_risk_mult < 0:
@@ -1171,6 +1220,8 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "no_trade_default_fee_bps": 0.0,
     "controlled_exploration_enabled": False,
     "controlled_exploration_allowed_reasons": (),
+    "controlled_exploration_allow_range_low_vol_actor_not_allowed": False,
+    "controlled_exploration_range_low_vol_allowed_directions": (),
     "controlled_exploration_risk_mult": 0.05,
     "controlled_exploration_min_shadow_score": 2.0,
     "controlled_exploration_min_shadow_closed": 10,
@@ -1184,6 +1235,10 @@ FLASH_PRESET_SAFE_PINNED_VALUES: dict[str, object] = {
     "controlled_exploration_default_min_notional_usd": 5.0,
     "controlled_exploration_apply_leverage_to_notional": False,
     "controlled_exploration_max_leverage": 1.0,
+    "controlled_exploration_loss_budget_usd": 0.0,
+    "controlled_exploration_loss_budget_adverse_move_pct": 0.0,
+    "controlled_exploration_stop_loss_pct": 0.0,
+    "controlled_exploration_session_loss_budget_usd": 0.0,
     "causal_actor_router_enabled": False,
     "causal_actor_router_min_closed_trades": 5,
     "causal_actor_router_min_expectancy": 0.0,
@@ -1543,6 +1598,8 @@ class FlashAllocator:
             tuple[str, str, str, str],
             dict[str, float],
         ] = {}
+        self._controlled_exploration_session_pnl_usd: float = 0.0
+        self._controlled_exploration_session_peak_pnl_usd: float = 0.0
         self._scoring = scoring_config
         self._scoring_per_regime = dict(scoring_per_regime or {})
         self._selected_subset_score_boosts = _signal_key_float_map(
@@ -1610,6 +1667,26 @@ class FlashAllocator:
                 bucket["closed_trades"] = float(bucket.get("closed_trades", 0.0) or 0.0) + 1.0
                 bucket["realized_pnl"] = float(bucket.get("realized_pnl", 0.0) or 0.0) + pnl
 
+    def _record_controlled_exploration_session_pnl(self, realized_pnl: float) -> None:
+        try:
+            pnl = float(realized_pnl)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(pnl):
+            return
+        self._controlled_exploration_session_pnl_usd += pnl
+        self._controlled_exploration_session_peak_pnl_usd = max(
+            self._controlled_exploration_session_peak_pnl_usd,
+            self._controlled_exploration_session_pnl_usd,
+        )
+
+    def _controlled_exploration_session_drawdown_usd(self) -> float:
+        return max(
+            0.0,
+            self._controlled_exploration_session_peak_pnl_usd
+            - self._controlled_exploration_session_pnl_usd,
+        )
+
     def record_controlled_exploration_execution_result(self, result: object) -> None:
         """Ingest filled close outcomes from TradeExecutor.ExecutionResult."""
         context_outcomes = tuple(
@@ -1620,6 +1697,9 @@ class FlashAllocator:
                 if len(outcome) < 6:
                     continue
                 actor_label, symbol, action, _side, regime, realized_pnl = outcome[:6]
+                self._record_controlled_exploration_session_pnl(
+                    float(realized_pnl or 0.0)
+                )
                 self.record_controlled_exploration_outcome(
                     actor_label=str(actor_label or ""),
                     symbol=str(symbol or ""),
@@ -1635,6 +1715,9 @@ class FlashAllocator:
                 if len(outcome) < 5:
                     continue
                 actor_label, symbol, action, _side, realized_pnl = outcome[:5]
+                self._record_controlled_exploration_session_pnl(
+                    float(realized_pnl or 0.0)
+                )
                 self.record_controlled_exploration_outcome(
                     actor_label=str(actor_label or ""),
                     symbol=str(symbol or ""),
@@ -1649,6 +1732,7 @@ class FlashAllocator:
             if str(label or "")
         )
         for symbol, action, pnl in getattr(result, "closed_position_outcomes", ()) or ():
+            self._record_controlled_exploration_session_pnl(float(pnl or 0.0))
             for label in labels:
                 self.record_controlled_exploration_outcome(
                     actor_label=label,
@@ -2784,6 +2868,91 @@ class FlashAllocator:
                     original_actor_type=selected.actor_type,
                     selected_reasons=tuple(selected_reasons),
                 )
+            signal_risk_mult = self._risk_mult_for_signal(
+                signal,
+                metrics_by_actor_key.get(selected.actor_key),
+                market,
+                symbol,
+                selected.action,
+                shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
+                selected_subset_risk_mult=selected.selected_subset_risk_mult,
+                genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
+                    symbol,
+                    {},
+                ),
+                degraded_signal_risk_sized=(
+                    _signal_deny_key(selected.actor_key, symbol, selected.action)
+                    in degraded_signal_keys
+                ),
+            )
+            if (
+                controlled_exploration_selected
+                or promotion_derived_router_selected
+                or causal_router_exploration_selected
+            ):
+                route_risk_cap = float(
+                    getattr(
+                        selected,
+                        "risk_mult",
+                        self._config.controlled_exploration_risk_mult,
+                    )
+                    if controlled_exploration_selected
+                    else getattr(
+                        selected,
+                        "risk_mult",
+                        self._config.promotion_derived_risk_mult,
+                    )
+                    if promotion_derived_router_selected
+                    else self._config.causal_actor_router_exploration_risk_mult
+                )
+                signal_risk_mult = min(signal_risk_mult, route_risk_cap)
+            loss_budget_reason = self._controlled_exploration_loss_budget_reason(
+                selected,
+                symbol=symbol,
+                min_notional_by_symbol=min_notional_by_symbol,
+                account_equity_usd=account_equity_usd,
+                risk_mult=signal_risk_mult,
+            )
+            if loss_budget_reason:
+                blocked_selected = replace(
+                    selected,
+                    rejected=True,
+                    reason=loss_budget_reason,
+                )
+                ranked = tuple(
+                    blocked_selected
+                    if row.actor_key == blocked_selected.actor_key
+                    else row
+                    for row in ranked
+                )
+                return FlashDecision(
+                    symbol=symbol,
+                    selected_actor="NoTrade",
+                    actor_type="no_trade",
+                    score=0.0,
+                    action=Action.HOLD,
+                    reason=loss_budget_reason,
+                    signal=None,
+                    candidates=ranked,
+                    original_selected_actor=selected.label,
+                    original_actor_type=selected.actor_type,
+                    selected_reasons=tuple((*selected_reasons, loss_budget_reason)),
+                )
+            metadata = signal.metadata
+            stop_loss_pct = float(
+                self._config.controlled_exploration_stop_loss_pct or 0.0
+            )
+            if stop_loss_pct > 0.0 and signal.action.is_open:
+                stop_price = _stop_loss_price_for_action(
+                    price,
+                    signal.action,
+                    stop_loss_pct,
+                )
+                if stop_price > 0.0:
+                    metadata = dict(metadata or {})
+                    metadata.setdefault("stop_loss_pct", stop_loss_pct)
+                    metadata.setdefault("stop_price", stop_price)
+                    metadata.setdefault("stop_source", "controlled_exploration")
             signal = replace(
                 signal,
                 id=signal_id,
@@ -2791,65 +2960,9 @@ class FlashAllocator:
                 sym=symbol,
                 price=price,
                 regime=local_regime,
-                risk_mult=(
-                    min(
-                        self._risk_mult_for_signal(
-                            signal,
-                            metrics_by_actor_key.get(selected.actor_key),
-                            market,
-                            symbol,
-                            selected.action,
-                            shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
-                            selected_subset_risk_mult=selected.selected_subset_risk_mult,
-                            genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
-                                symbol,
-                                {},
-                            ),
-                            degraded_signal_risk_sized=(
-                                _signal_deny_key(selected.actor_key, symbol, selected.action)
-                                in degraded_signal_keys
-                            ),
-                        ),
-                        float(
-                            getattr(
-                                selected,
-                                "risk_mult",
-                                self._config.controlled_exploration_risk_mult,
-                            )
-                            if controlled_exploration_selected
-                            else getattr(
-                                selected,
-                                "risk_mult",
-                                self._config.promotion_derived_risk_mult,
-                            )
-                            if promotion_derived_router_selected
-                            else self._config.causal_actor_router_exploration_risk_mult
-                        ),
-                    )
-                    if (
-                        controlled_exploration_selected
-                        or promotion_derived_router_selected
-                        or causal_router_exploration_selected
-                    )
-                    else self._risk_mult_for_signal(
-                        signal,
-                        metrics_by_actor_key.get(selected.actor_key),
-                        market,
-                        symbol,
-                        selected.action,
-                        shadow_pnl_per_trade_lcb_usd=selected.shadow_pnl_per_trade_lcb_usd,
-                        selected_subset_risk_mult=selected.selected_subset_risk_mult,
-                        genetics_confirmation_counts=genetics_confirmation_by_symbol.get(
-                            symbol,
-                            {},
-                        ),
-                        degraded_signal_risk_sized=(
-                            _signal_deny_key(selected.actor_key, symbol, selected.action)
-                            in degraded_signal_keys
-                        ),
-                    )
-                ),
+                risk_mult=signal_risk_mult,
                 timestamp=market.timestamp,
+                metadata=metadata,
             )
         return FlashDecision(
             symbol=symbol,
@@ -4722,7 +4835,25 @@ class FlashAllocator:
         allowed = {str(item).strip() for item in cfg.controlled_exploration_allowed_reasons}
         if not reason or reason not in allowed:
             return None, ""
+        if (
+            reason == "range_low_vol_actor_not_allowed"
+            and not bool(
+                cfg.controlled_exploration_allow_range_low_vol_actor_not_allowed
+            )
+        ):
+            return None, ""
         action = getattr(row, "action", Action.HOLD)
+        if reason == "range_low_vol_actor_not_allowed":
+            allowed_range_dirs = set(
+                cfg.controlled_exploration_range_low_vol_allowed_directions
+            )
+            direction = _open_action_direction(action)
+            if allowed_range_dirs and direction not in allowed_range_dirs:
+                return None, "controlled_exploration_range_low_vol_direction_block"
+        range_low_vol_confirmed_probe = (
+            reason == "range_low_vol_actor_not_allowed"
+            and self._controlled_exploration_confirmed_range_low_vol_probe(row)
+        )
         no_evidence_cold_start = reason == "no_evidence"
         probation_degradation_bypass = bool(
             reason == "flash_symbol_degraded"
@@ -4742,7 +4873,11 @@ class FlashAllocator:
             return None, ""
         if not bool(getattr(action, "is_open", False)):
             return None, ""
-        if not bool(getattr(row, "has_data", False)) and not no_evidence_cold_start:
+        if (
+            not bool(getattr(row, "has_data", False))
+            and not no_evidence_cold_start
+            and not range_low_vol_confirmed_probe
+        ):
             return None, ""
         if float(getattr(row, "shadow_score", 0.0) or 0.0) < float(
             cfg.controlled_exploration_min_shadow_score
@@ -4802,12 +4937,55 @@ class FlashAllocator:
                 return None, "controlled_exploration_min_notional_risk_too_high"
             risk_cap = max(risk_cap, required_risk)
         capped_risk = min(float(getattr(row, "risk_mult", 1.0) or 1.0), risk_cap)
+        loss_budget_reason = self._controlled_exploration_loss_budget_reason(
+            row,
+            symbol=symbol,
+            min_notional_by_symbol=min_notional_by_symbol,
+            account_equity_usd=account_equity_usd,
+            risk_mult=capped_risk,
+        )
+        if loss_budget_reason:
+            return None, loss_budget_reason
         return replace(
             row,
             rejected=False,
             reason=f"controlled_exploration:{reason}",
             risk_mult=max(0.0, capped_risk),
         ), ""
+
+    @staticmethod
+    def _controlled_exploration_confirmed_range_low_vol_probe(
+        row: FlashCandidateAudit,
+    ) -> bool:
+        action = getattr(row, "action", Action.HOLD)
+        diagnostics = getattr(row, "agent_diagnostics", {}) or {}
+        if not isinstance(diagnostics, Mapping):
+            return False
+        squeeze_ok = bool(diagnostics.get("squeeze_ok", False))
+        try:
+            edge = float(diagnostics.get("edge", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            edge = 0.0
+        if not squeeze_ok or edge <= 0.0:
+            return False
+        reason = str(diagnostics.get("reason") or "").strip()
+        if action.is_short_open:
+            try:
+                short_gap = float(
+                    diagnostics.get("short_momentum_gap", 0.0) or 0.0
+                )
+            except (TypeError, ValueError):
+                short_gap = 0.0
+            return reason == "candidate_short" and short_gap > 0.0
+        if action.is_long_open:
+            try:
+                long_gap = float(
+                    diagnostics.get("long_momentum_gap", 0.0) or 0.0
+                )
+            except (TypeError, ValueError):
+                long_gap = 0.0
+            return reason == "candidate_long" and long_gap > 0.0
+        return False
 
     def _controlled_exploration_negative_outcome_blocked(
         self,
@@ -4909,16 +5087,97 @@ class FlashAllocator:
         action = getattr(row, "action", Action.HOLD)
         if not bool(getattr(action, "is_open", False)):
             return 0.0
+        min_notional = self._controlled_exploration_min_notional_usd(
+            symbol=symbol,
+            min_notional_by_symbol=min_notional_by_symbol,
+        )
+        if min_notional <= 0.0:
+            return 0.0
+        base_notional = self._controlled_exploration_base_notional_usd(
+            row,
+            account_equity_usd=account_equity_usd,
+        )
+        if base_notional <= 0.0:
+            return 0.0
+        return max(0.0, min_notional / base_notional)
+
+    def _controlled_exploration_loss_budget_reason(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        symbol: str,
+        min_notional_by_symbol: Mapping[str, float],
+        account_equity_usd: Optional[float],
+        risk_mult: float,
+    ) -> str:
+        cfg = self._config
+        budget_usd = float(cfg.controlled_exploration_loss_budget_usd or 0.0)
+        session_budget_usd = float(
+            cfg.controlled_exploration_session_loss_budget_usd or 0.0
+        )
+        adverse_move_pct = float(
+            cfg.controlled_exploration_loss_budget_adverse_move_pct or 0.0
+        )
+        stop_loss_pct = float(cfg.controlled_exploration_stop_loss_pct or 0.0)
+        stress_pct = stop_loss_pct if stop_loss_pct > 0.0 else adverse_move_pct
+        if budget_usd <= 0.0 and session_budget_usd <= 0.0:
+            return ""
+        action = getattr(row, "action", Action.HOLD)
+        if not bool(getattr(action, "is_open", False)):
+            return ""
+        session_drawdown_usd = self._controlled_exploration_session_drawdown_usd()
+        if (
+            session_budget_usd > 0.0
+            and session_drawdown_usd >= session_budget_usd - 1e-12
+        ):
+            return "controlled_exploration_session_loss_budget_exceeded"
+        if stress_pct <= 0.0:
+            return ""
+        base_notional = self._controlled_exploration_base_notional_usd(
+            row,
+            account_equity_usd=account_equity_usd,
+        )
+        if base_notional <= 0.0:
+            return ""
+        estimated_notional = base_notional * max(0.0, float(risk_mult or 0.0))
+        min_notional = self._controlled_exploration_min_notional_usd(
+            symbol=symbol,
+            min_notional_by_symbol=min_notional_by_symbol,
+        )
+        if min_notional > 0.0:
+            estimated_notional = max(estimated_notional, min_notional)
+        estimated_loss_usd = estimated_notional * stress_pct / 100.0
+        if budget_usd > 0.0 and estimated_loss_usd > budget_usd + 1e-12:
+            return "controlled_exploration_loss_budget_exceeded"
+        if session_budget_usd > 0.0:
+            remaining_budget_usd = session_budget_usd - session_drawdown_usd
+            if estimated_loss_usd > remaining_budget_usd + 1e-12:
+                return "controlled_exploration_session_loss_budget_exceeded"
+        return ""
+
+    def _controlled_exploration_min_notional_usd(
+        self,
+        *,
+        symbol: str,
+        min_notional_by_symbol: Mapping[str, float],
+    ) -> float:
+        cfg = self._config
         clean_symbol = str(symbol or "").strip().upper()
-        min_notional = float(
+        return float(
             min_notional_by_symbol.get(
                 clean_symbol,
                 cfg.controlled_exploration_default_min_notional_usd,
             )
             or 0.0
         )
-        if min_notional <= 0.0:
-            return 0.0
+
+    def _controlled_exploration_base_notional_usd(
+        self,
+        row: FlashCandidateAudit,
+        *,
+        account_equity_usd: Optional[float],
+    ) -> float:
+        cfg = self._config
         equity = float(
             account_equity_usd
             if account_equity_usd is not None
@@ -4928,21 +5187,19 @@ class FlashAllocator:
             equity = float(cfg.controlled_exploration_account_equity_usd or 0.0)
         if equity <= 0.0:
             return 0.0
+        action = getattr(row, "action", Action.HOLD)
         fraction = float(getattr(action, "fraction", 1.0) or 1.0)
         leverage_mult = (
             max(1.0, float(cfg.controlled_exploration_max_leverage))
             if bool(cfg.controlled_exploration_apply_leverage_to_notional)
             else 1.0
         )
-        base_notional = (
+        return (
             equity
             * float(cfg.controlled_exploration_capital_fraction)
             * fraction
             * leverage_mult
         )
-        if base_notional <= 0.0:
-            return 0.0
-        return max(0.0, min_notional / base_notional)
 
     def _controlled_exploration_hard_block_reason(
         self,

@@ -474,6 +474,8 @@ class RetrodateMarketConfig:
     flash_no_trade_default_fee_bps: float = 0.0
     flash_controlled_exploration_enabled: bool = False
     flash_controlled_exploration_allowed_reasons: tuple[str, ...] = ()
+    flash_controlled_exploration_allow_range_low_vol_actor_not_allowed: bool = False
+    flash_controlled_exploration_range_low_vol_allowed_directions: tuple[str, ...] = ()
     flash_controlled_exploration_risk_mult: float = 0.05
     flash_controlled_exploration_min_shadow_score: float = 2.0
     flash_controlled_exploration_min_shadow_closed: int = 10
@@ -487,6 +489,10 @@ class RetrodateMarketConfig:
     flash_controlled_exploration_default_min_notional_usd: float = 5.0
     flash_controlled_exploration_apply_leverage_to_notional: bool = False
     flash_controlled_exploration_max_leverage: float = 1.0
+    flash_controlled_exploration_loss_budget_usd: float = 0.0
+    flash_controlled_exploration_loss_budget_adverse_move_pct: float = 0.0
+    flash_controlled_exploration_stop_loss_pct: float = 0.0
+    flash_controlled_exploration_session_loss_budget_usd: float = 0.0
     flash_causal_actor_router_enabled: bool = False
     flash_causal_actor_router_min_closed_trades: int = 5
     flash_causal_actor_router_min_expectancy: float = 0.0
@@ -832,6 +838,26 @@ class RetrodateMarketConfig:
         if self.flash_controlled_exploration_max_leverage < 1.0:
             raise ValueError(
                 "flash_controlled_exploration_max_leverage must be >= 1"
+            )
+        if self.flash_controlled_exploration_loss_budget_usd < 0:
+            raise ValueError(
+                "flash_controlled_exploration_loss_budget_usd must be >= 0"
+            )
+        if self.flash_controlled_exploration_loss_budget_adverse_move_pct < 0:
+            raise ValueError(
+                "flash_controlled_exploration_loss_budget_adverse_move_pct must be >= 0"
+            )
+        if self.flash_controlled_exploration_stop_loss_pct < 0:
+            raise ValueError(
+                "flash_controlled_exploration_stop_loss_pct must be >= 0"
+            )
+        if self.flash_controlled_exploration_stop_loss_pct > 100.0:
+            raise ValueError(
+                "flash_controlled_exploration_stop_loss_pct must be <= 100"
+            )
+        if self.flash_controlled_exploration_session_loss_budget_usd < 0:
+            raise ValueError(
+                "flash_controlled_exploration_session_loss_budget_usd must be >= 0"
             )
         if self.flash_causal_actor_router_min_closed_trades < 0:
             raise ValueError("flash_causal_actor_router_min_closed_trades must be >= 0")
@@ -2223,6 +2249,15 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
             for reason in str(raw or "").split(",")
             if reason.strip()
         ),
+        flash_controlled_exploration_allow_range_low_vol_actor_not_allowed=(
+            args.flash_controlled_exploration_allow_range_low_vol_actor_not_allowed
+        ),
+        flash_controlled_exploration_range_low_vol_allowed_directions=tuple(
+            direction.strip().lower()
+            for raw in args.flash_controlled_exploration_range_low_vol_allowed_direction
+            for direction in str(raw or "").split(",")
+            if direction.strip()
+        ),
         flash_controlled_exploration_risk_mult=(
             args.flash_controlled_exploration_risk_mult
         ),
@@ -2261,6 +2296,18 @@ def _parse_cli_config(argv: Optional[Sequence[str]] = None) -> RetrodateMarketCo
         ),
         flash_controlled_exploration_max_leverage=(
             args.flash_controlled_exploration_max_leverage
+        ),
+        flash_controlled_exploration_loss_budget_usd=(
+            args.flash_controlled_exploration_loss_budget_usd
+        ),
+        flash_controlled_exploration_loss_budget_adverse_move_pct=(
+            args.flash_controlled_exploration_loss_budget_adverse_move_pct
+        ),
+        flash_controlled_exploration_stop_loss_pct=(
+            args.flash_controlled_exploration_stop_loss_pct
+        ),
+        flash_controlled_exploration_session_loss_budget_usd=(
+            args.flash_controlled_exploration_session_loss_budget_usd
         ),
         flash_causal_actor_router_enabled=args.enable_flash_causal_actor_router,
         flash_causal_actor_router_min_closed_trades=(
@@ -3110,6 +3157,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
     )
+    parser.add_argument(
+        "--flash-controlled-exploration-allow-range-low-vol-actor-not-allowed",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--flash-controlled-exploration-range-low-vol-allowed-direction",
+        action="append",
+        default=[],
+    )
     parser.add_argument("--flash-controlled-exploration-risk-mult", type=float, default=0.05)
     parser.add_argument("--flash-controlled-exploration-min-shadow-score", type=float, default=2.0)
     parser.add_argument("--flash-controlled-exploration-min-shadow-closed", type=int, default=10)
@@ -3123,6 +3179,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flash-controlled-exploration-default-min-notional-usd", type=float, default=5.0)
     parser.add_argument("--flash-controlled-exploration-apply-leverage-to-notional", action="store_true")
     parser.add_argument("--flash-controlled-exploration-max-leverage", type=float, default=1.0)
+    parser.add_argument("--flash-controlled-exploration-loss-budget-usd", type=float, default=0.0)
+    parser.add_argument("--flash-controlled-exploration-loss-budget-adverse-move-pct", type=float, default=0.0)
+    parser.add_argument("--flash-controlled-exploration-stop-loss-pct", type=float, default=0.0)
+    parser.add_argument("--flash-controlled-exploration-session-loss-budget-usd", type=float, default=0.0)
     parser.add_argument("--enable-flash-causal-actor-router", action="store_true")
     parser.add_argument("--flash-causal-actor-router-min-closed-trades", type=int, default=5)
     parser.add_argument("--flash-causal-actor-router-min-expectancy", type=float, default=0.0)
@@ -3770,6 +3830,12 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         controlled_exploration_allowed_reasons=(
             config.flash_controlled_exploration_allowed_reasons
         ),
+        controlled_exploration_allow_range_low_vol_actor_not_allowed=(
+            config.flash_controlled_exploration_allow_range_low_vol_actor_not_allowed
+        ),
+        controlled_exploration_range_low_vol_allowed_directions=(
+            config.flash_controlled_exploration_range_low_vol_allowed_directions
+        ),
         controlled_exploration_risk_mult=(
             config.flash_controlled_exploration_risk_mult
         ),
@@ -3809,6 +3875,18 @@ def _build_flash_allocator_config(config: RetrodateMarketConfig) -> FlashAllocat
         ),
         controlled_exploration_max_leverage=(
             config.flash_controlled_exploration_max_leverage
+        ),
+        controlled_exploration_loss_budget_usd=(
+            config.flash_controlled_exploration_loss_budget_usd
+        ),
+        controlled_exploration_loss_budget_adverse_move_pct=(
+            config.flash_controlled_exploration_loss_budget_adverse_move_pct
+        ),
+        controlled_exploration_stop_loss_pct=(
+            config.flash_controlled_exploration_stop_loss_pct
+        ),
+        controlled_exploration_session_loss_budget_usd=(
+            config.flash_controlled_exploration_session_loss_budget_usd
         ),
         causal_actor_router_enabled=config.flash_causal_actor_router_enabled,
         causal_actor_router_min_closed_trades=(
@@ -7300,6 +7378,12 @@ def _write_run_summary(
         "flash_controlled_exploration_allowed_reasons": list(
             config.flash_controlled_exploration_allowed_reasons
         ),
+        "flash_controlled_exploration_allow_range_low_vol_actor_not_allowed": (
+            config.flash_controlled_exploration_allow_range_low_vol_actor_not_allowed
+        ),
+        "flash_controlled_exploration_range_low_vol_allowed_directions": list(
+            config.flash_controlled_exploration_range_low_vol_allowed_directions
+        ),
         "flash_controlled_exploration_risk_mult": (
             config.flash_controlled_exploration_risk_mult
         ),
@@ -7338,6 +7422,18 @@ def _write_run_summary(
         ),
         "flash_controlled_exploration_max_leverage": (
             config.flash_controlled_exploration_max_leverage
+        ),
+        "flash_controlled_exploration_loss_budget_usd": (
+            config.flash_controlled_exploration_loss_budget_usd
+        ),
+        "flash_controlled_exploration_loss_budget_adverse_move_pct": (
+            config.flash_controlled_exploration_loss_budget_adverse_move_pct
+        ),
+        "flash_controlled_exploration_stop_loss_pct": (
+            config.flash_controlled_exploration_stop_loss_pct
+        ),
+        "flash_controlled_exploration_session_loss_budget_usd": (
+            config.flash_controlled_exploration_session_loss_budget_usd
         ),
         "flash_causal_actor_router_enabled": (
             config.flash_causal_actor_router_enabled

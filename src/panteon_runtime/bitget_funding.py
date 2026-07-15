@@ -12,15 +12,21 @@ import threading
 import time
 from typing import Any, Dict, Optional, Sequence
 
-import ccxt  # type: ignore
+try:
+    import ccxt  # type: ignore
+except ImportError:  # Tests may inject a public client without installing ccxt.
+    ccxt = None  # type: ignore
 
 
 log = logging.getLogger("bitget_funding")
 
 REFRESH_SEC = 60
+MAX_RATIO_AGE_SEC = 20 * 60
 
 
-def _public_swap_client() -> ccxt.bitget:
+def _public_swap_client() -> Any:
+    if ccxt is None:
+        raise RuntimeError("ccxt is required for the default Bitget public client")
     return ccxt.bitget(
         {
             "enableRateLimit": True,
@@ -78,6 +84,81 @@ def _extract_oi_base(open_interest: dict, ticker: dict) -> float:
         if parsed > 0:
             return parsed
     return 0.0
+
+
+def _latest_ratio_row(payload: Any) -> dict:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, dict):
+        data = data.get("list") or data.get("resultList") or []
+    if not isinstance(data, list):
+        return {}
+    rows = [row for row in data if isinstance(row, dict)]
+    if not rows:
+        return {}
+    return max(rows, key=lambda row: int(_to_float(row.get("ts"))))
+
+
+def _account_ratios(payload: Any) -> tuple[float, float, int]:
+    row = _latest_ratio_row(payload)
+    long_ratio = _to_float(row.get("longAccountRatio") or row.get("longRatio"))
+    short_ratio = _to_float(row.get("shortAccountRatio") or row.get("shortRatio"))
+    timestamp = int(_to_float(row.get("ts")))
+    return long_ratio, short_ratio, timestamp
+
+
+def _fetch_account_ratio(exchange: Any, sym: str) -> tuple[dict, str]:
+    """Fetch the same account-ratio metric from v2, then v3.
+
+    Bitget v2 returns ``40054`` for some active USDT contracts while the UTA
+    v3 endpoint serves the same longAccountRatio/shortAccountRatio schema.
+    Other ratio families are deliberately not substituted here.
+    """
+
+    params = {"symbol": f"{sym}USDT", "period": "5m"}
+    ratio_method = getattr(
+        exchange,
+        "publicMixGetV2MixMarketAccountLongShort",
+        None,
+    ) or getattr(
+        exchange,
+        "public_mix_get_v2_mix_market_account_long_short",
+        None,
+    )
+    if callable(ratio_method):
+        try:
+            payload = ratio_method(params) or {}
+            if _latest_ratio_row(payload):
+                return payload, "account_long_short_v2"
+        except Exception as exc:
+            log.debug("[bitget funding] v2 account ratio %s: %s", sym, exc)
+
+    request = getattr(exchange, "request", None)
+    if not callable(request):
+        return {}, "missing"
+    if not callable(ratio_method):
+        try:
+            payload = request(
+                "v2/mix/market/account-long-short",
+                ["public", "mix"],
+                "GET",
+                params,
+            ) or {}
+            if _latest_ratio_row(payload):
+                return payload, "account_long_short_v2"
+        except Exception as exc:
+            log.debug("[bitget funding] raw v2 account ratio %s: %s", sym, exc)
+    try:
+        payload = request(
+            "v3/market/futures-account-long-short",
+            ["public", "common"],
+            "GET",
+            params,
+        ) or {}
+        if _latest_ratio_row(payload):
+            return payload, "futures_account_long_short_v3"
+    except Exception as exc:
+        log.debug("[bitget funding] v3 account ratio %s: %s", sym, exc)
+    return {}, "missing"
 
 
 class BitgetFundingDataFetcher:
@@ -165,6 +246,8 @@ class BitgetFundingDataFetcher:
         ticker: dict = {}
         funding: dict = {}
         open_interest: dict = {}
+        account_ratio: dict = {}
+        account_ratio_source = "missing"
 
         try:
             ticker = self.exchange.fetch_ticker(market) or {}
@@ -178,6 +261,9 @@ class BitgetFundingDataFetcher:
             open_interest = self.exchange.fetch_open_interest(market) or {}
         except Exception as exc:
             log.debug("[bitget funding] open interest %s: %s", market, exc)
+        account_ratio, account_ratio_source = _fetch_account_ratio(
+            self.exchange, sym
+        )
 
         last_price = _to_float(
             ticker.get("last")
@@ -197,6 +283,15 @@ class BitgetFundingDataFetcher:
         oi_usdt = _to_float(open_interest.get("openInterestValue"))
         if oi_usdt <= 0 and oi_base > 0 and price_for_oi > 0:
             oi_usdt = oi_base * price_for_oi
+        long_ratio, short_ratio, ratio_ts = _account_ratios(account_ratio)
+        observed_ts = time.time()
+        ratio_age_sec = (
+            observed_ts - ratio_ts / 1000.0 if ratio_ts > 0 else None
+        )
+        ratio_fresh = bool(
+            ratio_age_sec is not None
+            and -60.0 <= ratio_age_sec <= MAX_RATIO_AGE_SEC
+        )
 
         funding_ts = int(
             _to_float(
@@ -227,8 +322,22 @@ class BitgetFundingDataFetcher:
             "volume_24h_base": _to_float(ticker.get("baseVolume")),
             "open_interest_base": oi_base,
             "open_interest_usdt": oi_usdt,
-            "updated_ts": time.time(),
+            "long_ratio": long_ratio,
+            "short_ratio": short_ratio,
+            "long_short_ratio_ts": ratio_ts,
+            "long_short_ratio_age_sec": ratio_age_sec,
+            "long_short_source": account_ratio_source,
+            "updated_ts": observed_ts,
         }
+        result["context_complete"] = bool(
+            funding
+            and oi_usdt > 0.0
+            and long_ratio > 0.0
+            and short_ratio > 0.0
+            and ratio_fresh
+            and mark_price > 0.0
+            and index_price > 0.0
+        )
         if not (
             result["funding_rate"]
             or result["open_interest_usdt"]
@@ -244,12 +353,36 @@ class BitgetFundingDataFetcher:
             return {"timestamp": time.time(), "total_oi_usdt": 0.0, "avg_funding": 0.0}
         rates = [_to_float(d.get("funding_rate")) for d in cache.values()]
         ois = [_to_float(d.get("open_interest_usdt")) for d in cache.values()]
+        long_ratios = [_to_float(d.get("long_ratio")) for d in cache.values()]
+        short_ratios = [_to_float(d.get("short_ratio")) for d in cache.values()]
         return {
             "avg_funding": float(sum(rates) / len(rates)) if rates else 0.0,
             "max_funding": float(max(rates, key=abs)) if rates else 0.0,
             "total_oi_usdt": float(sum(ois)) if ois else 0.0,
             "n_positive_funding": sum(1 for rate in rates if rate > 0),
             "n_negative_funding": sum(1 for rate in rates if rate < 0),
+            "avg_long_ratio": (
+                float(sum(long_ratios) / len(long_ratios)) if long_ratios else 0.0
+            ),
+            "avg_short_ratio": (
+                float(sum(short_ratios) / len(short_ratios)) if short_ratios else 0.0
+            ),
+            "complete_symbols": sum(
+                1 for data in cache.values() if data.get("context_complete")
+            ),
+            "ratio_source_counts": {
+                source: sum(
+                    1
+                    for data in cache.values()
+                    if data.get("long_short_source") == source
+                )
+                for source in sorted(
+                    {
+                        str(data.get("long_short_source") or "missing")
+                        for data in cache.values()
+                    }
+                )
+            },
             "timestamp": time.time(),
         }
 

@@ -12,7 +12,6 @@ TradeExecutor работает только через интерфейс Exchan
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
@@ -242,11 +241,7 @@ class FakeExchange:
             else:
                 side = "long"  # для HOLD не должно вызываться
 
-        fill_price = signal.price * (
-            1.0 + self._slippage if signal.action.is_long_open
-            else 1.0 - self._slippage if signal.action.is_short_open
-            else 1.0
-        )
+        fill_price = _adverse_fill_price(signal, side=side, slippage=self._slippage)
         notional = qty * fill_price
         fee = notional * self._fee_rate
 
@@ -260,7 +255,7 @@ class FakeExchange:
             fee=fee,
             funding=0.0,
             exchange_order_id=f"FAKE-{signal.id}",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=signal.timestamp,
         )
 
         # Обновляем internal positions
@@ -354,11 +349,7 @@ class FakeExchange:
                 )
             side = existing.side if existing is not None else "long"
 
-        fill_price = signal.price * (
-            1.0 + self._slippage if signal.action.is_long_open
-            else 1.0 - self._slippage if signal.action.is_short_open
-            else 1.0
-        )
+        fill_price = _adverse_fill_price(signal, side=side, slippage=self._slippage)
         notional = qty * fill_price
         fee = notional * self._fee_rate
         trade = Trade(
@@ -371,7 +362,7 @@ class FakeExchange:
             fee=fee,
             funding=0.0,
             exchange_order_id=order_id,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=signal.timestamp,
         )
         if signal.action.is_open:
             self._positions[signal.sym] = ExchangePosition(
@@ -432,6 +423,22 @@ def _is_intentional_partial_close(signal: Signal) -> bool:
         return 0.0 < float(getattr(signal, "close_fraction", 1.0) or 1.0) < 1.0
     except (TypeError, ValueError):
         return False
+
+
+def _adverse_fill_price(signal: Signal, *, side: str, slippage: float) -> float:
+    """Apply adverse slippage on both entry and exit fills."""
+    slip = max(0.0, float(slippage or 0.0))
+    if signal.action.is_long_open:
+        multiplier = 1.0 + slip
+    elif signal.action.is_short_open:
+        multiplier = 1.0 - slip
+    elif signal.action.is_close and side == "long":
+        multiplier = 1.0 - slip
+    elif signal.action.is_close and side == "short":
+        multiplier = 1.0 + slip
+    else:
+        multiplier = 1.0
+    return float(signal.price) * multiplier
 
 
 def _is_quantity_limited_close(signal: Signal) -> bool:

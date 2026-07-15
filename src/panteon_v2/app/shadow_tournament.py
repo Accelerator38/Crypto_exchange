@@ -912,12 +912,24 @@ def _position_payloads(
                 "current_price": current_price,
                 "qty": qty,
                 "unrealized_pnl_usd": unrealized,
-                "stop_price": getattr(pos, "stop_price", None),
-                "take_profit_price": getattr(pos, "take_profit_price", None),
+                "stop_price": _positive_price_or_none(
+                    getattr(pos, "stop_price", None)
+                ),
+                "take_profit_price": _positive_price_or_none(
+                    getattr(pos, "take_profit_price", None)
+                ),
                 "fresh": age_bars <= 1,
             })
     payloads.sort(key=lambda item: (item["sym"], item["side"]))
     return tuple(payloads)
+
+
+def _positive_price_or_none(value: object) -> Optional[float]:
+    try:
+        price = float(value)
+    except (TypeError, ValueError):
+        return None
+    return price if price > 0.0 else None
 
 
 def _filter_position_aware_signals(
