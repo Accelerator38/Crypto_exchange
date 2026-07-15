@@ -1,188 +1,160 @@
-# Panteon 3 Operator Guide
+# Panteon Operator Guide
 
-Updated: 2026-06-29
+Updated: 2026-07-15
 
-This document is the current operator entrypoint for Panteon 3. It supersedes
-old root launchers such as `Start_BITGET.py`, `Start_MEXC.py`,
-`Start_ML.py`, `Start_ML_BITGET.py`, and `Start_panteon_v3.py`.
+## Current verdict
 
-## Current Live Verdict
+Bitget real trading is **not authorized** until a current `micro_live` policy
+manifest exists and all evidence gates pass. An evidence collector or replay is
+not a trading process and cannot authorize an order.
 
-BITGET live is blocked by pre-flight as of 2026-06-29.
+The old Flash/Panteon ensemble remains available for virtual research. It is no
+longer a Bitget live route.
 
-Latest checks:
+## One launcher
 
-- Matrix: `Reports/Panteon3PreLiveMatrix/bitget_focus_20260629/panteon3_pre_live_matrix_summary.json`
-- Canary: `Reports/Panteon3Canary/bitget_after_context_deny/20260629_114446/canary_summary.json`
-- Pre-flight reasons:
-  - `matrix_failed:expectancy_usd -0.06278683036664612 <= 0`
-  - `canary_failed`
-  - `canary_nonpositive_expectancy`
-
-Do not bypass this guard for real orders. The launcher will refuse
-`live_futures` while these checks remain failed or stale.
-
-## Unified Launcher
-
-Use only:
-
-```powershell
-.\.venv\Scripts\python.exe Start_panteon.py
-```
-
-The active switches are at the top of `Start_panteon.py`:
-
-```python
-BITGET = "ON"
-MEXC = "OFF"
-trade_regime = "multi"
-```
-
-`BITGET = "ON"` and `MEXC = "OFF"` are the default focus. To dry-run the
-launcher plan without starting workers:
-
-```powershell
-.\.venv\Scripts\python.exe Start_panteon.py --dry-run
-```
-
-To limit the run to one exchange:
+Use only the project virtual environment and the unified launcher:
 
 ```powershell
 .\.venv\Scripts\python.exe Start_panteon.py --only BITGET
 ```
 
-The parent process performs live pre-flight before spawning a worker. If
-pre-flight fails, no child process is created and no order is sent.
+The safe repository default is:
 
-## Trade Regimes
-
-`trade_regime = "multi"` is the standard Panteon mode. Flash chooses between
-eligible actors per symbol, action, regime, and recent causal evidence.
-
-`trade_regime = "singlton(<actor>)"` is the manual single-real-actor mode. The
-named actor is allowed to send real orders; the rest of the runtime remains
-available for shadow/statistical collection where the production pipeline
-supports it.
-
-Examples:
-
-```python
-trade_regime = "multi"
-trade_regime = "singlton(GeneticsCore)"
-trade_regime = "singlton(genetic_core)"
-trade_regime = "singlton(LiveVolCompress)"
-trade_regime = "singlton(MomentumScalper)"
+```text
+BITGET=ON
+MEXC=OFF
+PANTEON_TRADE_REGIME=multi
 ```
 
-The spelling `singlton` is intentionally supported because that is the current
-operator-facing flag. Common actor aliases are normalized, so
-`genetic_core` maps to `GeneticsCore`.
+That default deliberately blocks non-virtual Bitget startup. It cannot send a
+real Bitget order.
 
-## Agents, Players, Actors
+## Trade regimes
 
-An agent is the smallest signal source. Examples: `GeneticsCore`,
-`MomentumScalper`, `LiveVolCompress`, `CarryFlowAgentV2`, `LiveCrashHunter`.
+| Regime | Bitget paper/R&D | Bitget real trading |
+|---|---:|---:|
+| `multi` | allowed | blocked |
+| `singlton(<actor>)` | allowed | blocked, even with a bypass flag |
+| `policy` | blocked; paper canaries use their dedicated runner | only possible live route |
 
-A player is a composed strategy/profile that may use multiple agents or a
-specialized wrapper. Examples include solo wrappers such as
-`Solo_MomentumScalper` and profile/ensemble players.
+`multi` runs the legacy Flash/ensemble selection. `singlton(<actor>)` is a
+diagnostic single-actor wrapper. Neither is evidence-compatible with the new
+Bitget live contract.
 
-An actor is the label used by Flash when deciding who may trade. It can be an
-agent label (`agent:LiveVolCompress`), a bare agent label (`LiveVolCompress`),
-or an ensemble/solo label (`ensemble:Solo_LiveVolCompress`).
+`policy` loads exactly one actor from the sealed manifest. The current supported
+actor is `CarryFlowAgentV2`. Startup registers only this actor and disables
+Flash, Genetics, fallback selection and the shadow tournament.
 
-Panteon 3 must not treat an ensemble as a simple average of weak signals. The
-current routing path prefers causal evidence:
+## Required live environment
 
-- prior-bar actor/symbol/regime/action performance;
-- promotion-derived best component labels;
-- controlled exploration only while expectancy is not negative;
-- negative-outcome context deny after failed closed trades;
-- risk caps, min-notional checks, duplicate key checks, and exchange health.
+Do not set these values until the manifest has been reviewed and manually
+approved:
 
-## Market Regimes
+```text
+BITGET_TRADING_MODE=live_futures
+PANTEON_TRADE_REGIME=policy
+BITGET_POLICY_MANIFEST_V1=Runtime/BITGET/active_policy_manifest_v1.json
+BITGET_POLICY_MANIFEST_SHA256=<exact 64-character SHA-256>
+```
 
-The runtime assigns regimes such as `range_low_vol`, bullish, bearish, neutral,
-and crash-like contexts. Regime is part of the routing key. A profitable actor
-in one regime is not automatically promoted in another.
+The launcher and the direct worker both run preflight. A child process is not
+spawned when the manifest is absent, stale, unpinned, tied to another Git
+revision, or fails its runtime fingerprint/evidence checks.
 
-For low-volume range conditions, real execution is restricted by allowlists and
-evidence. This prevents forced trading in contexts that recently produced
-negative expectancy.
+`--dry-run` performs the same read-only regime and preflight checks but never
+spawns the worker.
 
-## Flash Routing
+## Manifest gates
 
-The Flash decision path is:
+A Bitget `micro_live` manifest must pin one exact policy and contain passing,
+fresh receipts for:
 
-1. collect raw agent/player candidates;
-2. normalize actor labels and action keys;
-3. apply symbol/action/risk/exchange health checks;
-4. apply causal memory and promotion-derived routing;
-5. allow controlled exploration only below the configured risk cap;
-6. reject actors with negative rolling expectancy for the same context;
-7. emit real signals only for candidates that survive the full gate funnel.
+- validation;
+- OOS;
+- cost stress;
+- sanity;
+- short strict paper canary;
+- extended strict paper canary.
 
-No-trade is valid only when the gate funnel explains why candidates were
-rejected. Important rejection reasons include:
+Validation, OOS and cost stress require at least 20 fills, 10 closed trades,
+positive expectancy after fees/slippage, positive LCB, non-zero costs and
+drawdown within the declared limit. Direction or regime collapse is a hard
+failure.
 
-- `controlled_exploration_negative_expectancy`
-- `promotion_derived_negative_outcome`
-- `controlled_exploration_min_notional_risk_too_high`
-- `insufficient_closed_trades`
-- `no_evidence`
-- `foreign_position_owner`
-- `pnl_below_threshold`
-- `score_below_threshold`
+The runtime fingerprint includes the launcher, Bitget market adapter, startup,
+main loop, policy runtime, bridge feed, actor, policy checks and execution stack.
+Any byte change on that route invalidates a previously sealed manifest.
 
-## Execution Safety
+## Runtime behavior
 
-Real positions must appear only after confirmed fills. Pending, rejected, or
-unconfirmed orders must not create positions. Restart/recovery relies on:
+The vNext route is:
 
-- `OrderLedger` for sent/rejected/filled order state;
-- `PositionTracker` for fill-confirmed positions;
-- exchange reconciliation to correct drift;
-- duplicate execution keys to prevent repeated order sends;
-- pre-flight matrix/canary freshness and pass/fail gates.
+```text
+closed Bitget bar + current derivatives context + executable order book
+  -> one CarryFlow actor
+  -> exact (symbol, regime, direction) manifest rule
+  -> PolicyExecutorV1
+  -> TradeExecutor
+  -> Bitget
+```
 
-## BITGET Verification Commands
+Operational invariants:
 
-Run the focused tests:
+- hourly policies evaluate once per exact closed hourly bar, not every 5-second
+  transport poll;
+- startup warms the actor from a synchronized public Bitget OHLCV window;
+- missing candles, stale data, incomplete context or insufficient book depth
+  produce `NoTrade`;
+- a missing/broken real Bitget adapter terminates startup; non-virtual modes
+  never fall back to `FakeExchange`;
+- spread and visible-book slippage are checked against manifest limits;
+- position exits remain active for stop loss, maximum holding time, manifest
+  expiry and the global kill switch;
+- reaching `max_daily_loss_usd` latches a policy-specific manage-only kill
+  switch; it does not auto-recover;
+- the UTC-day equity baseline and daily-loss latch are atomically persisted in
+  `panteon_v2_state/bitget_policy_risk_v1.json`, so a same-day restart cannot
+  clear the stop;
+- no policy candidate can fall back to Flash, Genetics or another actor.
+
+## Operator-visible proof
+
+For the active session inspect `status.json` and
+`causal_entry_decisions.jsonl` in its `Results/BITGET/...` directory.
+
+The expected status fields are:
+
+```text
+policy.enabled=true
+policy.actor=CarryFlowAgentV2
+policy.manifest_sha256=<approved SHA>
+flash.enabled=false
+configured_actor_pool=[CarryFlowAgentV2]
+```
+
+`policy.status`, `policy.reason`, `policy.market_quality` and the policy decision
+checks explain every evaluated cadence. A valid hold/no-trade cadence is kept in
+the causal log even when compact logging is enabled.
+
+## Verification
+
+Run the focused safety tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest src\panteon_v2\tests\test_start_panteon.py src\panteon_v2\tests\test_entrypoints.py src\panteon_v2\tests\test_live_preflight.py src\panteon_v2\tests\test_panteon3_live_canary_check.py -q
+.\.venv\Scripts\python.exe -m pytest `
+  src\panteon_v2\tests\test_live_policy_runtime.py `
+  src\panteon_v2\tests\test_start_panteon.py `
+  src\panteon_v2\tests\test_policy_manifest_v1.py `
+  src\panteon_v2\tests\test_live_preflight.py -q
 ```
 
-Run BITGET paper canary:
+Check preflight without starting a worker:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\run_panteon3_single_component_canary.py --exchange BITGET --actor LiveOIBreakout --fallback-actor LiveVolCompress --results-root Results\Panteon3BitgetCanaryAfterContextDeny --reports-dir Reports\Panteon3Canary\bitget_after_context_deny --initial-capital 2000 --exploration-risk-mult 0.25 --max-bars 180 --max-idle-polls 180 --sleep-between-polls-sec 2 --warmup-bars 1440 --lookback-minutes 1440
+.\.venv\Scripts\python.exe -c "import json,sys; from pathlib import Path; sys.path.insert(0,str(Path('src').resolve())); from panteon_v2.app.live_preflight import config_from_env, run_live_preflight; r=run_live_preflight('BITGET','live_futures',config=config_from_env(Path('.').resolve())); print(json.dumps({'passed':r.passed,'reasons':list(r.reasons)},indent=2))"
 ```
 
-Run BITGET-focused matrix:
-
-```powershell
-.\.venv\Scripts\python.exe tools\run_panteon3_pre_live_matrix.py --years 2026 --max-bars 360 --window-skip-bars 0,72,144 --stride-minutes 60 --initial-capital 2000 --risk-capital-fraction 0.02 --results-root Results\Panteon3PreLiveMatrixBitgetFocus_20260629 --reports-dir Reports\Panteon3PreLiveMatrix\bitget_focus_20260629 --min-filled 1 --min-closed-trades 1 --min-profitable-windows 1 --min-positive-regimes 1
-```
-
-Check live pre-flight:
-
-```powershell
-.\.venv\Scripts\python.exe -c "import json; from pathlib import Path; from src.panteon_v2.app.live_preflight import config_from_env, run_live_preflight; r=run_live_preflight('BITGET','live_futures',config=config_from_env(Path('.').resolve())); print(json.dumps({'passed':r.passed,'reasons':list(r.reasons),'matrix':r.matrix_summary_path,'canary':r.canary_summary_path}, indent=2, ensure_ascii=False))"
-```
-
-Only after this returns `passed: true` should `Start_panteon.py` be used for
-real BITGET `live_futures`, and only with a tiny risk cap.
-
-## Current No-Go Fix List
-
-Before live-size or live restart, fix and re-run evidence for:
-
-1. positive multi-window BITGET expectancy after fees, funding, spread and
-   slippage;
-2. canary with nonzero signals/orders/fills and positive expectancy;
-3. stable actor routing where Panteon 3 beats or justifies not using the best
-   causal component;
-4. explicit explanation for remaining inactive specialists such as
-   `CarryFlowAgentV2`, `MomentumScalper`, and `LiveVolCompress`;
-5. clean reconciliation with zero unexpected open positions.
+Real trading still requires a separate manual confirmation of the exact
+manifest SHA, symbols, `max_notional_usd`, `max_open_positions`,
+`max_daily_loss_usd` and expiry. Passing tests alone is not approval.

@@ -5,13 +5,15 @@ Edit these launch switches before running:
 BITGET = "ON"
 MEXC = "OFF"
 
-trade_regime = "multi"
-trade_regime = "singlton(GeneticsCore)"
+trade_regime = "multi"                  # virtual/R&D default
+trade_regime = "singlton(GeneticsCore)" # virtual/R&D manual actor
+trade_regime = "policy"                 # Bitget micro-live only
 
-``multi`` runs the normal Panteon/Flash actor selection. ``singlton(<actor>)``
-allows only the named actor to send real orders; the rest of the runtime keeps
-collecting shadow/statistical evidence where the production pipeline supports it.
-The same mode can be passed at launch time with ``--trade-regime``.
+For Bitget, ``multi`` and ``singlton(<actor>)`` are virtual/R&D routes. A
+non-virtual Bitget worker accepts only ``policy``, which loads exactly one
+pinned micro-live manifest actor and disables Flash, Genetics and shadow
+selection. The default remains ``multi`` so an accidental live launch fails
+closed. The same mode can be passed with ``--trade-regime``.
 """
 
 from __future__ import annotations
@@ -127,6 +129,8 @@ def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
     lower = text.lower()
     if lower == "multi":
         return TradeRegime("multi")
+    if lower == "policy":
+        return TradeRegime("policy")
     if (
         lower.startswith("singlton(")
         or lower.startswith("singleton(")
@@ -135,12 +139,14 @@ def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
         if not actor:
             raise ValueError("trade_regime singleton(...) requires an actor name")
         return TradeRegime("singlton", _canonical_actor_label(actor))
-    raise ValueError("trade_regime must be 'multi' or 'singlton(<actor>)'")
+    raise ValueError(
+        "trade_regime must be 'multi', 'policy' or 'singlton(<actor>)'"
+    )
 
 
 def _trade_regime_cli_value(parsed_regime: TradeRegime) -> str:
-    if parsed_regime.mode == "multi":
-        return "multi"
+    if parsed_regime.mode in {"multi", "policy"}:
+        return parsed_regime.mode
     return f"singlton({parsed_regime.singleton_actor})"
 
 
@@ -346,6 +352,26 @@ def _singleton_live_block_message(
     return ""
 
 
+def _trade_regime_block_message(
+    exchange: str,
+    launch_mode: str,
+    parsed_regime: TradeRegime,
+) -> str:
+    exchange = str(exchange or "").upper()
+    is_virtual = launch_mode in VIRTUAL_TRADING_MODES
+    if parsed_regime.mode == "policy" and (is_virtual or exchange != "BITGET"):
+        return (
+            "policy trade_regime is reserved for non-virtual BITGET micro-live; "
+            "use multi for paper/shadow research"
+        )
+    if exchange == "BITGET" and not is_virtual and parsed_regime.mode != "policy":
+        return (
+            "BITGET live requires PANTEON_TRADE_REGIME=policy; "
+            "legacy multi/singleton Flash execution is virtual-only"
+        )
+    return ""
+
+
 def _live_preflight_result(exchange: str, launch_mode: str):
     if launch_mode in VIRTUAL_TRADING_MODES:
         return None
@@ -420,6 +446,10 @@ def _run_exchange_worker(
     os.environ["CRYPTO_EXCHANGE"] = exchange
     os.environ[MODE_ENV[exchange]] = launch_mode
 
+    regime_block = _trade_regime_block_message(exchange, launch_mode, parsed_regime)
+    if regime_block:
+        print(f"[Start_panteon] {regime_block}", file=sys.stderr)
+        return 2
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
         print(f"[Start_panteon] {singleton_block}", file=sys.stderr)
@@ -467,6 +497,7 @@ def _run_exchange_worker(
         jsonl_event_log=str(PROJECT_ROOT / "logs" / f"v2_{exchange_lower}_events.jsonl"),
         sleep_between_polls_sec=5.0,
         flash_allocator_config_override=flash_config,
+        enable_policy_runtime=parsed_regime.mode == "policy",
     )
 
 
@@ -487,20 +518,15 @@ def _launch_exchange(
             "already_running",
             f"{exchange} already running ({_lock_owner_hint(lock_path)})",
         )
-    if dry_run:
-        return LaunchResult(
-            exchange,
-            "dry_run",
-            f"would launch {' '.join(_worker_args(exchange, parsed_regime))}",
-        )
-
     _load_env()
     launch_mode = _launch_mode(exchange)
     parsed_regime = parsed_regime or _parse_trade_regime()
+    regime_block = _trade_regime_block_message(exchange, launch_mode, parsed_regime)
+    if regime_block:
+        return LaunchResult(exchange, "blocked", regime_block)
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
         return LaunchResult(exchange, "blocked", singleton_block)
-
     preflight = _live_preflight_result(exchange, launch_mode)
     if preflight is not None and not preflight.passed:
         reasons = ", ".join(preflight.reasons) or "unknown"
@@ -508,6 +534,12 @@ def _launch_exchange(
             exchange,
             "preflight_failed",
             f"live preflight failed: {reasons}",
+        )
+    if dry_run:
+        return LaunchResult(
+            exchange,
+            "dry_run",
+            f"would launch {' '.join(_worker_args(exchange, parsed_regime))}",
         )
 
     try:
@@ -552,7 +584,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--trade-regime",
         default=None,
-        help="Trading regime: multi or singlton(<actor>). 'singleton' spelling is accepted.",
+        help=(
+            "Trading regime: multi, policy or singlton(<actor>). "
+            "'singleton' spelling is accepted."
+        ),
     )
     parser.add_argument("--worker", choices=tuple(EXCHANGES), default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)

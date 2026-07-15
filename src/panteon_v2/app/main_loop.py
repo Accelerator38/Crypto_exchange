@@ -600,8 +600,60 @@ def _run_one_bar(
     reconcile_summary = reconcile_tracker_with_exchange(pipeline, bar_index=market.bar)
     _record_exchange_desync(pipeline, reconcile_summary)
     _expire_stale_pending_orders(pipeline)
-    _apply_pending_shadow_updates_to_strategist(pipeline)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
+
+    policy_runtime = getattr(pipeline, "policy_runtime_v1", None)
+    if policy_runtime is not None:
+        decision_id = trace
+        context = _decision_context(pipeline, market)
+        try:
+            policy_risk_reason = _policy_daily_loss_kill_switch_reason(
+                pipeline,
+                policy_runtime,
+                market,
+            )
+        except Exception as exc:
+            log.exception("policy risk-state update failed")
+            policy_risk_reason = (
+                "policy risk-state failure: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        if policy_risk_reason:
+            _set_kill_switch(
+                pipeline,
+                policy_risk_reason,
+                kind=(
+                    "policy_risk_state"
+                    if policy_risk_reason.startswith("policy risk-state failure")
+                    else "policy_daily_loss"
+                ),
+            )
+        kill_reason = _kill_switch_reason(pipeline, market)
+        if kill_reason:
+            return _run_manage_only_kill_switch_step(
+                pipeline,
+                market,
+                None,
+                signal_id_counter=signal_id_counter,
+                last_qm_bar=last_qm_bar,
+                last_regime=last_regime,
+                trace=trace,
+                decision_id=decision_id,
+                context=context,
+                kill_reason=kill_reason,
+            )
+        return _run_policy_v1_decision_path(
+            pipeline,
+            market,
+            policy_runtime,
+            signal_id_counter=signal_id_counter,
+            last_qm_bar=last_qm_bar,
+            last_regime=last_regime,
+            trace=trace,
+            decision_id=decision_id,
+        )
+
+    _apply_pending_shadow_updates_to_strategist(pipeline)
 
     # 1. Регим
     is_change = (last_regime is not None and last_regime != market.regime)
@@ -1047,6 +1099,307 @@ def _run_one_bar(
             ),
         ),
         signal_id_counter, last_qm_bar, last_regime,
+    )
+
+
+def _policy_daily_loss_kill_switch_reason(
+    pipeline: ProductionPipeline,
+    policy_runtime: Any,
+    market: MarketSnapshot,
+) -> str:
+    manifest = getattr(policy_runtime, "manifest", None)
+    risk = getattr(manifest, "risk", None)
+    limit = float(getattr(risk, "max_daily_loss_usd", 0.0) or 0.0)
+    if limit <= 0.0:
+        return ""
+    initial = float(getattr(pipeline, "initial_capital", 0.0) or 0.0)
+    current = float(getattr(pipeline, "current_balance", 0.0) or 0.0)
+    if initial <= 0.0 or current <= 0.0:
+        return ""
+    update_guard = getattr(policy_runtime, "update_equity_guard", None)
+    if callable(update_guard):
+        return str(
+            update_guard(
+                now=market.timestamp,
+                current_equity_usd=current,
+                initial_equity_usd=initial,
+            )
+            or ""
+        )
+    loss = max(0.0, initial - current)
+    if loss < limit:
+        return ""
+    return (
+        "policy max daily loss exceeded: "
+        f"loss=${loss:.2f}, limit=${limit:.2f}, current=${current:.2f}"
+    )
+
+
+def _run_policy_v1_decision_path(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    policy_runtime: Any,
+    *,
+    signal_id_counter: int,
+    last_qm_bar: int,
+    last_regime: Optional[Regime],
+    trace: str,
+    decision_id: str,
+):
+    """Run the sealed one-actor policy route without legacy selection state."""
+
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    if tracker is None or exchange is None:
+        return (
+            StepResult(
+                bar=market.bar,
+                regime=market.regime,
+                leader=getattr(policy_runtime, "label", "Policy"),
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=1,
+                blocked_reasons={"policy_execution_stack_unavailable": 1},
+                error="policy execution stack unavailable",
+            ),
+            signal_id_counter,
+            last_qm_bar,
+            last_regime,
+        )
+
+    health_reason = _exchange_health_open_block_reason(pipeline)
+    fallback_daily_loss = max(
+        0.0,
+        float(getattr(pipeline, "initial_capital", 0.0) or 0.0)
+        - float(getattr(pipeline, "current_balance", 0.0) or 0.0),
+    )
+    daily_loss_usd = float(
+        getattr(
+            policy_runtime,
+            "current_daily_loss_usd",
+            fallback_daily_loss,
+        )
+        or 0.0
+    )
+    try:
+        policy_step = policy_runtime.evaluate(
+            market,
+            exchange=exchange,
+            tracker=tracker,
+            signal_id_start=signal_id_counter,
+            exchange_healthy=not bool(health_reason),
+            daily_loss_usd=daily_loss_usd,
+        )
+    except Exception as exc:
+        log.exception("policy_v1 evaluation failed on poll bar %d", market.bar)
+        reason = f"policy_runtime_error:{type(exc).__name__}:{exc}"
+        return (
+            StepResult(
+                bar=market.bar,
+                regime=market.regime,
+                leader=policy_runtime.label,
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=1,
+                leader_agent_labels=(policy_runtime.manifest.actor,),
+                selected_leader=policy_runtime.label,
+                executed_leader=policy_runtime.label,
+                blocked_reasons={reason: 1},
+                causal_decision={
+                    "decision_path": "policy_v1",
+                    "policy_id": policy_runtime.manifest.policy_id,
+                    "manifest_sha256": policy_runtime.manifest.manifest_sha256,
+                    "status": "error",
+                    "reason": reason,
+                },
+                error=reason,
+            ),
+            signal_id_counter,
+            last_qm_bar,
+            last_regime,
+        )
+
+    signal_id_counter = policy_step.next_signal_id
+    policy_market = policy_step.policy_market
+    effective_market = policy_market or market
+    context = _decision_context(pipeline, effective_market)
+    if policy_market is not None:
+        is_change = last_regime is not None and last_regime != policy_market.regime
+        pipeline.event_log.emit(RegimeDetected(
+            bar=market.bar,
+            trace_id=trace,
+            regime=policy_market.regime,
+            from_regime=last_regime or policy_market.regime,
+            is_change=is_change,
+        ))
+        last_regime = policy_market.regime
+        pipeline.event_log.emit(DecisionStarted(
+            bar=market.bar,
+            trace_id=trace,
+            decision_id=decision_id,
+            **context,
+            candidate_labels=(policy_runtime.label,),
+            shadow_total_signals=0,
+            shadow_total_filled=0,
+            shadow_total_rejected=0,
+            shadow_total_blocked=0,
+        ))
+
+    actor = _FlashExecutionActor(
+        label=policy_runtime.label,
+        agents=(policy_runtime.actor,),
+        agent_labels=(policy_runtime.manifest.actor,),
+    )
+    raw_signals = list(policy_step.signals)
+    signal_guard = filter_real_signals_against_tracker(
+        raw_signals,
+        player=actor,
+        pipeline=pipeline,
+        bar_index=market.bar,
+        max_new_opens_per_bar=policy_runtime.manifest.risk.max_open_positions,
+        max_open_positions=policy_runtime.manifest.risk.max_open_positions,
+        manage_only=False,
+    )
+    signals = signal_guard.signals
+    for sig in signals:
+        signal_context = _signal_context(context, decision_id=decision_id, signal=sig)
+        if sig.action.is_open and health_reason:
+            signal_context["exchange_health_reason"] = health_reason
+        pipeline.event_log.emit(SignalEmitted(
+            bar=market.bar,
+            trace_id=trace,
+            signal=sig,
+            **signal_context,
+        ))
+        getattr(pipeline, "real_perf", pipeline.perf).record_signal(sig)
+
+    policy_reasons = Counter(
+        trace_item.primary_reason.value
+        for trace_item in policy_step.decision_traces
+        if trace_item.outcome.value == "NO_TRADE"
+    )
+    blocked_reasons: Dict[str, int] = dict(policy_reasons)
+    n_filled = n_rejected = n_execution_blocked = 0
+    for sig in signals:
+        try:
+            set_event_context = getattr(pipeline.executor, "set_event_context", None)
+            if callable(set_event_context):
+                signal_context = _signal_context(
+                    context,
+                    decision_id=decision_id,
+                    signal=sig,
+                )
+                if sig.action.is_open and health_reason:
+                    signal_context["exchange_health_reason"] = health_reason
+                set_event_context(signal_context)
+            result: ExecutionResult = pipeline.executor.execute(
+                sig,
+                balance_usd=pipeline.current_balance,
+            )
+        except Exception:
+            log.exception("policy_v1 execute failed for signal %d", sig.id)
+            _record_order_failure(pipeline, "policy_v1 execute exception", signal=sig)
+            n_rejected += 1
+            continue
+        if result.status == ExecutionStatus.FILLED:
+            n_filled += 1
+            _record_order_success(pipeline, sig, result)
+            _record_realized_result_for_strategy(pipeline, result)
+        elif result.status in (ExecutionStatus.REJECTED, ExecutionStatus.PENDING):
+            _record_order_failure(pipeline, result.reason or result.status.value, signal=sig)
+            n_rejected += 1
+        elif result.status == ExecutionStatus.BLOCKED:
+            n_execution_blocked += 1
+            reason = result.reason or "blocked"
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+        if _kill_switch_reason(pipeline):
+            break
+
+    kill_reason_after_execution = _kill_switch_reason(pipeline)
+    quality_payload = [item.as_dict() for item in policy_step.quality]
+    causal_decision = {
+        "decision_path": "policy_v1",
+        "policy_id": policy_runtime.manifest.policy_id,
+        "manifest_sha256": policy_runtime.manifest.manifest_sha256,
+        "manifest_path": policy_runtime.loaded_manifest.path,
+        "target": policy_runtime.manifest.target.value,
+        "actor": policy_runtime.manifest.actor,
+        "status": policy_step.status,
+        "reason": policy_step.reason,
+        "poll_bar": market.bar,
+        "policy_bar": (policy_market.bar if policy_market is not None else None),
+        "timestamp": _timestamp_payload(effective_market.timestamp),
+        "cadence_timestamp": _timestamp_payload(
+            policy_market.cadence_timestamp if policy_market is not None else None
+        ),
+        "regime": effective_market.regime.label,
+        "regime_confidence": _safe_float_or_zero(
+            effective_market.regime_confidence
+        ),
+        "regimes_by_symbol": _regimes_by_symbol_payload(effective_market),
+        "regime_features_by_symbol": _regime_features_by_symbol_payload(
+            effective_market
+        ),
+        "prices": _float_mapping(effective_market.prices),
+        "funding": _float_mapping(effective_market.funding),
+        "candidate_count": policy_step.candidate_count,
+        "policy_denied_count": policy_step.denied_count,
+        "activation_traces": [item.as_dict() for item in policy_step.activation_traces],
+        "policy_decisions": [item.as_dict() for item in policy_step.decision_traces],
+        "market_quality": quality_payload,
+        "raw_signal_count": len(raw_signals),
+        "executable_signal_count": len(signals),
+        "raw_signals": [_signal_payload(sig) for sig in raw_signals],
+        "executable_signals": [_signal_payload(sig) for sig in signals],
+        "signal_filter_details": tuple(signal_guard.details),
+        "n_filled": n_filled,
+        "n_rejected": n_rejected,
+        "n_blocked": policy_step.denied_count + n_execution_blocked,
+        "blocked_reasons": blocked_reasons,
+        "kill_switch_reason": str(kill_reason_after_execution or ""),
+    }
+    selected_actors = {
+        sig.sym: policy_runtime.manifest.actor
+        for sig in signals
+    }
+    return (
+        StepResult(
+            bar=market.bar,
+            regime=effective_market.regime,
+            leader=policy_runtime.label,
+            leader_changed=False,
+            n_signals=len(signals),
+            n_filled=n_filled,
+            n_rejected=n_rejected,
+            n_blocked=policy_step.denied_count + n_execution_blocked,
+            n_filtered_real_signals=signal_guard.filtered,
+            n_stale_close_signals=signal_guard.stale_closes,
+            n_duplicate_open_signals=signal_guard.duplicate_opens,
+            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            n_max_position_saturated_open_signals=(
+                signal_guard.max_position_saturated_opens
+            ),
+            n_external_position_signals=signal_guard.external_position_signals,
+            n_raw_signals=len(raw_signals),
+            leader_agent_labels=(policy_runtime.manifest.actor,),
+            selected_actors_by_symbol=selected_actors,
+            signal_filter_details=tuple(signal_guard.details),
+            selected_leader=policy_runtime.label,
+            executed_leader=policy_runtime.label,
+            blocked_reasons=blocked_reasons,
+            causal_decision=causal_decision,
+            error=(
+                f"kill switch active: {kill_reason_after_execution}"
+                if kill_reason_after_execution else None
+            ),
+        ),
+        signal_id_counter,
+        last_qm_bar,
+        last_regime,
     )
 
 

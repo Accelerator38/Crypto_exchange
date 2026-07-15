@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
@@ -731,6 +732,80 @@ def _resolve_paper_canary_shutdown_flatten_enabled(exchange_name: str) -> bool:
         "paper_canary_shutdown_flatten_enabled",
     )
     return _settings_bool(settings, names, False)
+
+
+def _restrict_risk_config_to_policy(
+    config: RiskLimitsConfig,
+    manifest: Any,
+) -> RiskLimitsConfig:
+    """Make TradeExecutor limits equal to or stricter than the sealed policy."""
+
+    policy_risk = manifest.risk
+    return replace(
+        config,
+        max_open_positions=min(
+            int(config.max_open_positions),
+            int(policy_risk.max_open_positions),
+        ),
+        max_per_symbol=1,
+        max_notional_usd=min(
+            float(config.max_notional_usd),
+            float(policy_risk.max_notional_usd),
+        ),
+        max_leverage=1,
+        apply_leverage_to_notional=False,
+        floor_to_exchange_min_notional=False,
+        capital_fraction=min(
+            float(config.capital_fraction),
+            float(policy_risk.capital_fraction),
+        ),
+    )
+
+
+def _policy_pipeline_invariant_error(
+    pipeline: Any,
+    policy_runtime: Any,
+    exchange_adapter: Any,
+) -> str:
+    if getattr(pipeline, "policy_runtime_v1", None) is not policy_runtime:
+        return "policy runtime identity changed"
+    if bool(getattr(pipeline, "flash_enabled", False)):
+        return "Flash execution enabled"
+    if getattr(pipeline, "flash_allocator", None) is not None:
+        return "Flash allocator exists"
+    if tuple(getattr(pipeline.registry, "all_labels")()) != (
+        policy_runtime.manifest.actor,
+    ):
+        return "registry is not the single manifest actor"
+    if tuple(getattr(pipeline, "profiles", ()) or ()):
+        return "legacy player profiles exist"
+    executor = getattr(pipeline, "executor", None)
+    if getattr(executor, "_exchange", None) is not exchange_adapter:
+        return "execution exchange changed"
+
+    policy_risk = policy_runtime.manifest.risk
+    risk_configs = (
+        getattr(pipeline, "risk_config", None),
+        getattr(getattr(executor, "_risk", None), "config", None),
+    )
+    for config in risk_configs:
+        if config is None:
+            return "execution risk config missing"
+        if int(config.max_open_positions) > int(policy_risk.max_open_positions):
+            return "max_open_positions exceeds manifest"
+        if int(config.max_per_symbol) != 1:
+            return "max_per_symbol must equal 1"
+        if float(config.max_notional_usd) > float(policy_risk.max_notional_usd):
+            return "max_notional_usd exceeds manifest"
+        if float(config.capital_fraction) > float(policy_risk.capital_fraction):
+            return "capital_fraction exceeds manifest"
+        if int(config.max_leverage) != 1:
+            return "max_leverage must equal 1"
+        if bool(config.apply_leverage_to_notional):
+            return "leveraged notional is enabled"
+        if bool(config.floor_to_exchange_min_notional):
+            return "min-notional flooring is enabled"
+    return ""
 
 
 def _paper_canary_shutdown_summary(
@@ -3474,11 +3549,15 @@ def _load_or_migrate_state(
 # ────────────────────────────────────────────────────────────────────
 
 
-def resolve_exchange(exchange_name: str, *, mode: str) -> Exchange:
-    """Реальный Exchange-адаптер или FakeExchange.
+def resolve_exchange(
+    exchange_name: str,
+    *,
+    mode: str,
+    leverage_override: Optional[int] = None,
+) -> Exchange:
+    """Resolve FakeExchange for virtual modes and a real adapter otherwise.
 
-    В live_futures используются bitget_adapter.py / mexc_adapter.py.
-    FakeExchange остаётся только для paper или неподдержанной биржи.
+    Non-virtual modes never fall back to FakeExchange.
     """
     name = exchange_name.upper()
     if _is_virtual_exchange_mode(mode):
@@ -3489,28 +3568,19 @@ def resolve_exchange(exchange_name: str, *, mode: str) -> Exchange:
         try:
             from .bitget_adapter import BitgetExchangeAdapter  # noqa
             log.info("[BITGET] real adapter detected")
-            return BitgetExchangeAdapter()
-        except ImportError:
-            log.warning(
-                "[BITGET] no bitget_adapter.py — using FakeExchange (DRYRUN). "
-                "Implement bitget_adapter.py based on exchange_adapter_template.py"
-            )
-            return FakeExchange(name="BITGET-DRYRUN")
+            return BitgetExchangeAdapter(leverage=leverage_override)
+        except ImportError as exc:
+            raise RuntimeError("BITGET live adapter is unavailable") from exc
 
     if name == "MEXC":
         try:
             from .mexc_adapter import MexcExchangeAdapter  # noqa
             log.info("[MEXC] real adapter detected")
-            return MexcExchangeAdapter()
-        except ImportError:
-            log.warning(
-                "[MEXC] no mexc_adapter.py — using FakeExchange (DRYRUN). "
-                "Implement mexc_adapter.py based on exchange_adapter_template.py"
-            )
-            return FakeExchange(name="MEXC-DRYRUN")
+            return MexcExchangeAdapter(leverage=leverage_override)
+        except ImportError as exc:
+            raise RuntimeError("MEXC live adapter is unavailable") from exc
 
-    log.warning("Unknown exchange %s; using FakeExchange", name)
-    return FakeExchange(name=f"{name}-DRYRUN")
+    raise ValueError(f"unsupported non-virtual exchange: {name}")
 
 
 def _recover_exchange_positions(pipeline) -> int:
@@ -3804,6 +3874,7 @@ def start_production(
     live_execution_config_override: Optional[LiveExecutionConfig] = None,
     flash_enabled_override: Optional[bool] = None,
     flash_allocator_config_override: Optional[FlashAllocatorConfig] = None,
+    enable_policy_runtime: bool = False,
     configure_pipeline: Optional[Callable[[object], None]] = None,
 ) -> int:
     """Запустить production main_loop для указанной биржи.
@@ -3818,6 +3889,19 @@ def start_production(
     log.info("=" * 70)
     log.info("Panteon v2 production startup: %s mode=%s", exchange, mode)
     log.info("=" * 70)
+    bitget_live = (
+        str(exchange or "").strip().upper() == "BITGET"
+        and not _is_virtual_exchange_mode(mode)
+    )
+    if bitget_live and not bool(enable_policy_runtime):
+        log.error(
+            "BITGET live startup blocked: enable_policy_runtime=True is required; "
+            "legacy Flash/ensemble execution is virtual-only"
+        )
+        return 2
+    if bool(enable_policy_runtime) and not bitget_live:
+        log.error("policy runtime is supported only for non-virtual BITGET micro-live")
+        return 2
     preflight_failure = _direct_bitget_live_preflight_failure(exchange, mode)
     if preflight_failure:
         log.error(preflight_failure)
@@ -3833,7 +3917,20 @@ def start_production(
         log.info("[%s] EventLog JSONL: %s", exchange, jsonl_event_log)
 
     # 1. Exchange adapter + capital base
-    exchange_adapter = resolve_exchange(exchange, mode=mode)
+    try:
+        exchange_adapter = resolve_exchange(
+            exchange,
+            mode=mode,
+            leverage_override=1 if enable_policy_runtime else None,
+        )
+    except Exception as exc:
+        log.error(
+            "[%s] exchange adapter initialization failed: %s: %s",
+            exchange,
+            type(exc).__name__,
+            exc,
+        )
+        return 2
     resolved_initial_capital = _resolve_initial_capital(
         exchange_adapter=exchange_adapter,
         mode=mode,
@@ -3857,6 +3954,10 @@ def start_production(
         flash_enabled = bool(flash_enabled_override)
     if flash_allocator_config_override is not None:
         flash_allocator_config = flash_allocator_config_override
+    if enable_policy_runtime:
+        include_genetics = False
+        genetics_shadow_only = True
+        flash_enabled = False
     flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
     flash_partial_profit_lock_config = _resolve_flash_partial_profit_lock_config(exchange)
     log.info(
@@ -3909,14 +4010,48 @@ def start_production(
             return float(getattr(pipeline, "current_balance", resolved_initial_capital) or resolved_initial_capital)
         return resolved_initial_capital
 
-    futures_signal_fixes_enabled = _resolve_futures_signal_fixes_enabled(exchange)
-    registered = register_all_v1_agents(
-        registry,
-        portfolio_value_fn=_portfolio_value,
-        skip_on_error=True,
-        include_optional=include_genetics,
-        futures_replay_signal_fixes_enabled=futures_signal_fixes_enabled,
-    )
+    policy_runtime = None
+    futures_signal_fixes_enabled = False
+    if enable_policy_runtime:
+        try:
+            from .policy_runtime import load_bitget_micro_live_policy_runtime
+
+            policy_runtime = load_bitget_micro_live_policy_runtime(
+                project_root=Path(__file__).resolve().parents[3],
+                portfolio_value_fn=_portfolio_value,
+            )
+        except Exception as exc:
+            log.error("BITGET policy runtime load failed: %s: %s", type(exc).__name__, exc)
+            return 2
+        registry.register(policy_runtime.actor)
+        registered = (policy_runtime.manifest.actor,)
+        risk_config = _restrict_risk_config_to_policy(
+            risk_config,
+            policy_runtime.manifest,
+        )
+        trade_fraction = float(risk_config.capital_fraction)
+        log.info(
+            "[BITGET] policy runtime loaded: policy_id=%s actor=%s manifest=%s",
+            policy_runtime.manifest.policy_id,
+            policy_runtime.manifest.actor,
+            policy_runtime.manifest.manifest_sha256,
+        )
+        log.info(
+            "[BITGET] sealed policy risk: capital_fraction=%.4f "
+            "max_notional=$%.2f max_positions=%d leverage=1",
+            risk_config.capital_fraction,
+            risk_config.max_notional_usd,
+            risk_config.max_open_positions,
+        )
+    else:
+        futures_signal_fixes_enabled = _resolve_futures_signal_fixes_enabled(exchange)
+        registered = register_all_v1_agents(
+            registry,
+            portfolio_value_fn=_portfolio_value,
+            skip_on_error=True,
+            include_optional=include_genetics,
+            futures_replay_signal_fixes_enabled=futures_signal_fixes_enabled,
+        )
     log.info("Registered %d v1-agents: %s", len(registered),
              ", ".join(registered[:5]) + ("…" if len(registered) > 5 else ""))
     if futures_signal_fixes_enabled:
@@ -3955,14 +4090,18 @@ def start_production(
             risk_config.max_open_positions,
             ", ".join(genetics_limit_labels),
         )
-    effective_seed_quarantine = _seed_quarantine_with_shadow_only_genetics(
-        seed_quarantine,
-        registered,
-        include_genetics=include_genetics,
-        genetics_shadow_only=genetics_shadow_only,
-        quarantine_exempt_labels=_resolve_genetics_shadow_only_quarantine_exempt_labels(
-            exchange,
-        ),
+    effective_seed_quarantine = (
+        ()
+        if policy_runtime is not None
+        else _seed_quarantine_with_shadow_only_genetics(
+            seed_quarantine,
+            registered,
+            include_genetics=include_genetics,
+            genetics_shadow_only=genetics_shadow_only,
+            quarantine_exempt_labels=(
+                _resolve_genetics_shadow_only_quarantine_exempt_labels(exchange)
+            ),
+        )
     )
     if include_genetics:
         genetics_registered = [
@@ -3993,10 +4132,23 @@ def start_production(
         perf_trade_fraction=trade_fraction,
         perf_max_returns_history=_resolve_perf_max_returns_history(exchange),
         voting_directional=_resolve_voting_directional(exchange),
+        policy_runtime_v1=policy_runtime,
         jsonl_event_log=jsonl_event_log,
     )
     if configure_pipeline is not None:
         configure_pipeline(pipeline)
+    if policy_runtime is not None:
+        invariant_error = _policy_pipeline_invariant_error(
+            pipeline,
+            policy_runtime,
+            exchange_adapter,
+        )
+        if invariant_error:
+            log.error(
+                "BITGET policy runtime invariant violated: %s",
+                invariant_error,
+            )
+            return 2
     pipeline.mode = mode
     pipeline.timeframe = _resolve_timeframe(exchange)
     pipeline.flash_stale_position_exit_enabled = bool(
@@ -4030,18 +4182,27 @@ def start_production(
     log.info("Pipeline built: %d profiles, capital=$%.2f",
              len(pipeline.profiles), pipeline.initial_capital)
     exchange_settings = _load_exchange_settings(exchange)
-    quarantine_override_labels = _quarantine_override_labels_from_settings(
-        exchange_settings,
-        exchange,
-    )
-    manual_quarantine_labels = _manual_quarantine_labels_from_settings(
-        exchange_settings,
-        exchange,
-    )
-    quarantine_recovery_config = _quarantine_recovery_config_from_settings(
-        exchange_settings,
-        exchange,
-    )
+    if policy_runtime is not None:
+        quarantine_override_labels = ()
+        manual_quarantine_labels = ()
+        quarantine_recovery_config = {
+            "enabled": False,
+            "min_pnl_pct": 0.0,
+            "min_closed_trades": 1,
+        }
+    else:
+        quarantine_override_labels = _quarantine_override_labels_from_settings(
+            exchange_settings,
+            exchange,
+        )
+        manual_quarantine_labels = _manual_quarantine_labels_from_settings(
+            exchange_settings,
+            exchange,
+        )
+        quarantine_recovery_config = _quarantine_recovery_config_from_settings(
+            exchange_settings,
+            exchange,
+        )
     pipeline.quarantine_override_labels = quarantine_override_labels
     pipeline.manual_quarantine_labels = manual_quarantine_labels
     pipeline.quarantine_recovery_enabled = bool(
@@ -4097,26 +4258,30 @@ def start_production(
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
     )
-    pipeline.selector.capture_session_baseline()
-    pipeline.strategist.capture_session_baseline()
-    pipeline.degradation_gate.capture_baseline(
-        pipeline.perf,
-        labels=pipeline.registry.all_labels(),
-    )
-    pipeline.shadow_tournament = ProductionShadowTournament(
-        registry=pipeline.registry,
-        perf=pipeline.perf,
-        risk_config=risk_config,
-        event_log=pipeline.event_log,
-    )
-    if restored_shadow_positions:
-        pipeline._pending_shadow_player_positions = dict(restored_shadow_positions)
-    log.info(
-        "[%s] production shadow tournament enabled: agents=%d profiles=%d",
-        exchange,
-        len(pipeline.registry),
-        len(pipeline.profiles),
-    )
+    if policy_runtime is None:
+        pipeline.selector.capture_session_baseline()
+        pipeline.strategist.capture_session_baseline()
+        pipeline.degradation_gate.capture_baseline(
+            pipeline.perf,
+            labels=pipeline.registry.all_labels(),
+        )
+        pipeline.shadow_tournament = ProductionShadowTournament(
+            registry=pipeline.registry,
+            perf=pipeline.perf,
+            risk_config=risk_config,
+            event_log=pipeline.event_log,
+        )
+        if restored_shadow_positions:
+            pipeline._pending_shadow_player_positions = dict(restored_shadow_positions)
+        log.info(
+            "[%s] production shadow tournament enabled: agents=%d profiles=%d",
+            exchange,
+            len(pipeline.registry),
+            len(pipeline.profiles),
+        )
+    else:
+        pipeline.shadow_tournament = None
+        log.info("[BITGET] policy runtime: shadow tournament disabled")
 
     # 5. OutputWriter — обязательно для видимости работы
     if mode != "paper":

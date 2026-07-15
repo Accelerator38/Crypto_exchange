@@ -722,6 +722,62 @@ def _warmup_v2_agents_from_bridge(
     return warmed
 
 
+def _warmup_policy_runtime_from_bridge(
+    bridge: Any,
+    pipeline: ProductionPipeline,
+    *,
+    exchange_name: str,
+) -> int:
+    runtime = getattr(pipeline, "policy_runtime_v1", None)
+    if runtime is None:
+        return 0
+    exchange = getattr(getattr(pipeline, "executor", None), "_exchange", None)
+    provider = getattr(exchange, "get_policy_warmup_history", None)
+    if not callable(provider):
+        raise RuntimeError("exchange policy warmup provider is unavailable")
+    required_bars = int(runtime.required_warmup_bars)
+    frame = provider(
+        symbols=runtime.symbols,
+        bar_interval_seconds=runtime.manifest.data.bar_interval_seconds,
+        required_bars=required_bars,
+    )
+    if not isinstance(frame, dict) or not bool(frame.get("complete")):
+        reason = str(frame.get("reason") or "warmup frame incomplete") if isinstance(frame, dict) else "warmup frame invalid"
+        errors = frame.get("errors") if isinstance(frame, dict) else None
+        raise RuntimeError(f"{reason}: {errors or {}}")
+    price_rows = frame.get("prices")
+    volume_rows = frame.get("volumes")
+    if not isinstance(price_rows, list) or not isinstance(volume_rows, list):
+        raise RuntimeError("warmup frame rows are invalid")
+    source_interval = int(runtime.manifest.data.bar_interval_seconds)
+    warmed = runtime.warmup_from_history(
+        price_rows,
+        volume_rows,
+        source_bar_interval_seconds=source_interval,
+        restore_derivatives_fetcher=getattr(bridge, "funding", None),
+    )
+    if warmed < required_bars:
+        raise RuntimeError(
+            f"policy warmup produced {warmed}/{required_bars} required bars"
+        )
+    pipeline.policy_warmup = {
+        "source": str(frame.get("source") or ""),
+        "source_interval_seconds": source_interval,
+        "target_interval_seconds": runtime.manifest.data.bar_interval_seconds,
+        "required_bars": required_bars,
+        "bars": warmed,
+        "bar_close_timestamp": frame.get("bar_close_timestamp"),
+    }
+    log.info(
+        "[%s] policy runtime warmup completed: bars=%d source=%s target=%ds",
+        exchange_name,
+        warmed,
+        frame.get("source") or "unknown",
+        runtime.manifest.data.bar_interval_seconds,
+    )
+    return warmed
+
+
 def _is_heavy_optional_warmup_agent(agent: Any) -> bool:
     label = _agent_label(agent)
     if not label.startswith("Genetics"):
@@ -993,16 +1049,30 @@ def run_with_v1_bridge(
         feed_status="agent_warmup",
         message="replaying warmup history into v2 agents",
     )
-    warmed_bars = _warmup_v2_agents_from_bridge(
-        bridge,
-        pipeline.registry,
-        exchange_name=exchange_name,
-        max_bars=warmup_bars,
-    )
-    live_bar_index = max(
-        int(getattr(bridge, "_bar", 0) or 0),
-        int(warmed_bars or 0),
-    )
+    if getattr(pipeline, "policy_runtime_v1", None) is not None:
+        try:
+            warmed_bars = _warmup_policy_runtime_from_bridge(
+                bridge,
+                pipeline,
+                exchange_name=exchange_name,
+            )
+        except Exception:
+            log.exception("[%s] policy runtime warmup failed; live start blocked", exchange_name)
+            return 2
+    else:
+        warmed_bars = _warmup_v2_agents_from_bridge(
+            bridge,
+            pipeline.registry,
+            exchange_name=exchange_name,
+            max_bars=warmup_bars,
+        )
+    if getattr(pipeline, "policy_runtime_v1", None) is not None:
+        live_bar_index = int(warmed_bars or 0)
+    else:
+        live_bar_index = max(
+            int(getattr(bridge, "_bar", 0) or 0),
+            int(warmed_bars or 0),
+        )
     _prepare_v2_agents_for_live_after_warmup(
         pipeline,
         exchange_name=exchange_name,

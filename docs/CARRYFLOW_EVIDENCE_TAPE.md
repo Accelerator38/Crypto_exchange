@@ -63,3 +63,26 @@ Once enough contiguous samples exist, authoritative replay uses:
 Paper canary remains forbidden until this route has at least 95% context
 coverage, 20 fills, 10 closed trades, positive expectancy after costs and a
 positive lower confidence bound.
+
+## Production parity boundary
+
+The Bitget policy runtime now consumes the same decision contract as the tape:
+
+- one exact closed candle at the manifest interval;
+- a decision-time ticker price;
+- current complete derivatives context;
+- collection/decision lag bounded by the manifest;
+- current order-book spread and visible-depth slippage for the manifest maximum
+  notional.
+
+At startup, the actor price state is warmed from synchronized public Bitget
+closed bars. The derivatives fetcher is disabled during warmup, because copying
+the current OI/funding value into historical bars would create false evidence.
+Live OI history therefore becomes actionable only after genuine cadence samples
+arrive.
+
+Collector output is read-only evidence. It is never a paper canary, never a
+live status artifact and never proof that an order was attempted. Existing tapes
+remain valid historical inputs with their recorded collector hashes, but a new
+policy replay and manifest must pin the current runtime fingerprint before any
+promotion decision.

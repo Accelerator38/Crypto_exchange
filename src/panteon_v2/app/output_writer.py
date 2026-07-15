@@ -497,8 +497,10 @@ class OutputWriter:
         row = dict(payload)
         if self._config.compact_causal_entry_decisions:
             row = self._compact_causal_entry_decision(row)
+            policy_event = self._is_persistable_policy_decision(row)
             if (
                 self._config.compact_causal_entry_selected_only
+                and not policy_event
                 and not row.get("flash_decisions")
                 and not row.get("shadow_position_diagnostics")
                 and not self._has_soft_allocator_execution(row)
@@ -795,6 +797,14 @@ class OutputWriter:
         return False
 
     @staticmethod
+    def _is_persistable_policy_decision(row: Dict[str, Any]) -> bool:
+        if str(row.get("decision_path") or "") != "policy_v1":
+            return False
+        if row.get("policy_bar") is not None:
+            return True
+        return str(row.get("status") or "") in {"safety_exit", "error"}
+
+    @staticmethod
     def _compact_candidate_audit(candidate: Dict[str, Any]) -> Dict[str, Any]:
         keys = (
             "label",
@@ -1059,6 +1069,7 @@ class OutputWriter:
             "last_summary": getattr(self._pipeline, "shadow_last_summary", None),
         }
         flash = self._flash_status_payload(step)
+        policy = self._policy_status_payload(step)
         decision_debug = self._decision_debug(
             step=step,
             shadow_bar=shadow_bar,
@@ -1158,6 +1169,7 @@ class OutputWriter:
             ),
             "shadow":           shadow,
             "flash":            flash,
+            "policy":           policy,
             "decision_debug":   decision_debug,
             "quarantined":      sorted(self._pipeline.qm.all_quarantined()),
             "quarantine_records": self._quarantine_records(),
@@ -1196,6 +1208,7 @@ class OutputWriter:
             "shadow_session": dict(shadow_session),
         }
         if step is None:
+            policy_payload = self._policy_status_payload(None)
             debug.update({
                 "leader": "",
                 "selected_leader": "",
@@ -1218,12 +1231,22 @@ class OutputWriter:
                 "flash_actor_types_by_symbol": {},
                 "flash_scores_by_symbol": {},
                 "flash_decisions_count": 0,
+                "policy_enabled": bool(policy_payload.get("enabled", False)),
+                "policy_id": str(policy_payload.get("policy_id") or ""),
+                "policy_manifest_sha256": str(
+                    policy_payload.get("manifest_sha256") or ""
+                ),
+                "policy_status": str(policy_payload.get("status") or ""),
+                "policy_reason": str(policy_payload.get("reason") or ""),
+                "policy_candidate_count": 0,
+                "policy_decision_count": 0,
                 "step_error": "",
             })
             return debug
         selected_leader = step.selected_leader or step.leader or ""
         executed_leader = step.executed_leader or step.leader or ""
         flash_payload = self._flash_status_payload(step)
+        policy_payload = self._policy_status_payload(step)
         debug.update({
             "leader": step.leader or "",
             "selected_leader": selected_leader,
@@ -1266,12 +1289,33 @@ class OutputWriter:
                 flash_payload.get("scores_by_symbol", {}) or {}
             ),
             "flash_decisions_count": len(flash_payload.get("decisions", []) or []),
+            "policy_enabled": bool(policy_payload.get("enabled", False)),
+            "policy_id": str(policy_payload.get("policy_id") or ""),
+            "policy_manifest_sha256": str(
+                policy_payload.get("manifest_sha256") or ""
+            ),
+            "policy_status": str(policy_payload.get("status") or ""),
+            "policy_reason": str(policy_payload.get("reason") or ""),
+            "policy_candidate_count": int(
+                policy_payload.get("candidate_count") or 0
+            ),
+            "policy_decision_count": int(
+                policy_payload.get("decision_count") or 0
+            ),
             "step_error": step.error or "",
         })
         return debug
 
     def _flash_status_payload(self, step: Optional[StepResult]) -> Dict[str, object]:
         causal = dict(getattr(step, "causal_decision", {}) or {}) if step is not None else {}
+        if str(causal.get("decision_path") or "") == "policy_v1":
+            return {
+                "enabled": False,
+                "selected_actors_by_symbol": {},
+                "actor_types_by_symbol": {},
+                "scores_by_symbol": {},
+                "decisions": [],
+            }
         selected = dict(getattr(step, "selected_actors_by_symbol", {}) or {}) if step is not None else {}
         if not selected:
             selected = dict(causal.get("flash_selected_actors_by_symbol") or {})
@@ -1287,6 +1331,61 @@ class OutputWriter:
             "scores_by_symbol": dict(causal.get("flash_scores_by_symbol") or {}),
             "decisions": decisions,
         }
+
+    def _policy_status_payload(self, step: Optional[StepResult]) -> Dict[str, object]:
+        runtime = getattr(self._pipeline, "policy_runtime_v1", None)
+        causal = (
+            dict(getattr(step, "causal_decision", {}) or {})
+            if step is not None
+            else {}
+        )
+        manifest = getattr(runtime, "manifest", None)
+        loaded = getattr(runtime, "loaded_manifest", None)
+        enabled = runtime is not None
+        target = getattr(getattr(manifest, "target", None), "value", "")
+        payload: Dict[str, object] = {
+            "enabled": enabled,
+            "decision_path": "policy_v1" if enabled else "",
+            "policy_id": str(getattr(manifest, "policy_id", "") or ""),
+            "manifest_sha256": str(
+                getattr(manifest, "manifest_sha256", "") or ""
+            ),
+            "manifest_path": str(getattr(loaded, "path", "") or ""),
+            "target": str(target or ""),
+            "actor": str(getattr(manifest, "actor", "") or ""),
+            "status": "configured" if enabled else "disabled",
+            "reason": "",
+            "policy_bar": None,
+            "cadence_timestamp": None,
+            "candidate_count": 0,
+            "denied_count": 0,
+            "decision_count": 0,
+            "market_quality": [],
+            "warmup": dict(getattr(self._pipeline, "policy_warmup", {}) or {}),
+            "risk_state": dict(getattr(runtime, "risk_status", {}) or {}),
+        }
+        if str(causal.get("decision_path") or "") != "policy_v1":
+            return payload
+        payload.update({
+            "policy_id": str(causal.get("policy_id") or payload["policy_id"]),
+            "manifest_sha256": str(
+                causal.get("manifest_sha256") or payload["manifest_sha256"]
+            ),
+            "manifest_path": str(
+                causal.get("manifest_path") or payload["manifest_path"]
+            ),
+            "target": str(causal.get("target") or payload["target"]),
+            "actor": str(causal.get("actor") or payload["actor"]),
+            "status": str(causal.get("status") or ""),
+            "reason": str(causal.get("reason") or ""),
+            "policy_bar": causal.get("policy_bar"),
+            "cadence_timestamp": causal.get("cadence_timestamp"),
+            "candidate_count": int(causal.get("candidate_count") or 0),
+            "denied_count": int(causal.get("policy_denied_count") or 0),
+            "decision_count": len(causal.get("policy_decisions") or []),
+            "market_quality": list(causal.get("market_quality") or []),
+        })
+        return payload
 
     def _market_view_payload(
         self,

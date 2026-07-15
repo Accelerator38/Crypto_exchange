@@ -15,12 +15,16 @@ the collector is running.
 - `hourly_root_v2_recovery_20260715_precommit`: two contiguous complete hourly
   samples collected after recovery. It was finalized before committing so one
   tape never mixes collector source revisions.
+- `hourly_root_v3_a1281fa_20260715_pre_policy_runtime`: four contiguous complete
+  hourly samples with 100% full8 context coverage, collected on revision
+  `a1281fab6f027bcf9ae78ed3635755bb582cb021`. It was finalized immediately
+  before the production policy-runtime wiring changed.
 
-The two segments have a real time gap and must not be concatenated or treated
-as one promotion window. They may be replayed independently. A replay report
+Segments with separate hash-chain roots must not be concatenated or treated as
+one promotion window. They may be replayed independently. A replay report
 records both the evidence collector revision and the policy revision, so later
 policy commits can evaluate an older immutable market tape without rewriting
 its provenance.
 
-Neither segment contains API credentials, account data, orders, or live-trade
+No segment contains API credentials, account data, orders, or live-trade
 authorization.

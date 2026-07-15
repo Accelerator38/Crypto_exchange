@@ -22,7 +22,11 @@ from panteon_v2.policy import (
     seal_manifest_payload,
     validate_policy_manifest,
 )
-from panteon_v2.policy.manifest import parse_manifest_payload, sha256_file
+from panteon_v2.policy.manifest import (
+    RUNTIME_FINGERPRINT_PATHS,
+    parse_manifest_payload,
+    sha256_file,
+)
 
 
 NOW = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
@@ -311,6 +315,19 @@ def test_authoritative_load_pins_dirty_worktree_runtime_bytes(tmp_path):
         )
 
 
+def test_runtime_fingerprint_covers_live_policy_wiring():
+    required = {
+        "Start_panteon.py",
+        "src/panteon_v2/app/bitget_adapter.py",
+        "src/panteon_v2/app/main_loop.py",
+        "src/panteon_v2/app/policy_runtime.py",
+        "src/panteon_v2/app/startup.py",
+        "src/panteon_v2/app/v1_bridge_runner.py",
+    }
+
+    assert required.issubset(set(RUNTIME_FINGERPRINT_PATHS))
+
+
 def test_manifest_hard_blocks_missing_oos_and_zero_costs(tmp_path):
     draft = _draft(tmp_path)
     draft["evidence"] = [
@@ -520,6 +537,29 @@ def test_direct_bitget_worker_cannot_bypass_live_preflight(monkeypatch):
         startup,
         "_direct_bitget_live_preflight_failure",
         lambda exchange, mode: "BITGET live preflight failed: policy_manifest_missing",
+    )
+    monkeypatch.setattr(
+        startup,
+        "resolve_exchange",
+        lambda *args, **kwargs: pytest.fail("exchange must not be resolved"),
+    )
+
+    result = startup.start_production(
+        exchange="BITGET",
+        mode="live_futures",
+        enable_policy_runtime=True,
+    )
+
+    assert result == 2
+
+
+def test_direct_bitget_worker_rejects_legacy_live_runtime(monkeypatch):
+    from panteon_v2.app import startup
+
+    monkeypatch.setattr(
+        startup,
+        "_direct_bitget_live_preflight_failure",
+        lambda *args, **kwargs: pytest.fail("legacy live must stop before preflight"),
     )
     monkeypatch.setattr(
         startup,

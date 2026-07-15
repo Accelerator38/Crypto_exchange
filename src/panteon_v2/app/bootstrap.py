@@ -433,6 +433,7 @@ class ProductionPipeline:
     shadow_tournament: Optional[object] = None
     shadow_last_summary: Optional[dict] = None
     live_execution: LiveExecutionConfig = field(default_factory=LiveExecutionConfig)
+    policy_runtime_v1: Optional[object] = None
     kill_switch: KillSwitchState = field(default_factory=KillSwitchState)
     flash_enabled: bool = False
     shadow_agent_labels: tuple[str, ...] = ()
@@ -479,6 +480,7 @@ def build_production_pipeline(
     perf_max_returns_history: int = 0,
     composer_weight_power: Optional[float] = None,
     voting_directional: bool = False,
+    policy_runtime_v1: Optional[object] = None,
     jsonl_event_log:    Optional[str] = None,
 ) -> ProductionPipeline:
     """Собрать полный production pipeline.
@@ -503,8 +505,14 @@ def build_production_pipeline(
             "registry is empty — register agents through agent_bootstrap.py "
             "before build_production_pipeline()"
         )
+    if policy_runtime_v1 is not None and flash_enabled:
+        raise ValueError("policy_runtime_v1 cannot be combined with Flash execution")
 
-    profiles = list(profiles or PRODUCTION_PROFILES)
+    profiles = (
+        []
+        if policy_runtime_v1 is not None
+        else list(profiles or PRODUCTION_PROFILES)
+    )
     strategist_config = strategist_config or StrategistConfig()
     risk_config = risk_config or RiskLimitsConfig()
     health_config = health_config or SymbolHealthConfig()
@@ -557,13 +565,17 @@ def build_production_pipeline(
         scoring_config=scoring_config,
         real_perf=real_perf,
     )
-    flash_allocator = FlashAllocator(
-        perf=virtual_perf,
-        qm=qm,
-        config=flash_allocator_config,
-        scoring_config=scoring_config,
-        real_perf=real_perf,
-        component_memory=flash_component_memory,
+    flash_allocator = (
+        None
+        if policy_runtime_v1 is not None
+        else FlashAllocator(
+            perf=virtual_perf,
+            qm=qm,
+            config=flash_allocator_config,
+            scoring_config=scoring_config,
+            real_perf=real_perf,
+            component_memory=flash_component_memory,
+        )
     )
     executor = TradeExecutor(
         exchange=exchange,
@@ -604,6 +616,7 @@ def build_production_pipeline(
         exchange_name=getattr(exchange, "name", "UNKNOWN"),
         current_balance=initial_capital,
         live_execution=live_execution_config,
+        policy_runtime_v1=policy_runtime_v1,
         flash_enabled=bool(flash_enabled),
     )
 

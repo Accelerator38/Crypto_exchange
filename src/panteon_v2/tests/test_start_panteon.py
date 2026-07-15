@@ -43,6 +43,15 @@ def test_parse_trade_regime_multi():
     assert parsed.singleton_actor == ""
 
 
+def test_parse_trade_regime_policy():
+    launcher = _load_launcher()
+
+    parsed = launcher._parse_trade_regime("policy")
+
+    assert parsed.mode == "policy"
+    assert parsed.singleton_actor == ""
+
+
 def test_parse_trade_regime_singlton_actor():
     launcher = _load_launcher()
 
@@ -93,10 +102,26 @@ def test_unified_launcher_worker_args_preserve_singleton_trade_regime():
     )
 
 
+def test_unified_launcher_worker_args_preserve_policy_trade_regime():
+    launcher = _load_launcher()
+    parsed = launcher._parse_trade_regime("policy")
+
+    assert launcher._worker_args("BITGET", parsed) == (
+        "Start_panteon.py",
+        "--worker",
+        "BITGET",
+        "--trade-regime",
+        "policy",
+    )
+
+
 def test_unified_launcher_main_accepts_trade_regime_override_for_dry_run(capsys):
     launcher = _load_launcher()
 
-    with patch.object(launcher, "_lock_is_held", return_value=False):
+    with patch.object(launcher, "_lock_is_held", return_value=False), patch.dict(
+        os.environ,
+        {"BITGET_TRADING_MODE": "paper"},
+    ):
         exit_code = launcher.main(
             [
                 "--only",
@@ -116,9 +141,27 @@ def test_unified_launcher_main_accepts_trade_regime_override_for_dry_run(capsys)
     ) in out
 
 
+def test_unified_launcher_dry_run_reports_blocked_legacy_bitget_live(capsys):
+    launcher = _load_launcher()
+
+    with patch.object(launcher, "_lock_is_held", return_value=False), patch.dict(
+        os.environ,
+        {"BITGET_TRADING_MODE": "live_futures"},
+    ):
+        exit_code = launcher.main(
+            ["--only", "BITGET", "--dry-run", "--trade-regime", "multi"]
+        )
+
+    out = capsys.readouterr().out
+    assert exit_code == 2
+    assert "BITGET: blocked" in out
+    assert "PANTEON_TRADE_REGIME=policy" in out
+
+
 def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
     launcher = _load_launcher()
     lock_path = tmp_path / "panteon_v2_bitget.lock"
+    parsed = launcher._parse_trade_regime("policy")
 
     with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
         launcher,
@@ -136,6 +179,7 @@ def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
             "BITGET",
             dry_run=False,
             python_executable="python-test",
+            parsed_regime=parsed,
         )
 
     spawn.assert_not_called()
@@ -143,7 +187,34 @@ def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
     assert "live preflight failed" in result.message
 
 
-def test_unified_launcher_blocks_live_singleton_without_explicit_override(tmp_path):
+def test_unified_launcher_policy_dry_run_still_requires_preflight(tmp_path):
+    launcher = _load_launcher()
+    lock_path = tmp_path / "panteon_v2_bitget.lock"
+    parsed = launcher._parse_trade_regime("policy")
+
+    with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
+        launcher,
+        "_lock_is_held",
+        return_value=False,
+    ), patch.dict(os.environ, {"BITGET_TRADING_MODE": "live_futures"}), patch.object(
+        launcher,
+        "_live_preflight_result",
+        return_value=_FakePreflight(False),
+    ), patch.object(
+        launcher,
+        "_spawn_child",
+    ) as spawn:
+        result = launcher._launch_exchange(
+            "BITGET",
+            dry_run=True,
+            parsed_regime=parsed,
+        )
+
+    spawn.assert_not_called()
+    assert result.status == "preflight_failed"
+
+
+def test_unified_launcher_blocks_legacy_live_singleton_even_with_override(tmp_path):
     launcher = _load_launcher()
     lock_path = tmp_path / "panteon_v2_bitget.lock"
     parsed = launcher._parse_trade_regime("singlton(GeneticsCore)")
@@ -154,7 +225,10 @@ def test_unified_launcher_blocks_live_singleton_without_explicit_override(tmp_pa
         return_value=False,
     ), patch.dict(
         os.environ,
-        {"BITGET_TRADING_MODE": "live_futures"},
+        {
+            "BITGET_TRADING_MODE": "live_futures",
+            "PANTEON_ALLOW_LIVE_SINGLETON": "1",
+        },
         clear=True,
     ), patch.object(
         launcher,
@@ -172,8 +246,67 @@ def test_unified_launcher_blocks_live_singleton_without_explicit_override(tmp_pa
     preflight.assert_not_called()
     spawn.assert_not_called()
     assert result.status == "blocked"
-    assert "live singleton launch blocked" in result.message
-    assert "PANTEON_ALLOW_LIVE_SINGLETON=1" in result.message
+    assert "BITGET live requires PANTEON_TRADE_REGIME=policy" in result.message
+    assert "virtual-only" in result.message
+
+
+def test_unified_launcher_spawns_bitget_live_policy_only_after_preflight(tmp_path):
+    launcher = _load_launcher()
+    lock_path = tmp_path / "panteon_v2_bitget.lock"
+    parsed = launcher._parse_trade_regime("policy")
+
+    with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
+        launcher,
+        "_lock_is_held",
+        return_value=False,
+    ), patch.dict(os.environ, {"BITGET_TRADING_MODE": "live_futures"}), patch.object(
+        launcher,
+        "_live_preflight_result",
+        return_value=_FakePreflight(True, ()),
+    ) as preflight, patch.object(
+        launcher,
+        "_spawn_child",
+        return_value=12345,
+    ) as spawn:
+        result = launcher._launch_exchange(
+            "BITGET",
+            dry_run=False,
+            python_executable="python-test",
+            parsed_regime=parsed,
+        )
+
+    preflight.assert_called_once_with("BITGET", "live_futures")
+    spawn.assert_called_once_with("BITGET", "python-test", parsed)
+    assert result.status == "launched"
+    assert result.pid == 12345
+
+
+def test_unified_launcher_rejects_policy_in_virtual_mode(tmp_path):
+    launcher = _load_launcher()
+    lock_path = tmp_path / "panteon_v2_bitget.lock"
+    parsed = launcher._parse_trade_regime("policy")
+
+    with patch.object(launcher, "_lock_path", return_value=lock_path), patch.object(
+        launcher,
+        "_lock_is_held",
+        return_value=False,
+    ), patch.dict(os.environ, {"BITGET_TRADING_MODE": "paper"}), patch.object(
+        launcher,
+        "_live_preflight_result",
+    ) as preflight, patch.object(
+        launcher,
+        "_spawn_child",
+    ) as spawn:
+        result = launcher._launch_exchange(
+            "BITGET",
+            dry_run=False,
+            parsed_regime=parsed,
+        )
+
+    preflight.assert_not_called()
+    spawn.assert_not_called()
+    assert result.status == "blocked"
+    assert "reserved for non-virtual BITGET" in result.message
 
 
 def test_unified_launcher_main_returns_nonzero_when_preflight_fails(tmp_path):
@@ -192,7 +325,7 @@ def test_unified_launcher_main_returns_nonzero_when_preflight_fails(tmp_path):
         launcher,
         "_spawn_child",
     ) as spawn:
-        exit_code = launcher.main(["--only", "BITGET"])
+        exit_code = launcher.main(["--only", "BITGET", "--trade-regime", "policy"])
 
     spawn.assert_not_called()
     assert exit_code == 2

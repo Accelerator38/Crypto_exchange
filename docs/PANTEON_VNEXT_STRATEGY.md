@@ -74,8 +74,46 @@ the research layer.
 - The expected move must exceed fees, slippage and a safety buffer at runtime.
 - The first failed check is the primary decision reason and is always emitted in
   the trace.
-- Position exits remain a separate safety path; this policy layer authorizes new
-  entries only.
+- Entry authorization is isolated in `PolicyExecutorV1`. Actor exits and
+  manifest stop/holding/expiry exits use a separate close-only safety path.
+
+## Implemented production boundary (2026-07-15)
+
+The Bitget production wiring now enforces the contract instead of only checking
+it in preflight:
+
+- `Start_panteon.py` accepts non-virtual Bitget only with
+  `PANTEON_TRADE_REGIME=policy`;
+- direct `start_production()` calls require `enable_policy_runtime=True`, so a
+  worker cannot bypass the launcher;
+- startup loads the externally pinned `micro_live` manifest, registers exactly
+  its `CarryFlowAgentV2`, forces leverage to 1 and constrains `TradeExecutor`
+  risk to the manifest;
+- Flash, Genetics, fallback actor selection and the production shadow
+  tournament are disabled on this route;
+- the transport loop may poll every five seconds, but actor evaluation happens
+  only once on an exact manifest-cadence closed bar;
+- the actor is warmed from an exact synchronized Bitget OHLCV window, while
+  historical derivatives context is never fabricated;
+- every entry cadence requires a complete public order book and uses observed
+  spread plus visible-depth slippage for the declared maximum notional;
+- the manifest absolute daily-loss limit latches a non-recovering manage-only
+  kill switch and routes any owned position through the close-only path;
+- the UTC-day loss baseline and latch survive process restarts in an atomic
+  policy risk-state file; malformed state blocks startup;
+- `status.json` exposes a dedicated `policy` block and always reports
+  `flash.enabled=false` for this route;
+- compact causal logging preserves each evaluated policy cadence, including the
+  first `NoTrade` check.
+
+The runtime fingerprint now includes the launcher, live preflight, Bitget feed
+and adapter, startup, main loop, policy runtime, regime detector, actor and v2
+execution stack. A manifest compiled before this boundary cannot authorize the
+new code.
+
+This implementation is not a live approval. Without fresh passing evidence,
+strict paper canaries, a new sealed manifest and explicit manual confirmation,
+startup remains fail-closed.
 
 ## Migration plan
 
