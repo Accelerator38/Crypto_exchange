@@ -636,7 +636,7 @@ def _warmup_v2_agents_from_bridge(
     skipped_agents = len(agents) - len(warmup_agents)
     if skipped_agents:
         log.info(
-            "[%s] v2-agent warmup skips %d heavy optional agent(s); "
+            "[%s] v2-player warmup skips %d heavy optional player(s); "
             "they will warm up on live bars",
             exchange_name,
             skipped_agents,
@@ -655,7 +655,7 @@ def _warmup_v2_agents_from_bridge(
         price_rows = price_rows[-limit:]
         volume_rows = volume_rows[-limit:]
     if not price_rows:
-        log.warning("[%s] v2-agent warmup skipped: bridge price history is empty",
+        log.warning("[%s] v2-player warmup skipped: bridge price history is empty",
                     exchange_name)
         return 0
 
@@ -668,7 +668,7 @@ def _warmup_v2_agents_from_bridge(
         genetics_warmup_start_idx = max(0, len(price_rows) - genetics_warmup_max_bars)
         if genetics_warmup_start_idx > 0:
             log.info(
-                "[%s] v2-agent warmup limits %d genetics agent(s) to latest %d/%d bars",
+                "[%s] v2-player warmup limits %d genetics player(s) to latest %d/%d bars",
                 exchange_name,
                 len(genetics_warmup_agents),
                 genetics_warmup_max_bars,
@@ -708,7 +708,7 @@ def _warmup_v2_agents_from_bridge(
             try:
                 agent.act(market)
             except Exception:
-                log.debug("[%s] v2-agent warmup failed for %s",
+                log.debug("[%s] v2-player warmup failed for %s",
                           exchange_name, getattr(agent, "label", type(agent).__name__),
                           exc_info=True)
         warmed += 1
@@ -717,7 +717,7 @@ def _warmup_v2_agents_from_bridge(
         setattr(bridge, "_panteon_v2_agent_warmup_done", True)
     except Exception:
         pass
-    log.info("[%s] v2-agent warmup completed: bars=%d agents=%d",
+    log.info("[%s] v2-player warmup completed: bars=%d players=%d",
              exchange_name, warmed, len(warmup_agents))
     return warmed
 
@@ -876,6 +876,7 @@ def _create_bridge(
     """
     _ensure_v1_paths()
     bridge_mode = _bridge_market_data_mode(mode)
+    public_market_data_only = _uses_public_market_data_credentials(mode)
     try:
         import os as _os
         _os.environ["CRYPTO_EXCHANGE"] = exchange_name.upper()
@@ -889,9 +890,13 @@ def _create_bridge(
                 cfg["initial_capital"] = float(initial_capital)
                 cfg["paper_capital"] = float(initial_capital)
             bridge_cls = runtime.resolve_bridge_class()
-            api_key = _os.getenv(runtime.api_key_env, "")
-            api_secret = _os.getenv(runtime.api_secret_env, "")
-            api_passphrase = _os.getenv(runtime.api_passphrase_env, "")
+            api_key = "" if public_market_data_only else _os.getenv(runtime.api_key_env, "")
+            api_secret = "" if public_market_data_only else _os.getenv(runtime.api_secret_env, "")
+            api_passphrase = (
+                ""
+                if public_market_data_only
+                else _os.getenv(runtime.api_passphrase_env, "")
+            )
             direct_client = None
             if api_key and api_secret:
                 try:
@@ -902,6 +907,11 @@ def _create_bridge(
                     )
                 except Exception as exc:
                     log.warning("[%s] direct client unavailable: %s", exchange_name, exc)
+            if public_market_data_only:
+                log.info(
+                    "[%s] bridge credentials disabled: public market-data only",
+                    exchange_name,
+                )
 
             bridge_kwargs = {
                 "agents": {},
@@ -946,9 +956,17 @@ def _create_bridge(
 
 def _bridge_market_data_mode(mode: str) -> str:
     clean = str(mode or "").strip().lower()
-    if clean in {"paper_live_feed", "shadow_live_feed"}:
+    if clean in {"paper_live_feed", "shadow_live_feed", "demo_futures"}:
         return "live_futures"
     return clean or "live_futures"
+
+
+def _uses_public_market_data_credentials(mode: str) -> bool:
+    """Paper/shadow live-feed bridges must not receive authenticated keys."""
+    return str(mode or "").strip().lower() in {
+        "paper_live_feed",
+        "shadow_live_feed",
+    }
 
 
 def run_with_v1_bridge(
@@ -1046,8 +1064,8 @@ def run_with_v1_bridge(
     _write_bridge_heartbeat(
         output_writer,
         run_state="warming_up",
-        feed_status="agent_warmup",
-        message="replaying warmup history into v2 agents",
+        feed_status="player_warmup",
+        message="replaying warmup history into v2 players",
     )
     if getattr(pipeline, "policy_runtime_v1", None) is not None:
         try:

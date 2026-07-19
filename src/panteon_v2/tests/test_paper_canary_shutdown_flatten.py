@@ -115,6 +115,25 @@ def test_paper_canary_shutdown_flatten_is_noop_for_live_mode_even_with_flag():
     assert tracker.open_count == 1
 
 
+def test_demo_canary_shutdown_flatten_closes_owned_demo_positions():
+    pipeline, tracker, exchange = _pipeline()
+    _open_short(pipeline, price=100.0)
+
+    summary = _close_paper_canary_positions_on_shutdown(
+        pipeline,
+        mode="demo_futures",
+        enabled=True,
+        latest_prices={"ETH": 90.0},
+        bar=11,
+    )
+
+    assert summary["enabled"] is True
+    assert summary["closed"] == 1
+    assert summary["failed"] == 0
+    assert tracker.open_count == 0
+    assert exchange.get_position("ETH") is None
+
+
 def test_paper_canary_shutdown_flatten_skips_external_positions():
     pipeline, tracker, _exchange = _pipeline()
     tracker.force_set(

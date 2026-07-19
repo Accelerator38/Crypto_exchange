@@ -46,6 +46,7 @@ from ..selection import (
     EnsemblePlayer,
     FlashDecision,
     RotatingAgentPlayer,
+    StrategyPlayer,
     SwitchDecision,
     ThresholdProfile,
     WeightedConsensus,
@@ -602,6 +603,16 @@ def _run_one_bar(
     _expire_stale_pending_orders(pipeline)
     pipeline.event_log.emit(BarStarted(bar=market.bar, trace_id=trace))
 
+    if bool(getattr(pipeline, "player_only_runtime", False)):
+        return _run_player_only_decision_path(
+            pipeline,
+            market,
+            signal_id_counter=signal_id_counter,
+            last_qm_bar=last_qm_bar,
+            last_regime=last_regime,
+            trace=trace,
+        )
+
     policy_runtime = getattr(pipeline, "policy_runtime_v1", None)
     if policy_runtime is not None:
         decision_id = trace
@@ -1099,6 +1110,365 @@ def _run_one_bar(
             ),
         ),
         signal_id_counter, last_qm_bar, last_regime,
+    )
+
+
+def _run_player_only_decision_path(
+    pipeline: ProductionPipeline,
+    market: MarketSnapshot,
+    *,
+    signal_id_counter: int,
+    last_qm_bar: int,
+    last_regime: Optional[Regime],
+    trace: str,
+):
+    """Short active path: regime -> one player -> execution -> shadow memory."""
+    decision_id = trace
+    context = _decision_context(pipeline, market)
+    is_change = last_regime is not None and last_regime != market.regime
+    pipeline.event_log.emit(RegimeDetected(
+        bar=market.bar,
+        trace_id=trace,
+        regime=market.regime,
+        from_regime=last_regime or market.regime,
+        is_change=is_change,
+    ))
+    last_regime = market.regime
+
+    all_players = _compose_strategy_players(pipeline)
+    real_candidates = [
+        player for player in all_players
+        if _strategy_player_is_real_executable(player, pipeline)
+    ]
+    pipeline.event_log.emit(DecisionStarted(
+        bar=market.bar,
+        trace_id=trace,
+        decision_id=decision_id,
+        **context,
+        candidate_labels=tuple(player.label for player in real_candidates),
+        shadow_total_signals=0,
+        shadow_total_filled=0,
+        shadow_total_rejected=0,
+        shadow_total_blocked=0,
+    ))
+    pipeline.strategist.update_candidates(real_candidates)
+    try:
+        decision: SwitchDecision = pipeline.strategist.consider_switch(
+            market.regime,
+            current_bar=market.bar,
+            regime_confidence=float(getattr(market, "regime_confidence", 1.0) or 1.0),
+            portfolio_flat=not _player_only_has_owned_positions(pipeline),
+        )
+    except Exception as exc:
+        log.exception("player-only selection failed on bar %d", market.bar)
+        shadow_summary = _run_shadow_tournament(pipeline, market, all_players)
+        return (
+            StepResult(
+                bar=market.bar,
+                regime=market.regime,
+                leader=None,
+                leader_changed=False,
+                n_signals=0,
+                n_filled=0,
+                n_rejected=0,
+                n_blocked=0,
+                n_shadow_signals=shadow_summary.total_signals,
+                n_shadow_filled=shadow_summary.total_filled,
+                n_shadow_rejected=shadow_summary.total_rejected,
+                n_shadow_blocked=shadow_summary.total_blocked,
+                n_shadow_actors=shadow_summary.actors,
+                error=f"player-only selection failed: {type(exc).__name__}: {exc}",
+            ),
+            signal_id_counter,
+            last_qm_bar,
+            last_regime,
+        )
+
+    _emit_candidate_audit_events(
+        pipeline,
+        market,
+        decision,
+        decision_id=decision_id,
+        trace_id=trace,
+        context=context,
+    )
+    pipeline.event_log.emit(SwitchGateEvaluated(
+        bar=market.bar,
+        trace_id=trace,
+        decision_id=decision_id,
+        **context,
+        previous_label=(decision.previous.label if decision.previous else ""),
+        current_label=decision.current_label,
+        best_label=decision.best_label,
+        selected_label=decision.new_leader.label,
+        best_score=decision.best_score,
+        current_score=decision.current_score,
+        margin=decision.margin,
+        required_margin=decision.required_margin,
+        cooldown_passed=decision.cooldown_passed,
+        cooldown_blocked=decision.cooldown_blocked,
+        streak_count=decision.streak_count,
+        streak_needed=decision.streak_needed,
+        is_urgent=decision.is_urgent,
+        switched=decision.switched,
+        reason=decision.switch_gate_reason or decision.reason,
+    ))
+    if decision.switched:
+        pipeline.event_log.emit(LeaderSelected(
+            bar=market.bar,
+            trace_id=trace,
+            player_label=decision.new_leader.label,
+            previous_label=(decision.previous.label if decision.previous else ""),
+            score=decision.score,
+            margin=decision.margin,
+            is_urgent=decision.is_urgent,
+            reason=decision.reason,
+            decision_id=decision_id,
+            **context,
+        ))
+
+    # Selection is intentionally complete before this bar mutates shadow
+    # memory.  These outcomes become eligible only on the next bar.
+    shadow_summary = _run_shadow_tournament(pipeline, market, all_players)
+    kill_reason = _kill_switch_reason(pipeline, market)
+    if kill_reason:
+        return _run_manage_only_kill_switch_step(
+            pipeline,
+            market,
+            shadow_summary,
+            signal_id_counter=signal_id_counter,
+            last_qm_bar=last_qm_bar,
+            last_regime=last_regime,
+            trace=trace,
+            decision_id=decision_id,
+            context=context,
+            kill_reason=kill_reason,
+        )
+
+    leader = decision.new_leader
+    player_manage_only = bool(getattr(decision, "manage_only", False))
+    if leader.label == "NoTrade":
+        raw_signals = _cash_flat_close_signals(
+            pipeline,
+            market,
+            signal_id_start=signal_id_counter,
+        )
+        if raw_signals:
+            signal_id_counter = max(signal.id for signal in raw_signals) + 1
+        signal_guard = filter_real_signals_against_tracker(
+            raw_signals,
+            player=leader,
+            pipeline=pipeline,
+            bar_index=market.bar,
+            max_new_opens_per_bar=0,
+            max_open_positions=getattr(pipeline.risk_config, "max_open_positions", None),
+        )
+        vote_attempt = {
+            "leader": leader,
+            "raw_signals": raw_signals,
+            "raw_signal_count": len(raw_signals),
+            "leader_vote_error_count": 0,
+            "signal_guard": signal_guard,
+            "signal_id_counter": signal_id_counter,
+        }
+    else:
+        shadow_signals = tuple(
+            pipeline.shadow_tournament.last_player_signals().get(
+                leader.label,
+                (),
+            )
+        )
+        raw_signals, signal_id_counter = _real_signals_from_shadow_registry(
+            shadow_signals,
+            market,
+            leader,
+            signal_id_counter=signal_id_counter,
+        )
+        signal_guard = filter_real_signals_against_tracker(
+            raw_signals,
+            player=leader,
+            pipeline=pipeline,
+            bar_index=market.bar,
+            max_new_opens_per_bar=getattr(
+                getattr(pipeline, "live_execution", None),
+                "max_new_opens_per_bar",
+                1,
+            ),
+            max_open_positions=getattr(
+                getattr(pipeline, "risk_config", None),
+                "max_open_positions",
+                None,
+            ),
+            manage_only=player_manage_only,
+        )
+        vote_attempt = {
+            "leader": leader,
+            "raw_signals": raw_signals,
+            "raw_signal_count": len(raw_signals),
+            "leader_vote_error_count": 0,
+            "signal_guard": signal_guard,
+            "signal_id_counter": signal_id_counter,
+        }
+
+    raw_signals = vote_attempt["raw_signals"]
+    raw_signal_count = vote_attempt["raw_signal_count"]
+    leader_vote_error_count = vote_attempt["leader_vote_error_count"]
+    signal_guard = vote_attempt["signal_guard"]
+    signal_id_counter = vote_attempt["signal_id_counter"]
+    signals = list(signal_guard.signals)
+    health_reason = _exchange_health_open_block_reason(pipeline)
+    for signal in signals:
+        signal_context = _signal_context(context, decision_id=decision_id, signal=signal)
+        if signal.action.is_open and health_reason:
+            signal_context["exchange_health_reason"] = health_reason
+        pipeline.event_log.emit(SignalEmitted(
+            bar=market.bar,
+            trace_id=trace,
+            signal=signal,
+            **signal_context,
+        ))
+        pipeline.real_perf.record_signal(signal)
+
+    n_filled = n_rejected = n_blocked = 0
+    blocked_reasons: Dict[str, int] = {}
+    for signal in signals:
+        try:
+            set_event_context = getattr(pipeline.executor, "set_event_context", None)
+            if callable(set_event_context):
+                set_event_context(_signal_context(
+                    context,
+                    decision_id=decision_id,
+                    signal=signal,
+                ))
+            result: ExecutionResult = pipeline.executor.execute(
+                signal,
+                balance_usd=pipeline.current_balance,
+            )
+        except Exception:
+            log.exception("execute failed for signal %d", signal.id)
+            _record_order_failure(pipeline, "execute exception", signal=signal)
+            n_rejected += 1
+            continue
+        if result.status == ExecutionStatus.FILLED:
+            n_filled += 1
+            _record_order_success(pipeline, signal, result)
+            _record_realized_result_for_strategy(pipeline, result)
+        elif result.status in {ExecutionStatus.REJECTED, ExecutionStatus.PENDING}:
+            _record_order_failure(pipeline, result.reason or result.status.value, signal=signal)
+            n_rejected += 1
+        elif result.status == ExecutionStatus.BLOCKED:
+            n_blocked += 1
+            reason = result.reason or "blocked"
+            blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+        if _kill_switch_reason(pipeline):
+            break
+
+    kill_reason_after_execution = _kill_switch_reason(pipeline)
+    transition_reason = (
+        decision.reason
+        if player_manage_only
+        else "selected player's fresh shadow fills routed to real guard"
+    )
+    return (
+        StepResult(
+            bar=market.bar,
+            regime=market.regime,
+            leader=leader.label,
+            leader_changed=decision.switched,
+            n_signals=len(signals),
+            n_filled=n_filled,
+            n_rejected=n_rejected,
+            n_blocked=n_blocked,
+            n_shadow_signals=shadow_summary.total_signals,
+            n_shadow_filled=shadow_summary.total_filled,
+            n_shadow_rejected=shadow_summary.total_rejected,
+            n_shadow_blocked=shadow_summary.total_blocked,
+            n_shadow_actors=shadow_summary.actors,
+            n_filtered_real_signals=signal_guard.filtered,
+            n_stale_close_signals=signal_guard.stale_closes,
+            n_duplicate_open_signals=signal_guard.duplicate_opens,
+            n_rate_limited_open_signals=signal_guard.rate_limited_opens,
+            n_max_position_saturated_open_signals=signal_guard.max_position_saturated_opens,
+            n_external_position_signals=signal_guard.external_position_signals,
+            n_raw_signals=raw_signal_count,
+            leader_vote_errors=leader_vote_error_count,
+            leader_agent_labels=(),
+            signal_filter_details=tuple(signal_guard.details),
+            selected_leader=leader.label,
+            executed_leader=leader.label,
+            fallback_used=False,
+            fallback_skipped=False,
+            fallback_candidate="",
+            fallback_reason=transition_reason,
+            blocked_reasons=blocked_reasons,
+            causal_decision=_causal_decision_payload(
+                market=market,
+                selected_leader=leader,
+                executed_leader=leader,
+                decision=decision,
+                raw_signals=raw_signals,
+                executable_signals=signals,
+                signal_guard=signal_guard,
+                leader_vote_error_count=leader_vote_error_count,
+                fallback_used=False,
+                fallback_skipped=False,
+                fallback_candidate="",
+                fallback_reason=transition_reason,
+                shadow_position_replay_used=False,
+                n_filled=n_filled,
+                n_rejected=n_rejected,
+                n_blocked=n_blocked,
+                blocked_reasons=blocked_reasons,
+                pipeline=pipeline,
+                soft_allocator_payload={},
+            ),
+            error=(
+                f"kill switch active: {kill_reason_after_execution}"
+                if kill_reason_after_execution else None
+            ),
+        ),
+        signal_id_counter,
+        last_qm_bar,
+        last_regime,
+    )
+
+
+def _compose_strategy_players(pipeline: ProductionPipeline) -> List[StrategyPlayer]:
+    players = [
+        StrategyPlayer(label=agent.label, strategy=agent)
+        for agent in sorted(
+            pipeline.registry.all_agents(),
+            key=lambda item: str(getattr(item, "label", "")),
+        )
+        if str(getattr(agent, "label", "") or "").strip()
+    ]
+    pipeline._player_catalog_labels = tuple(player.label for player in players)
+    return players
+
+
+def _strategy_player_is_real_executable(
+    player: StrategyPlayer,
+    pipeline: ProductionPipeline,
+) -> bool:
+    if (
+        str(getattr(pipeline, "trade_mode", "multi")) == "singleton"
+        and player.label == str(getattr(pipeline, "fixed_player_label", ""))
+    ):
+        return True
+    strategy = player.strategy
+    return (
+        not bool(getattr(strategy, "shadow_only", False))
+        and getattr(strategy, "live_trading_eligible", True) is not False
+    )
+
+
+def _player_only_has_owned_positions(pipeline: ProductionPipeline) -> bool:
+    tracker = getattr(getattr(pipeline, "executor", None), "_tracker", None)
+    if tracker is None or not callable(getattr(tracker, "all_open", None)):
+        return False
+    return any(
+        not is_external_position(position)
+        for position in (tracker.all_open() or {}).values()
     )
 
 
@@ -3176,10 +3546,11 @@ def _shadow_position_confirms_positive_open(
 def _vote_candidate_for_real_signals(
     pipeline: ProductionPipeline,
     market: MarketSnapshot,
-    leader: EnsemblePlayer,
+    leader: Any,
     *,
     signal_id_counter: int,
     trace_id: str,
+    manage_only: bool = False,
 ) -> Dict[str, Any]:
     sync_player_agents_to_real_positions(
         leader,
@@ -3195,13 +3566,23 @@ def _vote_candidate_for_real_signals(
         _record_player_vote_failure(pipeline, market, leader.label, exc, trace_id=trace_id)
         raw_signals = []
         vote_errors = []
-    _record_agent_vote_failures(
-        pipeline,
-        market,
-        leader,
-        trace_id=trace_id,
-        errors=vote_errors,
-    )
+    if bool(getattr(pipeline, "player_only_runtime", False)):
+        for error in vote_errors:
+            _record_player_vote_failure(
+                pipeline,
+                market,
+                leader.label,
+                RuntimeError(str(getattr(error, "reason", "player vote failed"))),
+                trace_id=trace_id,
+            )
+    else:
+        _record_agent_vote_failures(
+            pipeline,
+            market,
+            leader,
+            trace_id=trace_id,
+            errors=vote_errors,
+        )
     raw_signals = _filter_shadow_state_entry_signals(pipeline, leader, raw_signals)
     raw_signal_count = len(raw_signals)
     leader_vote_error_count = len(vote_errors)
@@ -3223,6 +3604,7 @@ def _vote_candidate_for_real_signals(
             "max_open_positions",
             None,
         ),
+        manage_only=manage_only,
     )
     return {
         "leader": leader,

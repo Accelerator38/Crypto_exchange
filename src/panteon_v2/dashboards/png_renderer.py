@@ -74,11 +74,17 @@ def write_operator_pngs(
     players = _entries(players_payload, "players")
     memory_agents = _entries(agents_payload, "agents", pnl_source="memory")
     memory_players = _entries(players_payload, "players", pnl_source="memory")
-    agents, players = _split_visual_agents_and_players(agents, players)
-    memory_agents, memory_players = _split_visual_agents_and_players(
-        memory_agents,
-        memory_players,
-    )
+    if bool(status_map.get("player_only_runtime")):
+        players = _merge_actor_rows(players, agents)
+        memory_players = _merge_actor_rows(memory_players, memory_agents)
+        agents = []
+        memory_agents = []
+    else:
+        agents, players = _split_visual_agents_and_players(agents, players)
+        memory_agents, memory_players = _split_visual_agents_and_players(
+            memory_agents,
+            memory_players,
+        )
     panteon_pnl_pct = _panteon_pnl_pct(status_map)
 
     paths = [
@@ -160,6 +166,21 @@ def _split_visual_agents_and_players(
     return fallback_agents, visual_players
 
 
+def _merge_actor_rows(
+    primary: List[Tuple[str, dict]],
+    secondary: List[Tuple[str, dict]],
+) -> List[Tuple[str, dict]]:
+    """Merge legacy-labelled rows into the player view without duplicates."""
+    merged: dict[str, Tuple[str, dict]] = {}
+    for name, data in [*secondary, *primary]:
+        merged[_clean_actor_name(name)] = (name, data)
+    return sorted(
+        merged.values(),
+        key=lambda item: _row_pnl_value(item[1]),
+        reverse=True,
+    )
+
+
 def _is_strategy_actor_row(data: Mapping[str, object]) -> bool:
     kind = str(data.get("actor_pool_kind") or data.get("kind") or "").strip().lower()
     return kind == "strategy"
@@ -193,7 +214,12 @@ def _render_operator_dashboard(
     panteon_pnl_pct: float,
 ) -> None:
     plt = _setup_pyplot()
-    session_agents = _current_session_rows(agents, status=status, actor_kind="agent")
+    player_only = bool(status.get("player_only_runtime"))
+    session_agents = (
+        []
+        if player_only
+        else _current_session_rows(agents, status=status, actor_kind="agent")
+    )
     session_players = _current_session_rows(players, status=status, actor_kind="player")
     fig = plt.figure(figsize=(16, 12), facecolor=DARK)
     gs = fig.add_gridspec(
@@ -229,16 +255,32 @@ def _render_operator_dashboard(
         status,
         session_agents,
         session_players,
-        title="Current Session Assets: Panteon, Players, Agents",
+        title=(
+            "Current Session Assets: Panteon and Players"
+            if player_only
+            else "Current Session Assets: Panteon, Players, Agents"
+        ),
     )
     _draw_price_panel(ax_prices, status)
-    _draw_barh(ax_agents, session_agents[:12], "Current Session Agents", BLUE,
-               panteon_pnl_pct=panteon_pnl_pct)
-    _draw_barh(ax_players, session_players[:12], "Current Session Players", PURPLE,
-               panteon_pnl_pct=panteon_pnl_pct)
-    flash_info = _flash_diagnostics(status)
-    _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status), flash_info)
-    _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status), flash_info)
+    if player_only:
+        _draw_barh(
+            ax_agents,
+            session_players[:12],
+            "Current Session Players",
+            PURPLE,
+            panteon_pnl_pct=panteon_pnl_pct,
+        )
+        ax_players.set_axis_off()
+        _draw_player_only_contract_panel(ax_flash_selected, status)
+        _draw_player_only_shadow_panel(ax_flash_candidates, status)
+    else:
+        _draw_barh(ax_agents, session_agents[:12], "Current Session Agents", BLUE,
+                   panteon_pnl_pct=panteon_pnl_pct)
+        _draw_barh(ax_players, session_players[:12], "Current Session Players", PURPLE,
+                   panteon_pnl_pct=panteon_pnl_pct)
+        flash_info = _flash_diagnostics(status)
+        _draw_flash_selected_panel(ax_flash_selected, _flash_selected_rows(status), flash_info)
+        _draw_flash_candidates_panel(ax_flash_candidates, _flash_candidate_rows(status), flash_info)
 
     fig.suptitle(_operator_dashboard_title(status), color=TEXT, fontsize=16, fontweight="bold")
     fig.subplots_adjust(top=0.92, bottom=0.08, left=0.06, right=0.97)
@@ -381,8 +423,13 @@ def _draw_status_panel(ax, status: Mapping[str, object]) -> None:
             lines.append(("Fallback", f"used {used}, skipped {skipped}"))
     shadow = status.get("shadow") if isinstance(status.get("shadow"), Mapping) else {}
     if isinstance(shadow, Mapping):
+        shadow_label = (
+            "Shadow players"
+            if bool(status.get("player_only_runtime"))
+            else "Shadow actors"
+        )
         lines.extend([
-            ("Shadow actors", shadow.get("actors", 0)),
+            (shadow_label, shadow.get("actors", 0)),
             ("Shadow signals", _shadow_counter(shadow, "signals")),
             ("Shadow filled", _shadow_counter(shadow, "filled")),
         ])
@@ -1050,6 +1097,67 @@ def _flash_diagnostics(status: Mapping[str, object]) -> dict:
     }
 
 
+def _draw_player_only_contract_panel(ax, status: Mapping[str, object]) -> None:
+    ax.set_axis_off()
+    pool = (
+        status.get("configured_actor_pool")
+        if isinstance(status.get("configured_actor_pool"), Mapping)
+        else {}
+    )
+    players = pool.get("players", []) if isinstance(pool, Mapping) else []
+    lines = (
+        "PLAYER-ONLY RUNTIME",
+        f"Mode: {status.get('trade_mode', '-')}",
+        f"Fixed player: {status.get('fixed_player_label', '-') or '-'}",
+        f"Registered players: {len(players) if isinstance(players, list) else 0}",
+        "Registered agents: 0",
+    )
+    for index, line in enumerate(lines):
+        ax.text(
+            0.04,
+            0.88 - index * 0.16,
+            line,
+            transform=ax.transAxes,
+            color=GOLD if index == 0 else TEXT,
+            fontsize=11 if index == 0 else 9,
+            fontweight="bold" if index == 0 else "normal",
+            va="top",
+        )
+
+
+def _draw_player_only_shadow_panel(ax, status: Mapping[str, object]) -> None:
+    ax.set_axis_off()
+    debug = (
+        status.get("decision_debug")
+        if isinstance(status.get("decision_debug"), Mapping)
+        else {}
+    )
+    session = (
+        debug.get("shadow_session")
+        if isinstance(debug.get("shadow_session"), Mapping)
+        else {}
+    )
+    shadow = status.get("shadow") if isinstance(status.get("shadow"), Mapping) else {}
+    lines = (
+        "SHADOW PLAYERS",
+        f"Players: {shadow.get('actors', 0)}",
+        f"Signals: {int(_float_value(session.get('signals', 0)))}",
+        f"Filled: {int(_float_value(session.get('filled', 0)))}",
+        f"Real positions: {int(_float_value(status.get('n_positions', 0)))}",
+    )
+    for index, line in enumerate(lines):
+        ax.text(
+            0.04,
+            0.88 - index * 0.16,
+            line,
+            transform=ax.transAxes,
+            color=GOLD if index == 0 else TEXT,
+            fontsize=11 if index == 0 else 9,
+            fontweight="bold" if index == 0 else "normal",
+            va="top",
+        )
+
+
 def _draw_flash_selected_panel(ax, rows: List[dict], diagnostics: Mapping[str, object]) -> None:
     _style_ax(ax, "Flash Selected Actors")
     if not rows:
@@ -1252,6 +1360,20 @@ def _render_combined_shadow_dashboard(
     plt = _setup_pyplot()
     fig_h = max(9.0, min(22.0, 3.5 + (len(players) + len(agents)) * 0.23))
     fig = plt.figure(figsize=(14, fig_h), facecolor=DARK)
+    if not agents:
+        ax_players = fig.add_subplot(1, 1, 1)
+        _draw_barh(
+            ax_players,
+            players,
+            "Shadow Players - Full Pool",
+            PURPLE,
+            panteon_pnl_pct=panteon_pnl_pct,
+        )
+        fig.suptitle("Shadow Players", color=TEXT, fontsize=15, fontweight="bold")
+        fig.subplots_adjust(top=0.92, bottom=0.08, left=0.12, right=0.96)
+        fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return
     gs = fig.add_gridspec(
         2,
         1,
@@ -1290,6 +1412,30 @@ def _render_combined_regime_dashboard(
     plt = _setup_pyplot()
     fig_h = max(10.0, min(22.0, 4.0 + (len(players) + len(agents)) * 0.18))
     fig = plt.figure(figsize=(17, fig_h), facecolor=DARK)
+    if not agents:
+        ax_player_heat = fig.add_subplot(1, 2, 1)
+        ax_player_curve = fig.add_subplot(1, 2, 2)
+        player_image = _draw_regime_heatmap(
+            ax_player_heat,
+            "Player Regime Efficiency",
+            players,
+        )
+        _draw_equity_curves(
+            ax_player_curve,
+            "Player Equity Curves",
+            players,
+            PURPLE,
+            status=status,
+            include_panteon=True,
+        )
+        if player_image is not None:
+            cbar = fig.colorbar(player_image, ax=ax_player_heat, fraction=0.025, pad=0.02)
+            cbar.ax.tick_params(colors=MUTED, labelsize=8)
+        fig.suptitle("Player Regime Dashboard", color=TEXT, fontsize=15, fontweight="bold")
+        fig.subplots_adjust(top=0.92, bottom=0.08, left=0.12, right=0.96)
+        fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return
     gs = fig.add_gridspec(
         2,
         2,
@@ -1339,6 +1485,34 @@ def _render_memory_dashboard(
     plt = _setup_pyplot()
     fig_h = max(10.0, min(24.0, 4.0 + (len(players) + len(agents)) * 0.20))
     fig = plt.figure(figsize=(16, fig_h), facecolor=DARK)
+    if not agents:
+        gs = fig.add_gridspec(
+            2,
+            2,
+            width_ratios=[1.1, 1.2],
+            height_ratios=[1, 1],
+            hspace=0.34,
+            wspace=0.24,
+        )
+        ax_player_score = fig.add_subplot(gs[0, 0])
+        ax_experience = fig.add_subplot(gs[0, 1])
+        ax_regime = fig.add_subplot(gs[1, :])
+        _draw_barh(
+            ax_player_score,
+            players,
+            "Memory: Players PnL - Full Pool",
+            PURPLE,
+            panteon_pnl_pct=0.0,
+            x_label="Cumulative Memory PnL %",
+            benchmark=False,
+        )
+        _draw_memory_experience(ax_experience, players, [])
+        _draw_memory_regime_summary(ax_regime, players, [])
+        fig.suptitle("Panteon Player Memory", color=TEXT, fontsize=15, fontweight="bold")
+        fig.subplots_adjust(top=0.92, bottom=0.08, left=0.10, right=0.96)
+        fig.savefig(path, dpi=140, facecolor=fig.get_facecolor())
+        plt.close(fig)
+        return
     gs = fig.add_gridspec(
         2,
         2,

@@ -19,27 +19,44 @@ class BitgetExchangeAdapter(V1FuturesExchangeAdapter):
         order_client: Optional[Any] = None,
         read_client: Optional[Any] = None,
         leverage: Optional[int] = None,
+        demo: Optional[bool] = None,
     ) -> None:
+        if demo is None:
+            demo = os.getenv("BITGET_TRADING_MODE", "live_futures").strip().lower() == "demo_futures"
+        self.demo = bool(demo)
         if order_client is None:
-            api_key = os.getenv("BITGET_API_KEY", "")
-            api_secret = os.getenv("BITGET_SECRET_KEY", "")
-            api_passphrase = os.getenv("BITGET_PASSPHRASE", "")
+            prefix = "BITGET_DEMO" if self.demo else "BITGET"
+            api_key = os.getenv(f"{prefix}_API_KEY", "")
+            api_secret = os.getenv(f"{prefix}_SECRET_KEY", "")
+            api_passphrase = os.getenv(f"{prefix}_PASSPHRASE", "")
             if not api_key or not api_secret or not api_passphrase:
                 raise RuntimeError(
-                    "BITGET_API_KEY, BITGET_SECRET_KEY and BITGET_PASSPHRASE are required"
+                    f"{prefix}_API_KEY, {prefix}_SECRET_KEY and "
+                    f"{prefix}_PASSPHRASE are required"
                 )
             from bitget_connector import BitgetFuturesClient  # type: ignore
 
-            order_client = BitgetFuturesClient(api_key, api_secret, api_passphrase)
+            order_client = BitgetFuturesClient(
+                api_key,
+                api_secret,
+                api_passphrase,
+                demo=self.demo,
+            )
 
         if read_client is None:
             try:
-                api_key = os.getenv("BITGET_API_KEY", "")
-                api_secret = os.getenv("BITGET_SECRET_KEY", "")
-                api_passphrase = os.getenv("BITGET_PASSPHRASE", "")
+                prefix = "BITGET_DEMO" if self.demo else "BITGET"
+                api_key = os.getenv(f"{prefix}_API_KEY", "")
+                api_secret = os.getenv(f"{prefix}_SECRET_KEY", "")
+                api_passphrase = os.getenv(f"{prefix}_PASSPHRASE", "")
                 from bitget_api import BitgetDirectClient  # type: ignore
 
-                read_client = BitgetDirectClient(api_key, api_secret, api_passphrase)
+                read_client = BitgetDirectClient(
+                    api_key,
+                    api_secret,
+                    api_passphrase,
+                    demo=self.demo,
+                )
             except Exception:
                 read_client = order_client
 

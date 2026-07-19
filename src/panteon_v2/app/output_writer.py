@@ -1086,6 +1086,11 @@ class OutputWriter:
             "run_id":           getattr(self._pipeline, "run_id", ""),
             "session_id":       getattr(self._pipeline, "session_id", ""),
             "mode":             getattr(self._pipeline, "mode", ""),
+            "trade_mode":       getattr(self._pipeline, "trade_mode", "multi"),
+            "fixed_player_label": getattr(self._pipeline, "fixed_player_label", ""),
+            "player_only_runtime": bool(
+                getattr(self._pipeline, "player_only_runtime", False)
+            ),
             "timeframe":        getattr(self._pipeline, "timeframe", ""),
             "run_state":        run_state,
             "feed_status":      feed_status,
@@ -2382,6 +2387,10 @@ class OutputWriter:
         )
         return {
             "source": (
+                "registered standalone strategies exposed as players; "
+                "no agent candidates"
+                if bool(getattr(self._pipeline, "player_only_runtime", False))
+                else
                 "configured profiles/dynamic players + standalone strategies; "
                 "rows are shown even before leaderboard activity"
             ),

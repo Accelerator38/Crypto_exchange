@@ -88,5 +88,38 @@ class TestSnapshotAtomicWrite(unittest.TestCase):
                 json.load(f)  # не должно бросить
 
 
+    def test_player_contract_rejects_legacy_snapshot_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "legacy.json")
+            save_v2_snapshot(self._make_perf(), path)
+            loaded = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+
+            self.assertFalse(load_v2_snapshot(
+                loaded,
+                path,
+                required_runtime_contract="pantheon_players_v1",
+            ))
+            self.assertEqual(loaded.all_labels(), [])
+
+    def test_player_contract_roundtrip_is_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "players.json")
+            save_v2_snapshot(
+                self._make_perf(),
+                path,
+                runtime_contract="pantheon_players_v1",
+            )
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            loaded = PerformanceMemory(trade_fraction=1.0, exchange_scope="MEXC")
+
+            self.assertEqual(payload["_runtime_contract"], "pantheon_players_v1")
+            self.assertTrue(load_v2_snapshot(
+                loaded,
+                path,
+                required_runtime_contract="pantheon_players_v1",
+            ))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -216,6 +216,7 @@ class ProductionShadowTournament:
         runtime_event_logs_enabled: bool = True,
         agent_include_labels: Sequence[str] = (),
         player_include_labels: Sequence[str] = (),
+        players_only: bool = False,
         parallel_workers: int = 1,
         fee_rate: Optional[float] = None,
         slippage_pct: Optional[float] = None,
@@ -231,6 +232,7 @@ class ProductionShadowTournament:
         self._runtime_event_logs_enabled = bool(runtime_event_logs_enabled)
         self._agent_include_labels = _normalize_label_filter(agent_include_labels)
         self._player_include_labels = _normalize_label_filter(player_include_labels)
+        self._players_only = bool(players_only)
         self._parallel_workers = max(1, int(parallel_workers or 1))
         self._state_lock = threading.Lock()
         self._signal_lock = threading.Lock()
@@ -244,7 +246,8 @@ class ProductionShadowTournament:
         self._last_agent_signals: Dict[str, Tuple[Signal, ...]] = {}
         self._last_player_signals: Dict[str, Tuple[Signal, ...]] = {}
         self._last_market: Optional[MarketSnapshot] = None
-        self._refresh_shadow_agents()
+        if not self._players_only:
+            self._refresh_shadow_agents()
 
     def last_actor_updates(self) -> Tuple[ShadowActorUpdated, ...]:
         return tuple(self._last_updates)
@@ -297,8 +300,11 @@ class ProductionShadowTournament:
         self._last_updates = []
         self._last_agent_signals = {}
         self._last_player_signals = {}
-        self._refresh_shadow_agents()
-        agent_summary = self._run_agents(market, balance_usd=virtual_balance)
+        if self._players_only:
+            agent_summary = _empty_counts()
+        else:
+            self._refresh_shadow_agents()
+            agent_summary = self._run_agents(market, balance_usd=virtual_balance)
         player_summary = self._run_players(market, players, balance_usd=virtual_balance)
         return ShadowStepSummary(
             agent_signals=agent_summary["signals"],
@@ -309,7 +315,7 @@ class ProductionShadowTournament:
             player_filled=player_summary["filled"],
             player_rejected=player_summary["rejected"],
             player_blocked=player_summary["blocked"],
-            actors=len(self._registry.all_labels())
+            actors=(0 if self._players_only else len(self._registry.all_labels()))
             + sum(1 for player in players if self._player_is_included(player.label)),
         )
 
@@ -732,6 +738,13 @@ class ProductionShadowTournament:
             label = str(getattr(err, "agent_label", "") or "")
             reason = str(getattr(err, "reason", "") or "")
             if not label:
+                continue
+            if self._players_only:
+                self._record_player_failure(
+                    player_label,
+                    market,
+                    RuntimeError(reason or "player strategy failed"),
+                )
                 continue
             self._emit_agent_failure(
                 player_label=player_label,

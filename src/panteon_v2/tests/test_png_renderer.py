@@ -128,6 +128,55 @@ class TestPngRenderer(unittest.TestCase):
         self.assertIn(("regime", "regime_dashboard.png", 1, 1, {"pnl_pct": 2.75}), captured)
         self.assertIn(("memory", "memory_dashboard.png", 1, 1), captured)
 
+    def test_player_only_dashboard_keeps_strategy_rows_in_player_view(self):
+        from panteon_v2.dashboards import png_renderer
+
+        captured = {}
+
+        def capture(name):
+            def fake(path, agents, players, **kwargs):
+                captured[name] = {
+                    "agents": [row[0] for row in agents],
+                    "players": [row[0] for row in players],
+                }
+            return fake
+
+        def fake_operator(path, status, agents, players, **kwargs):
+            captured["operator"] = {
+                "agents": [row[0] for row in agents],
+                "players": [row[0] for row in players],
+            }
+
+        with tempfile.TemporaryDirectory() as td, \
+                patch.object(png_renderer, "_render_operator_dashboard",
+                             side_effect=fake_operator), \
+                patch.object(png_renderer, "_render_combined_shadow_dashboard",
+                             side_effect=capture("shadow")), \
+                patch.object(png_renderer, "_render_combined_regime_dashboard",
+                             side_effect=capture("regime")), \
+                patch.object(png_renderer, "_render_memory_dashboard",
+                             side_effect=capture("memory")):
+            png_renderer.write_operator_pngs(
+                td,
+                status={"player_only_runtime": True},
+                agents_payload={"agents": {
+                    "V_LegacyLabel": {"pnl_pct": 1.0, "kind": "strategy"},
+                }},
+                players_payload={"players": {
+                    "V_ResearchValidatorAgent": {
+                        "pnl_pct": 3.0,
+                        "actor_pool_kind": "strategy",
+                    },
+                }},
+            )
+
+        for payload in captured.values():
+            self.assertEqual(payload["agents"], [])
+            self.assertEqual(
+                payload["players"],
+                ["ResearchValidatorAgent", "LegacyLabel"],
+            )
+
     def test_entries_prefer_session_pnl_for_operator_comparison(self):
         from panteon_v2.dashboards import png_renderer
 

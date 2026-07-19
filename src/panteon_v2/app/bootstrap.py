@@ -53,6 +53,8 @@ from ..selection import (
     PROFILE_NEUTRAL_EDGE_RESEARCH,
     PROFILE_TREND_RESEARCH,
     PlayerComposer,
+    PlayerRegimeConfig,
+    PlayerRegimeStrategist,
     PlayerProfile,
     SessionOverlayConfig,
     Strategist,
@@ -402,7 +404,7 @@ class ProductionPipeline:
     degradation_gate: DegradationGate
     selector:    AgentSelector
     composer:    PlayerComposer
-    strategist:  Strategist
+    strategist:  Any
     flash_allocator: Optional[FlashAllocator]
     executor:    TradeExecutor
     event_log:   EventLog
@@ -416,6 +418,9 @@ class ProductionPipeline:
     initial_capital: float
     exchange_name:   str
     mode:            str = ""
+    trade_mode:      str = "multi"
+    fixed_player_label: str = ""
+    player_only_runtime: bool = False
     timeframe:       str = ""
     run_id:          str = ""
     session_id:      str = ""
@@ -481,6 +486,10 @@ def build_production_pipeline(
     composer_weight_power: Optional[float] = None,
     voting_directional: bool = False,
     policy_runtime_v1: Optional[object] = None,
+    player_only_runtime: bool = False,
+    trade_mode: str = "multi",
+    fixed_player_label: str = "",
+    player_regime_config: Optional[PlayerRegimeConfig] = None,
     jsonl_event_log:    Optional[str] = None,
 ) -> ProductionPipeline:
     """Собрать полный production pipeline.
@@ -505,12 +514,19 @@ def build_production_pipeline(
             "registry is empty — register agents through agent_bootstrap.py "
             "before build_production_pipeline()"
         )
+    clean_trade_mode = str(trade_mode or "multi").strip().lower()
+    if clean_trade_mode not in {"multi", "singleton"}:
+        raise ValueError("trade_mode must be 'multi' or 'singleton'")
+    if policy_runtime_v1 is not None and player_only_runtime:
+        raise ValueError("policy_runtime_v1 cannot be combined with player-only runtime")
     if policy_runtime_v1 is not None and flash_enabled:
         raise ValueError("policy_runtime_v1 cannot be combined with Flash execution")
+    if player_only_runtime:
+        flash_enabled = False
 
     profiles = (
         []
-        if policy_runtime_v1 is not None
+        if policy_runtime_v1 is not None or player_only_runtime
         else list(profiles or PRODUCTION_PROFILES)
     )
     strategist_config = strategist_config or StrategistConfig()
@@ -559,15 +575,25 @@ def build_production_pipeline(
     position_tracker = PositionTracker()
     ledger = AttributionLedger()
     order_ledger = OrderLedger()
-    strategist = Strategist(
-        virtual_perf, qm, candidates=[],
-        config=strategist_config,
-        scoring_config=scoring_config,
-        real_perf=real_perf,
+    strategist = (
+        PlayerRegimeStrategist(
+            virtual_perf,
+            config=player_regime_config,
+            fixed_player_label=(
+                fixed_player_label if clean_trade_mode == "singleton" else ""
+            ),
+        )
+        if player_only_runtime
+        else Strategist(
+            virtual_perf, qm, candidates=[],
+            config=strategist_config,
+            scoring_config=scoring_config,
+            real_perf=real_perf,
+        )
     )
     flash_allocator = (
         None
-        if policy_runtime_v1 is not None
+        if policy_runtime_v1 is not None or player_only_runtime
         else FlashAllocator(
             perf=virtual_perf,
             qm=qm,
@@ -615,6 +641,15 @@ def build_production_pipeline(
         initial_capital=initial_capital,
         exchange_name=getattr(exchange, "name", "UNKNOWN"),
         current_balance=initial_capital,
+        trade_mode=clean_trade_mode,
+        fixed_player_label=str(fixed_player_label or "").strip(),
+        player_only_runtime=bool(player_only_runtime),
+        regime_switch_player_sets=(
+            () if player_only_runtime else DEFAULT_REGIME_SWITCH_PLAYER_SETS
+        ),
+        rotating_agent_player_sets=(
+            () if player_only_runtime else DEFAULT_ROTATING_AGENT_PLAYER_SETS
+        ),
         live_execution=live_execution_config,
         policy_runtime_v1=policy_runtime_v1,
         flash_enabled=bool(flash_enabled),

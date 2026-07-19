@@ -104,19 +104,27 @@ def _public_client(default_type: str = "spot") -> ccxt.bitget:
     return ccxt.bitget({"enableRateLimit": True, "options": options})
 
 
-def _private_client(default_type: str, api_key: str, api_secret: str, api_passphrase: str) -> ccxt.bitget:
+def _private_client(
+    default_type: str,
+    api_key: str,
+    api_secret: str,
+    api_passphrase: str,
+    *,
+    demo: bool = False,
+) -> ccxt.bitget:
     if api_key and api_secret and not api_passphrase:
         raise ValueError("Bitget requires BITGET_PASSPHRASE for authenticated API access.")
     options = {"defaultType": default_type, "defaultSubType": "linear"}
-    return ccxt.bitget(
-        {
-            "enableRateLimit": True,
-            "apiKey": api_key,
-            "secret": api_secret,
-            "password": api_passphrase,
-            "options": options,
-        }
-    )
+    config = {
+        "enableRateLimit": True,
+        "apiKey": api_key,
+        "secret": api_secret,
+        "password": api_passphrase,
+        "options": options,
+    }
+    if demo:
+        config["headers"] = {"paptrading": "1"}
+    return ccxt.bitget(config)
 
 
 def _normalize_kline_interval(interval: str) -> str:
@@ -270,8 +278,17 @@ def fetch_top_symbols(n: int = TOP_N_SYMBOLS) -> List[str]:
 
 
 class BitgetSpotClient:
-    def __init__(self, api_key: str, api_secret: str, api_passphrase: str):
-        self.exchange = _private_client("spot", api_key, api_secret, api_passphrase)
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        api_passphrase: str,
+        *,
+        demo: bool = False,
+    ):
+        self.exchange = _private_client(
+            "spot", api_key, api_secret, api_passphrase, demo=demo
+        )
         self.exchange.load_markets()
 
     def _symbol(self, base: str) -> str:
@@ -305,9 +322,20 @@ class BitgetFuturesClient:
     _FUTURES_BLACKLIST = BITGET_SYMBOL_BLOCKLIST
     _POSITION_MODE_CACHE_TTL = 60.0
 
-    def __init__(self, api_key: str, api_secret: str, api_passphrase: str, testnet: bool = False):
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        api_passphrase: str,
+        testnet: bool = False,
+        *,
+        demo: bool = False,
+    ):
         del testnet
-        self.exchange = _private_client("swap", api_key, api_secret, api_passphrase)
+        self.demo = bool(demo)
+        self.exchange = _private_client(
+            "swap", api_key, api_secret, api_passphrase, demo=self.demo
+        )
         self.exchange.load_markets()
         self._contract_meta_cache: dict = {}
         self._insufficient_symbol_until: dict = {}
@@ -922,7 +950,12 @@ class AgentBitgetBridge(mexc.AgentMexcBridge):
         else:
             self.spot = None
             self.futures_client = BitgetFuturesClient(api_key, api_secret, api_passphrase)
-            log.warning("🔴 BITGET LIVE FUTURES — торговля фьючерсами на реальные деньги!")
+            if api_key and api_secret and api_passphrase:
+                log.warning("🔴 BITGET LIVE FUTURES — торговля фьючерсами на реальные деньги!")
+            else:
+                log.info(
+                    "📡 BITGET FUTURES MARKET DATA ONLY — authenticated order calls unavailable."
+                )
             # ── Предвалидация символов на доступность фьючерсного контракта ──
             # Отсекает "мёртвые" монеты ДО warmup-а и live-цикла, чтобы
             # BadSymbol не падал внутри _fetch_market каждую минуту.

@@ -39,7 +39,12 @@ from ..domain.types import MarketSnapshot, Regime
 from ..execution import FakeExchange, RiskLimitsConfig
 from ..app.regime_detector import PriceRegimeDetector
 from ..scoring import DEFAULT_SCORING, ScoringConfig
-from ..selection import AgentRegistry, FlashAllocatorConfig, StrategistConfig
+from ..selection import (
+    AgentRegistry,
+    FlashAllocatorConfig,
+    PlayerRegimeConfig,
+    StrategistConfig,
+)
 from ..selection.component_memory import ComponentMemory
 from ..selection.promotion_manifest import (
     PromotionManifestConfig,
@@ -327,6 +332,21 @@ class RetrodateMarketConfig:
     stride_minutes: int = 60
     initial_capital: float = 1000.0
     risk_capital_fraction: float = 0.10
+    # Production player-only contract. Legacy research knobs below remain for
+    # historical reproducibility, but this path bypasses agents/ensembles,
+    # Flash, policy and soft allocation in the decision loop.
+    player_only_runtime: bool = False
+    trade_mode: str = "multi"
+    fixed_player_label: str = ""
+    player_recency_decay: float = 0.94
+    player_return_window: int = 100
+    player_min_closed_trades: int = 5
+    player_min_global_closed_trades: int = 20
+    player_global_score_weight: float = 0.25
+    player_downside_penalty: float = 0.25
+    player_min_positive_score: float = 0.0
+    player_switch_margin: float = 0.02
+    player_cooldown_bars: int = 3
     # Phase 4 / B7: реалистичный slippage в ретро-FakeExchange. 0.0 = старое
     # поведение (идеальные филлы по close). На лайве есть спред/проскальзывание,
     # поэтому нулевой slippage завышает PnL и сильнее раздувает частых акторов,
@@ -1071,6 +1091,27 @@ class RetrodateMarketConfig:
         if self.fixed_agent_players_enabled and not fixed_sets:
             fixed_sets = DEFAULT_FIXED_AGENT_PLAYER_SETS
         object.__setattr__(self, "fixed_agent_player_sets", fixed_sets)
+        clean_trade_mode = str(self.trade_mode or "").strip().lower()
+        if clean_trade_mode not in {"multi", "singleton"}:
+            raise ValueError("trade_mode must be 'multi' or 'singleton'")
+        object.__setattr__(self, "trade_mode", clean_trade_mode)
+        fixed_player_label = str(self.fixed_player_label or "").strip()
+        object.__setattr__(self, "fixed_player_label", fixed_player_label)
+        if clean_trade_mode == "singleton" and not fixed_player_label:
+            raise ValueError("singleton retro requires fixed_player_label")
+        if self.player_only_runtime and self.flash_enabled:
+            raise ValueError("player_only_runtime cannot enable legacy Flash")
+        PlayerRegimeConfig(
+            recency_decay=self.player_recency_decay,
+            return_window=self.player_return_window,
+            min_closed_trades=self.player_min_closed_trades,
+            min_global_closed_trades=self.player_min_global_closed_trades,
+            global_score_weight=self.player_global_score_weight,
+            downside_penalty=self.player_downside_penalty,
+            min_positive_score=self.player_min_positive_score,
+            switch_margin=self.player_switch_margin,
+            cooldown_bars=self.player_cooldown_bars,
+        )
         if self.real_promotion_min_closed_trades < 0:
             raise ValueError("real_promotion_min_closed_trades must be >= 0")
         if self.real_promotion_max_drawdown_pct < 0:
@@ -1601,6 +1642,20 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         scoring_config=_build_scoring_config(config),
         perf_max_returns_history=int(config.perf_max_returns_history),
         voting_directional=bool(config.voting_directional),
+        player_only_runtime=bool(config.player_only_runtime),
+        trade_mode=config.trade_mode,
+        fixed_player_label=config.fixed_player_label,
+        player_regime_config=PlayerRegimeConfig(
+            recency_decay=config.player_recency_decay,
+            return_window=config.player_return_window,
+            min_closed_trades=config.player_min_closed_trades,
+            min_global_closed_trades=config.player_min_global_closed_trades,
+            global_score_weight=config.player_global_score_weight,
+            downside_penalty=config.player_downside_penalty,
+            min_positive_score=config.player_min_positive_score,
+            switch_margin=config.player_switch_margin,
+            cooldown_bars=config.player_cooldown_bars,
+        ),
     )
     if single_component_replay_actor:
         setattr(pipeline, "profiles", ())
@@ -1636,7 +1691,11 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
     pipeline.timeframe = f"{config.stride_minutes}m-from-{config.timeframe}"
     pipeline.session_id = output_dir.name
     pipeline.run_id = output_dir.name
-    pipeline.shadow_agent_labels = tuple(shadow_registry.all_labels())
+    pipeline.shadow_agent_labels = (
+        ()
+        if config.player_only_runtime
+        else tuple(shadow_registry.all_labels())
+    )
     pipeline._flash_promoted_signal_keys = tuple(config.flash_promoted_signal_keys)
     pipeline.actionable_fallback_enabled = bool(config.actionable_fallback_enabled)
     pipeline.actionable_fallback_min_score = config.actionable_fallback_min_score
@@ -1751,6 +1810,7 @@ def run_retrodate_market_benchmark(config: RetrodateMarketConfig) -> RetrodateRu
         parallel_workers=config.shadow_parallel_workers,
         fee_rate=config.fee_rate,
         slippage_pct=(config.slippage_pct if config.slippage_pct > 0.0 else None),
+        players_only=bool(config.player_only_runtime),
     )
 
     writer = OutputWriter(
@@ -7149,6 +7209,29 @@ def _write_run_summary(
 ) -> None:
     effective_strategist = _build_strategist_config(config)
     data = {
+        "runtime_contract": (
+            "pantheon_players_v1" if config.player_only_runtime else "legacy_v2"
+        ),
+        "player_only_runtime": bool(config.player_only_runtime),
+        "trade_mode": config.trade_mode,
+        "fixed_player_label": config.fixed_player_label,
+        "causal_selection": bool(config.player_only_runtime),
+        "memory_scope": (
+            "player_regime" if config.player_only_runtime else "legacy_mixed"
+        ),
+        "recency_weighted": bool(config.player_only_runtime),
+        "max_real_players": 1 if config.player_only_runtime else 0,
+        "player_rating": {
+            "recency_decay": config.player_recency_decay,
+            "return_window": config.player_return_window,
+            "min_closed_trades": config.player_min_closed_trades,
+            "min_global_closed_trades": config.player_min_global_closed_trades,
+            "global_score_weight": config.player_global_score_weight,
+            "downside_penalty": config.player_downside_penalty,
+            "min_positive_score": config.player_min_positive_score,
+            "switch_margin": config.player_switch_margin,
+            "cooldown_bars": config.player_cooldown_bars,
+        },
         "output_dir": str(summary.output_dir),
         "analysis_report": str(summary.report_path),
         "requested_years": summary.requested_years,

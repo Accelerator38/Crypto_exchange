@@ -5,15 +5,13 @@ Edit these launch switches before running:
 BITGET = "ON"
 MEXC = "OFF"
 
-trade_regime = "multi"                  # virtual/R&D default
-trade_regime = "singlton(GeneticsCore)" # virtual/R&D manual actor
-trade_regime = "policy"                 # Bitget micro-live only
+trade_regime = "multi"                   # Panteon selects one player per regime
+trade_regime = "singleton(<registered-player>)" # fixed player, no selection changes
 
-For Bitget, ``multi`` and ``singlton(<actor>)`` are virtual/R&D routes. A
-non-virtual Bitget worker accepts only ``policy``, which loads exactly one
-pinned micro-live manifest actor and disables Flash, Genetics and shadow
-selection. The default remains ``multi`` so an accidental live launch fails
-closed. The same mode can be passed with ``--trade-regime``.
+Both modes use the same player-only runtime.  In ``multi`` every strategy runs
+in shadow while exactly one positive player is routed to real execution.  In
+``singleton`` the configured player is pinned.  Non-virtual launches still
+require the exchange preflight and explicit live safety confirmations.
 """
 
 from __future__ import annotations
@@ -56,6 +54,14 @@ REQUIRED_CREDENTIALS: dict[str, tuple[str, ...]] = {
     "MEXC": ("MEXC_API_KEY", "MEXC_SECRET_KEY"),
 }
 
+DEMO_REQUIRED_CREDENTIALS: dict[str, tuple[str, ...]] = {
+    "BITGET": (
+        "BITGET_DEMO_API_KEY",
+        "BITGET_DEMO_SECRET_KEY",
+        "BITGET_DEMO_PASSPHRASE",
+    ),
+}
+
 INITIAL_CAPITAL_ENV: dict[str, str] = {
     "BITGET": "BITGET_INITIAL_CAPITAL",
     "MEXC": "MEXC_INITIAL_CAPITAL",
@@ -63,6 +69,7 @@ INITIAL_CAPITAL_ENV: dict[str, str] = {
 
 ON_VALUES = {"1", "ON", "TRUE", "YES", "Y"}
 VIRTUAL_TRADING_MODES = {"paper", "paper_live_feed", "shadow_live_feed"}
+DEMO_TRADING_MODES = {"demo_futures"}
 TRADE_REGIME_ENV = "PANTEON_TRADE_REGIME"
 SINGLETON_LIVE_ENV = "PANTEON_ALLOW_LIVE_SINGLETON"
 LOCK_OFFSET = 4096
@@ -127,10 +134,8 @@ def _configured_trade_regime_raw(raw: str | None = None) -> str:
 def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
     text = _configured_trade_regime_raw(raw).strip()
     lower = text.lower()
-    if lower == "multi":
+    if lower in {"multi", "multitrade", "multitrades"}:
         return TradeRegime("multi")
-    if lower == "policy":
-        return TradeRegime("policy")
     if (
         lower.startswith("singlton(")
         or lower.startswith("singleton(")
@@ -138,16 +143,16 @@ def _parse_trade_regime(raw: str | None = None) -> TradeRegime:
         actor = text[text.find("(") + 1 : -1].strip()
         if not actor:
             raise ValueError("trade_regime singleton(...) requires an actor name")
-        return TradeRegime("singlton", _canonical_actor_label(actor))
+        return TradeRegime("singleton", _canonical_actor_label(actor))
     raise ValueError(
-        "trade_regime must be 'multi', 'policy' or 'singlton(<actor>)'"
+        "trade_regime must be 'multi' or 'singleton(<player>)'"
     )
 
 
 def _trade_regime_cli_value(parsed_regime: TradeRegime) -> str:
-    if parsed_regime.mode in {"multi", "policy"}:
+    if parsed_regime.mode == "multi":
         return parsed_regime.mode
-    return f"singlton({parsed_regime.singleton_actor})"
+    return f"singleton({parsed_regime.singleton_actor})"
 
 
 def _normalization_key(text: str) -> str:
@@ -287,7 +292,7 @@ def _block_system_python_for_live(exchange: str, mode: str) -> None:
         and Path(sys.prefix).resolve() == Path(sys.base_prefix).resolve()
     ):
         print(
-            f"[Start_panteon] {exchange} live launch blocked: use .venv Python "
+            f"[Start_panteon] {exchange} external exchange launch blocked: use .venv Python "
             "or set PANTEON_V2_ALLOW_SYSTEM_PYTHON=1.",
             file=sys.stderr,
         )
@@ -334,14 +339,31 @@ def _launch_mode(exchange: str) -> str:
     return os.getenv(MODE_ENV[exchange], "live_futures").strip().lower()
 
 
+def _required_credentials(exchange: str, launch_mode: str) -> tuple[str, ...]:
+    if exchange in DEMO_REQUIRED_CREDENTIALS and launch_mode in DEMO_TRADING_MODES:
+        return DEMO_REQUIRED_CREDENTIALS[exchange]
+    return REQUIRED_CREDENTIALS[exchange]
+
+
+def _player_snapshot_name(exchange: str, launch_mode: str) -> str:
+    exchange_lower = str(exchange or "").strip().lower()
+    if launch_mode in DEMO_TRADING_MODES:
+        scope = "demo"
+    elif launch_mode in VIRTUAL_TRADING_MODES:
+        scope = "paper"
+    else:
+        scope = "live"
+    return f"{exchange_lower}_{scope}_players_v1_snapshot.json"
+
+
 def _singleton_live_block_message(
     exchange: str,
     launch_mode: str,
     parsed_regime: TradeRegime,
 ) -> str:
     if (
-        parsed_regime.mode == "singlton"
-        and launch_mode not in VIRTUAL_TRADING_MODES
+        parsed_regime.mode == "singleton"
+        and launch_mode not in VIRTUAL_TRADING_MODES | DEMO_TRADING_MODES
         and not _env_flag_enabled(SINGLETON_LIVE_ENV)
     ):
         return (
@@ -352,28 +374,8 @@ def _singleton_live_block_message(
     return ""
 
 
-def _trade_regime_block_message(
-    exchange: str,
-    launch_mode: str,
-    parsed_regime: TradeRegime,
-) -> str:
-    exchange = str(exchange or "").upper()
-    is_virtual = launch_mode in VIRTUAL_TRADING_MODES
-    if parsed_regime.mode == "policy" and (is_virtual or exchange != "BITGET"):
-        return (
-            "policy trade_regime is reserved for non-virtual BITGET micro-live; "
-            "use multi for paper/shadow research"
-        )
-    if exchange == "BITGET" and not is_virtual and parsed_regime.mode != "policy":
-        return (
-            "BITGET live requires PANTEON_TRADE_REGIME=policy; "
-            "legacy multi/singleton Flash execution is virtual-only"
-        )
-    return ""
-
-
 def _live_preflight_result(exchange: str, launch_mode: str):
-    if launch_mode in VIRTUAL_TRADING_MODES:
+    if launch_mode in VIRTUAL_TRADING_MODES | DEMO_TRADING_MODES:
         return None
     _prepare_imports()
     from panteon_v2.app.live_preflight import config_from_env, run_live_preflight
@@ -382,50 +384,6 @@ def _live_preflight_result(exchange: str, launch_mode: str):
         exchange,
         launch_mode,
         config=config_from_env(PROJECT_ROOT),
-    )
-
-
-def _base_actor_label(raw: str) -> str:
-    text = str(raw or "").strip()
-    if ":" in text:
-        text = text.split(":", 1)[1].strip()
-    changed = True
-    while changed:
-        changed = False
-        for prefix in ("Solo_", "V_"):
-            if text.startswith(prefix):
-                text = text[len(prefix) :].strip()
-                changed = True
-    return text
-
-
-def _single_actor_aliases(actor_label: str) -> tuple[str, ...]:
-    base = _base_actor_label(actor_label)
-    if not base:
-        raise ValueError("singleton actor label is required")
-    return tuple(dict.fromkeys((
-        str(actor_label).strip(),
-        base,
-        f"agent:{base}",
-        f"Solo_{base}",
-        f"ensemble:Solo_{base}",
-    )))
-
-
-def _singleton_flash_config(exchange: str, actor_label: str):
-    from dataclasses import replace
-    from panteon_v2.app import startup
-
-    base = startup._resolve_flash_allocator_config(exchange)
-    aliases = _single_actor_aliases(actor_label)
-    return replace(
-        base,
-        live_real_actor_whitelist=aliases,
-        range_low_vol_real_actor_allowlist=aliases,
-        promotion_derived_router_enabled=True,
-        promotion_derived_actor_labels=(_base_actor_label(actor_label),),
-        promotion_derived_dynamic_best_enabled=False,
-        max_signals_per_actor=1,
     )
 
 
@@ -446,10 +404,6 @@ def _run_exchange_worker(
     os.environ["CRYPTO_EXCHANGE"] = exchange
     os.environ[MODE_ENV[exchange]] = launch_mode
 
-    regime_block = _trade_regime_block_message(exchange, launch_mode, parsed_regime)
-    if regime_block:
-        print(f"[Start_panteon] {regime_block}", file=sys.stderr)
-        return 2
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
         print(f"[Start_panteon] {singleton_block}", file=sys.stderr)
@@ -458,12 +412,11 @@ def _run_exchange_worker(
     _block_system_python_for_live(exchange, launch_mode)
     _acquire_instance_lock(exchange)
 
-    missing = [
-        name for name in REQUIRED_CREDENTIALS[exchange] if not os.getenv(name)
-    ]
+    required_credentials = _required_credentials(exchange, launch_mode)
+    missing = [name for name in required_credentials if not os.getenv(name)]
     if launch_mode not in VIRTUAL_TRADING_MODES and missing:
         print(
-            f"{exchange} live launch is missing credentials: "
+            f"{exchange} {launch_mode} launch is missing credentials: "
             + ", ".join(missing)
             + f"\nPut them in {PROJECT_ROOT}\\.env.local or set "
             + f"{MODE_ENV[exchange]}='paper'.",
@@ -474,10 +427,6 @@ def _run_exchange_worker(
     _configure_logging(exchange)
 
     from panteon_v2.app.startup import start_production
-
-    flash_config = None
-    if parsed_regime.mode == "singlton":
-        flash_config = _singleton_flash_config(exchange, parsed_regime.singleton_actor)
 
     exchange_lower = exchange.lower()
     print(
@@ -493,11 +442,16 @@ def _run_exchange_worker(
         exchange=exchange,
         mode=launch_mode,
         initial_capital=_initial_capital(exchange),
-        snapshot_path=str(PROJECT_ROOT / "panteon_v2_state" / f"{exchange_lower}_snapshot.json"),
+        snapshot_path=str(
+            PROJECT_ROOT
+            / "panteon_v2_state"
+            / _player_snapshot_name(exchange, launch_mode)
+        ),
         jsonl_event_log=str(PROJECT_ROOT / "logs" / f"v2_{exchange_lower}_events.jsonl"),
         sleep_between_polls_sec=5.0,
-        flash_allocator_config_override=flash_config,
-        enable_policy_runtime=parsed_regime.mode == "policy",
+        player_only_runtime=True,
+        trade_mode=parsed_regime.mode,
+        fixed_player_label=parsed_regime.singleton_actor,
     )
 
 
@@ -521,12 +475,21 @@ def _launch_exchange(
     _load_env()
     launch_mode = _launch_mode(exchange)
     parsed_regime = parsed_regime or _parse_trade_regime()
-    regime_block = _trade_regime_block_message(exchange, launch_mode, parsed_regime)
-    if regime_block:
-        return LaunchResult(exchange, "blocked", regime_block)
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
         return LaunchResult(exchange, "blocked", singleton_block)
+    if launch_mode in DEMO_TRADING_MODES:
+        missing = [
+            name
+            for name in _required_credentials(exchange, launch_mode)
+            if not os.getenv(name)
+        ]
+        if missing:
+            return LaunchResult(
+                exchange,
+                "credentials_missing",
+                f"{launch_mode} credentials missing: " + ", ".join(missing),
+            )
     preflight = _live_preflight_result(exchange, launch_mode)
     if preflight is not None and not preflight.passed:
         reasons = ", ".join(preflight.reasons) or "unknown"
@@ -585,7 +548,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--trade-regime",
         default=None,
         help=(
-            "Trading regime: multi, policy or singlton(<actor>). "
+            "Trading regime: multi or singleton(<player>). "
             "'singleton' spelling is accepted."
         ),
     )
@@ -615,7 +578,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         pid_text = f" pid={result.pid}" if result.pid is not None else ""
         print(f"[Start_panteon] {exchange}: {result.status}{pid_text} - {result.message}")
-        failed = failed or result.status in {"failed", "preflight_failed", "blocked"}
+        failed = failed or result.status in {
+            "failed",
+            "preflight_failed",
+            "blocked",
+            "credentials_missing",
+        }
     return 2 if failed else 0
 
 

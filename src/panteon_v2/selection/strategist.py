@@ -374,6 +374,7 @@ class SwitchDecision:
     cooldown_blocked: bool = False
     streak_count: int = 0
     streak_needed: int = 1
+    manage_only: bool = False
 
     @property
     def label(self) -> str:

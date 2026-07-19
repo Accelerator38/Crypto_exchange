@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from panteon_v2.domain.types import Action, Regime
-from panteon_v2.selection.player import EnsemblePlayer, Player
+from panteon_v2.selection.player import EnsemblePlayer, Player, StrategyPlayer
 from panteon_v2.selection.voting import (
     StrongConsensus,
     ThresholdProfile,
@@ -71,6 +71,76 @@ class TestEnsemblePlayerConstruction(unittest.TestCase):
                 voting=WeightedConsensus(), thresholds=ThresholdProfile(),
             )
 
+
+class TestStrategyPlayerVote(unittest.TestCase):
+    def test_full_market_strategy_is_called_once_per_bar(self):
+        class FullMarketStrategy:
+            label = "Full"
+            prefers_full_market_snapshot = True
+
+            def __init__(self):
+                self.calls = []
+
+            def act(self, market):
+                self.calls.append(tuple(market.prices))
+                return {
+                    "BTC": Action.FUT_LONG_FULL,
+                    "ETH": Action.FUT_SHORT_FULL,
+                }
+
+        strategy = FullMarketStrategy()
+        player = StrategyPlayer(label="Full", strategy=strategy)
+        market = make_market(prices={"BTC": 100.0, "ETH": 50.0})
+
+        signals, errors = player.vote(market, signal_id_start=10)
+
+        self.assertEqual(strategy.calls, [("BTC", "ETH")])
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            {signal.sym: signal.action for signal in signals},
+            {
+                "BTC": Action.FUT_LONG_FULL,
+                "ETH": Action.FUT_SHORT_FULL,
+            },
+        )
+
+    def test_symbol_local_strategy_keeps_per_symbol_regimes(self):
+        class LocalStrategy:
+            label = "Local"
+
+            def __init__(self):
+                self.regimes = []
+
+            def act(self, market):
+                self.regimes.append(market.regime)
+                action = (
+                    Action.FUT_LONG_FULL
+                    if market.regime == Regime.BULLISH
+                    else Action.FUT_SHORT_FULL
+                )
+                return {sym: action for sym in market.prices}
+
+        strategy = LocalStrategy()
+        player = StrategyPlayer(label="Local", strategy=strategy)
+        market = make_market(
+            prices={"BTC": 100.0, "ETH": 50.0},
+            regimes_by_symbol={
+                "BTC": Regime.BULLISH,
+                "ETH": Regime.BEARISH,
+            },
+        )
+
+        signals, errors = player.vote(market, signal_id_start=20)
+
+        self.assertEqual(strategy.regimes, [Regime.BULLISH, Regime.BEARISH])
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            {signal.sym: signal.action for signal in signals},
+            {
+                "BTC": Action.FUT_LONG_FULL,
+                "ETH": Action.FUT_SHORT_FULL,
+            },
+        )
 
 class TestEnsemblePlayerVote(unittest.TestCase):
     def test_agents_receive_symbol_local_regime(self):

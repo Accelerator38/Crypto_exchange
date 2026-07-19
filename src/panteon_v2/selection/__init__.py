@@ -19,7 +19,13 @@ from .voting import (
     VotingPolicy,
     WeightedConsensus,
 )
-from .player import EnsemblePlayer, NoTradePlayer, Player, RotatingAgentPlayer
+from .player import (
+    EnsemblePlayer,
+    NoTradePlayer,
+    Player,
+    RotatingAgentPlayer,
+    StrategyPlayer,
+)
 from .selector import AgentSelector, ScoredAgent, SessionOverlayConfig
 from .flash_allocator import (
     FLASH_EXPERIMENTAL_FLAGS,
@@ -55,6 +61,12 @@ from .strategist import (
     StrategistConfig,
     SwitchDecision,
 )
+from .player_regime import (
+    PlayerRegimeConfig,
+    PlayerRegimeRating,
+    PlayerRegimeStrategist,
+    rate_player_returns,
+)
 
 __all__ = [
     # agent
@@ -75,6 +87,7 @@ __all__ = [
     "NoTradePlayer",
     "Player",
     "RotatingAgentPlayer",
+    "StrategyPlayer",
     # selector
     "AgentSelector",
     "ScoredAgent",
@@ -109,4 +122,8 @@ __all__ = [
     "Strategist",
     "StrategistConfig",
     "SwitchDecision",
+    "PlayerRegimeConfig",
+    "PlayerRegimeRating",
+    "PlayerRegimeStrategist",
+    "rate_player_returns",
 ]

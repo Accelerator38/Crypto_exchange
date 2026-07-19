@@ -121,6 +121,10 @@ class V1BridgeRunnerTests(unittest.TestCase):
 
         self.assertIsInstance(bridge, FakeBridge)
         self.assertEqual(bridge.kwargs["mode"], "live_futures")
+        self.assertEqual(bridge.kwargs["api_key"], "")
+        self.assertEqual(bridge.kwargs["api_secret"], "")
+        self.assertNotIn("api_passphrase", bridge.kwargs)
+        self.assertIsNone(bridge.kwargs["direct_client"])
         self.assertEqual(os.environ["MEXC_TRADING_MODE"], "live_futures")
 
     def test_bridge_feed_uses_fetch_market_without_v1_order_cycle(self):
@@ -685,7 +689,7 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(
             [hb["feed_status"] for hb in writer.heartbeats],
-            ["warmup_loading", "agent_warmup", "active"],
+            ["warmup_loading", "player_warmup", "active"],
         )
         self.assertIn("12 historical bars", writer.heartbeats[0]["message"])
         self.assertEqual(len(writer.steps), 1)
@@ -755,7 +759,7 @@ class V1BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(bridge._price_hist[:2], [{"BTC": 100.0}, {"BTC": 101.0}])
         self.assertEqual(
             [hb["feed_status"] for hb in writer.heartbeats],
-            ["warmup_cached", "agent_warmup", "active"],
+            ["warmup_cached", "player_warmup", "active"],
         )
         self.assertIn("cached warmup", writer.heartbeats[0]["message"])
         self.assertEqual(len(writer.steps), 1)

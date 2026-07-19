@@ -227,10 +227,13 @@ def save_v2_snapshot(
     position_tracker = None,
     shadow_positions: Optional[Mapping[str, Sequence[Mapping[str, object]]]] = None,
     qm = None,
+    runtime_contract: str = "",
 ) -> None:
     """Сохранить PerformanceMemory snapshot в JSON."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     snapshot = perf.snapshot()
+    if str(runtime_contract or "").strip():
+        snapshot["_runtime_contract"] = str(runtime_contract).strip()
     if real_perf is not None:
         snapshot["_real_memory"] = real_perf.snapshot()
     if order_ledger is not None and hasattr(order_ledger, "snapshot"):
@@ -277,6 +280,7 @@ def load_v2_snapshot(
     position_tracker = None,
     shadow_positions_target: Optional[dict] = None,
     qm = None,
+    required_runtime_contract: str = "",
 ) -> bool:
     """Загрузить PerformanceMemory snapshot из JSON. True если успешно.
 
@@ -285,6 +289,15 @@ def load_v2_snapshot(
     """
     snap = _load_snapshot_json(path)
     if snap is None:
+        return False
+    required_contract = str(required_runtime_contract or "").strip()
+    if required_contract and snap.get("_runtime_contract") != required_contract:
+        log.warning(
+            "Refusing snapshot %s: runtime contract %r != %r",
+            path,
+            snap.get("_runtime_contract"),
+            required_contract,
+        )
         return False
     try:
         perf.restore(snap)

@@ -107,6 +107,96 @@ class NoTradePlayer:
 
 
 @dataclass
+class StrategyPlayer:
+    """One strategy exposed as one selectable player.
+
+    The wrapped strategy is an implementation detail.  Selection, memory and
+    attribution use only ``label``; no agent score can leak into the player
+    rating.  This is the production building block for the player-only runtime.
+    """
+
+    label: str
+    strategy: Agent
+    affinity: Optional[Regime] = None
+
+    def __post_init__(self) -> None:
+        if not self.label:
+            raise ValueError("StrategyPlayer.label must be non-empty")
+
+    @property
+    def agent_labels(self) -> List[str]:
+        """Return no selectable sub-components: the strategy is the player."""
+        return []
+
+    @property
+    def actor_type(self) -> str:
+        return "player"
+
+    def vote(
+        self,
+        market: MarketSnapshot,
+        *,
+        signal_id_start: int,
+    ) -> VoteResult:
+        signals: List[Signal] = []
+        errors: List[VoteError] = []
+        signal_id = int(signal_id_start)
+        full_market = bool(
+            getattr(self.strategy, "prefers_full_market_snapshot", False)
+        )
+        action_rows: List[Tuple[str, object]] = []
+        if full_market:
+            try:
+                raw_actions = self.strategy.act(market) or {}
+            except Exception as exc:
+                errors.append(VoteError(
+                    agent_label=self.label,
+                    reason=f"{type(exc).__name__}: {exc}",
+                ))
+                raw_actions = {}
+            action_rows.extend(
+                (sym, raw_actions.get(sym, Action.HOLD))
+                for sym in market.prices
+            )
+        else:
+            for sym in market.prices:
+                symbol_market = market.with_regime_for_symbol(sym)
+                try:
+                    raw_actions = self.strategy.act(symbol_market) or {}
+                except Exception as exc:
+                    errors.append(VoteError(
+                        agent_label=self.label,
+                        reason=f"{type(exc).__name__}: {exc}",
+                    ))
+                    continue
+                action_rows.append((sym, raw_actions.get(sym, Action.HOLD)))
+
+        for sym, action in action_rows:
+            if not isinstance(action, Action):
+                try:
+                    action = Action(int(action))
+                except (TypeError, ValueError):
+                    continue
+            if action.is_hold:
+                continue
+            signals.append(Signal(
+                id=signal_id,
+                bar=market.bar,
+                sym=sym,
+                action=action,
+                price=float(market.prices.get(sym, 0.0)),
+                regime=market.regime_for_symbol(sym),
+                by_player=self.label,
+                by_agent="",
+                risk_mult=1.0,
+                timestamp=market.timestamp,
+                metadata={"strategy_impl": str(getattr(self.strategy, "label", self.label))},
+            ))
+            signal_id += 1
+        return signals, errors
+
+
+@dataclass
 class EnsemblePlayer:
     """Игрок-ансамбль из набора агентов и voting policy.
 

@@ -33,6 +33,7 @@ class LivePreflightConfig:
     policy_manifest_path: str | Path | None = None
     expected_policy_sha256: str = ""
     require_bitget_policy_v1: bool = False
+    require_player_only_v1: bool = False
     require_clean_git: bool = False
     max_age_hours: float = 24.0
     now: datetime | None = None
@@ -56,6 +57,9 @@ def run_live_preflight(
         env_name="PANTEON_LIVE_PREFLIGHT_MATRIX_SUMMARY",
         root=root,
         patterns=(
+            "Results/PlayerEfficiency*/**/player_efficiency_summary.json",
+            "Results/PlayerEfficiency/**/player_efficiency_summary.json",
+            "Reports/PlayerEfficiency/**/player_efficiency_summary.json",
             "Reports/Panteon3PreLiveMatrix/**/panteon3_pre_live_matrix_summary.json",
         ),
     )
@@ -64,6 +68,7 @@ def run_live_preflight(
         env_name="PANTEON_LIVE_PREFLIGHT_CANARY_SUMMARY",
         root=root,
         patterns=(
+            "Reports/PlayerCanary/**/player_canary_summary.json",
             "Reports/Panteon3Canary/**/canary_summary.json",
             "Reports/Panteon3Canary/**/panteon3_live_canary_summary.json",
             "Reports/Panteon3Canary/latest_canary_summary.json",
@@ -95,6 +100,21 @@ def run_live_preflight(
         )
         _validate_canary(canary_payload, str(exchange or "").strip().upper(), reasons)
 
+    if bool(config.require_player_only_v1):
+        if matrix_payload is not None:
+            _validate_player_only_contract(matrix_payload, reasons, source="matrix")
+        if canary_payload is not None:
+            canary_contract = _exchange_payload(
+                canary_payload,
+                str(exchange or "").strip().upper(),
+            )
+            if canary_contract is not None:
+                _validate_player_only_contract(
+                    canary_contract,
+                    reasons,
+                    source="canary",
+                )
+
     if (
         bool(config.require_bitget_policy_v1)
         and str(exchange or "").strip().upper() == "BITGET"
@@ -123,9 +143,9 @@ def config_from_env(project_root: str | Path) -> LivePreflightConfig:
         max_age_hours = float(raw_max_age)
     except (TypeError, ValueError):
         max_age_hours = 24.0
-    # The real launcher uses this factory. Bitget live therefore cannot fall
-    # back to the legacy Flash path; tests and read-only reports can still build
-    # an explicit config with require_bitget_policy_v1=False.
+    # The production launcher now has only player-only multi/singleton modes.
+    # Matrix/canary freshness remains mandatory; the retired policy manifest is
+    # no longer live authority for those modes.
     return LivePreflightConfig(
         project_root=project_root,
         policy_manifest_path=(
@@ -133,7 +153,8 @@ def config_from_env(project_root: str | Path) -> LivePreflightConfig:
             or "Runtime/BITGET/active_policy_manifest_v1.json"
         ),
         expected_policy_sha256=os.getenv("BITGET_POLICY_MANIFEST_SHA256", ""),
-        require_bitget_policy_v1=True,
+        require_bitget_policy_v1=False,
+        require_player_only_v1=True,
         require_clean_git=True,
         max_age_hours=max_age_hours,
     )
@@ -304,15 +325,10 @@ def _validate_canary(
     exchange: str,
     reasons: list[str],
 ) -> None:
-    exchanges = payload.get("exchanges")
-    if isinstance(exchanges, Mapping) and exchange:
-        raw_exchange_payload = exchanges.get(exchange)
-        if not isinstance(raw_exchange_payload, Mapping):
-            reasons.append("canary_exchange_missing")
-            return
-        exchange_payload = raw_exchange_payload
-    else:
-        exchange_payload = payload
+    exchange_payload = _exchange_payload(payload, exchange)
+    if exchange_payload is None:
+        reasons.append("canary_exchange_missing")
+        return
 
     if bool(payload.get("calibration_only")) or bool(exchange_payload.get("calibration_only")):
         reasons.append("canary_calibration_only")
@@ -360,6 +376,39 @@ def _validate_canary(
         value = exchange_payload.get(key)
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and value:
             reasons.append(f"canary_{key}")
+
+
+def _exchange_payload(
+    payload: Mapping[str, Any],
+    exchange: str,
+) -> Mapping[str, Any] | None:
+    exchanges = payload.get("exchanges")
+    if isinstance(exchanges, Mapping) and exchange:
+        raw_exchange_payload = exchanges.get(exchange)
+        return raw_exchange_payload if isinstance(raw_exchange_payload, Mapping) else None
+    return payload
+
+
+def _validate_player_only_contract(
+    payload: Mapping[str, Any],
+    reasons: list[str],
+    *,
+    source: str,
+) -> None:
+    """Reject legacy evidence that did not exercise the production runtime."""
+    checks = {
+        "runtime_contract": payload.get("runtime_contract") == "pantheon_players_v1",
+        "player_only_runtime": payload.get("player_only_runtime") is True,
+        "causal_selection": payload.get("causal_selection") is True,
+        "player_regime_memory": payload.get("memory_scope") == "player_regime",
+        "recency_weighted": payload.get("recency_weighted") is True,
+        "single_real_player": _int_metric(payload, "max_real_players") == 1,
+    }
+    for name, passed in checks.items():
+        if not passed:
+            reasons.append(f"{source}_player_contract_{name}_missing")
+    if source == "canary" and _int_metric(payload, "shadow_player_count") <= 0:
+        reasons.append("canary_player_contract_shadow_players_missing")
 
 
 def _has_actor_overrides(payload: Mapping[str, Any]) -> bool:

@@ -100,6 +100,60 @@ class TestPerformanceMemoryBasic(unittest.TestCase):
         state = perf._state[("AgentA", Regime.NEUTRAL)]
         self.assertEqual(len(state.returns), 5)
 
+    def test_recent_returns_are_ordered_and_isolated_by_player_and_regime(self):
+        perf = PerformanceMemory(trade_fraction=1.0, max_returns_history=3)
+        observations = (
+            (Regime.BULLISH, 110.0),
+            (Regime.BEARISH, 90.0),
+            (Regime.BULLISH, 120.0),
+            (Regime.BULLISH, 105.0),
+            (Regime.BULLISH, 130.0),
+        )
+        for index, (regime, exit_price) in enumerate(observations):
+            open_signal = _open_signal(
+                2 * index + 1,
+                "BTC",
+                regime,
+                by_agent="",
+                by_player="PlayerOnly",
+                bar=2 * index + 1,
+            )
+            close_signal = _close_signal(
+                2 * index + 2,
+                "BTC",
+                regime,
+                by_agent="",
+                by_player="PlayerOnly",
+                bar=2 * index + 2,
+            )
+            perf.update_from_trade(_open_trade(open_signal), open_signal)
+            perf.update_from_trade(
+                _close_trade(open_signal, close_signal, exit_price),
+                close_signal,
+            )
+
+        self.assertEqual(
+            perf.recent_returns("PlayerOnly", Regime.BULLISH),
+            (20.0, 5.0, 30.0),
+        )
+        self.assertEqual(
+            perf.recent_returns("PlayerOnly", Regime.BULLISH, limit=2),
+            (5.0, 30.0),
+        )
+        self.assertEqual(
+            perf.recent_returns("PlayerOnly", Regime.BEARISH),
+            (-10.0,),
+        )
+        aggregate = perf.recent_returns("PlayerOnly", None)
+        self.assertEqual(len(aggregate), 5)
+        for actual, expected in zip(aggregate, (10.0, -10.0, 20.0, 5.0, 30.0)):
+            self.assertAlmostEqual(actual, expected)
+        aggregate_tail = perf.recent_returns("PlayerOnly", None, limit=2)
+        self.assertEqual(len(aggregate_tail), 2)
+        self.assertAlmostEqual(aggregate_tail[0], 5.0)
+        self.assertAlmostEqual(aggregate_tail[1], 30.0)
+        self.assertEqual(perf.recent_returns("Unknown", Regime.BULLISH), ())
+
     def test_signal_id_mismatch_rejected(self):
         perf = PerformanceMemory()
         sig = _open_signal(1, "BTC", Regime.BULLISH)
@@ -512,6 +566,45 @@ class TestPerformanceMemoryOpenClose(unittest.TestCase):
 
 
 class TestPerRegimeIsolation(unittest.TestCase):
+    def test_closed_trade_is_attributed_to_entry_regime(self):
+        perf = PerformanceMemory(trade_fraction=1.0)
+        open_signal = _open_signal(
+            1,
+            "BTC",
+            Regime.BULLISH,
+            by_agent="",
+            by_player="EntryRegimePlayer",
+            price=100.0,
+        )
+        close_signal = _close_signal(
+            2,
+            "BTC",
+            Regime.BEARISH,
+            by_agent="",
+            by_player="EntryRegimePlayer",
+            price=110.0,
+        )
+
+        perf.update_from_trade(_open_trade(open_signal), open_signal)
+        perf.update_from_trade(
+            _close_trade(open_signal, close_signal, 110.0),
+            close_signal,
+        )
+
+        bullish = perf.get("EntryRegimePlayer", regime=Regime.BULLISH)
+        bearish = perf.get("EntryRegimePlayer", regime=Regime.BEARISH)
+        self.assertEqual(bullish.closed_trades, 1)
+        self.assertAlmostEqual(bullish.pnl_pct, 10.0, places=5)
+        self.assertEqual(bearish.closed_trades, 0)
+        self.assertEqual(
+            perf.recent_returns("EntryRegimePlayer", Regime.BULLISH),
+            (10.0,),
+        )
+        self.assertEqual(
+            perf.recent_returns("EntryRegimePlayer", Regime.BEARISH),
+            (),
+        )
+
     def test_regimes_isolated(self):
         perf = PerformanceMemory(trade_fraction=1.0)
         # Прибыль в bullish

@@ -40,6 +40,8 @@ def _build_client(
     api_key: str = "",
     api_secret: str = "",
     api_passphrase: str = "",
+    *,
+    demo: bool = False,
 ) -> ccxt.bitget:
     options = {
         "defaultType": default_type,
@@ -55,6 +57,8 @@ def _build_client(
         config["secret"] = api_secret
     if api_passphrase:
         config["password"] = api_passphrase
+    if demo:
+        config["headers"] = {"paptrading": "1"}
     return ccxt.bitget(config)
 
 
@@ -76,17 +80,29 @@ def _normalize_base_symbol(symbol: str) -> str:
 class BitgetDirectClient:
     """Compatibility client that returns the same snapshot shape as MexcDirectClient."""
 
-    def __init__(self, api_key: str, api_secret: str, api_passphrase: str):
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        api_passphrase: str,
+        *,
+        demo: bool = False,
+    ):
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
+        self.demo = bool(demo)
         if api_key and api_secret and not api_passphrase:
             raise ValueError(
                 "Bitget API requires BITGET_PASSPHRASE in addition to API key and secret."
             )
         self.public = _build_client("spot")
-        self.spot = _build_client("spot", api_key, api_secret, api_passphrase)
-        self.swap = _build_client("swap", api_key, api_secret, api_passphrase)
+        self.spot = _build_client(
+            "spot", api_key, api_secret, api_passphrase, demo=self.demo
+        )
+        self.swap = _build_client(
+            "swap", api_key, api_secret, api_passphrase, demo=self.demo
+        )
         self._last_good_futures_snapshot: Dict[str, float] | None = None
         self._last_good_futures_snapshot_at = 0.0
 
@@ -256,7 +272,7 @@ class BitgetDirectClient:
         crypto_value = sum(v["value"] for v in snap["spot"]["crypto"].values())
         snap["spot"]["total_value"] = snap["spot"]["usdt"] + crypto_value
         snap["total_equity"] = snap["futures"]["equity"] + snap["spot"]["total_value"]
-        if TRADING_MODE == "live_futures":
+        if TRADING_MODE in {"live_futures", "demo_futures"}:
             snap["primary_capital"] = snap["futures"]["equity"]
         else:
             snap["primary_capital"] = snap["spot"]["total_value"]
@@ -287,8 +303,15 @@ def create_direct_client(
     api_key: str,
     api_secret: str,
     api_passphrase: str = "",
+    *,
+    demo: bool = False,
 ) -> BitgetDirectClient:
-    return BitgetDirectClient(api_key, api_secret, api_passphrase)
+    return BitgetDirectClient(
+        api_key,
+        api_secret,
+        api_passphrase,
+        demo=demo,
+    )
 
 
 def _check_futures_api_permission(direct_client: BitgetDirectClient) -> bool:

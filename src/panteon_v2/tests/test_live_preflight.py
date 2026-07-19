@@ -26,6 +26,49 @@ def test_preflight_allows_virtual_modes_without_matrix_or_canary(tmp_path):
     assert result.reasons == ()
 
 
+def test_preflight_discovers_named_player_efficiency_result_root(tmp_path):
+    matrix_dir = (
+        tmp_path
+        / "Results"
+        / "PlayerEfficiencySingletonResearchValidator"
+        / "run"
+    )
+    matrix_dir.mkdir(parents=True)
+    matrix = _write_json(
+        matrix_dir / "player_efficiency_summary.json",
+        {"promotion_verdict": {"passed": True, "fail_reasons": []}},
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "exchanges": {
+                "BITGET": {
+                    "passed": True,
+                    "signals": 1,
+                    "orders": 1,
+                    "fills": 1,
+                    "expectancy_after_costs": 0.01,
+                    "reconcile_ok": True,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "BITGET",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            canary_summary_path=canary,
+            max_age_hours=0,
+        ),
+    )
+
+    assert result.passed
+    assert result.matrix_summary_path == str(matrix)
+
+
 def test_preflight_blocks_live_when_matrix_verdict_failed(tmp_path):
     matrix = _write_json(
         tmp_path / "matrix.json",
@@ -368,16 +411,106 @@ def test_preflight_blocks_live_when_canary_is_calibration_only(tmp_path):
     assert "canary_actor_overrides" in result.reasons
 
 
-def test_real_launcher_config_hard_requires_bitget_policy_v1(tmp_path, monkeypatch):
+def test_real_launcher_config_requires_player_only_runtime_evidence(tmp_path, monkeypatch):
     monkeypatch.delenv("BITGET_POLICY_MANIFEST_V1", raising=False)
     monkeypatch.delenv("BITGET_POLICY_MANIFEST_SHA256", raising=False)
 
     config = config_from_env(tmp_path)
 
-    assert config.require_bitget_policy_v1 is True
+    assert config.require_bitget_policy_v1 is False
+    assert config.require_player_only_v1 is True
     assert config.require_clean_git is True
     assert config.policy_manifest_path == "Runtime/BITGET/active_policy_manifest_v1.json"
     assert config.expected_policy_sha256 == ""
+
+
+def test_player_only_preflight_rejects_legacy_matrix_and_canary(tmp_path):
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {"promotion_verdict": {"passed": True, "fail_reasons": []}},
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "exchanges": {
+                "BITGET": {
+                    "passed": True,
+                    "signals": 3,
+                    "orders": 3,
+                    "fills": 3,
+                    "expectancy_after_costs": 0.04,
+                    "reconcile_ok": True,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "BITGET",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+            require_player_only_v1=True,
+            max_age_hours=0,
+        ),
+    )
+
+    assert not result.passed
+    assert "matrix_player_contract_runtime_contract_missing" in result.reasons
+    assert "canary_player_contract_runtime_contract_missing" in result.reasons
+
+
+def test_player_only_preflight_accepts_matching_runtime_contract(tmp_path):
+    contract = {
+        "runtime_contract": "pantheon_players_v1",
+        "player_only_runtime": True,
+        "causal_selection": True,
+        "memory_scope": "player_regime",
+        "recency_weighted": True,
+        "max_real_players": 1,
+    }
+    matrix = _write_json(
+        tmp_path / "matrix.json",
+        {
+            **contract,
+            "promotion_verdict": {"passed": True, "fail_reasons": []},
+        },
+    )
+    canary = _write_json(
+        tmp_path / "canary.json",
+        {
+            "passed": True,
+            "exchanges": {
+                "BITGET": {
+                    **contract,
+                    "passed": True,
+                    "signals": 3,
+                    "orders": 3,
+                    "fills": 3,
+                    "expectancy_after_costs": 0.04,
+                    "reconcile_ok": True,
+                    "shadow_player_count": 2,
+                }
+            },
+        },
+    )
+
+    result = run_live_preflight(
+        "BITGET",
+        "live_futures",
+        config=LivePreflightConfig(
+            project_root=tmp_path,
+            matrix_summary_path=matrix,
+            canary_summary_path=canary,
+            require_player_only_v1=True,
+            max_age_hours=0,
+        ),
+    )
+
+    assert result.passed
 
 
 def test_bitget_live_preflight_blocks_unpinned_policy_even_when_old_gates_pass(tmp_path):

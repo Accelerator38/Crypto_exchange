@@ -432,6 +432,44 @@ class PerformanceMemory:
         labels.update(label for (_, _, _, label) in self._context_state.keys())
         return sorted(labels)
 
+    def recent_returns(
+        self,
+        label: str,
+        regime: Optional[Regime],
+        *,
+        limit: int = 0,
+    ) -> Tuple[float, ...]:
+        """Ordered net trade returns for one player×regime memory cell.
+
+        Values are percentage points and are returned oldest-to-newest.  The
+        selector applies recency weights without introducing a second memory
+        store.  ``limit=0`` returns the complete retained ring buffer.
+        """
+        if not label:
+            return ()
+        if regime is None:
+            curve = tuple(
+                float(value)
+                for value in self._equity_curves.get(label, ())
+            )
+            values = tuple(
+                (current / previous - 1.0) * 100.0
+                for previous, current in zip(curve, curve[1:])
+                if previous > 0.0
+            )
+            if int(limit) > 0:
+                values = values[-int(limit):]
+            return values
+        state = self._state.get((label, regime))
+        if state is None and _uses_neutral_seed(regime):
+            state = self._state.get((label, Regime.NEUTRAL))
+        if state is None:
+            return ()
+        values = tuple(float(value) for value in state.returns)
+        if int(limit) > 0:
+            values = values[-int(limit):]
+        return values
+
     def top_k_for_regime(
         self,
         regime: Regime,
@@ -718,8 +756,11 @@ class PerformanceMemory:
     ) -> None:
         key = (signal.position_scope, label, trade.sym)
         opened = self._open.get(key)
-        # Считаем close в любом случае (для signal counter etc)
-        states = self._states_for_update(label, regime, trade.sym)
+        # Strategy efficiency belongs to the regime that justified the entry,
+        # not to whichever regime happened to be active at exit.  Close-signal
+        # activity is still counted separately by _record_signal_for_labels.
+        memory_regime = opened.regime if opened is not None else regime
+        states = self._states_for_update(label, memory_regime, trade.sym)
         if (
             self._strict_close_action_family
             and opened is not None

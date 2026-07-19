@@ -189,7 +189,7 @@ def prepare_v2_agents_for_live_after_warmup(
                 side=pos["side"],
                 entry_price=pos["entry_price"],
                 qty=pos.get("qty", 0.0),
-                bar_index=bar_index,
+                bar_index=int(pos.get("opened_bar", 0) or bar_index),
                 seen=set(),
             )
 
@@ -221,7 +221,7 @@ def sync_player_agents_to_real_positions(
     market_symbols: Iterable[str],
 ) -> Dict[str, int]:
     """Reconcile selected live player agents with current tracker positions."""
-    agents = list(getattr(player, "agents", []) or [])
+    agents = _player_strategy_actors(player)
     real_positions = tracker_positions_for_agent_sync(pipeline)
     agent_positions = _agent_sync_positions(real_positions)
     agent_by_sym = {pos["sym"]: pos for pos in agent_positions}
@@ -240,7 +240,7 @@ def sync_player_agents_to_real_positions(
                 side=pos["side"],
                 entry_price=pos["entry_price"],
                 qty=pos.get("qty", 0.0),
-                bar_index=bar_index,
+                bar_index=int(pos.get("opened_bar", 0) or bar_index),
                 seen=set(),
             )
 
@@ -274,7 +274,7 @@ def filter_real_signals_against_tracker(
         pos["sym"]: pos
         for pos in tracker_positions_for_agent_sync(pipeline)
     }
-    agents = list(getattr(player, "agents", []) or [])
+    agents = _player_strategy_actors(player)
 
     kept: List[Signal] = []
     stale_closes = 0
@@ -344,7 +344,7 @@ def filter_real_signals_against_tracker(
                         side=tracked["side"],
                         entry_price=tracked["entry_price"],
                         qty=tracked.get("qty", 0.0),
-                        bar_index=bar_index,
+                        bar_index=int(tracked.get("opened_bar", 0) or bar_index),
                         seen=set(),
                     )
                 continue
@@ -357,7 +357,7 @@ def filter_real_signals_against_tracker(
                     side=tracked["side"],
                     entry_price=tracked["entry_price"],
                     qty=tracked.get("qty", 0.0),
-                    bar_index=bar_index,
+                    bar_index=int(tracked.get("opened_bar", 0) or bar_index),
                     seen=set(),
                 )
             continue
@@ -418,6 +418,15 @@ def filter_real_signals_against_tracker(
         external_position_signals=external_position_signals,
         details=details,
     )
+
+
+def _player_strategy_actors(player: Any) -> List[Any]:
+    """Return mutable strategy implementations owned by a player."""
+    actors = list(getattr(player, "agents", []) or [])
+    strategy = getattr(player, "strategy", None)
+    if strategy is not None and strategy not in actors:
+        actors.append(strategy)
+    return actors
 
 
 def _exchange_position_snapshot_unreliable_reason(pipeline: Any, exchange: Any) -> str:
@@ -721,6 +730,7 @@ def normalize_position_for_sync(
         "side": side,
         "entry_price": float_or_zero(entry),
         "qty": float_or_zero(getattr(pos, "qty", 0.0)),
+        "opened_bar": int(float_or_zero(getattr(pos, "opened_bar", 0))),
         "by_player": str(getattr(pos, "by_player", default_by_player) or default_by_player),
         "by_agent": str(getattr(pos, "by_agent", "") or ""),
     }

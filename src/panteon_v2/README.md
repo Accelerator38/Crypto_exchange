@@ -1,51 +1,57 @@
-# Panteon v2
+# Panteon player runtime
 
-**Status:** 🚧 Phase 0/1 (skeleton + core types) — under construction.
+Production contract: `Pantheon -> players`. A player is a complete strategy
+and is the smallest selectable, attributable and persistent unit. Agents,
+ensembles, Flash and Policy V1 remain only in legacy research code and are not
+part of the active player-only execution path.
 
-Чистая переработка Panteon. Решает архитектурные проблемы v1
-(`panteon_runtime/`), описанные в `docs/PANTEON_V2_ARCHITECTURE.md`.
+The launcher exposes two modes:
 
-## Принципы
+- `multi`: rank players separately for the current market regime and execute
+  the best player with proven positive after-cost efficiency;
+- `singleton(<player>)`: pin one registered player and disable leader changes.
 
-1. **Single Source of Truth** — каждое знание имеет ровно одного владельца.
-2. **Composition over Inheritance** — `EnsemblePlayer` + profiles вместо
-   иерархии `Panteon → PanteonResearch → ...`.
-3. **Event-Sourcing** — все решения логируются в `EventLog`,
-   `AttributionLedger` строит проекцию для дашбордов.
-4. **Pure Functions** — скоринг без состояния, тривиальная testability.
-5. **Explicit Synchronization** — точки обновления state расписаны явно.
-6. **Observability First** — каждое решение имеет `trace_id`.
+Every closed bar follows one causal order:
 
-## Структура
+1. synchronize and reconcile exchange state;
+2. detect the global and per-symbol market regime;
+3. rank players from prior regime-specific and global closed trades;
+4. select exactly one real player or `NoTrade`;
+5. run all players in shadow so the current bar affects only the next decision;
+6. route only the selected player's fresh filled shadow signals through the
+   normal risk and execution guards;
+7. persist player-by-regime memory in an isolated
+   `pantheon_players_v1` snapshot.
 
+Recent closed trades receive more weight than old trades. A player cannot be
+selected in `multi` until both its regime score and its global score have the
+configured sample and are strictly positive. A leader change waits until the
+current owner closes its position; while waiting, `manage_only` permits closes
+and rejects new opens.
+
+Useful commands from the project root:
+
+```powershell
+# Read-only Bitget Demo credential probe (zero order calls)
+python tools/check_bitget_demo_access.py
+
+# Safe Demo launch preview
+$env:BITGET_TRADING_MODE = "demo_futures"
+python Start_panteon.py --only BITGET --dry-run `
+  --trade-regime "singleton(ResearchValidatorAgent)"
+
+# Short replay smoke test
+python tools/run_player_efficiency_retro.py --years 2026 --max-bars 500
+
+# Full configured replay
+python tools/run_player_efficiency_retro.py --years 2022,2023,2024,2025,2026
+
+# Tests for the active contract
+python -m pytest -q src/panteon_v2/tests/test_player_regime.py `
+  src/panteon_v2/tests/test_start_panteon.py `
+  src/panteon_v2/tests/test_live_preflight.py
 ```
-panteon_v2/
-├── domain/         # Core types: Action, Regime, Signal, Trade, Metrics
-├── scoring/        # Pure scoring functions (regime_score, ...)
-├── memory/         # PerformanceMemory, QuarantineManager (single owners)
-├── selection/      # AgentSelector, EnsemblePlayer, Strategist
-├── execution/      # TradeExecutor, SymbolHealthMonitor
-├── attribution/    # EventLog, AttributionLedger
-├── dashboards/     # DashboardRenderer (читает только из ledger/perf/qm)
-└── tests/          # pytest, property-based via hypothesis
-```
 
-## План реализации (см. PANTEON_V2_ARCHITECTURE.md)
-
-- [x] Phase 0 — изоляция, скелет пакета
-- [🚧] Phase 1 — core types, pure scoring, EventLog skeleton
-- [ ] Phase 2 — Memory & Quarantine
-- [ ] Phase 3 — Selector, Player, Strategist
-- [ ] Phase 4 — Executor & Symbol health
-- [ ] Phase 5 — AttributionLedger
-- [ ] Phase 6 — Dashboards
-- [ ] Phase 7 — Replay-validation
-- [ ] Phase 8 — Shadow run
-- [ ] Phase 9 — Cutover
-
-## Важно
-
-**Этот пакет не должен импортироваться из `panteon_runtime/` v1.** v1
-работает в production, v2 проектируется без backward-compat ограничений.
-
-После Фазы 7 (replay-validation) и Фазы 8 (shadow run) сделаем cutover.
+Live execution stays blocked until a fresh player-only retro artifact and a
+fresh player-only Bitget canary both pass preflight. Passing tests proves the
+software contract, not profitability.

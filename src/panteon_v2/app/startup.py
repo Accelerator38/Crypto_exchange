@@ -29,7 +29,13 @@ from ..domain.types import Action, Regime, Signal
 from ..execution import Exchange, ExecutionStatus, FakeExchange, RiskLimitsConfig
 from ..execution.position_tracker import TrackedPosition
 from ..scoring import DEFAULT_SCORING, ScoringConfig
-from ..selection import AgentRegistry, FlashAllocatorConfig, PlayerProfile, StrategistConfig
+from ..selection import (
+    AgentRegistry,
+    FlashAllocatorConfig,
+    PlayerProfile,
+    PlayerRegimeConfig,
+    StrategistConfig,
+)
 from ..selection.component_memory import ComponentMemory
 from ..shadow.feed import MarketFeed, PollingFeed, ReplayFeed
 from ..shadow.synthetic_feed import SyntheticFeed
@@ -60,6 +66,7 @@ log = logging.getLogger(__name__)
 
 
 VIRTUAL_EXCHANGE_MODES = frozenset({"paper", "paper_live_feed", "shadow_live_feed"})
+DEMO_EXCHANGE_MODES = frozenset({"demo_futures"})
 SYNTHETIC_FEED_MODES = frozenset({"paper"})
 
 
@@ -67,9 +74,13 @@ def _is_virtual_exchange_mode(mode: str) -> bool:
     return str(mode or "").strip().lower() in VIRTUAL_EXCHANGE_MODES
 
 
+def _is_demo_exchange_mode(mode: str) -> bool:
+    return str(mode or "").strip().lower() in DEMO_EXCHANGE_MODES
+
+
 def _direct_bitget_live_preflight_failure(exchange: str, mode: str) -> str:
     """Protect direct worker starts that bypass Start_panteon.py."""
-    if _is_virtual_exchange_mode(mode):
+    if _is_virtual_exchange_mode(mode) or _is_demo_exchange_mode(mode):
         return ""
     if str(exchange or "").strip().upper() != "BITGET":
         return ""
@@ -898,16 +909,19 @@ def _close_paper_canary_positions_on_shutdown(
     latest_prices: Mapping[str, float] | None = None,
     bar: int | None = None,
 ) -> Dict[str, Any]:
-    """Close owned virtual canary positions before process shutdown.
+    """Close owned paper/demo canary positions before process shutdown.
 
     The helper deliberately runs through TradeExecutor so FakeExchange,
     PositionTracker, EventLog and AttributionLedger observe the same lifecycle
-    as normal paper fills. It skips recovered/external positions and refuses
-    every non-virtual mode even when enabled=True.
+    as normal fills. It skips recovered/external positions and refuses live
+    trading even when enabled=True.
     """
     if not enabled:
         return _paper_canary_shutdown_summary(skipped_reason="disabled")
-    if not _is_virtual_exchange_mode(mode):
+    if not (
+        _is_virtual_exchange_mode(mode)
+        or _is_demo_exchange_mode(mode)
+    ):
         return _paper_canary_shutdown_summary(skipped_reason="non_virtual_mode")
 
     executor = getattr(pipeline, "executor", None)
@@ -3448,6 +3462,7 @@ def _load_or_migrate_state(
     snapshot_path: Optional[str],
     migrate_from_v1: Optional[Union[str, Sequence[str]]],
     exchange_name: str,
+    runtime_contract: str = "",
 ) -> None:
     loaded = False
     if snapshot_path and os.path.exists(snapshot_path):
@@ -3459,6 +3474,7 @@ def _load_or_migrate_state(
             position_tracker=position_tracker,
             shadow_positions_target=shadow_positions_target,
             qm=qm,
+            required_runtime_contract=runtime_contract,
         )
         if loaded:
             if _perf_has_state(perf):
@@ -3479,22 +3495,33 @@ def _load_or_migrate_state(
                 snapshot_path,
             )
 
-    paths = _normalize_migration_paths(
-        migrate_from_v1,
-        exchange_name=exchange_name,
+    paths = (
+        ()
+        if runtime_contract
+        else _normalize_migration_paths(
+            migrate_from_v1,
+            exchange_name=exchange_name,
+        )
     )
     if not paths:
         if not loaded:
             log.info("[%s] no v1 memory files found for migration", exchange_name)
-        _apply_retro_prior_memory(
-            perf=perf,
-            snapshot_path=snapshot_path,
-            exchange_name=exchange_name,
-            real_perf=real_perf,
-            order_ledger=order_ledger,
-            position_tracker=position_tracker,
-            shadow_positions_target=shadow_positions_target,
-        )
+        if not runtime_contract:
+            _apply_retro_prior_memory(
+                perf=perf,
+                snapshot_path=snapshot_path,
+                exchange_name=exchange_name,
+                real_perf=real_perf,
+                order_ledger=order_ledger,
+                position_tracker=position_tracker,
+                shadow_positions_target=shadow_positions_target,
+            )
+        else:
+            log.info(
+                "[%s] starting isolated %s memory; legacy migration/prior disabled",
+                exchange_name,
+                runtime_contract,
+            )
         return
 
     report = migrate_from_v1_memory_files(paths, perf)
@@ -3567,8 +3594,12 @@ def resolve_exchange(
     if name == "BITGET":
         try:
             from .bitget_adapter import BitgetExchangeAdapter  # noqa
-            log.info("[BITGET] real adapter detected")
-            return BitgetExchangeAdapter(leverage=leverage_override)
+            demo = _is_demo_exchange_mode(mode)
+            log.info("[BITGET] %s adapter detected", "demo" if demo else "live")
+            return BitgetExchangeAdapter(
+                leverage=leverage_override,
+                demo=demo,
+            )
         except ImportError as exc:
             raise RuntimeError("BITGET live adapter is unavailable") from exc
 
@@ -3833,6 +3864,11 @@ def _save_runtime_snapshot(pipeline, snapshot_path: Optional[str]) -> None:
         order_ledger=pipeline.order_ledger,
         position_tracker=tracker,
         shadow_positions=_snapshot_shadow_positions(pipeline),
+        runtime_contract=(
+            "pantheon_players_v1"
+            if bool(getattr(pipeline, "player_only_runtime", False))
+            else ""
+        ),
     )
 
 
@@ -3875,6 +3911,10 @@ def start_production(
     flash_enabled_override: Optional[bool] = None,
     flash_allocator_config_override: Optional[FlashAllocatorConfig] = None,
     enable_policy_runtime: bool = False,
+    player_only_runtime: bool = False,
+    trade_mode: str = "multi",
+    fixed_player_label: str = "",
+    player_regime_config_override: Optional[PlayerRegimeConfig] = None,
     configure_pipeline: Optional[Callable[[object], None]] = None,
 ) -> int:
     """Запустить production main_loop для указанной биржи.
@@ -3889,14 +3929,26 @@ def start_production(
     log.info("=" * 70)
     log.info("Panteon v2 production startup: %s mode=%s", exchange, mode)
     log.info("=" * 70)
-    bitget_live = (
+    bitget_external = (
         str(exchange or "").strip().upper() == "BITGET"
         and not _is_virtual_exchange_mode(mode)
     )
-    if bitget_live and not bool(enable_policy_runtime):
+    bitget_live = bitget_external and not _is_demo_exchange_mode(mode)
+    clean_trade_mode = str(trade_mode or "multi").strip().lower()
+    if clean_trade_mode not in {"multi", "singleton"}:
+        log.error("trade_mode must be 'multi' or 'singleton'")
+        return 2
+    fixed_player_label = str(fixed_player_label or "").strip()
+    if clean_trade_mode == "singleton" and not fixed_player_label:
+        log.error("singleton trade_mode requires fixed_player_label")
+        return 2
+    if bool(player_only_runtime) and bool(enable_policy_runtime):
+        log.error("player-only runtime cannot be combined with policy runtime")
+        return 2
+    if bitget_external and not bool(enable_policy_runtime) and not bool(player_only_runtime):
         log.error(
-            "BITGET live startup blocked: enable_policy_runtime=True is required; "
-            "legacy Flash/ensemble execution is virtual-only"
+            "BITGET live startup blocked: use the player-only runtime or the "
+            "deprecated sealed policy runtime"
         )
         return 2
     if bool(enable_policy_runtime) and not bitget_live:
@@ -3912,6 +3964,11 @@ def start_production(
         allow_live_feed_fallback = _env_flag("PANTEON_ALLOW_LIVE_FEED_FALLBACK", False)
     include_genetics = _resolve_include_genetics(include_genetics, exchange)
     genetics_shadow_only = _resolve_genetics_shadow_only(genetics_shadow_only, exchange)
+    if player_only_runtime:
+        # Every available strategy is a shadow player; registration failures are
+        # still reported and skipped by the existing bootstrap contract.
+        include_genetics = True
+        flash_enabled_override = False
     jsonl_event_log = _run_scoped_event_log_path(exchange, jsonl_event_log)
     if jsonl_event_log:
         log.info("[%s] EventLog JSONL: %s", exchange, jsonl_event_log)
@@ -3957,6 +4014,8 @@ def start_production(
     if enable_policy_runtime:
         include_genetics = False
         genetics_shadow_only = True
+        flash_enabled = False
+    if player_only_runtime:
         flash_enabled = False
     flash_stale_exit_config = _resolve_flash_stale_position_exit_config(exchange)
     flash_partial_profit_lock_config = _resolve_flash_partial_profit_lock_config(exchange)
@@ -4061,6 +4120,32 @@ def start_production(
             "No v1-agents registered. Check sys.path / panteon_runtime presence."
         )
         return 2
+    if player_only_runtime and clean_trade_mode == "singleton":
+        fixed_strategy = registry.get(fixed_player_label)
+        if fixed_strategy is None:
+            log.error(
+                "fixed singleton player %s is unavailable; registered=%s",
+                fixed_player_label,
+                ", ".join(registry.all_labels()),
+            )
+            return 2
+        if (
+            not _is_virtual_exchange_mode(mode)
+            and not _is_demo_exchange_mode(mode)
+            and not _env_flag(
+                "PANTEON_ALLOW_LIVE_SINGLETON",
+                False,
+            )
+        ):
+            log.error(
+                "live singleton requires PANTEON_ALLOW_LIVE_SINGLETON=1"
+            )
+            return 2
+        # An explicit singleton selection is the promotion decision.  The
+        # exchange/risk preflight remains mandatory for non-virtual modes.
+        setattr(fixed_strategy, "shadow_only", False)
+        setattr(fixed_strategy, "paper_trading_eligible", True)
+        setattr(fixed_strategy, "live_trading_eligible", True)
     legacy_real_enabled, legacy_real_labels = _resolve_flash_legacy_real_agents(exchange)
     if flash_enabled and legacy_real_enabled:
         promoted_legacy = promote_legacy_flash_real_agents(
@@ -4133,6 +4218,10 @@ def start_production(
         perf_max_returns_history=_resolve_perf_max_returns_history(exchange),
         voting_directional=_resolve_voting_directional(exchange),
         policy_runtime_v1=policy_runtime,
+        player_only_runtime=bool(player_only_runtime),
+        trade_mode=clean_trade_mode,
+        fixed_player_label=fixed_player_label,
+        player_regime_config=player_regime_config_override,
         jsonl_event_log=jsonl_event_log,
     )
     if configure_pipeline is not None:
@@ -4257,6 +4346,9 @@ def start_production(
         snapshot_path=snapshot_path,
         migrate_from_v1=migrate_from_v1,
         exchange_name=exchange,
+        runtime_contract=(
+            "pantheon_players_v1" if player_only_runtime else ""
+        ),
     )
     if policy_runtime is None:
         pipeline.selector.capture_session_baseline()
@@ -4270,12 +4362,14 @@ def start_production(
             perf=pipeline.perf,
             risk_config=risk_config,
             event_log=pipeline.event_log,
+            players_only=bool(player_only_runtime),
         )
         if restored_shadow_positions:
             pipeline._pending_shadow_player_positions = dict(restored_shadow_positions)
         log.info(
-            "[%s] production shadow tournament enabled: agents=%d profiles=%d",
+            "[%s] production shadow tournament enabled: players_only=%s strategies=%d profiles=%d",
             exchange,
+            bool(player_only_runtime),
             len(pipeline.registry),
             len(pipeline.profiles),
         )

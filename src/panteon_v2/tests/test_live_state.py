@@ -476,6 +476,42 @@ class TestLiveSignalGuard(unittest.TestCase):
         self.assertEqual(Agent.et["BTC"], 0)
         self.assertLessEqual(agent._lc, 6380 - Agent.CHECK_INT)
 
+    def test_sync_preserves_tracker_opened_bar_for_time_based_exits(self):
+        tracker = PositionTracker()
+        open_sig = _signal(1, Action.FUT_LONG_FULL, price=100.0)
+        object.__setattr__(open_sig, "bar", 17)
+        tracker.on_open(
+            signal=open_sig,
+            trade=Trade(
+                signal_id=1,
+                bar=17,
+                sym="BTC",
+                side="long",
+                qty=0.25,
+                fill_price=100.0,
+                fee=0.01,
+            ),
+        )
+
+        class Agent:
+            pos = {"BTC": None}
+            ep = {"BTC": 0.0}
+            et = {"BTC": 0}
+
+        class Player:
+            agents = [Agent()]
+
+        sync_player_agents_to_real_positions(
+            Player(),
+            _pipeline_for_tracker(tracker),
+            bar_index=250,
+            market_symbols=["BTC"],
+        )
+
+        self.assertEqual(Agent.pos["BTC"], "long")
+        self.assertEqual(Agent.ep["BTC"], 100.0)
+        self.assertEqual(Agent.et["BTC"], 17)
+
 
 class TestLiveExchangeReconcile(unittest.TestCase):
     def test_reconcile_adds_exchange_position_missing_from_tracker(self):
