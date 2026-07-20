@@ -20,6 +20,10 @@ for path in (SRC, RUNTIME):
         sys.path.insert(0, str(path))
 
 import panteon_agents  # noqa: E402
+from carryflow_policy import (  # noqa: E402
+    carryflow_profile_ids,
+    get_carryflow_profile,
+)
 from panteon_agents import CarryFlowAgentV2  # noqa: E402
 from panteon_v2.analysis.retrodate_market_runner import (  # noqa: E402
     RetrodateSnapshotState,
@@ -28,6 +32,7 @@ from panteon_v2.analysis.retrodate_market_runner import (  # noqa: E402
 from panteon_v2.domain.types import MarketSnapshot  # noqa: E402
 from panteon_v2.policy import (  # noqa: E402
     CarryFlowEvidenceTape,
+    CarryFlowWarmupSeed,
     HistoricalDerivativesContext,
     PolicyReplayRunner,
     PolicyTarget,
@@ -36,7 +41,6 @@ from panteon_v2.policy import (  # noqa: E402
     seal_manifest_payload,
 )
 from panteon_v2.policy.replay_runner import ReplayTradeOutcome  # noqa: E402
-from panteon_v2.policy.carryflow_adapter import CARRYFLOW_CONFIG_FIELDS  # noqa: E402
 from panteon_v2.shadow.adapters import V1AgentAdapter  # noqa: E402
 
 
@@ -58,64 +62,59 @@ def _git_revision(root: Path) -> str:
     return revision
 
 
-def _actor_config() -> dict[str, object]:
-    actor = CarryFlowAgentV2()
-    config = {name: getattr(actor, name) for name in CARRYFLOW_CONFIG_FIELDS}
-    config.update(
-        {
-            "CHECK_INT": 1,
-            "HOLD": 48,
-            "EMA_FAST": 12,
-            "EMA_SLOW": 48,
-            "RSI_OB": 58,
-            "RSI_OS": 42,
-            "EXTREME_EXT": 0.004,
-            "ENTRY_COOLDOWN": 24,
-            "MAX_POS": 1,
-            "ALLOW_LONG": False,
-            "ALLOW_SHORT": True,
-        }
+def _actor_config(profile_id: str = "screened_short_v1") -> dict[str, object]:
+    profile = get_carryflow_profile(profile_id)
+    return {"PROFILE_ID": profile.profile_id}
+
+
+def _parse_symbols(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    symbols = tuple(
+        dict.fromkeys(
+            str(item).strip().upper()
+            for item in str(value).split(",")
+            if str(item).strip()
+        )
     )
-    return config
+    if not symbols:
+        raise ValueError("symbols must be non-empty")
+    return symbols
 
 
 def build_replay_manifest_payload(
     *,
     policy_id: str,
     symbols: Sequence[str],
-    regimes: Sequence[str],
     created_at: datetime,
     source_revision: str,
     runtime_fingerprint_sha256: str,
     round_trip_fee_bps: float,
     slippage_bps: float,
     safety_buffer_bps: float,
-    signal_slope_bps_per_unit: float,
-    signal_lcb_haircut_bps: float,
-    signal_min_feature: float,
-    initial_capital_usd: float,
     capital_fraction: float,
     max_notional_usd: float,
     max_daily_loss_usd: float,
-    assumed_spread_bps: float,
     stride_minutes: int,
+    profile_id: str = "screened_short_v1",
 ) -> dict[str, Any]:
-    config = _actor_config()
+    profile = get_carryflow_profile(profile_id)
+    config = _actor_config(profile.profile_id)
     required_move = round_trip_fee_bps + slippage_bps + safety_buffer_bps
-    max_holding_minutes = int(config["HOLD"]) * int(stride_minutes)
+    max_holding_minutes = profile.hold_bars * int(stride_minutes)
     rules = [
         {
             "symbol": str(symbol).upper(),
             "regime": str(regime).lower(),
             "direction": "SHORT",
             "min_expected_move_bps": required_move,
-            "max_spread_bps": max(assumed_spread_bps, 5.0),
-            "max_slippage_bps": max(slippage_bps, 5.0),
-            "min_regime_confidence": 0.50,
-            "risk_mult": 1.0,
+            "max_spread_bps": profile.max_spread_bps,
+            "max_slippage_bps": profile.max_slippage_bps,
+            "min_regime_confidence": profile.min_regime_confidence,
+            "risk_mult": profile.risk_mult,
         }
         for symbol in symbols
-        for regime in regimes
+        for regime in profile.allowed_regimes
     ]
     return {
         "schema_version": "panteon.policy.v1",
@@ -127,16 +126,16 @@ def build_replay_manifest_payload(
         "signal_model": {
             "feature": "diagnostic.edge",
             "intercept_bps": 0.0,
-            "slope_bps_per_unit": signal_slope_bps_per_unit,
-            "lcb_haircut_bps": signal_lcb_haircut_bps,
-            "min_feature_value": signal_min_feature,
-            "max_expected_move_bps": 250.0,
+            "slope_bps_per_unit": profile.signal_slope_bps_per_unit,
+            "lcb_haircut_bps": profile.signal_lcb_haircut_bps,
+            "min_feature_value": profile.signal_min_feature,
+            "max_expected_move_bps": profile.signal_max_expected_move_bps,
         },
         "data": {
             "bar_interval_seconds": int(stride_minutes) * 60,
             "cadence_tolerance_seconds": 0,
             "max_bar_close_lag_seconds": 120,
-            "max_derivatives_age_seconds": int(config["MAX_DATA_AGE_SEC"]),
+            "max_derivatives_age_seconds": profile.max_data_age_seconds,
             "required_context_coverage_pct": 95.0,
         },
         "created_at": created_at.isoformat(),
@@ -151,11 +150,11 @@ def build_replay_manifest_payload(
         "risk": {
             "capital_fraction": capital_fraction,
             "max_notional_usd": max_notional_usd,
-            "max_open_positions": 1,
+            "max_open_positions": profile.max_positions,
             "max_daily_loss_usd": max_daily_loss_usd,
-            "stop_loss_pct": float(config["STOP"]) * 100.0,
+            "stop_loss_pct": profile.stop_pct * 100.0,
             "max_holding_minutes": max_holding_minutes,
-            "max_signal_age_seconds": 120,
+            "max_signal_age_seconds": profile.max_signal_age_seconds,
         },
         "rules": rules,
         "evidence": [],
@@ -195,6 +194,26 @@ def _filter_snapshot(snapshot: MarketSnapshot, symbols: set[str]) -> MarketSnaps
         },
         regime_features_by_symbol={
             symbol: snapshot.regime_features_for_symbol(symbol) for symbol in keys
+        },
+        bar_opens={
+            symbol: snapshot.bar_opens[symbol]
+            for symbol in keys
+            if symbol in snapshot.bar_opens
+        },
+        bar_highs={
+            symbol: snapshot.bar_highs[symbol]
+            for symbol in keys
+            if symbol in snapshot.bar_highs
+        },
+        bar_lows={
+            symbol: snapshot.bar_lows[symbol]
+            for symbol in keys
+            if symbol in snapshot.bar_lows
+        },
+        bar_closes={
+            symbol: snapshot.bar_closes[symbol]
+            for symbol in keys
+            if symbol in snapshot.bar_closes
         },
     )
 
@@ -280,12 +299,53 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     created_at = datetime.now(timezone.utc)
     if not 0.0 < float(args.oos_fraction) < 1.0:
         raise ValueError("oos_fraction must be in (0, 1)")
-    symbols = tuple(dict.fromkeys(str(item).strip().upper() for item in args.symbols.split(",") if item.strip()))
-    regimes = tuple(dict.fromkeys(str(item).strip().lower() for item in args.regimes.split(",") if item.strip()))
-    if not symbols or not regimes:
-        raise ValueError("symbols and regimes must be non-empty")
+    tape_path_raw = getattr(args, "evidence_tape", None)
+    warmup_seed_path_raw = getattr(args, "warmup_seed", None)
+    context_path_raw = getattr(args, "derivatives_context_csv", None)
+    allow_legacy = bool(getattr(args, "allow_legacy_split_input", False))
+    if tape_path_raw and context_path_raw:
+        raise ValueError(
+            "--evidence-tape cannot be combined with --derivatives-context-csv"
+        )
+    if warmup_seed_path_raw and not tape_path_raw:
+        raise ValueError("--warmup-seed requires --evidence-tape")
+
+    requested_symbols = _parse_symbols(getattr(args, "symbols", None))
+    requested_stride = getattr(args, "stride_minutes", None)
+    tape = None
+    if tape_path_raw:
+        tape = CarryFlowEvidenceTape.from_jsonl(
+            tape_path_raw,
+            expected_symbols=requested_symbols or None,
+        )
+        symbols = tape.symbols
+        if tape.bar_interval_seconds % 60:
+            raise ValueError("evidence tape interval must be whole minutes")
+        stride_minutes = tape.bar_interval_seconds // 60
+        if (
+            requested_stride is not None
+            and int(requested_stride) != stride_minutes
+        ):
+            raise ValueError(
+                "--stride-minutes does not match the evidence tape contract"
+            )
+        input_settings_source = "evidence_tape_contract"
+    else:
+        symbols = requested_symbols or DEFAULT_SYMBOLS
+        stride_minutes = (
+            60 if requested_stride is None else int(requested_stride)
+        )
+        if stride_minutes <= 0:
+            raise ValueError("stride_minutes must be positive")
+        input_settings_source = "legacy_diagnostic_arguments"
+
+    profile = get_carryflow_profile(
+        str(getattr(args, "profile", "screened_short_v1"))
+    )
+    regimes = profile.allowed_regimes
+    flatten_end = not bool(getattr(args, "no_flatten_end", False))
     policy_id = args.policy_id or (
-        f"carryflow-{'+'.join(regimes)}-short-"
+        f"carryflow-{profile.profile_id}-"
         f"{'-'.join(symbols).lower()}-{created_at:%Y%m%d%H%M%S}"
     )
     out_dir = Path(args.out_dir) if args.out_dir else (
@@ -297,22 +357,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         build_replay_manifest_payload(
             policy_id=policy_id,
             symbols=symbols,
-            regimes=regimes,
             created_at=created_at,
             source_revision=_git_revision(ROOT),
             runtime_fingerprint_sha256=compute_runtime_fingerprint(ROOT),
             round_trip_fee_bps=args.round_trip_fee_bps,
             slippage_bps=args.slippage_bps,
             safety_buffer_bps=args.safety_buffer_bps,
-            signal_slope_bps_per_unit=args.signal_slope_bps_per_unit,
-            signal_lcb_haircut_bps=args.signal_lcb_haircut_bps,
-            signal_min_feature=args.signal_min_feature,
-            initial_capital_usd=args.initial_capital_usd,
             capital_fraction=args.capital_fraction,
             max_notional_usd=args.max_notional_usd,
             max_daily_loss_usd=args.max_daily_loss_usd,
-            assumed_spread_bps=args.assumed_spread_bps,
-            stride_minutes=args.stride_minutes,
+            stride_minutes=stride_minutes,
+            profile_id=profile.profile_id,
         )
     )
     manifest_path = out_dir / "replay_manifest.json"
@@ -325,20 +380,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         required_target=PolicyTarget.REPLAY,
         required_exchange="BITGET",
     )
-    tape_path_raw = getattr(args, "evidence_tape", None)
-    context_path_raw = getattr(args, "derivatives_context_csv", None)
-    allow_legacy = bool(getattr(args, "allow_legacy_split_input", False))
-    if tape_path_raw and context_path_raw:
-        raise ValueError(
-            "--evidence-tape cannot be combined with --derivatives-context-csv"
-        )
-    tape = None
+    warmup_seed = None
     if tape_path_raw:
-        tape = CarryFlowEvidenceTape.from_jsonl(
-            tape_path_raw,
-            expected_symbols=symbols,
+        assert tape is not None
+        if warmup_seed_path_raw:
+            warmup_seed = CarryFlowWarmupSeed.from_json(
+                warmup_seed_path_raw,
+                expected_symbols=symbols,
+            )
+            warmup_seed.validate_for_tape(tape)
+        bundle = tape.replay_bundle(
+            loaded.manifest.data,
+            warmup_seed=warmup_seed,
         )
-        bundle = tape.replay_bundle(loaded.manifest.data)
         filtered = list(bundle.snapshots)
         context_provider = bundle.derivatives_context
         input_contract = "unified_hash_chained_tape"
@@ -351,7 +405,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         state = RetrodateSnapshotState()
         snapshots = load_retrodate_year_snapshots(
             args.data,
-            stride_minutes=args.stride_minutes,
+            stride_minutes=stride_minutes,
             state=state,
             max_snapshots=args.max_snapshots,
             use_live_regime_detector=args.use_live_regime_detector,
@@ -371,8 +425,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 symbols=symbols,
             )
         input_contract = "legacy_split_diagnostic_only"
-    panteon_agents.set_fetcher(context_provider)
+    panteon_agents.set_fetcher(None)
     actor = V1AgentAdapter(label="CarryFlowAgentV2", v1_agent=CarryFlowAgentV2())
+    warmup_bar_count = 0
     try:
         runner = PolicyReplayRunner.create(
             loaded_manifest=loaded,
@@ -382,7 +437,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             exchange_min_notional_usd=args.exchange_min_notional_usd,
             derivatives_context_provider=context_provider,
         )
-        report = runner.run(filtered, flatten_end=True)
+        if warmup_seed is not None:
+            warmup_bar_count = runner.actor_adapter.warmup(
+                warmup_seed.snapshots()
+            )
+        panteon_agents.set_fetcher(context_provider)
+        report = runner.run(filtered, flatten_end=flatten_end)
     finally:
         panteon_agents.set_fetcher(None)
 
@@ -429,6 +489,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     summary["output_dir"] = str(out_dir.resolve())
     summary["symbols"] = list(symbols)
+    summary["bar_interval_minutes"] = stride_minutes
+    summary["input_settings_source"] = input_settings_source
     summary["regimes"] = list(regimes)
     summary["research_only"] = True
     summary["promotion_authority"] = False
@@ -443,6 +505,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         and tape.source_revision != loaded.manifest.source_revision
     )
     summary["evidence_tape"] = tape.describe() if tape is not None else None
+    summary["warmup_seed"] = (
+        {
+            **warmup_seed.describe(),
+            "prospective_for_tape": warmup_seed.is_prospective_for_tape(tape),
+        }
+        if warmup_seed is not None and tape is not None
+        else None
+    )
+    summary["warmup_bars"] = warmup_bar_count
+    summary["warmup_symbol_observations"] = warmup_bar_count * len(symbols)
+    summary["continuous_warmup_bars_avoided"] = warmup_bar_count
+    summary["flatten_end"] = flatten_end
+    summary["end_positions_censored"] = (
+        report.remaining_open_positions if not flatten_end else 0
+    )
+    summary["research_hypothesis"] = {
+        "profile_id": profile.profile_id,
+        "flow_model": profile.flow_model,
+        "allowed_regimes": list(profile.allowed_regimes),
+        "hold_bars": profile.hold_bars,
+        "oi_lookback_bars": profile.oi_lookback_bars,
+        "price_lookback_bars": profile.price_lookback_bars,
+        "runtime_knob_count": 1,
+    }
     summary["derivatives_context"] = (
         {
             "mode": "embedded_in_evidence_tape",
@@ -499,6 +585,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Unified hash-chained Bitget market+derivatives JSONL tape.",
     )
     parser.add_argument(
+        "--warmup-seed",
+        help=(
+            "Immutable closed-OHLCV seed created before the first tape bar. "
+            "It warms indicators but is never counted as trade evidence."
+        ),
+    )
+    parser.add_argument(
         "--allow-legacy-split-input",
         action="store_true",
         help="Diagnostic only; output is never promotion-eligible.",
@@ -512,9 +605,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--out-dir")
     parser.add_argument("--policy-id")
-    parser.add_argument("--symbols", default=",".join(DEFAULT_SYMBOLS))
-    parser.add_argument("--regimes", default="neutral")
-    parser.add_argument("--stride-minutes", type=int, default=60)
+    parser.add_argument(
+        "--symbols",
+        help=(
+            "Optional exact tape-contract assertion. Authoritative replay "
+            "derives the symbol set from the evidence tape."
+        ),
+    )
+    parser.add_argument(
+        "--profile",
+        choices=carryflow_profile_ids(),
+        default="screened_short_v1",
+        help="One immutable policy profile; scalar actor overrides are disabled.",
+    )
+    parser.add_argument(
+        "--stride-minutes",
+        type=int,
+        help=(
+            "Legacy diagnostic input cadence. Authoritative replay derives "
+            "it from the evidence tape; an explicit value is only an assertion."
+        ),
+    )
     parser.add_argument("--max-snapshots", type=int)
     parser.add_argument("--oos-fraction", type=float, default=0.35)
     parser.add_argument("--use-live-regime-detector", action="store_true")
@@ -527,9 +638,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--slippage-bps", type=float, default=4.0)
     parser.add_argument("--safety-buffer-bps", type=float, default=4.0)
     parser.add_argument("--assumed-spread-bps", type=float, default=2.0)
-    parser.add_argument("--signal-slope-bps-per-unit", type=float, default=100.0)
-    parser.add_argument("--signal-lcb-haircut-bps", type=float, default=4.0)
-    parser.add_argument("--signal-min-feature", type=float, default=0.20)
+    parser.add_argument(
+        "--no-flatten-end",
+        action="store_true",
+        help=(
+            "Do not manufacture a close at the final evidence bar; report "
+            "remaining positions as right-censored."
+        ),
+    )
     args = parser.parse_args(argv)
 
     summary = run(args)

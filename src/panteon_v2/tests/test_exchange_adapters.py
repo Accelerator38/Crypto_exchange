@@ -9,7 +9,13 @@ from panteon_v2.domain import Action, Regime, Signal
 from panteon_v2.execution import Exchange, OrderStatus
 
 
-def _signal(action: Action, *, sym: str = "BTC", price: float = 100.0) -> Signal:
+def _signal(
+    action: Action,
+    *,
+    sym: str = "BTC",
+    price: float = 100.0,
+    metadata: dict | None = None,
+) -> Signal:
     return Signal(
         id=42,
         bar=7,
@@ -18,6 +24,7 @@ def _signal(action: Action, *, sym: str = "BTC", price: float = 100.0) -> Signal
         price=price,
         regime=Regime.NEUTRAL,
         by_player="TestPlayer",
+        metadata=dict(metadata or {}),
     )
 
 
@@ -65,7 +72,6 @@ class FakeMexcFuturesClient:
             "contractSize": self._get_contract_meta(symbol)["contractSize"],
         }
 
-
 class FakeBitgetFuturesClient:
     BITGET_MIN_NOTIONAL_USDT = 5.10
 
@@ -105,6 +111,27 @@ class FakeBitgetFuturesClient:
             "status": "filled",
             "avgPrice": 2000.0,
             "amount": vol * self._get_contract_meta(symbol)["amountStep"],
+        }
+
+    def place_order_with_stop(
+        self,
+        symbol: str,
+        side: int,
+        vol: int,
+        leverage: int,
+        stop_loss_price: float,
+    ) -> dict:
+        self.orders.append(
+            ("place_order_with_stop", symbol, side, vol, leverage, stop_loss_price)
+        )
+        return {
+            "success": True,
+            "order_id": f"BITGET-PROTECTED-{side}-{vol}",
+            "status": "filled",
+            "avgPrice": 100.0,
+            "amount": vol * self._get_contract_meta(symbol)["amountStep"],
+            "protective_stop_attached": True,
+            "protective_stop_price": stop_loss_price,
         }
 
     def close_all(self, symbol: str):
@@ -409,6 +436,56 @@ class TestBitgetExchangeAdapter(unittest.TestCase):
         self.assertEqual(result.exchange_order_id, "BITGET-1-3")
         self.assertEqual(result.trade.side, "long")
         self.assertAlmostEqual(result.trade.qty, 0.03)
+
+    def test_policy_open_requires_and_attaches_server_stop(self):
+        from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter
+
+        client = FakeBitgetFuturesClient()
+        adapter = BitgetExchangeAdapter(order_client=client, read_client=client, leverage=1)
+        signal = _signal(
+            Action.FUT_SHORT_FULL,
+            sym="ETH",
+            price=100.0,
+            metadata={
+                "server_stop_required": True,
+                "stop_price": 101.2,
+                "stop_loss_pct": 1.2,
+            },
+        )
+
+        result = adapter.send_order(signal, qty=0.03)
+
+        self.assertEqual(result.status, OrderStatus.FILLED)
+        self.assertEqual(
+            client.orders[-1],
+            ("place_order_with_stop", "ETH", 3, 3, 1, 101.2),
+        )
+        self.assertEqual(result.exchange_order_id, "BITGET-PROTECTED-3-3")
+
+    def test_policy_open_fails_before_order_when_server_stop_is_unsupported(self):
+        from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter
+
+        class UnprotectedClient(FakeBitgetFuturesClient):
+            place_order_with_stop = None
+
+        client = UnprotectedClient()
+        adapter = BitgetExchangeAdapter(order_client=client, read_client=client, leverage=1)
+        signal = _signal(
+            Action.FUT_SHORT_FULL,
+            sym="ETH",
+            price=100.0,
+            metadata={
+                "server_stop_required": True,
+                "stop_price": 101.2,
+                "stop_loss_pct": 1.2,
+            },
+        )
+
+        result = adapter.send_order(signal, qty=0.03)
+
+        self.assertEqual(result.status, OrderStatus.REJECTED)
+        self.assertIn("does not support required server stop", result.message)
+        self.assertEqual(client.orders, [])
 
     def test_close_uses_bitget_close_all(self):
         from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter

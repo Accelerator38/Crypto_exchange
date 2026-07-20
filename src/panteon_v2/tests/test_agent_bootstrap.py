@@ -105,6 +105,12 @@ class TestAgentBootstrap(unittest.TestCase):
         self.assertFalse(_apply_futures_replay_signal_fixes("OtherActor", untouched))
         self.assertEqual(untouched.EMA_S, 120)
 
+        carryflow = Dummy()
+        self.assertFalse(
+            _apply_futures_replay_signal_fixes("CarryFlowAgentV2", carryflow)
+        )
+        self.assertEqual(carryflow.EMA_S, 120)
+
     def test_live_oi_breakout_futures_mapper_normalizes_v1_actions(self):
         self.assertEqual(
             _live_oi_breakout_futures_action_mapper(2),

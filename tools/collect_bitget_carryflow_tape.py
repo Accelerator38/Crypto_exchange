@@ -26,7 +26,13 @@ for path in (SRC, RUNTIME):
 from bitget_funding import BitgetFundingDataFetcher  # noqa: E402
 from panteon_v2.policy.evidence_tape import (  # noqa: E402
     TAPE_SCHEMA_VERSION,
+    CarryFlowEvidenceTape,
     append_tape_sample,
+)
+from panteon_v2.policy.warmup_seed import (  # noqa: E402
+    WARMUP_SEED_SCHEMA_VERSION,
+    CarryFlowWarmupSeed,
+    write_warmup_seed,
 )
 from panteon_v2.policy.derivatives_context import (  # noqa: E402
     canonical_derivatives_symbol,
@@ -163,6 +169,132 @@ def expected_bar_close_ms(now: datetime, bar_interval_seconds: int) -> int:
     timestamp_ms = int(now.astimezone(timezone.utc).timestamp() * 1000)
     interval_ms = int(bar_interval_seconds) * 1000
     return timestamp_ms - timestamp_ms % interval_ms
+
+
+def intended_first_bar_close_ms(
+    *,
+    now: datetime,
+    bar_interval_seconds: int,
+    alignment_delay_seconds: int,
+    align: bool,
+) -> int:
+    close_ms = expected_bar_close_ms(now, bar_interval_seconds)
+    if not align:
+        return close_ms
+    close_at = close_ms / 1000.0 + int(alignment_delay_seconds)
+    if close_at <= now.astimezone(timezone.utc).timestamp():
+        close_ms += int(bar_interval_seconds) * 1000
+    return close_ms
+
+
+def fetch_warmup_bars(
+    *,
+    exchange: Any,
+    symbols: Sequence[str],
+    bar_interval_seconds: int,
+    intended_first_evidence_bar_close_timestamp_ms: int,
+    warmup_bars: int,
+) -> list[dict[str, Any]]:
+    if warmup_bars < 1:
+        raise ValueError("warmup_bars must be at least 1")
+    if warmup_bars > 500:
+        raise ValueError("warmup_bars cannot exceed 500")
+    timeframe = _TIMEFRAMES.get(int(bar_interval_seconds))
+    if timeframe is None:
+        raise ValueError("unsupported bar interval for Bitget OHLCV")
+    interval_ms = int(bar_interval_seconds) * 1000
+    first_start = (
+        int(intended_first_evidence_bar_close_timestamp_ms)
+        - (warmup_bars + 1) * interval_ms
+    )
+    expected_starts = tuple(
+        first_start + index * interval_ms for index in range(warmup_bars)
+    )
+    query_start = first_start - interval_ms
+    rows_by_symbol: dict[str, dict[int, Sequence[Any]]] = {}
+    for raw_symbol in symbols:
+        symbol = canonical_derivatives_symbol(raw_symbol)
+        selected: dict[int, Sequence[Any]] = {}
+        for attempt in range(3):
+            try:
+                rows = exchange.fetch_ohlcv(
+                    _market_symbol(symbol),
+                    timeframe=timeframe,
+                    since=query_start,
+                    limit=warmup_bars + 4,
+                ) or []
+            except Exception:
+                rows = []
+            selected = {
+                int(_finite(row[0])): row
+                for row in rows
+                if isinstance(row, (list, tuple))
+                and len(row) >= 6
+                and int(_finite(row[0])) in expected_starts
+            }
+            if all(timestamp in selected for timestamp in expected_starts):
+                break
+            if attempt < 2:
+                time.sleep(0.5)
+        missing = [
+            timestamp for timestamp in expected_starts if timestamp not in selected
+        ]
+        if missing:
+            raise RuntimeError(
+                f"warm-up OHLCV incomplete for {symbol}: "
+                f"missing {len(missing)}/{warmup_bars} closed bars"
+            )
+        rows_by_symbol[symbol] = selected
+    result: list[dict[str, Any]] = []
+    normalized_symbols = [canonical_derivatives_symbol(item) for item in symbols]
+    for candle_start in expected_starts:
+        symbol_rows: dict[str, dict[str, Any]] = {}
+        for symbol in normalized_symbols:
+            row = rows_by_symbol[symbol][candle_start]
+            symbol_rows[symbol] = {
+                "candle_timestamp_ms": candle_start,
+                "open": _finite(row[1]),
+                "high": _finite(row[2]),
+                "low": _finite(row[3]),
+                "close": _finite(row[4]),
+                "volume": max(0.0, _finite(row[5])),
+            }
+        result.append(
+            {
+                "bar_close_timestamp_ms": candle_start + interval_ms,
+                "symbols": symbol_rows,
+            }
+        )
+    return result
+
+
+def build_warmup_seed_payload(
+    *,
+    collector_run_id: str,
+    source_revision: str,
+    collector_code_sha256: str,
+    created_at: datetime,
+    bar_interval_seconds: int,
+    intended_first_evidence_bar_close_timestamp_ms: int,
+    symbols: Sequence[str],
+    bars: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_version": WARMUP_SEED_SCHEMA_VERSION,
+        "collector_run_id": collector_run_id,
+        "source_revision": source_revision,
+        "collector_code_sha256": collector_code_sha256,
+        "source_exchange": "BITGET",
+        "market_type": "swap",
+        "created_at": created_at.astimezone(timezone.utc).isoformat(),
+        "bar_interval_seconds": int(bar_interval_seconds),
+        "intended_first_evidence_bar_close_timestamp_ms": int(
+            intended_first_evidence_bar_close_timestamp_ms
+        ),
+        "symbol_set": [canonical_derivatives_symbol(item) for item in symbols],
+        "bars": [dict(row) for row in bars],
+        "seed_sha256": "0" * 64,
+    }
 
 
 def fetch_closed_candles(
@@ -564,6 +696,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--align", action="store_true")
     parser.add_argument("--collector-run-id")
     parser.add_argument("--status-path")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Append to an existing exact-cadence tape using its immutable run "
+            "contract. Intended for hourly one-shot scheduled collection."
+        ),
+    )
+    parser.add_argument(
+        "--warmup-bars",
+        type=int,
+        default=53,
+        help=(
+            "Closed OHLCV bars sealed before collection so indicator warm-up "
+            "does not consume the continuous evidence window; use 0 to disable."
+        ),
+    )
+    parser.add_argument("--warmup-seed-output")
     args = parser.parse_args(argv)
     symbols = tuple(
         dict.fromkeys(
@@ -574,18 +724,117 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if not symbols:
         raise ValueError("symbols must be non-empty")
-    run_id = args.collector_run_id or (
+    if args.resume and not args.output:
+        raise ValueError("--resume requires an explicit --output")
+    source_revision = _git_revision(ROOT)
+    collector_code_sha256 = _sha256_file(Path(__file__).resolve())
+    funding_fetcher_code_sha256 = _sha256_file(RUNTIME / "bitget_funding.py")
+    requested_run_id = args.collector_run_id or (
         f"carryflow-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-"
         f"{uuid.uuid4().hex[:8]}"
     )
     output = Path(args.output) if args.output else (
-        DEFAULT_DIR / run_id / "carryflow_evidence_tape.jsonl"
+        DEFAULT_DIR / requested_run_id / "carryflow_evidence_tape.jsonl"
     )
+    existing_tape = None
+    run_id = requested_run_id
+    if args.resume and output.is_file():
+        existing_tape = CarryFlowEvidenceTape.from_jsonl(
+            output,
+            expected_symbols=symbols,
+        )
+        run_id = existing_tape.collector_run_id
+        if args.collector_run_id and args.collector_run_id != run_id:
+            raise ValueError("collector-run-id does not match resumed tape")
+        if existing_tape.source_revision != source_revision:
+            raise ValueError(
+                "resumed tape source revision differs; start a new evidence root"
+            )
+        if existing_tape.collector_code_sha256 != collector_code_sha256:
+            raise ValueError(
+                "resumed tape collector code differs; start a new evidence root"
+            )
+        if (
+            existing_tape.funding_fetcher_code_sha256
+            != funding_fetcher_code_sha256
+        ):
+            raise ValueError(
+                "resumed tape funding fetcher differs; start a new evidence root"
+            )
+        if existing_tape.bar_interval_seconds != args.bar_interval_sec:
+            raise ValueError("resumed tape bar interval differs")
+        if existing_tape.max_bar_close_lag_seconds != args.max_bar_close_lag_sec:
+            raise ValueError("resumed tape max bar close lag differs")
+        if (
+            existing_tape.max_derivatives_age_seconds
+            != args.max_derivatives_age_sec
+        ):
+            raise ValueError("resumed tape derivatives age limit differs")
     status_path = Path(args.status_path) if args.status_path else (
         output.parent / "collector_status.json"
     )
+    warmup_seed_path = (
+        Path(args.warmup_seed_output)
+        if args.warmup_seed_output
+        else output.parent / "carryflow_warmup_seed.json"
+    )
     fetcher = BitgetFundingDataFetcher(symbols=symbols)
+    warmup_seed_description: dict[str, Any] | None = None
     try:
+        if args.warmup_bars < 0:
+            raise ValueError("warmup-bars must be non-negative")
+        if existing_tape is not None:
+            if warmup_seed_path.is_file():
+                existing_seed = CarryFlowWarmupSeed.from_json(
+                    warmup_seed_path,
+                    expected_symbols=symbols,
+                )
+                existing_seed.validate_for_tape(existing_tape)
+                warmup_seed_description = existing_seed.describe()
+            elif args.warmup_bars:
+                raise ValueError(
+                    "resumed tape has no prospective warm-up seed; use "
+                    "--warmup-bars 0 or start a new evidence root"
+                )
+        elif args.warmup_bars:
+            seed_created_at = datetime.now(timezone.utc)
+            intended_close_ms = intended_first_bar_close_ms(
+                now=seed_created_at,
+                bar_interval_seconds=args.bar_interval_sec,
+                alignment_delay_seconds=args.alignment_delay_sec,
+                align=args.align,
+            )
+            warmup_rows = fetch_warmup_bars(
+                exchange=fetcher.exchange,
+                symbols=symbols,
+                bar_interval_seconds=args.bar_interval_sec,
+                intended_first_evidence_bar_close_timestamp_ms=intended_close_ms,
+                warmup_bars=args.warmup_bars,
+            )
+            warmup_payload = build_warmup_seed_payload(
+                collector_run_id=run_id,
+                source_revision=source_revision,
+                collector_code_sha256=collector_code_sha256,
+                created_at=seed_created_at,
+                bar_interval_seconds=args.bar_interval_sec,
+                intended_first_evidence_bar_close_timestamp_ms=intended_close_ms,
+                symbols=symbols,
+                bars=warmup_rows,
+            )
+            write_warmup_seed(warmup_seed_path, warmup_payload)
+            warmup_seed_description = CarryFlowWarmupSeed.from_json(
+                warmup_seed_path,
+                expected_symbols=symbols,
+            ).describe()
+            if args.align:
+                collection_deadline = (
+                    intended_close_ms / 1000.0 + args.alignment_delay_sec
+                )
+                if datetime.now(timezone.utc).timestamp() >= collection_deadline:
+                    raise RuntimeError(
+                        "warm-up fetch missed the intended first evidence bar; "
+                        "start a new evidence root"
+                    )
         summary = collect_tape_samples(
             fetcher=fetcher,
             symbols=symbols,
@@ -597,10 +846,52 @@ def main(argv: Sequence[str] | None = None) -> int:
             alignment_delay_seconds=args.alignment_delay_sec,
             align=args.align,
             collector_run_id=run_id,
-            source_revision=_git_revision(ROOT),
+            source_revision=source_revision,
+            collector_code_sha256=collector_code_sha256,
+            funding_fetcher_code_sha256=funding_fetcher_code_sha256,
             progress_fn=_print_progress,
             status_path=status_path,
         )
+        summary["warmup_seed"] = warmup_seed_description
+        summary["resumed"] = existing_tape is not None
+        completed_tape = CarryFlowEvidenceTape.from_jsonl(
+            output,
+            expected_symbols=symbols,
+        )
+        summary["tape"] = completed_tape.describe()
+        if args.resume and args.samples == 1:
+            last_sample = completed_tape.samples[-1]
+            next_close_ms = (
+                int(last_sample["bar_close_timestamp_ms"])
+                + args.bar_interval_sec * 1000
+            )
+            next_collection_at = datetime.fromtimestamp(
+                next_close_ms / 1000.0 + max(1, args.alignment_delay_sec),
+                timezone.utc,
+            ).isoformat()
+            write_collector_status(
+                status_path,
+                {
+                    "run_state": "scheduled_idle",
+                    "collection_mode": "scheduled_one_shot",
+                    "collector_run_id": run_id,
+                    "output": str(output.resolve()),
+                    "sample_index": len(completed_tape.samples),
+                    "samples_target": 0,
+                    "next_collection_at": next_collection_at,
+                    "last_sample_complete": last_sample["sample_complete"],
+                    "last_complete_symbols": len(
+                        last_sample["complete_symbols"]
+                    ),
+                    "last_sample_sha256": last_sample["sample_sha256"],
+                    "last_observed_at": last_sample["observed_at"],
+                    "warmup_seed_sha256": (
+                        warmup_seed_description["seed_sha256"]
+                        if warmup_seed_description
+                        else ""
+                    ),
+                },
+            )
     except Exception as exc:
         write_collector_status(
             status_path,
@@ -608,6 +899,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "run_state": "failed",
                 "collector_run_id": run_id,
                 "output": str(output.resolve()),
+                "warmup_seed_output": str(warmup_seed_path.resolve()),
                 "error": f"{type(exc).__name__}: {exc}",
             },
         )

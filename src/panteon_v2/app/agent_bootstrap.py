@@ -79,16 +79,6 @@ FLASH_LEGACY_REAL_AGENT_LABELS: Tuple[str, ...] = (
 )
 
 FUTURES_REPLAY_SIGNAL_FIX_OVERRIDES: dict[str, dict[str, Any]] = {
-    "CarryFlowAgentV2": {
-        "CHECK_INT": 1,
-        "HOLD": 48,
-        "EMA_FAST": 12,
-        "EMA_SLOW": 48,
-        "RSI_OB": 58,
-        "RSI_OS": 42,
-        "EXTREME_EXT": 0.004,
-        "ENTRY_COOLDOWN": 24,
-    },
     "MomentumScalper": {
         "FUTURES_REPLAY_MODE": True,
         "CHECK_INT": 1,

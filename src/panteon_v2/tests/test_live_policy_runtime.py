@@ -14,6 +14,7 @@ from panteon_v2.app.agent_bootstrap import _ensure_paths
 _ensure_paths()
 
 from panteon_agents import CarryFlowAgentV2
+from carryflow_policy import get_carryflow_profile
 
 from panteon_v2.app.bitget_adapter import BitgetExchangeAdapter
 from panteon_v2.app import policy_runtime as policy_runtime_module
@@ -32,10 +33,11 @@ from panteon_v2.execution.position_tracker import PositionTracker
 from panteon_v2.execution.risk_limits import RiskLimitsConfig
 from panteon_v2.policy.carryflow_adapter import (
     ActorStep,
-    CARRYFLOW_CONFIG_FIELDS,
+    CarryFlowAdapterError,
     CarryFlowPolicyAdapter,
+    OpenProposal,
 )
-from panteon_v2.policy.executor import PolicyExecutorV1, PolicyTarget
+from panteon_v2.policy.executor import CandidateSignal, PolicyExecutorV1, PolicyTarget
 from panteon_v2.policy.manifest import (
     CostModel,
     Direction,
@@ -57,20 +59,8 @@ NOW = datetime(2026, 7, 15, 12, 0, 30, tzinfo=timezone.utc)
 
 
 def _manifest(*, expires_at: datetime | None = None) -> PolicyManifest:
-    defaults = CarryFlowAgentV2()
-    config = {
-        name: getattr(defaults, name)
-        for name in CARRYFLOW_CONFIG_FIELDS
-    }
-    config.update({
-        "CHECK_INT": 1,
-        "EMA_FAST": 12,
-        "EMA_SLOW": 48,
-        "MAX_POS": 1,
-        "ALLOW_LONG": False,
-        "ALLOW_SHORT": True,
-        "MAX_DATA_AGE_SEC": 1200,
-    })
+    profile = get_carryflow_profile("screened_short_v1")
+    config = {"PROFILE_ID": profile.profile_id}
     return PolicyManifest(
         schema_version=SCHEMA_VERSION,
         policy_id="carryflow-test-policy",
@@ -108,19 +98,21 @@ def _manifest(*, expires_at: datetime | None = None) -> PolicyManifest:
             max_open_positions=1,
             max_daily_loss_usd=5.0,
             stop_loss_pct=1.2,
-            max_holding_minutes=2880,
-            max_signal_age_seconds=120,
+            max_holding_minutes=profile.hold_bars * 60,
+            max_signal_age_seconds=profile.max_signal_age_seconds,
         ),
-        rules=(
+        rules=tuple(
             PolicyRule(
                 symbol="BTC",
-                regime="neutral",
+                regime=regime,
                 direction=Direction.SHORT,
                 min_expected_move_bps=16.0,
-                max_spread_bps=5.0,
-                max_slippage_bps=5.0,
-                min_regime_confidence=0.0,
-            ),
+                max_spread_bps=profile.max_spread_bps,
+                max_slippage_bps=profile.max_slippage_bps,
+                min_regime_confidence=profile.min_regime_confidence,
+                risk_mult=profile.risk_mult,
+            )
+            for regime in profile.allowed_regimes
         ),
         evidence=(),
         manifest_sha256="c" * 64,
@@ -181,6 +173,10 @@ class _PolicyFrameExchange:
                 "BTC": {
                     "complete": True,
                     "decision_price": 100.0,
+                    "open": 99.0,
+                    "high": 101.0,
+                    "low": 98.0,
+                    "close": 100.0,
                     "volume": 12.0,
                     "bid": 99.99,
                     "ask": 100.01,
@@ -224,6 +220,85 @@ def test_live_policy_runtime_uses_exact_cadence_once_and_real_market_quality():
     assert duplicate.status == "waiting_for_bar_close"
     assert exchange.calls == 1
     assert runtime.required_warmup_bars == 53
+
+
+def test_live_policy_open_contains_the_only_manifest_derived_server_stop():
+    runtime = _live_runtime()
+    runtime.regime_detector = SimpleNamespace(
+        update=lambda *args, **kwargs: Regime.NEUTRAL,
+        confidence=0.9,
+        symbol_regimes={"BTC": Regime.NEUTRAL},
+        symbol_stats={"BTC": {"regime_confidence": 0.9}},
+    )
+    candidate = CandidateSignal(
+        signal_id="candidate-1",
+        bar=1,
+        actor="CarryFlowAgentV2",
+        symbol="BTC",
+        regime="neutral",
+        direction=Direction.SHORT,
+        expected_move_bps=20.0,
+        price=100.0,
+        generated_at=NOW,
+    )
+    runtime.actor_adapter.propose = lambda *args, **kwargs: ActorStep(
+        open_proposals=(
+            OpenProposal(
+                candidate=candidate,
+                execution_symbol="BTC",
+                action=Action.FUT_SHORT_FULL,
+                diagnostics=(),
+            ),
+        ),
+        exit_intents=(),
+        traces=(),
+    )
+
+    step = runtime.evaluate(
+        _market(),
+        exchange=_PolicyFrameExchange(),
+        tracker=PositionTracker(),
+        signal_id_start=10,
+        exchange_healthy=True,
+        daily_loss_usd=0.0,
+    )
+
+    assert len(step.signals) == 1
+    assert step.signals[0].metadata["server_stop_required"] is True
+    assert step.signals[0].metadata["stop_loss_pct"] == pytest.approx(1.2)
+    assert step.signals[0].metadata["stop_price"] == pytest.approx(101.2)
+
+
+def test_live_policy_runtime_rejects_scalar_actor_config():
+    manifest = replace(_manifest(), actor_config=(("HOLD", 6),))
+    wrapped = V1AgentAdapter(
+        label="CarryFlowAgentV2",
+        v1_agent=CarryFlowAgentV2(),
+    )
+
+    with pytest.raises(CarryFlowAdapterError, match="PROFILE_ID-only"):
+        CarryFlowPolicyAdapter(agent=wrapped, manifest=manifest)
+
+
+def test_live_policy_runtime_rejects_profile_rule_drift():
+    manifest = _manifest()
+    neutral_only = replace(manifest, rules=(manifest.rules[0],))
+    low_cost_gate = replace(
+        manifest,
+        rules=(
+            replace(manifest.rules[0], min_expected_move_bps=15.0),
+            *manifest.rules[1:],
+        ),
+    )
+    wrapped = V1AgentAdapter(
+        label="CarryFlowAgentV2",
+        v1_agent=CarryFlowAgentV2(),
+    )
+
+    with pytest.raises(CarryFlowAdapterError, match="regime coverage mismatch"):
+        CarryFlowPolicyAdapter(agent=wrapped, manifest=neutral_only)
+    with pytest.raises(CarryFlowAdapterError, match="total modeled costs"):
+        CarryFlowPolicyAdapter(agent=wrapped, manifest=low_cost_gate)
 
 
 def test_live_policy_runtime_emits_expiry_exit_without_waiting_for_cadence():

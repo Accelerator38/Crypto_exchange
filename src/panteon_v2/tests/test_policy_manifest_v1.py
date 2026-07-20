@@ -318,11 +318,13 @@ def test_authoritative_load_pins_dirty_worktree_runtime_bytes(tmp_path):
 def test_runtime_fingerprint_covers_live_policy_wiring():
     required = {
         "Start_panteon.py",
+        "src/panteon_runtime/carryflow_policy.py",
         "src/panteon_v2/app/bitget_adapter.py",
         "src/panteon_v2/app/main_loop.py",
         "src/panteon_v2/app/policy_runtime.py",
         "src/panteon_v2/app/startup.py",
         "src/panteon_v2/app/v1_bridge_runner.py",
+        "src/panteon_v2/policy/protective_stop.py",
     }
 
     assert required.issubset(set(RUNTIME_FINGERPRINT_PATHS))

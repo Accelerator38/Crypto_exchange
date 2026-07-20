@@ -5,7 +5,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
+
+from carryflow_policy import apply_carryflow_profile, get_carryflow_profile
 
 from ..domain.types import Action, MarketSnapshot
 from ..execution.position_tracker import PositionTracker
@@ -13,7 +15,7 @@ from .executor import CandidateSignal
 from .manifest import Direction, PolicyManifest, canonical_symbol, format_datetime
 
 
-CARRYFLOW_CONFIG_FIELDS = (
+CARRYFLOW_REQUIRED_CONFIG_FIELDS = (
     "CHECK_INT",
     "HOLD",
     "STOP",
@@ -35,6 +37,22 @@ CARRYFLOW_CONFIG_FIELDS = (
     "ALLOW_LONG",
     "ALLOW_SHORT",
 )
+CARRYFLOW_OPTIONAL_CONFIG_FIELDS = (
+    "SHORT_BASIS_FLOOR",
+    "EXIT_ON_NORMALIZATION",
+    "MIN_HOLD_BEFORE_NORMALIZATION",
+    "FLOW_MODEL",
+    "OI_LOOKBACK_BARS",
+    "PRICE_LOOKBACK_BARS",
+    "MIN_PRICE_RETURN",
+    "MAX_PRICE_RETURN",
+    "REQUIRED_HISTORY",
+)
+CARRYFLOW_CONFIG_FIELDS = (
+    *CARRYFLOW_REQUIRED_CONFIG_FIELDS,
+    *CARRYFLOW_OPTIONAL_CONFIG_FIELDS,
+)
+CARRYFLOW_PROFILE_CONFIG_FIELD = "PROFILE_ID"
 
 
 class CarryFlowAdapterError(ValueError):
@@ -124,21 +142,51 @@ class CarryFlowPolicyAdapter:
         if runtime is None or type(runtime).__name__ != "CarryFlowAgentV2":
             raise CarryFlowAdapterError("agent must wrap CarryFlowAgentV2")
         configured = dict(manifest.actor_config)
-        expected = set(CARRYFLOW_CONFIG_FIELDS)
-        missing = sorted(expected - set(configured))
-        extra = sorted(set(configured) - expected)
-        if missing:
-            raise CarryFlowAdapterError(
-                "missing CarryFlow actor_config fields: " + ", ".join(missing)
+        expected = {
+            *CARRYFLOW_CONFIG_FIELDS,
+            CARRYFLOW_PROFILE_CONFIG_FIELD,
+        }
+        compact_profile = set(configured) == {CARRYFLOW_PROFILE_CONFIG_FIELD}
+        if compact_profile:
+            try:
+                profile = apply_carryflow_profile(
+                    runtime,
+                    str(configured[CARRYFLOW_PROFILE_CONFIG_FIELD]),
+                )
+            except ValueError as exc:
+                raise CarryFlowAdapterError(str(exc)) from exc
+            _validate_profile_manifest(profile, manifest)
+            self.profile_id = profile.profile_id
+        else:
+            if manifest.target.value != "replay":
+                raise CarryFlowAdapterError(
+                    "paper and micro-live CarryFlow require PROFILE_ID-only "
+                    "actor_config"
+                )
+            if CARRYFLOW_PROFILE_CONFIG_FIELD in configured:
+                raise CarryFlowAdapterError(
+                    "PROFILE_ID cannot be mixed with scalar actor_config fields"
+                )
+            missing = sorted(
+                set(CARRYFLOW_REQUIRED_CONFIG_FIELDS) - set(configured)
             )
-        if extra:
-            raise CarryFlowAdapterError(
-                "unknown CarryFlow actor_config fields: " + ", ".join(extra)
-            )
-        for name in CARRYFLOW_CONFIG_FIELDS:
-            current = getattr(runtime, name, None)
-            value = _coerce_config_value(name, configured[name], current)
-            setattr(runtime, name, value)
+            extra = sorted(set(configured) - expected)
+            if missing:
+                raise CarryFlowAdapterError(
+                    "missing CarryFlow actor_config fields: "
+                    + ", ".join(missing)
+                )
+            if extra:
+                raise CarryFlowAdapterError(
+                    "unknown CarryFlow actor_config fields: " + ", ".join(extra)
+                )
+            for name in CARRYFLOW_CONFIG_FIELDS:
+                if name not in configured:
+                    continue
+                current = getattr(runtime, name, None)
+                value = _coerce_config_value(name, configured[name], current)
+                setattr(runtime, name, value)
+            self.profile_id = ""
         if int(runtime.MAX_DATA_AGE_SEC) != int(
             manifest.data.max_derivatives_age_seconds
         ):
@@ -150,6 +198,40 @@ class CarryFlowPolicyAdapter:
         self.runtime = runtime
         self.manifest = manifest
         self.derivatives_context_provider = derivatives_context_provider
+
+    @property
+    def required_warmup_bars(self) -> int:
+        if self.profile_id:
+            return max(1, int(self.runtime.REQUIRED_HISTORY))
+        return max(
+            int(self.runtime.EMA_SLOW) + 5,
+            int(self.runtime.EMA_FAST) + 3,
+            int(self.runtime.RSI_N) * 3 + 1,
+        )
+
+    def warmup(self, snapshots: Iterable[MarketSnapshot]) -> int:
+        """Prime price indicators without derivatives, entries, or evidence."""
+
+        allow_long = bool(self.runtime.ALLOW_LONG)
+        allow_short = bool(self.runtime.ALLOW_SHORT)
+        count = 0
+        self.runtime.ALLOW_LONG = False
+        self.runtime.ALLOW_SHORT = False
+        try:
+            for market in snapshots:
+                actions = self.agent.act(market)
+                if any(action != Action.HOLD for action in actions.values()):
+                    raise CarryFlowAdapterError(
+                        "warm-up generated a non-HOLD actor action"
+                    )
+                count += 1
+        finally:
+            self.runtime.ALLOW_LONG = allow_long
+            self.runtime.ALLOW_SHORT = allow_short
+            self.agent.last_signal_diagnostics = {}
+        if any(value is not None for value in self.runtime.pos.values()):
+            raise CarryFlowAdapterError("warm-up mutated CarryFlow position state")
+        return count
 
     def propose(
         self,
@@ -272,7 +354,10 @@ class CarryFlowPolicyAdapter:
                             price=float(market.prices[execution_symbol]),
                             generated_at=market.timestamp,
                             regime=regime,
-                            reason=diagnostic_reason,
+                            reason=str(
+                                diag.get("close_trigger")
+                                or diagnostic_reason
+                            ),
                         )
                     )
                     outcome = "exit_intent_created"
@@ -364,4 +449,140 @@ def _coerce_config_value(name: str, value: Any, current: Any) -> Any:
         if parsed is None:
             raise CarryFlowAdapterError(f"actor_config {name} must be finite")
         return parsed
+    if isinstance(current, str):
+        if not isinstance(value, str) or not value.strip():
+            raise CarryFlowAdapterError(f"actor_config {name} must be string")
+        return value.strip()
     raise CarryFlowAdapterError(f"unsupported CarryFlow config field: {name}")
+
+
+def _validate_profile_manifest(profile: Any, manifest: PolicyManifest) -> None:
+    interval_minutes = manifest.data.bar_interval_seconds / 60.0
+    expected_holding = profile.hold_bars * interval_minutes
+    checks = {
+        "risk.stop_loss_pct": (
+            float(manifest.risk.stop_loss_pct),
+            profile.stop_pct * 100.0,
+        ),
+        "risk.max_holding_minutes": (
+            float(manifest.risk.max_holding_minutes),
+            expected_holding,
+        ),
+        "risk.max_open_positions": (
+            float(manifest.risk.max_open_positions),
+            float(profile.max_positions),
+        ),
+        "risk.max_signal_age_seconds": (
+            float(manifest.risk.max_signal_age_seconds),
+            float(profile.max_signal_age_seconds),
+        ),
+        "data.max_derivatives_age_seconds": (
+            float(manifest.data.max_derivatives_age_seconds),
+            float(profile.max_data_age_seconds),
+        ),
+        "signal.slope_bps_per_unit": (
+            float(manifest.signal_model.slope_bps_per_unit),
+            float(profile.signal_slope_bps_per_unit),
+        ),
+        "signal.lcb_haircut_bps": (
+            float(manifest.signal_model.lcb_haircut_bps),
+            float(profile.signal_lcb_haircut_bps),
+        ),
+        "signal.min_feature_value": (
+            float(manifest.signal_model.min_feature_value),
+            float(profile.signal_min_feature),
+        ),
+        "signal.max_expected_move_bps": (
+            float(manifest.signal_model.max_expected_move_bps),
+            float(profile.signal_max_expected_move_bps),
+        ),
+    }
+    for name, (actual, expected) in checks.items():
+        if not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-9):
+            raise CarryFlowAdapterError(
+                f"profile manifest mismatch: {name}={actual}, expected {expected}"
+            )
+    if manifest.signal_model.feature != "diagnostic.edge":
+        raise CarryFlowAdapterError(
+            "profile manifest mismatch: signal.feature must be diagnostic.edge"
+        )
+    if not math.isclose(
+        float(manifest.signal_model.intercept_bps),
+        0.0,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        raise CarryFlowAdapterError(
+            "profile manifest mismatch: signal.intercept_bps must be zero"
+        )
+    expected_regimes = set(profile.allowed_regimes)
+    expected_move_bps = (
+        float(manifest.costs.round_trip_fee_bps)
+        + float(manifest.costs.slippage_bps)
+        + float(manifest.costs.safety_buffer_bps)
+    )
+    rules_by_symbol: dict[str, set[str]] = {}
+    for rule in manifest.rules:
+        if rule.direction.value != "SHORT":
+            raise CarryFlowAdapterError(
+                "profile manifest mismatch: only SHORT rules are allowed"
+            )
+        if not math.isclose(
+            float(rule.min_regime_confidence),
+            float(profile.min_regime_confidence),
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise CarryFlowAdapterError(
+                "profile manifest mismatch: rule min_regime_confidence must "
+                f"be {profile.min_regime_confidence}"
+            )
+        if not math.isclose(
+            float(rule.min_expected_move_bps),
+            expected_move_bps,
+            rel_tol=0.0,
+            abs_tol=1e-9,
+        ):
+            raise CarryFlowAdapterError(
+                "profile manifest mismatch: rule min_expected_move_bps must "
+                f"equal total modeled costs ({expected_move_bps})"
+            )
+        rule_checks = {
+            "max_spread_bps": (
+                float(rule.max_spread_bps),
+                float(profile.max_spread_bps),
+            ),
+            "max_slippage_bps": (
+                float(rule.max_slippage_bps),
+                float(profile.max_slippage_bps),
+            ),
+            "risk_mult": (
+                float(rule.risk_mult),
+                float(profile.risk_mult),
+            ),
+        }
+        for name, (actual, expected) in rule_checks.items():
+            if not math.isclose(
+                actual,
+                expected,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise CarryFlowAdapterError(
+                    f"profile manifest mismatch: rule {name}={actual}, "
+                    f"expected {expected}"
+                )
+        rules_by_symbol.setdefault(rule.symbol, set()).add(rule.regime)
+    for symbol, regimes in sorted(rules_by_symbol.items()):
+        if regimes != expected_regimes:
+            missing = sorted(expected_regimes - regimes)
+            extra = sorted(regimes - expected_regimes)
+            details = []
+            if missing:
+                details.append("missing=" + ",".join(missing))
+            if extra:
+                details.append("extra=" + ",".join(extra))
+            raise CarryFlowAdapterError(
+                f"profile manifest regime coverage mismatch for {symbol}: "
+                + "; ".join(details)
+            )

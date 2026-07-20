@@ -2474,6 +2474,7 @@ class CarryFlowAgentV2:
     OI_SPIKE = 0.02
     CROWD_RATIO = 0.58
     BASIS_ENTRY = 0.0004
+    SHORT_BASIS_FLOOR = 0.0004
     EXTREME_EXT = 0.008
     EMA_FAST = 60
     EMA_SLOW = 4 * 60
@@ -2485,6 +2486,16 @@ class CarryFlowAgentV2:
     ENTRY_COOLDOWN = 120
     ALLOW_LONG = False
     ALLOW_SHORT = True
+    EXIT_ON_NORMALIZATION = True
+    MIN_HOLD_BEFORE_NORMALIZATION = 0
+    PROFILE_ID = "legacy_runtime_v1"
+    FLOW_MODEL = "legacy_momentum"
+    OI_LOOKBACK_BARS = 1
+    PRICE_LOOKBACK_BARS = 1
+    MIN_PRICE_RETURN = -1.0
+    MAX_PRICE_RETURN = 1.0
+    REQUIRED_HISTORY = 0
+    SYSTEMIC_GUARD_MIN_BREADTH = 0.5
 
     def __init__(self):
         self.h: Dict[str, deque] = {}
@@ -2562,6 +2573,26 @@ class CarryFlowAgentV2:
         self._lc = self.t
         n_open = sum(1 for v in self.pos.values() if v is not None)
         candidates = []
+        breadth_lookback = max(1, int(self.PRICE_LOOKBACK_BARS))
+        breadth_returns = []
+        for symbol in prices:
+            symbol_history = self.h[symbol]
+            if (
+                len(symbol_history) > breadth_lookback
+                and symbol_history[-1 - breadth_lookback] > 0
+            ):
+                breadth_returns.append(
+                    float(symbol_history[-1])
+                    / float(symbol_history[-1 - breadth_lookback])
+                    - 1.0
+                )
+        market_breadth_complete = len(breadth_returns) == len(prices)
+        market_positive_breadth = (
+            sum(value >= 0.0 for value in breadth_returns)
+            / len(breadth_returns)
+            if breadth_returns
+            else 0.0
+        )
         for sym in prices:
             h = self.h[sym]
             cur = self.pos[sym]
@@ -2585,14 +2616,29 @@ class CarryFlowAgentV2:
             rsi = self._rsi(h, self.RSI_N)
             oi_vals = list(self.oi_h[sym])
             oi_chg = 0.0
-            if len(oi_vals) >= 2 and oi_vals[-2] > 0:
-                oi_chg = oi_vals[-1] / oi_vals[-2] - 1.0
+            oi_lookback = max(1, int(self.OI_LOOKBACK_BARS))
+            if (
+                len(oi_vals) > oi_lookback
+                and oi_vals[-1 - oi_lookback] > 0
+            ):
+                oi_chg = oi_vals[-1] / oi_vals[-1 - oi_lookback] - 1.0
+            price_return = 0.0
+            price_lookback = max(1, int(self.PRICE_LOOKBACK_BARS))
+            if len(h) > price_lookback and h[-1 - price_lookback] > 0:
+                price_return = px / h[-1 - price_lookback] - 1.0
+            required_history = max(
+                int(self.REQUIRED_HISTORY),
+                price_lookback + 1,
+                self.EMA_SLOW + 5
+                if self.FLOW_MODEL == "legacy_momentum"
+                else 0,
+            )
 
             common = {
                 "agent": "CarryFlowAgentV2",
                 "bar": self.t,
                 "history_len": len(h),
-                "required_history": self.EMA_SLOW + 5,
+                "required_history": required_history,
                 "oi_history_len": len(oi_vals),
                 "price": px,
                 "entry_price": ep,
@@ -2619,6 +2665,7 @@ class CarryFlowAgentV2:
                 "crowd_ratio": self.CROWD_RATIO,
                 "basis": basis,
                 "basis_entry": self.BASIS_ENTRY,
+                "short_basis_floor": self.SHORT_BASIS_FLOOR,
                 "extension": ext,
                 "extreme_extension": self.EXTREME_EXT,
                 "rsi": rsi,
@@ -2626,24 +2673,52 @@ class CarryFlowAgentV2:
                 "rsi_oversold": self.RSI_OS,
                 "oi_change": oi_chg,
                 "oi_spike": self.OI_SPIKE,
+                "oi_lookback_bars": oi_lookback,
+                "price_return": price_return,
+                "price_lookback_bars": price_lookback,
+                "min_price_return": self.MIN_PRICE_RETURN,
+                "max_price_return": self.MAX_PRICE_RETURN,
+                "market_positive_breadth": market_positive_breadth,
+                "market_breadth_observations": len(breadth_returns),
+                "market_breadth_required_observations": len(prices),
+                "market_breadth_complete": market_breadth_complete,
+                "systemic_guard_min_breadth": self.SYSTEMIC_GUARD_MIN_BREADTH,
+                "flow_model": self.FLOW_MODEL,
+                "profile_id": self.PROFILE_ID,
                 "n_open": n_open,
                 "max_pos": self.MAX_POS,
+                "exit_on_normalization": self.EXIT_ON_NORMALIZATION,
+                "min_hold_before_normalization": self.MIN_HOLD_BEFORE_NORMALIZATION,
             }
 
             if cur == 'long':
+                stop_hit = px <= ep * (1 - self.STOP)
+                target_hit = px >= ep * (1 + self.TARGET)
+                hold_expired = held >= self.HOLD
                 normalized = (
-                    fd
+                    self.EXIT_ON_NORMALIZATION
+                    and held >= self.MIN_HOLD_BEFORE_NORMALIZATION
+                    and fd
                     and rate >= -self.FUNDING_EXIT
                     and short_ratio < 0.54
                     and basis > -self.BASIS_ENTRY * 0.5
                     and ext >= -self.EXTREME_EXT * 0.25
                 )
                 if (
-                    px <= ep * (1 - self.STOP)
-                    or px >= ep * (1 + self.TARGET)
-                    or held >= self.HOLD
+                    stop_hit
+                    or target_hit
+                    or hold_expired
                     or normalized
                 ):
+                    close_trigger = (
+                        "stop_loss"
+                        if stop_hit
+                        else "take_profit"
+                        if target_hit
+                        else "max_holding"
+                        if hold_expired
+                        else "normalization"
+                    )
                     actions[sym] = 8
                     self.pos[sym] = None
                     n_open = max(0, n_open - 1)
@@ -2653,9 +2728,10 @@ class CarryFlowAgentV2:
                         **common,
                         reason="close_long",
                         action=actions[sym],
-                        stop_hit=px <= ep * (1 - self.STOP),
-                        target_hit=px >= ep * (1 + self.TARGET),
-                        hold_expired=held >= self.HOLD,
+                        close_trigger=close_trigger,
+                        stop_hit=stop_hit,
+                        target_hit=target_hit,
+                        hold_expired=hold_expired,
                         normalized=bool(normalized),
                     )
                 else:
@@ -2668,19 +2744,33 @@ class CarryFlowAgentV2:
                     )
                 continue
             if cur == 'short':
+                stop_hit = px >= ep * (1 + self.STOP)
+                target_hit = px <= ep * (1 - self.TARGET)
+                hold_expired = held >= self.HOLD
                 normalized = (
-                    fd
+                    self.EXIT_ON_NORMALIZATION
+                    and held >= self.MIN_HOLD_BEFORE_NORMALIZATION
+                    and fd
                     and rate <= self.FUNDING_EXIT
                     and long_ratio < 0.54
                     and basis < self.BASIS_ENTRY * 0.5
                     and ext <= self.EXTREME_EXT * 0.25
                 )
                 if (
-                    px >= ep * (1 + self.STOP)
-                    or px <= ep * (1 - self.TARGET)
-                    or held >= self.HOLD
+                    stop_hit
+                    or target_hit
+                    or hold_expired
                     or normalized
                 ):
+                    close_trigger = (
+                        "stop_loss"
+                        if stop_hit
+                        else "take_profit"
+                        if target_hit
+                        else "max_holding"
+                        if hold_expired
+                        else "normalization"
+                    )
                     actions[sym] = 8
                     self.pos[sym] = None
                     n_open = max(0, n_open - 1)
@@ -2690,9 +2780,10 @@ class CarryFlowAgentV2:
                         **common,
                         reason="close_short",
                         action=actions[sym],
-                        stop_hit=px >= ep * (1 + self.STOP),
-                        target_hit=px <= ep * (1 - self.TARGET),
-                        hold_expired=held >= self.HOLD,
+                        close_trigger=close_trigger,
+                        stop_hit=stop_hit,
+                        target_hit=target_hit,
+                        hold_expired=hold_expired,
                         normalized=bool(normalized),
                     )
                 else:
@@ -2705,7 +2796,7 @@ class CarryFlowAgentV2:
                     )
                 continue
 
-            if len(h) < self.EMA_SLOW + 5:
+            if len(h) < required_history:
                 _set_signal_diag(
                     diagnostics,
                     sym,
@@ -2714,7 +2805,11 @@ class CarryFlowAgentV2:
                     action=0,
                 )
                 continue
-            es = _ema(list(h)[-self.EMA_SLOW:], self.EMA_SLOW)
+            es = (
+                _ema(list(h)[-self.EMA_SLOW:], self.EMA_SLOW)
+                if len(h) >= self.EMA_SLOW
+                else 0.0
+            )
             trend_up = ef > es * 1.001 if es > 0 else False
             trend_dn = ef < es * 0.999 if es > 0 else False
             cooldown = _entry_cooldown_penalty(
@@ -2728,25 +2823,82 @@ class CarryFlowAgentV2:
                 "cooldown_penalty": cooldown,
             })
 
-            if fd and oi_chg >= self.OI_SPIKE:
+            legacy_model = self.FLOW_MODEL == "legacy_momentum"
+            systemic_guard_model = (
+                self.FLOW_MODEL == "oi_price_divergence_systemic_guard"
+            )
+            divergence_model = self.FLOW_MODEL in (
+                "oi_price_divergence",
+                "oi_price_divergence_systemic_guard",
+            )
+            overextension_model = (
+                self.FLOW_MODEL == "crowded_price_overextension"
+            )
+            if not (legacy_model or divergence_model or overextension_model):
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="unsupported_flow_model",
+                    action=0,
+                )
+                continue
+            short_confirmation = (
+                price_return <= self.MAX_PRICE_RETURN
+                and (
+                    not systemic_guard_model
+                    or (
+                        market_breadth_complete
+                        and market_positive_breadth
+                        >= self.SYSTEMIC_GUARD_MIN_BREADTH
+                    )
+                )
+                if divergence_model
+                else price_return >= self.MIN_PRICE_RETURN
+                if overextension_model
+                else ext >= self.EXTREME_EXT * 0.5 or rsi >= self.RSI_OB
+            )
+            long_confirmation = (
+                False
+                if divergence_model or overextension_model
+                else ext <= -self.EXTREME_EXT * 0.5 or rsi <= self.RSI_OS
+            )
+            oi_expansion_required = not overextension_model
+            if fd and (
+                not oi_expansion_required or oi_chg >= self.OI_SPIKE
+            ):
                 if (
                     self.ALLOW_SHORT
                     and
                     rate >= self.FUNDING_ENTRY
                     and long_ratio >= self.CROWD_RATIO
-                    and basis >= self.BASIS_ENTRY
-                    and (ext >= self.EXTREME_EXT * 0.5 or rsi >= self.RSI_OB)
+                    and basis >= self.SHORT_BASIS_FLOOR
+                    and short_confirmation
                 ):
                     edge=(
                         (rate-self.FUNDING_ENTRY)*10000.0
                         +(long_ratio-self.CROWD_RATIO)*4.0
-                        +(basis-self.BASIS_ENTRY)*1000.0
-                        +(oi_chg-self.OI_SPIKE)*10.0
-                        +max(ext-self.EXTREME_EXT*0.5,0.0)*100.0
-                        +max(rsi-self.RSI_OB,0.0)/100.0
+                        +(basis-self.SHORT_BASIS_FLOOR)*1000.0
+                        +(
+                            (oi_chg-self.OI_SPIKE)*10.0
+                            if oi_expansion_required
+                            else 0.0
+                        )
+                        +(
+                            max(self.MAX_PRICE_RETURN-price_return,0.0)*100.0
+                            if divergence_model
+                            else max(
+                                price_return-self.MIN_PRICE_RETURN,
+                                0.0,
+                            )*100.0
+                            if overextension_model
+                            else max(ext-self.EXTREME_EXT*0.5,0.0)*100.0
+                            +max(rsi-self.RSI_OB,0.0)/100.0
+                        )
                         -cooldown
                     )
-                    candidates.append((edge,sym,7,'short',px))
+                    rank_score = price_return if overextension_model else edge
+                    candidates.append((rank_score,sym,7,'short',px))
                     _set_signal_diag(
                         diagnostics,
                         sym,
@@ -2761,7 +2913,7 @@ class CarryFlowAgentV2:
                     rate <= -self.FUNDING_ENTRY
                     and short_ratio >= self.CROWD_RATIO
                     and basis <= -self.BASIS_ENTRY
-                    and (ext <= -self.EXTREME_EXT * 0.5 or rsi <= self.RSI_OS)
+                    and long_confirmation
                 ):
                     edge=(
                         (-rate-self.FUNDING_ENTRY)*10000.0
@@ -2782,16 +2934,51 @@ class CarryFlowAgentV2:
                         edge=edge,
                     )
                 else:
+                    if self.ALLOW_SHORT:
+                        if rate < self.FUNDING_ENTRY:
+                            failed_reason = "short_funding_below_threshold"
+                        elif long_ratio < self.CROWD_RATIO:
+                            failed_reason = "short_crowding_below_threshold"
+                        elif basis < self.SHORT_BASIS_FLOOR:
+                            failed_reason = "short_basis_below_floor"
+                        elif (
+                            systemic_guard_model
+                            and not market_breadth_complete
+                        ):
+                            failed_reason = "short_market_breadth_incomplete"
+                        elif (
+                            systemic_guard_model
+                            and market_positive_breadth
+                            < self.SYSTEMIC_GUARD_MIN_BREADTH
+                        ):
+                            failed_reason = "short_systemic_selloff_guard"
+                        elif divergence_model:
+                            failed_reason = "short_price_divergence_missing"
+                        elif overextension_model:
+                            failed_reason = "short_price_overextension_missing"
+                        else:
+                            failed_reason = "short_momentum_confirmation_missing"
+                    elif self.ALLOW_LONG:
+                        if rate > -self.FUNDING_ENTRY:
+                            failed_reason = "long_funding_above_threshold"
+                        elif short_ratio < self.CROWD_RATIO:
+                            failed_reason = "long_crowding_below_threshold"
+                        elif basis > -self.BASIS_ENTRY:
+                            failed_reason = "long_basis_above_ceiling"
+                        else:
+                            failed_reason = "long_momentum_confirmation_missing"
+                    else:
+                        failed_reason = "entry_directions_disabled"
                     _set_signal_diag(
                         diagnostics,
                         sym,
                         **common,
-                        reason="funding_conditions_not_met",
+                        reason=failed_reason,
                         action=0,
                     )
                 continue
 
-            if not fd:
+            if not fd and legacy_model:
                 if self.ALLOW_LONG and trend_up and ext <= -self.EXTREME_EXT and rsi <= self.RSI_OS:
                     edge=max(-ext-self.EXTREME_EXT,0.0)*100.0+max(self.RSI_OS-rsi,0.0)/100.0-cooldown
                     candidates.append((edge,sym,5,'long',px))
@@ -2822,6 +3009,14 @@ class CarryFlowAgentV2:
                         reason="funding_missing_fallback_conditions_not_met",
                         action=0,
                     )
+            elif not fd:
+                _set_signal_diag(
+                    diagnostics,
+                    sym,
+                    **common,
+                    reason="derivatives_context_required",
+                    action=0,
+                )
             else:
                 _set_signal_diag(
                     diagnostics,

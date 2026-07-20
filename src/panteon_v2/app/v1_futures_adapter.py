@@ -281,7 +281,8 @@ class V1FuturesExchangeAdapter:
             return self._rejected(signal, f"qty {qty} is below contract minimum")
         sent_qty = self._qty_for_contracts(signal.sym, vol)
         try:
-            raw = self._place_order_with_retry(
+            raw = self._place_open_order_with_retry(
+                signal,
                 signal.sym,
                 v1_side,
                 vol,
@@ -295,6 +296,43 @@ class V1FuturesExchangeAdapter:
         result = self._result_from_raw(signal, raw, qty=sent_qty, side=trade_side)
         self._remember_pending(result, signal=signal, qty=sent_qty, side=trade_side)
         return result
+
+    def _place_open_order_with_retry(
+        self,
+        signal: Signal,
+        symbol: str,
+        side: int,
+        vol: int,
+        leverage: int,
+    ) -> dict:
+        metadata = signal.metadata if isinstance(signal.metadata, dict) else {}
+        if metadata.get("server_stop_required") is not True:
+            return self._place_order_with_retry(symbol, side, vol, leverage)
+        try:
+            stop_price = float(metadata.get("stop_price") or 0.0)
+            reference_price = float(signal.price)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("required server stop metadata is invalid") from exc
+        if not math.isfinite(stop_price) or stop_price <= 0.0:
+            raise ValueError("required server stop price is missing")
+        if side == 1 and stop_price >= reference_price:
+            raise ValueError("long server stop must be below the reference price")
+        if side == 3 and stop_price <= reference_price:
+            raise ValueError("short server stop must be above the reference price")
+        submit = getattr(self._order_client, "place_order_with_stop", None)
+        if not callable(submit):
+            raise ValueError("exchange client does not support required server stop")
+
+        attempts = 2 if self._rate_limit_retry_delay_sec > 0.0 else 1
+        raw: Any = {}
+        for attempt in range(attempts):
+            self._pace_order_submission()
+            raw = submit(symbol, side, vol, leverage, stop_price)
+            if not self._raw_rate_limited(raw):
+                return raw
+            if attempt + 1 < attempts:
+                time.sleep(self._rate_limit_retry_delay_sec)
+        return raw if isinstance(raw, dict) else {}
 
     def _send_close(self, signal: Signal, qty: float) -> OrderResult:
         existing = self.get_position(signal.sym)

@@ -246,7 +246,12 @@ class CarryFlowEvidenceTape:
             ],
         }
 
-    def replay_bundle(self, data_policy: MarketDataPolicy) -> TapeReplayBundle:
+    def replay_bundle(
+        self,
+        data_policy: MarketDataPolicy,
+        *,
+        warmup_seed: Any | None = None,
+    ) -> TapeReplayBundle:
         if int(data_policy.bar_interval_seconds) != self.bar_interval_seconds:
             raise EvidenceTapeError("manifest/tape bar interval mismatch")
         if (
@@ -273,6 +278,27 @@ class CarryFlowEvidenceTape:
         technicals = TechnicalIndicatorState()
         snapshots: list[MarketSnapshot] = []
         records: list[DerivativesContextRecord] = []
+        if warmup_seed is not None:
+            warmup_seed.validate_for_tape(self)
+            for seed_bar in warmup_seed.bars:
+                prices: dict[str, float] = {}
+                volumes: dict[str, float] = {}
+                for symbol in self.symbols:
+                    candle = seed_bar["symbols"][symbol]
+                    close = float(candle["close"])
+                    prices[symbol] = close
+                    volumes[symbol] = float(candle["volume"])
+                    technicals.update_symbol(
+                        symbol,
+                        high=float(candle["high"]),
+                        low=float(candle["low"]),
+                        close=close,
+                    )
+                detector.update(
+                    prices,
+                    volumes=volumes,
+                    funding={symbol: 0.0 for symbol in self.symbols},
+                )
         for bar, sample in enumerate(self.samples, start=1):
             timestamp = _parse_datetime(sample["observed_at"])
             bar_close_ms = int(sample["bar_close_timestamp_ms"])
@@ -297,6 +323,10 @@ class CarryFlowEvidenceTape:
             prices: dict[str, float] = {}
             volumes: dict[str, float] = {}
             funding: dict[str, float] = {}
+            bar_opens: dict[str, float] = {}
+            bar_highs: dict[str, float] = {}
+            bar_lows: dict[str, float] = {}
+            bar_closes: dict[str, float] = {}
             technicals_by_symbol = {}
             for symbol in self.symbols:
                 row = sample["symbols"][symbol]
@@ -307,15 +337,21 @@ class CarryFlowEvidenceTape:
                         f"market data incomplete for {symbol} at bar {bar}"
                     )
                 price = float(market["decision_price"])
-                high = max(float(market["high"]), price)
-                low = min(float(market["low"]), price)
+                bar_high = float(market["high"])
+                bar_low = float(market["low"])
+                indicator_high = max(bar_high, price)
+                indicator_low = min(bar_low, price)
                 prices[symbol] = price
                 volumes[symbol] = float(market["volume"])
                 funding[symbol] = float(derivatives["funding_rate"])
+                bar_opens[symbol] = float(market["open"])
+                bar_highs[symbol] = bar_high
+                bar_lows[symbol] = bar_low
+                bar_closes[symbol] = float(market["close"])
                 technicals_by_symbol[symbol] = technicals.update_symbol(
                     symbol,
-                    high=high,
-                    low=low,
+                    high=indicator_high,
+                    low=indicator_low,
                     close=price,
                 )
                 records.append(
@@ -357,6 +393,10 @@ class CarryFlowEvidenceTape:
                     technicals_by_symbol=technicals_by_symbol,
                     regimes_by_symbol=detector.symbol_regimes,
                     regime_features_by_symbol=detector.symbol_stats,
+                    bar_opens=bar_opens,
+                    bar_highs=bar_highs,
+                    bar_lows=bar_lows,
+                    bar_closes=bar_closes,
                     cadence_timestamp=cadence_timestamp,
                 )
             )

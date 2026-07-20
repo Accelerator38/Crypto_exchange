@@ -29,6 +29,7 @@ from .carryflow_adapter import (
 )
 from .executor import DecisionTrace, PolicyExecutorV1, PolicyTarget, RuntimeContext
 from .manifest import LoadedPolicyManifest, format_datetime
+from .protective_stop import intrabar_stop_fill_reference, protective_stop_price
 
 
 @dataclass(frozen=True)
@@ -241,7 +242,7 @@ class PolicyReplayRunner:
             self._run_bar(market)
         if flatten_end and last_market is not None:
             self._flatten(last_market)
-        return self._build_report()
+        return self._build_report(allow_end_censoring=not flatten_end)
 
     def _run_bar(self, market: MarketSnapshot) -> None:
         self._validate_market_cadence(market)
@@ -249,6 +250,7 @@ class PolicyReplayRunner:
         timestamp = format_datetime(market.timestamp)
         self._first_timestamp = self._first_timestamp or timestamp
         self._last_timestamp = timestamp
+        self._execute_intrabar_protective_stops(market)
         step = self.actor_adapter.propose(market, tracker=self.tracker)
         self.activation_traces.extend(step.traces)
 
@@ -290,7 +292,9 @@ class PolicyReplayRunner:
             now=market.timestamp,
             spread_bps=self.assumed_spread_bps,
             estimated_slippage_bps=self.manifest.costs.slippage_bps,
-            regime_confidence=market.regime_confidence,
+            regime_confidence=market.regime_confidence_for_symbol(
+                proposal.execution_symbol
+            ),
             exchange_healthy=True,
             kill_switch_active=False,
             open_positions=self.tracker.open_count,
@@ -300,6 +304,12 @@ class PolicyReplayRunner:
         self.policy_traces.append(decision.trace)
         if not decision.allowed:
             return
+
+        stop_price = protective_stop_price(
+            candidate.price,
+            proposal.action.side or "",
+            self.manifest.risk.stop_loss_pct,
+        )
 
         signal_id = self._allocate_signal_id()
         signal = Signal(
@@ -320,6 +330,8 @@ class PolicyReplayRunner:
                 "candidate_signal_id": candidate.signal_id,
                 "expected_move_bps": candidate.expected_move_bps,
                 "stop_loss_pct": self.manifest.risk.stop_loss_pct,
+                "stop_price": stop_price,
+                "server_stop_required": True,
             },
         )
         self.trade_executor.set_event_context(
@@ -348,6 +360,52 @@ class PolicyReplayRunner:
         )
         if result.status == ExecutionStatus.FILLED and result.trade is not None:
             self._entry_reference_prices[proposal.execution_symbol] = float(signal.price)
+
+    def _execute_intrabar_protective_stops(self, market: MarketSnapshot) -> None:
+        intents: list[ExitIntent] = []
+        for symbol, opened in sorted(self.tracker.all_open().items()):
+            if str(opened.by_agent or "") != self.manifest.actor:
+                continue
+            ohlc = market.bar_ohlc(symbol)
+            if ohlc is None:
+                raise ValueError(
+                    "replay protective stop requires complete OHLC for open "
+                    f"position {symbol} at bar {market.bar}"
+                )
+            stop_price = float(opened.stop_price or 0.0)
+            if stop_price <= 0.0:
+                stop_price = protective_stop_price(
+                    opened.entry_price,
+                    opened.side,
+                    self.manifest.risk.stop_loss_pct,
+                )
+            open_price, high, low, close = ohlc
+            fill_reference = intrabar_stop_fill_reference(
+                opened.side,
+                stop_price,
+                open_price=open_price,
+                high=high,
+                low=low,
+                close=close,
+            )
+            if fill_reference is None:
+                continue
+            intents.append(
+                ExitIntent(
+                    signal_id=(
+                        f"{self.manifest.policy_id}:{market.bar}:{symbol}:"
+                        "protective_stop"
+                    ),
+                    bar=market.bar,
+                    execution_symbol=symbol,
+                    price=fill_reference,
+                    generated_at=market.timestamp,
+                    regime=market.regime_for_symbol(symbol).label,
+                    reason="policy_stop_loss_intrabar",
+                )
+            )
+        for intent in intents:
+            self._execute_exit(intent)
 
     def _execute_exit(self, intent: ExitIntent) -> None:
         opened = self.tracker.get(intent.execution_symbol)
@@ -473,7 +531,11 @@ class PolicyReplayRunner:
         self._next_signal_id += 1
         return signal_id
 
-    def _build_report(self) -> PolicyReplayReport:
+    def _build_report(
+        self,
+        *,
+        allow_end_censoring: bool = False,
+    ) -> PolicyReplayReport:
         activation_reasons = Counter(trace.outcome for trace in self.activation_traces)
         actor_diagnostic_reasons = Counter(
             trace.diagnostic_reason for trace in self.activation_traces
@@ -569,7 +631,7 @@ class PolicyReplayRunner:
             parity_failures.append("closed_trades_exceed_open_fills")
         if activation_reasons.get("close_without_owned_position", 0) > 0:
             parity_failures.append("orphan_actor_close")
-        if self.tracker.open_count > 0:
+        if self.tracker.open_count > 0 and not allow_end_censoring:
             parity_failures.append("remaining_open_positions")
 
         evidence_failures: list[str] = []
@@ -585,6 +647,8 @@ class PolicyReplayRunner:
             evidence_failures.append("drawdown_above_20pct")
         if mean_cost_bps <= 0.0 and closed > 0:
             evidence_failures.append("zero_cost_attribution")
+        if self.tracker.open_count > 0 and allow_end_censoring:
+            evidence_failures.append("end_positions_censored")
         if opens_blocked_missing_derivatives > 0:
             evidence_failures.append("derivatives_context_missing")
         if (

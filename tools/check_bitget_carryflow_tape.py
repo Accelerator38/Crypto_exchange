@@ -16,7 +16,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from panteon_v2.policy import CarryFlowEvidenceTape  # noqa: E402
+from panteon_v2.policy import (  # noqa: E402
+    CarryFlowEvidenceTape,
+    CarryFlowWarmupSeed,
+)
 
 
 DEFAULT_ROOT = ROOT / "Retrodate" / "bitget_carryflow_tape"
@@ -93,24 +96,59 @@ def summarize_run(
         "collecting",
         "running",
     }
+    scheduled_mode = status.get("collection_mode") == "scheduled_one_shot"
+    scheduled_idle = scheduled_mode and run_state == "scheduled_idle"
+    warmup_seed_path = directory / "carryflow_warmup_seed.json"
+    warmup_seed_valid = not scheduled_mode
+    warmup_seed_error = ""
+    warmup_seed_summary = None
+    if warmup_seed_path.is_file() and tape_summary is not None:
+        try:
+            tape = CarryFlowEvidenceTape.from_jsonl(tape_path)
+            warmup_seed = CarryFlowWarmupSeed.from_json(
+                warmup_seed_path,
+                expected_symbols=tape.symbols,
+            )
+            warmup_seed.validate_for_tape(tape)
+            prospective = warmup_seed.is_prospective_for_tape(tape)
+            code_matches = (
+                warmup_seed.payload["collector_code_sha256"]
+                == tape.collector_code_sha256
+            )
+            warmup_seed_valid = prospective and code_matches
+            warmup_seed_summary = {
+                **warmup_seed.describe(),
+                "prospective_for_tape": prospective,
+                "collector_code_matches_tape": code_matches,
+            }
+            if not warmup_seed_valid:
+                warmup_seed_error = "warm-up seed is not prospective or code-pinned"
+        except Exception as exc:
+            warmup_seed_valid = False
+            warmup_seed_error = f"{type(exc).__name__}: {exc}"
+    elif scheduled_mode:
+        warmup_seed_error = "scheduled root has no warm-up seed"
     healthy = bool(
         status.get("orders_enabled") is False
-        and process_alive
+        and (process_alive or scheduled_idle)
         and status_fresh
         and tape_valid
-        and active_state
+        and (active_state or scheduled_idle)
+        and warmup_seed_valid
     )
     blockers: list[str] = []
     if status.get("orders_enabled") is not False:
         blockers.append("orders_enabled_not_false")
-    if not process_alive:
+    if not process_alive and not scheduled_idle:
         blockers.append("collector_process_not_running")
     if not status_fresh:
         blockers.append("collector_status_stale")
     if not tape_valid:
         blockers.append("evidence_tape_invalid")
-    if not active_state:
+    if not active_state and not scheduled_idle:
         blockers.append(f"collector_state_{run_state}")
+    if not warmup_seed_valid:
+        blockers.append("warmup_seed_invalid")
     return {
         "healthy": healthy,
         "blockers": blockers,
@@ -119,6 +157,8 @@ def summarize_run(
         "orders_enabled": status.get("orders_enabled"),
         "pid": pid,
         "process_alive": process_alive,
+        "collection_mode": status.get("collection_mode", "continuous_process"),
+        "scheduled_idle": scheduled_idle,
         "status_age_sec": age_sec,
         "next_collection_at": status.get("next_collection_at", ""),
         "sample_index": int(status.get("sample_index", 0) or 0),
@@ -126,6 +166,8 @@ def summarize_run(
         "last_sample_complete": status.get("last_sample_complete"),
         "tape": tape_summary,
         "tape_error": tape_error,
+        "warmup_seed": warmup_seed_summary,
+        "warmup_seed_error": warmup_seed_error,
     }
 
 

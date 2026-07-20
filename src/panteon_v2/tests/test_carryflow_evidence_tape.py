@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from panteon_v2.policy import MarketDataPolicy
+from panteon_v2.policy import (
+    CarryFlowWarmupSeed,
+    MarketDataPolicy,
+    WarmupSeedError,
+    write_warmup_seed,
+)
 from panteon_v2.policy.evidence_tape import (
     CarryFlowEvidenceTape,
     EvidenceTapeError,
@@ -130,6 +135,7 @@ def test_tape_hash_chain_builds_exact_market_and_context_bundle(tmp_path):
     assert tape.describe()["context_coverage_pct"] == 100.0
     assert len(bundle.snapshots) == 2
     assert bundle.snapshots[0].prices == {"BTC": 101.0, "ETH": 101.0}
+    assert bundle.snapshots[0].bar_ohlc("BTC") == (100.0, 102.0, 99.0, 101.0)
     bundle.derivatives_context.advance(bundle.snapshots[1].timestamp)
     assert bundle.derivatives_context.get("BTC")["context_complete"] is True
 
@@ -267,3 +273,188 @@ def test_collector_tolerates_subsecond_source_clock_skew():
 
     assert payload["sample_complete"] is True
     assert payload["symbols"]["ETH"]["derivatives"]["age_sec"] == 0.0
+
+
+def test_warmup_seed_is_sealed_and_immediately_precedes_tape(tmp_path):
+    collector = _load_collector()
+    first_close_ms = int(
+        datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc).timestamp() * 1000
+    )
+
+    class Exchange:
+        def fetch_ohlcv(self, market, timeframe, since, limit):
+            assert market in {"BTC/USDT:USDT", "ETH/USDT:USDT"}
+            assert timeframe == "1h"
+            assert limit == 7
+            return [
+                [
+                    since + (index + 1) * 3_600_000,
+                    100.0 + index,
+                    102.0 + index,
+                    99.0 + index,
+                    101.0 + index,
+                    500.0,
+                ]
+                for index in range(3)
+            ]
+
+    bars = collector.fetch_warmup_bars(
+        exchange=Exchange(),
+        symbols=SYMBOLS,
+        bar_interval_seconds=3600,
+        intended_first_evidence_bar_close_timestamp_ms=first_close_ms,
+        warmup_bars=3,
+    )
+    payload = collector.build_warmup_seed_payload(
+        collector_run_id="run-1",
+        source_revision="d863585",
+        collector_code_sha256="1" * 64,
+        created_at=NOW - timedelta(minutes=1),
+        bar_interval_seconds=3600,
+        intended_first_evidence_bar_close_timestamp_ms=first_close_ms,
+        symbols=SYMBOLS,
+        bars=bars,
+    )
+    seed_path = tmp_path / "warmup.json"
+    write_warmup_seed(seed_path, payload)
+    tape_path = tmp_path / "tape.jsonl"
+    append_tape_sample(tape_path, _payload(0))
+    tape = CarryFlowEvidenceTape.from_jsonl(tape_path)
+    seed = CarryFlowWarmupSeed.from_json(seed_path, expected_symbols=SYMBOLS)
+
+    seed.validate_for_tape(tape)
+    snapshots = seed.snapshots()
+    assert [snapshot.bar for snapshot in snapshots] == [-2, -1, 0]
+    assert snapshots[-1].timestamp == datetime(
+        2026, 7, 12, 11, 0, tzinfo=timezone.utc
+    )
+    assert seed.is_prospective_for_tape(tape) is True
+
+
+def test_warmup_seed_tampering_fails_closed(tmp_path):
+    collector = _load_collector()
+    first_close_ms = int(
+        datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc).timestamp() * 1000
+    )
+    bars = []
+    for index in range(2):
+        candle_start = first_close_ms - (3 - index) * 3_600_000
+        bars.append(
+            {
+                "bar_close_timestamp_ms": candle_start + 3_600_000,
+                "symbols": {
+                    symbol: {
+                        "candle_timestamp_ms": candle_start,
+                        "open": 100.0,
+                        "high": 102.0,
+                        "low": 99.0,
+                        "close": 101.0,
+                        "volume": 500.0,
+                    }
+                    for symbol in SYMBOLS
+                },
+            }
+        )
+    path = tmp_path / "warmup.json"
+    write_warmup_seed(
+        path,
+        collector.build_warmup_seed_payload(
+            collector_run_id="run-1",
+            source_revision="d863585",
+            collector_code_sha256="1" * 64,
+            created_at=NOW,
+            bar_interval_seconds=3600,
+            intended_first_evidence_bar_close_timestamp_ms=first_close_ms,
+            symbols=SYMBOLS,
+            bars=bars,
+        ),
+    )
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["bars"][0]["symbols"]["BTC"]["close"] = 100.5
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(WarmupSeedError, match="hash mismatch"):
+        CarryFlowWarmupSeed.from_json(path)
+
+
+def test_collector_resume_appends_one_scheduled_sample_without_process_uptime(
+    tmp_path,
+    monkeypatch,
+):
+    collector = _load_collector()
+    output = tmp_path / "scheduled.jsonl"
+    status = tmp_path / "status.json"
+    now = datetime.now(timezone.utc).replace(
+        minute=0,
+        second=30,
+        microsecond=0,
+    )
+    current_close_ms = collector.expected_bar_close_ms(now, 3600)
+    prior_close_ms = current_close_ms - 3_600_000
+    prior_observed = datetime.fromtimestamp(
+        prior_close_ms / 1000.0 + 30.0,
+        timezone.utc,
+    )
+    source_revision = collector._git_revision(ROOT)
+    collector_sha = collector._sha256_file(COLLECTOR_PATH)
+    funding_sha = collector._sha256_file(
+        ROOT / "src" / "panteon_runtime" / "bitget_funding.py"
+    )
+    append_tape_sample(
+        output,
+        collector.build_tape_payload(
+            collector_run_id="scheduled-run",
+            source_revision=source_revision,
+            collector_code_sha256=collector_sha,
+            funding_fetcher_code_sha256=funding_sha,
+            observed_at=prior_observed,
+            bar_interval_seconds=3600,
+            bar_close_timestamp_ms=prior_close_ms,
+            max_bar_close_lag_seconds=120,
+            max_derivatives_age_seconds=1200,
+            symbols=SYMBOLS,
+            candles=_candles(prior_close_ms),
+            derivatives=_derivatives(prior_observed),
+        ),
+    )
+
+    class Exchange:
+        def fetch_ohlcv(self, market, timeframe, since, limit):
+            return [[since, 100.0, 102.0, 99.0, 101.0, 500.0]]
+
+    class Fetcher:
+        exchange = Exchange()
+
+        def __init__(self, symbols):
+            self.symbols = tuple(symbols)
+
+        def fetch_all(self, symbols):
+            return _derivatives(now)
+
+    monkeypatch.setattr(collector, "BitgetFundingDataFetcher", Fetcher)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now if tz is not None else now.replace(tzinfo=None)
+
+    monkeypatch.setattr(collector, "datetime", FixedDateTime)
+
+    result = collector.main(
+        [
+            "--output",
+            str(output),
+            "--status-path",
+            str(status),
+            "--resume",
+            "--warmup-bars",
+            "0",
+            "--symbols",
+            ",".join(SYMBOLS),
+        ]
+    )
+
+    tape = CarryFlowEvidenceTape.from_jsonl(output, expected_symbols=SYMBOLS)
+    assert result == 0
+    assert tape.collector_run_id == "scheduled-run"
+    assert len(tape.samples) == 2

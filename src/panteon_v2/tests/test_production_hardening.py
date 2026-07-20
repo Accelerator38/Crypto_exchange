@@ -190,6 +190,31 @@ class TestExchangeProfiles(unittest.TestCase):
 
         self.assertIn("BSB", client._bad_symbols)
 
+    def test_bitget_protected_open_uses_exchange_preset_stop_field(self):
+        import importlib
+
+        sys.path.insert(0, str(PANTEON_RUNTIME))
+        bitget_connector = importlib.import_module("bitget_connector")
+
+        class PrivateClient:
+            @staticmethod
+            def price_to_precision(symbol, price):
+                self_symbol = symbol
+                assert self_symbol == "BTC/USDT:USDT"
+                return f"{price:.1f}"
+
+        client = object.__new__(bitget_connector.BitgetFuturesClient)
+        client.exchange = PrivateClient()
+
+        params = client._build_open_order_params(
+            "one_way_mode",
+            market_symbol="BTC/USDT:USDT",
+            stop_loss_price=101.234,
+        )
+
+        self.assertEqual(params["presetStopLossPrice"], "101.2")
+        self.assertEqual(params["productType"], "USDT-FUTURES")
+
 
 class TestPendingOrders(unittest.TestCase):
     def test_v1_adapter_poll_order_converts_ack_to_filled_from_order_detail(self):

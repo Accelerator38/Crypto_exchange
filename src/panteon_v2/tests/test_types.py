@@ -232,6 +232,26 @@ class TestMarketSnapshot(unittest.TestCase):
         self.assertEqual(snap.regime_for_symbol("UNKNOWN"), Regime.NEUTRAL)
         self.assertEqual(snap.with_regime_for_symbol("ETH").regime, Regime.BEARISH)
 
+    def test_regime_confidence_for_symbol_uses_local_classifier_confidence(self):
+        snap = MarketSnapshot(
+            bar=100,
+            timestamp=datetime.now(timezone.utc),
+            regime=Regime.MIXED_ROTATIONAL,
+            regime_confidence=0.25,
+            prices={"BTC": 50000.0, "ETH": 3000.0},
+            volumes={"BTC": 100.0, "ETH": 500.0},
+            regimes_by_symbol={"BTC": Regime.BULLISH},
+            regime_features_by_symbol={
+                "BTC": {"regime_confidence": 0.82},
+            },
+        )
+
+        self.assertEqual(snap.regime_confidence_for_symbol("BTC"), 0.82)
+        self.assertEqual(snap.regime_confidence_for_symbol("ETH"), 0.25)
+        local = snap.with_regime_for_symbol("BTC")
+        self.assertEqual(local.regime, Regime.BULLISH)
+        self.assertEqual(local.regime_confidence, 0.82)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -25,6 +25,10 @@ from ..policy.manifest import (
     canonical_symbol,
     load_policy_manifest,
 )
+from ..policy.protective_stop import (
+    protective_stop_breached,
+    protective_stop_price,
+)
 from ..shadow.adapters import V1AgentAdapter
 from .regime_detector import PriceRegimeDetector
 
@@ -121,12 +125,7 @@ class LivePolicyRuntimeV1:
 
     @property
     def required_warmup_bars(self) -> int:
-        config = dict(self.manifest.actor_config)
-        return max(
-            int(config["EMA_SLOW"]) + 5,
-            int(config["EMA_FAST"]) + 3,
-            int(config["RSI_N"]) * 3 + 1,
-        )
+        return self.actor_adapter.required_warmup_bars
 
     @property
     def current_daily_loss_usd(self) -> float:
@@ -419,7 +418,9 @@ class LivePolicyRuntimeV1:
                     if market_quality
                     else self.manifest.costs.slippage_bps
                 ),
-                regime_confidence=policy_market.regime_confidence,
+                regime_confidence=policy_market.regime_confidence_for_symbol(
+                    proposal.execution_symbol
+                ),
                 exchange_healthy=bool(exchange_healthy and market_quality is not None),
                 kill_switch_active=False,
                 open_positions=tracker.open_count + allowed_opens,
@@ -429,6 +430,11 @@ class LivePolicyRuntimeV1:
             decisions.append(decision.trace)
             if not decision.allowed:
                 continue
+            stop_price = protective_stop_price(
+                candidate.price,
+                proposal.action.side or "",
+                self.manifest.risk.stop_loss_pct,
+            )
             signals.append(
                 Signal(
                     id=next_signal_id,
@@ -446,6 +452,8 @@ class LivePolicyRuntimeV1:
                         candidate.signal_id,
                         expected_move_bps=candidate.expected_move_bps,
                         stop_loss_pct=self.manifest.risk.stop_loss_pct,
+                        stop_price=stop_price,
+                        server_stop_required=True,
                     ),
                 )
             )
@@ -542,6 +550,10 @@ class LivePolicyRuntimeV1:
             return None, (), "market_frame_retry", "policy_market_symbols_missing"
         prices: dict[str, float] = {}
         volumes: dict[str, float] = {}
+        bar_opens: dict[str, float] = {}
+        bar_highs: dict[str, float] = {}
+        bar_lows: dict[str, float] = {}
+        bar_closes: dict[str, float] = {}
         qualities: list[PolicyMarketQuality] = []
         for symbol in self.symbols:
             row = raw_rows.get(symbol)
@@ -550,6 +562,10 @@ class LivePolicyRuntimeV1:
             try:
                 price = _positive_float(row.get("decision_price"), "decision_price")
                 volume = _nonnegative_float(row.get("volume"), "volume")
+                open_price = _positive_float(row.get("open"), "open")
+                high = _positive_float(row.get("high"), "high")
+                low = _positive_float(row.get("low"), "low")
+                close = _positive_float(row.get("close"), "close")
                 bid = _positive_float(row.get("bid"), "bid")
                 ask = _positive_float(row.get("ask"), "ask")
                 spread_bps = _nonnegative_float(row.get("spread_bps"), "spread_bps")
@@ -561,8 +577,14 @@ class LivePolicyRuntimeV1:
                 return None, (), "market_frame_retry", f"{symbol}:{exc}"
             if ask < bid:
                 return None, (), "market_frame_retry", f"policy_market_crossed_book:{symbol}"
+            if not low <= min(open_price, close) <= max(open_price, close) <= high:
+                return None, (), "market_frame_retry", f"policy_market_ohlc_invalid:{symbol}"
             prices[symbol] = price
             volumes[symbol] = volume
+            bar_opens[symbol] = open_price
+            bar_highs[symbol] = high
+            bar_lows[symbol] = low
+            bar_closes[symbol] = close
             qualities.append(
                 PolicyMarketQuality(
                     symbol=symbol,
@@ -595,6 +617,10 @@ class LivePolicyRuntimeV1:
             month=observed_at.month,
             regimes_by_symbol=self.regime_detector.symbol_regimes,
             regime_features_by_symbol=self.regime_detector.symbol_stats,
+            bar_opens=bar_opens,
+            bar_highs=bar_highs,
+            bar_lows=bar_lows,
+            bar_closes=bar_closes,
         )
         self._last_cadence_timestamp = boundary
         return policy_market, tuple(qualities), "evaluated", ""
@@ -616,16 +642,18 @@ class LivePolicyRuntimeV1:
             price = _market_price(market.prices, symbol)
             if price <= 0.0 or opened.entry_price <= 0.0:
                 continue
-            pnl_pct = (
-                (price / opened.entry_price - 1.0) * 100.0
-                if opened.side == "long"
-                else (opened.entry_price / price - 1.0) * 100.0
-            )
+            stop_price = float(opened.stop_price or 0.0)
+            if stop_price <= 0.0:
+                stop_price = protective_stop_price(
+                    opened.entry_price,
+                    opened.side,
+                    self.manifest.risk.stop_loss_pct,
+                )
             held_minutes = max(0.0, (now - _aware_utc(opened.opened_at)).total_seconds() / 60.0)
             reason = ""
             if expired:
                 reason = "policy_manifest_expired"
-            elif pnl_pct <= -float(self.manifest.risk.stop_loss_pct):
+            elif protective_stop_breached(opened.side, price, stop_price):
                 reason = "policy_stop_loss"
             elif held_minutes >= float(self.manifest.risk.max_holding_minutes):
                 reason = "policy_max_holding"
@@ -643,7 +671,12 @@ class LivePolicyRuntimeV1:
                     by_agent=opened.by_agent or self.manifest.actor,
                     position_scope=self._position_scope(),
                     timestamp=now,
-                    metadata=self._signal_metadata(reason, close_reason=reason),
+                    metadata=self._signal_metadata(
+                        reason,
+                        close_reason=reason,
+                        stop_price=stop_price,
+                        stop_trigger_price=price,
+                    ),
                 )
             )
             next_signal_id += 1

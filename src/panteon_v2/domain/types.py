@@ -226,6 +226,10 @@ class MarketSnapshot:
     technicals_by_symbol: Dict[str, TechnicalIndicators] = field(default_factory=dict)
     regimes_by_symbol: Dict[str, Regime] = field(default_factory=dict)
     regime_features_by_symbol: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    bar_opens: Dict[str, float] = field(default_factory=dict)
+    bar_highs: Dict[str, float] = field(default_factory=dict)
+    bar_lows: Dict[str, float] = field(default_factory=dict)
+    bar_closes: Dict[str, float] = field(default_factory=dict)
     cadence_timestamp: Optional[datetime] = None
 
     def __post_init__(self) -> None:
@@ -273,6 +277,42 @@ class MarketSnapshot:
             if isinstance(raw_features, dict):
                 clean_features[clean_symbol] = dict(raw_features)
         object.__setattr__(self, "regime_features_by_symbol", clean_features)
+        clean_ohlc: Dict[str, Dict[str, float]] = {}
+        for field_name in ("bar_opens", "bar_highs", "bar_lows", "bar_closes"):
+            values: Dict[str, float] = {}
+            for symbol, raw_value in (getattr(self, field_name) or {}).items():
+                clean_symbol = str(symbol or "").strip().upper()
+                if clean_symbol not in price_symbols:
+                    raise ValueError(
+                        f"MarketSnapshot.{field_name} contains unknown symbol {symbol!r}"
+                    )
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"MarketSnapshot.{field_name}[{symbol!r}] must be numeric"
+                    ) from exc
+                if not math.isfinite(value) or value <= 0.0:
+                    raise ValueError(
+                        f"MarketSnapshot.{field_name}[{symbol!r}] must be positive and finite"
+                    )
+                values[clean_symbol] = value
+            clean_ohlc[field_name] = values
+            object.__setattr__(self, field_name, values)
+        ohlc_symbols = set().union(*(set(values) for values in clean_ohlc.values()))
+        for symbol in ohlc_symbols:
+            if any(symbol not in values for values in clean_ohlc.values()):
+                raise ValueError(
+                    f"MarketSnapshot OHLC is incomplete for symbol {symbol!r}"
+                )
+            opened = clean_ohlc["bar_opens"][symbol]
+            highest = clean_ohlc["bar_highs"][symbol]
+            lowest = clean_ohlc["bar_lows"][symbol]
+            closed = clean_ohlc["bar_closes"][symbol]
+            if not lowest <= min(opened, closed) <= max(opened, closed) <= highest:
+                raise ValueError(
+                    f"MarketSnapshot OHLC is inconsistent for symbol {symbol!r}"
+                )
 
     def has_price(self, sym: str) -> bool:
         return sym in self.prices and self.prices[sym] > 0
@@ -283,11 +323,37 @@ class MarketSnapshot:
     def regime_features_for_symbol(self, sym: str) -> Dict[str, Any]:
         return dict(self.regime_features_by_symbol.get(str(sym or "").strip().upper(), {}))
 
+    def regime_confidence_for_symbol(self, sym: str) -> float:
+        features = self.regime_features_for_symbol(sym)
+        try:
+            confidence = float(features.get("regime_confidence"))
+        except (TypeError, ValueError):
+            return float(self.regime_confidence)
+        if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+            return float(self.regime_confidence)
+        return confidence
+
+    def bar_ohlc(self, sym: str) -> Optional[Tuple[float, float, float, float]]:
+        symbol = str(sym or "").strip().upper()
+        if not symbol or symbol not in self.bar_opens:
+            return None
+        return (
+            self.bar_opens[symbol],
+            self.bar_highs[symbol],
+            self.bar_lows[symbol],
+            self.bar_closes[symbol],
+        )
+
     def with_regime_for_symbol(self, sym: str) -> "MarketSnapshot":
         regime = self.regime_for_symbol(sym)
-        if regime == self.regime:
+        confidence = self.regime_confidence_for_symbol(sym)
+        if regime == self.regime and confidence == self.regime_confidence:
             return self
-        return replace(self, regime=regime)
+        return replace(
+            self,
+            regime=regime,
+            regime_confidence=confidence,
+        )
 
 
 # ────────────────────────────────────────────────────────────────────

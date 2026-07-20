@@ -528,21 +528,48 @@ class BitgetFuturesClient:
         lowered = str(msg or "").lower()
         return "40774" in lowered or "unilateral position" in lowered
 
-    def _build_open_order_params(self, position_mode: str) -> dict:
-        return {
+    def _build_open_order_params(
+        self,
+        position_mode: str,
+        *,
+        market_symbol: str = "",
+        stop_loss_price: float = 0.0,
+    ) -> dict:
+        params = {
             "productType": "USDT-FUTURES",
             "marginMode": "cross",
             "hedged": position_mode == "hedge_mode",
         }
+        if stop_loss_price > 0.0:
+            precision = getattr(self.exchange, "price_to_precision", None)
+            if not callable(precision) or not market_symbol:
+                raise ValueError("Bitget stop price precision is unavailable")
+            params["presetStopLossPrice"] = precision(
+                market_symbol,
+                stop_loss_price,
+            )
+        return params
 
-    def _submit_open_order(self, market_symbol: str, side: int, amount: float, position_mode: str) -> dict:
+    def _submit_open_order(
+        self,
+        market_symbol: str,
+        side: int,
+        amount: float,
+        position_mode: str,
+        *,
+        stop_loss_price: float = 0.0,
+    ) -> dict:
         return self.exchange.create_order(
             market_symbol,
             "market",
             "buy" if side == 1 else "sell",
             amount,
             None,
-            self._build_open_order_params(position_mode),
+            self._build_open_order_params(
+                position_mode,
+                market_symbol=market_symbol,
+                stop_loss_price=stop_loss_price,
+            ),
         )
 
     @staticmethod
@@ -595,11 +622,25 @@ class BitgetFuturesClient:
         )
         return any(marker in text for marker in safe_markers) and not any(marker in text for marker in unsafe_unknowns)
 
-    def _submit_open_order_safely(self, market_symbol: str, side: int, amount: float, position_mode: str) -> dict:
+    def _submit_open_order_safely(
+        self,
+        market_symbol: str,
+        side: int,
+        amount: float,
+        position_mode: str,
+        *,
+        stop_loss_price: float = 0.0,
+    ) -> dict:
         last_exc = None
         for attempt in range(2):
             try:
-                return self._submit_open_order(market_symbol, side, amount, position_mode)
+                return self._submit_open_order(
+                    market_symbol,
+                    side,
+                    amount,
+                    position_mode,
+                    stop_loss_price=stop_loss_price,
+                )
             except Exception as exc:
                 last_exc = exc
                 if attempt == 0 and self._is_safe_transient_order_error(exc):
@@ -630,7 +671,39 @@ class BitgetFuturesClient:
         except Exception:
             return 0.0
 
-    def place_order(self, symbol: str, side: int, vol: int, leverage: int = 2) -> dict:
+    def place_order_with_stop(
+        self,
+        symbol: str,
+        side: int,
+        vol: int,
+        leverage: int,
+        stop_loss_price: float,
+    ) -> dict:
+        stop = float(stop_loss_price)
+        if not math.isfinite(stop) or stop <= 0.0:
+            return {
+                "success": False,
+                "data": None,
+                "code": -1,
+                "msg": "protective stop price must be positive and finite",
+            }
+        return self.place_order(
+            symbol,
+            side,
+            vol,
+            leverage,
+            stop_loss_price=stop,
+        )
+
+    def place_order(
+        self,
+        symbol: str,
+        side: int,
+        vol: int,
+        leverage: int = 2,
+        *,
+        stop_loss_price: float = 0.0,
+    ) -> dict:
         if self.is_symbol_on_margin_cooldown(symbol):
             return {
                 "success": False,
@@ -722,6 +795,7 @@ class BitgetFuturesClient:
                         side,
                         amount,
                         position_mode,
+                        stop_loss_price=stop_loss_price,
                     )
                     self._position_mode_cache = position_mode
                     self._position_mode_checked_at = time.time()
@@ -763,7 +837,7 @@ class BitgetFuturesClient:
             self._open_position_symbols.add(symbol)
             self._open_positions_checked_at = time.time()
             self._close_skip_until.pop(symbol, None)
-            return {
+            result = {
                 "success": True,
                 "data": order,
                 "code": 0,
@@ -771,6 +845,10 @@ class BitgetFuturesClient:
                 "order_id": order_id,
                 "position_mode": self._position_mode_cache,
             }
+            if stop_loss_price > 0.0:
+                result["protective_stop_attached"] = True
+                result["protective_stop_price"] = float(stop_loss_price)
+            return result
         except Exception as e:
             msg = str(e)
             err_payload = self._exchange_error_payload(e)

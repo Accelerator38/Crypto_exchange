@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -141,16 +142,34 @@ def _loaded_manifest(tmp_path, *, regime: str = "neutral"):
     )
 
 
-def _snapshots(count: int = 30):
+def _snapshots(
+    count: int = 30,
+    *,
+    global_confidence: float = 0.9,
+    local_confidence: float | None = None,
+):
     return [
         MarketSnapshot(
             bar=index,
             timestamp=NOW + timedelta(minutes=index),
             regime=Regime.NEUTRAL,
-            regime_confidence=0.9,
+            regime_confidence=global_confidence,
             prices={"BTC/USDT": 100.0},
             volumes={"BTC/USDT": 1000.0},
+            bar_opens={"BTC/USDT": 100.0},
+            bar_highs={"BTC/USDT": 100.0},
+            bar_lows={"BTC/USDT": 100.0},
+            bar_closes={"BTC/USDT": 100.0},
             regimes_by_symbol={"BTC/USDT": Regime.NEUTRAL},
+            regime_features_by_symbol=(
+                {
+                    "BTC/USDT": {
+                        "regime_confidence": local_confidence,
+                    }
+                }
+                if local_confidence is not None
+                else {}
+            ),
         )
         for index in range(1, count + 1)
     ]
@@ -190,6 +209,28 @@ def test_exact_replay_routes_real_carryflow_through_policy_and_trade_executor(tm
     assert report.total_costs_usd > 0.0
 
 
+def test_exact_replay_can_right_censor_open_position_at_segment_end(tmp_path):
+    panteon_agents.set_fetcher(_FundingFeed())
+    try:
+        runner = PolicyReplayRunner.create(
+            loaded_manifest=_loaded_manifest(tmp_path),
+            agent=_agent(),
+        )
+        report = runner.run(_snapshots(count=18), flatten_end=False)
+    finally:
+        panteon_agents.set_fetcher(None)
+
+    assert report.closed_trades == 2
+    assert report.remaining_open_positions == 1
+    assert report.open_fills == report.closed_trades + 1
+    assert all(
+        outcome.close_reason != "replay_end_flatten"
+        for outcome in runner.trade_outcomes
+    )
+    assert report.parity_passed is True
+    assert "end_positions_censored" in report.evidence_failures
+
+
 def test_exact_replay_advances_point_in_time_derivatives_context(tmp_path):
     records = [
         DerivativesContextRecord(
@@ -226,6 +267,89 @@ def test_exact_replay_advances_point_in_time_derivatives_context(tmp_path):
     assert report.candidate_signals_with_derivatives_context == report.candidate_signals
     assert context.get("BTC")["age_sec"] == 0.0
     assert report.derivatives_context_coverage_pct == 100.0
+
+
+def test_exact_replay_uses_symbol_local_regime_confidence(tmp_path):
+    panteon_agents.set_fetcher(_FundingFeed())
+    try:
+        runner = PolicyReplayRunner.create(
+            loaded_manifest=_loaded_manifest(tmp_path),
+            agent=_agent(),
+        )
+        report = runner.run(
+            _snapshots(global_confidence=0.1, local_confidence=0.9),
+            flatten_end=True,
+        )
+    finally:
+        panteon_agents.set_fetcher(None)
+
+    assert report.candidate_signals > 0
+    assert report.policy_allowed == report.candidate_signals
+    assert "regime_confidence_low" not in dict(report.policy_reasons)
+
+
+def test_exact_replay_executes_manifest_stop_from_intrabar_high(tmp_path):
+    snapshots = [
+        replace(
+            snapshot,
+            bar_highs={"BTC/USDT": 120.0},
+        )
+        for snapshot in _snapshots()
+    ]
+    panteon_agents.set_fetcher(_FundingFeed())
+    try:
+        runner = PolicyReplayRunner.create(
+            loaded_manifest=_loaded_manifest(tmp_path),
+            agent=_agent(),
+        )
+        report = runner.run(snapshots, flatten_end=True)
+    finally:
+        panteon_agents.set_fetcher(None)
+
+    stopped = [
+        outcome
+        for outcome in runner.trade_outcomes
+        if outcome.close_reason == "policy_stop_loss_intrabar"
+    ]
+    assert report.open_fills > 0
+    assert stopped
+    assert all(outcome.exit_reference_price == pytest.approx(110.0) for outcome in stopped)
+
+
+def test_exact_replay_fails_closed_when_open_position_has_no_ohlc(tmp_path):
+    runner = PolicyReplayRunner.create(
+        loaded_manifest=_loaded_manifest(tmp_path),
+        agent=_agent(),
+    )
+    runner.tracker.restore(
+        {
+            "BTC/USDT": {
+                "open_signal_id": 1,
+                "sym": "BTC/USDT",
+                "side": "short",
+                "entry_price": 100.0,
+                "qty": 0.1,
+                "fee_open": 0.0,
+                "by_player": "Policy:test",
+                "by_agent": "CarryFlowAgentV2",
+                "opened_at": NOW.isoformat(),
+                "opened_bar": 0,
+                "open_action": "FUT_SHORT_FULL",
+                "stop_price": 110.0,
+                "stop_loss_pct": 10.0,
+            }
+        }
+    )
+    snapshot = replace(
+        _snapshots(1)[0],
+        bar_opens={},
+        bar_highs={},
+        bar_lows={},
+        bar_closes={},
+    )
+
+    with pytest.raises(ValueError, match="requires complete OHLC"):
+        runner.run((snapshot,))
 
 
 def test_missing_derivatives_context_fails_coverage_without_needing_a_signal(tmp_path):
@@ -284,6 +408,27 @@ def test_carryflow_adapter_requires_complete_pinned_actor_config(tmp_path):
     )
 
     with pytest.raises(CarryFlowAdapterError, match="missing CarryFlow actor_config"):
+        PolicyReplayRunner.create(loaded_manifest=loaded, agent=_agent())
+
+
+def test_carryflow_adapter_rejects_profile_mixed_with_scalar_knobs(tmp_path):
+    payload = _manifest_payload()
+    payload["actor_config"] = {
+        "PROFILE_ID": "screened_short_v1",
+        "HOLD": 6,
+    }
+    payload = seal_manifest_payload(payload)
+    path = tmp_path / "mixed-profile.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    loaded = load_policy_manifest(
+        path,
+        project_root=tmp_path,
+        expected_sha256=payload["manifest_sha256"],
+        now=NOW,
+        verify_runtime_fingerprint=False,
+    )
+
+    with pytest.raises(CarryFlowAdapterError, match="cannot be mixed"):
         PolicyReplayRunner.create(loaded_manifest=loaded, agent=_agent())
 
 

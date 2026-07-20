@@ -128,3 +128,124 @@ def test_wrong_exchange_or_timestamp_contract_is_rejected(tmp_path):
     _write_context(path, [wrong_timestamp])
     with pytest.raises(DerivativesContextError, match="does not match"):
         HistoricalDerivativesContext.from_csv(path)
+
+
+def test_carryflow_short_basis_floor_is_independent_and_diagnostic():
+    context = {
+        "funding_rate": 0.0002,
+        "open_interest_usdt": 1_000_000.0,
+        "long_ratio": 0.65,
+        "short_ratio": 0.35,
+        "mark_price": 99.95,
+        "index_price": 100.0,
+        "last_price": 100.0,
+        "age_sec": 0.0,
+        "context_complete": True,
+    }
+
+    class Fetcher:
+        def get(self, symbol):
+            return dict(context)
+
+    actor = CarryFlowAgentV2()
+    actor.CHECK_INT = 1
+    actor.EMA_FAST = 2
+    actor.EMA_SLOW = 6
+    actor.EXTREME_EXT = 0.0
+    actor.RSI_N = 2
+    actor.RSI_OB = 50
+    actor.OI_SPIKE = 0.02
+    actor.MAX_POS = 1
+    panteon_agents.set_fetcher(Fetcher())
+    try:
+        for bar in range(1, 11):
+            actor.act(
+                {"BTC": 100.0 + bar},
+                {"BTC": 1.0},
+                bar_index=bar,
+            )
+        context["open_interest_usdt"] *= 1.03
+        blocked = actor.act(
+            {"BTC": 111.0},
+            {"BTC": 1.0},
+            bar_index=11,
+        )
+        assert blocked["BTC"] == 0
+        assert (
+            actor.last_signal_diagnostics["BTC"]["reason"]
+            == "short_basis_below_floor"
+        )
+
+        actor.SHORT_BASIS_FLOOR = -0.0015
+        context["open_interest_usdt"] *= 1.03
+        allowed = actor.act(
+            {"BTC": 112.0},
+            {"BTC": 1.0},
+            bar_index=12,
+        )
+        assert allowed["BTC"] == 7
+        assert actor.last_signal_diagnostics["BTC"]["reason"] == "candidate_short"
+    finally:
+        panteon_agents.set_fetcher(None)
+
+
+def test_carryflow_normalization_exit_respects_minimum_hold():
+    context = {
+        "funding_rate": 0.0002,
+        "open_interest_usdt": 1_000_000.0,
+        "long_ratio": 0.65,
+        "short_ratio": 0.35,
+        "mark_price": 99.95,
+        "index_price": 100.0,
+        "last_price": 100.0,
+        "age_sec": 0.0,
+        "context_complete": True,
+    }
+
+    class Fetcher:
+        def get(self, symbol):
+            return dict(context)
+
+    actor = CarryFlowAgentV2()
+    actor.CHECK_INT = 1
+    actor.EMA_FAST = 2
+    actor.EMA_SLOW = 6
+    actor.EXTREME_EXT = 1.0
+    actor.RSI_N = 2
+    actor.RSI_OB = 50
+    actor.OI_SPIKE = 0.02
+    actor.MAX_POS = 1
+    actor.HOLD = 10
+    actor.STOP = 1.0
+    actor.TARGET = 1.0
+    actor.SHORT_BASIS_FLOOR = -0.0015
+    actor.EXIT_ON_NORMALIZATION = True
+    actor.MIN_HOLD_BEFORE_NORMALIZATION = 2
+    panteon_agents.set_fetcher(Fetcher())
+    try:
+        for bar in range(1, 11):
+            actor.act({"BTC": 100.0 + bar}, {"BTC": 1.0}, bar_index=bar)
+        context["open_interest_usdt"] *= 1.03
+        opened = actor.act({"BTC": 111.0}, {"BTC": 1.0}, bar_index=11)
+        assert opened["BTC"] == 7
+
+        context.update(
+            {
+                "funding_rate": 0.0,
+                "long_ratio": 0.50,
+                "short_ratio": 0.50,
+                "mark_price": 99.99,
+            }
+        )
+        held = actor.act({"BTC": 111.0}, {"BTC": 1.0}, bar_index=12)
+        closed = actor.act({"BTC": 111.0}, {"BTC": 1.0}, bar_index=13)
+
+        assert held["BTC"] == 0
+        assert closed["BTC"] == 8
+        assert actor.last_signal_diagnostics["BTC"]["normalized"] is True
+        assert (
+            actor.last_signal_diagnostics["BTC"]["close_trigger"]
+            == "normalization"
+        )
+    finally:
+        panteon_agents.set_fetcher(None)
