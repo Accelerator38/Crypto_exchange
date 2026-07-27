@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -11,14 +12,31 @@ from panteon_v2.policy.strategy_candidate_registry import (
     compute_candidate_profile_sha256,
     validate_strategy_candidate_registry,
 )
+from panteon_v2.policy.experiment_registry import StrategyExperimentRegistry
 
 
 ROOT = Path(__file__).resolve().parents[3]
 REGISTRY_PATH = ROOT / "configs" / "strategy_candidates_v1.json"
+EXPERIMENT_REGISTRY_PATH = (
+    ROOT / "configs" / "strategy_experiment_registry_v1.json"
+)
+TOOL_PATH = ROOT / "tools" / "check_strategy_candidates.py"
 
 
 def _payload() -> dict:
     return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+
+
+def _load_tool():
+    spec = importlib.util.spec_from_file_location(
+        "check_strategy_candidates_test",
+        TOOL_PATH,
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_project_candidates_are_pre_registered_without_authority():
@@ -72,3 +90,25 @@ def test_promotion_gates_cannot_be_lowered_below_fixed_minimums():
 
     with pytest.raises(StrategyCandidateRegistryError, match="gates are too weak"):
         validate_strategy_candidate_registry(payload)
+
+
+def test_candidate_checker_excludes_terminal_profiles_from_ready_list():
+    tool = _load_tool()
+    candidate_registry = StrategyCandidateRegistry.from_json(REGISTRY_PATH)
+    experiment_registry = StrategyExperimentRegistry.from_json(
+        EXPERIMENT_REGISTRY_PATH
+    )
+
+    summary = tool.build_summary(
+        candidate_registry,
+        experiment_registry=experiment_registry,
+    )
+
+    assert summary["ready_for_historical_oos"] == []
+    assert [
+        item["research_status"] for item in summary["candidates"]
+    ] == [
+        "terminal_rejected",
+        "terminal_rejected",
+        "terminal_rejected",
+    ]

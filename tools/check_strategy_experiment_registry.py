@@ -15,7 +15,9 @@ for path in (SRC, RUNTIME):
         sys.path.insert(0, str(path))
 
 from panteon_v2.policy.experiment_registry import (  # noqa: E402
+    ExperimentRegistryError,
     StrategyExperimentRegistry,
+    sha256_file,
 )
 
 
@@ -26,11 +28,12 @@ def build_summary(
     registry: StrategyExperimentRegistry,
     *,
     experiment_id: str = "",
+    artifact_integrity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     experiments = registry.payload["experiments"]
     if experiment_id:
         experiments = [registry.experiment(experiment_id)]
-    return {
+    summary: dict[str, object] = {
         "schema_version": registry.payload["schema_version"],
         "exchange": registry.payload["exchange"],
         "operational_candidate_id": registry.operational_candidate_id,
@@ -55,6 +58,31 @@ def build_summary(
         "orders_enabled": False,
         "promotion_authority": False,
     }
+    if artifact_integrity is not None:
+        summary["artifact_integrity"] = artifact_integrity
+    return summary
+
+
+def verify_registered_artifacts(
+    registry: StrategyExperimentRegistry,
+    *,
+    root: Path = ROOT,
+) -> dict[str, object]:
+    checked = 0
+    for experiment in registry.payload["experiments"]:
+        for artifact in experiment["artifacts"]:
+            path = root / artifact["path"]
+            if not path.is_file():
+                raise ExperimentRegistryError(
+                    f"registered artifact is missing: {artifact['path']}"
+                )
+            actual = sha256_file(path)
+            if actual != artifact["sha256"]:
+                raise ExperimentRegistryError(
+                    f"registered artifact SHA-256 mismatch: {artifact['path']}"
+                )
+            checked += 1
+    return {"checked": checked, "passed": True}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -66,9 +94,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     registry = StrategyExperimentRegistry.from_json(args.registry)
+    artifact_integrity = verify_registered_artifacts(registry)
     print(
         json.dumps(
-            build_summary(registry, experiment_id=args.experiment_id),
+            build_summary(
+                registry,
+                experiment_id=args.experiment_id,
+                artifact_integrity=artifact_integrity,
+            ),
             ensure_ascii=False,
             indent=2,
             sort_keys=True,

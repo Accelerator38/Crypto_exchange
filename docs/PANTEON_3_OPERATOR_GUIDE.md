@@ -22,19 +22,94 @@ The old `configs/bitget_hypotheses_20260706.json` manifest is archived
 research-only. Its legacy sweep and canary entry points fail closed and must not
 be used to restart CarryFlow, Flash or ensemble promotion work.
 
-Three replacement research contracts are pre-registered in
-`configs/strategy_candidates_v1.json`. Validate them with:
+Three replacement research contracts were pre-registered in
+`configs/strategy_candidates_v1.json`. The file is the immutable contract
+snapshot, not a current authorization list. Validate it with:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\check_strategy_candidates.py
 ```
 
 `regime_pullback_hourly_v1` and
-`ohlcv_compression_transition_hourly_v1` may proceed only to historical OOS on
-the pinned full8 Bitget hourly dataset. `funding_carry_hourly_v1` is blocked
-until timestamped funding settlement history is added; funding must never be
-filled with zero or reconstructed from current values. Pre-registration does
-not create a runtime actor and does not authorize paper or live trading.
+`ohlcv_compression_transition_hourly_v1` have completed historical OOS and are
+terminally rejected. Their evidence expectancy is respectively `-4.36 bps`
+with `-18.55 bps` LCB and `-3.92 bps` with `-14.57 bps` LCB; both also fail
+OOS/sanity, cost-stress, direction/regime-collapse and drawdown gates. Do not
+retune thresholds, exits or per-symbol slices on the revealed OOS. A retry
+requires a materially different event contract and a new candidate ID.
+`funding_carry_hourly_v1` is also terminally rejected. A sealed public Bitget
+snapshot provided 1,856 full8 settlement observations from 2026-04-28 through
+2026-07-14 on the overlapping OHLCV window. After sign-persistence checks,
+1,004 contexts remained, but none passed the fixed rate threshold: maximum
+last funding was `3.99 bps` versus `8 bps`, and maximum projected carry was
+`7.35 bps` versus the `16 bps` cost floor and `24 bps` registered gate.
+Lowering the threshold would therefore enable entries that cannot cover the
+registered costs.
+
+Bitget's public funding endpoints exposed only a rolling window of about 90
+days, and the official data-download page does not publish funding archives.
+This recent screen cannot substitute for validation/OOS/sanity. Do not fill
+older funding with zero, reconstruct it, or substitute another exchange's
+rates. The unavailable older history remains a data-provenance blocker, while
+the current profile is independently rejected by its activation/cost floor.
+No candidate created a runtime actor or paper/live authority.
+
+The sealed snapshot and diagnostic screen can be reproduced or verified with
+one fixed command:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_funding_carry_research_v1.py
+```
+
+If the snapshot already exists, the command verifies its hashes and does not
+replace it with a newer rolling API window.
+
+The fixed `cross_sectional_trend_4h_v1` development screen is also terminally
+rejected. It produced 191 closed trades and positive point expectancy
+(`+48.28 bps` after costs), so activation was not the blocker. Robustness was:
+the 95% LCB was `-54.53 bps`, cost-stress LCB was `-60.53 bps`, LONG averaged
+`-28.25 bps`, every per-symbol LCB was negative, and drawdown exceeded the
+registered limit. The fixed Donchian baseline averaged `+111.17 bps`, so the
+candidate also failed the mandatory baseline comparison.
+
+This was a development-only decision. Validation, OOS and sanity remained
+sealed and were not consumed. Removing LONG, selecting winning symbols or
+tuning thresholds/exits after seeing this result is forbidden under the same
+family. A retry requires a materially different event and execution contract
+with a new candidate ID. Reproduce the immutable profile evaluation with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_cross_sectional_trend_development_v1.py
+```
+
+The materially different `market_neutral_relative_momentum_4h_v1` paired
+contract is also terminally rejected at development. It opened equal-notional
+LONG/SHORT legs atomically and produced 96 closed pairs with 386 fills. The
+point estimate was positive (`+13.04 bps`) and beat the fixed raw-momentum pair
+baseline (`+3.36 bps`), but the 95% LCB was `-74.06 bps`, stress LCB was
+`-80.06 bps`, and drawdown was `$6.29` against the `$1` limit.
+
+Validation/OOS/sanity stayed sealed. The max-holding exit subset was positive,
+but removing the pair stop or tuning the holding horizon after seeing that
+split is forbidden post-hoc selection. This profile cannot create a runtime
+actor, paper canary or live manifest. Reproduce its immutable development run:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_market_neutral_pair_development_v1.py
+```
+
+Run the fixed-profile historical evaluation with no strategy flags:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_strategy_lab_v1.py
+```
+
+The evaluator verifies all registered dataset hashes, uses next-bar-open fills,
+applies fees/slippage and cost stress, right-censors split-end positions and
+enforces the registered validation/OOS/sanity gates. Its report is research-only
+and cannot create a policy manifest. The terminal result is stored in
+`Reports/StrategyLab/p2_historical_oos_20260727` and registered in the
+authoritative experiment registry.
 
 The `divergence_short_systemic_guard_v1` evidence extension is complete and
 rejected. Prospective root 003 finished with 74 samples, 10 fills, 5 closed

@@ -74,12 +74,27 @@ def test_registry_tool_reports_terminal_state():
     tool = _load_tool()
     registry = StrategyExperimentRegistry.from_json(REGISTRY_PATH)
 
+    artifact_integrity = tool.verify_registered_artifacts(registry, root=ROOT)
     summary = tool.build_summary(
         registry,
         experiment_id="divergence_short_systemic_guard_v1_prospective",
+        artifact_integrity=artifact_integrity,
     )
 
+    assert summary["artifact_integrity"] == {"checked": 12, "passed": True}
     assert summary["operational_candidate_id"] is None
     assert summary["orders_enabled"] is False
     assert summary["promotion_authority"] is False
     assert summary["experiments"][0]["status"] == "terminal_rejected"
+
+
+def test_registry_tool_rejects_artifact_hash_mismatch(tmp_path):
+    tool = _load_tool()
+    payload = _payload()
+    payload["experiments"][0]["artifacts"][0]["sha256"] = "0" * 64
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps(payload), encoding="utf-8")
+    registry = StrategyExperimentRegistry.from_json(registry_path)
+
+    with pytest.raises(ExperimentRegistryError, match="SHA-256 mismatch"):
+        tool.verify_registered_artifacts(registry, root=ROOT)

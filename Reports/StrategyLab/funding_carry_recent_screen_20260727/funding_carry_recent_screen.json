@@ -1,0 +1,163 @@
+{
+  "activation_funnel": {
+    "first_rejection_reasons": {
+      "funding_history_short": 16,
+      "last_below_threshold": 1004,
+      "sign_not_persistent": 836
+    },
+    "maxima": {
+      "last_abs_bps": 3.9899999999999998,
+      "median_abs_bps": 2.4499999999999997,
+      "projected_bps": 7.35
+    },
+    "per_symbol_first_rejection_reasons": {
+      "ADA": {
+        "funding_history_short": 2,
+        "last_below_threshold": 130,
+        "sign_not_persistent": 100
+      },
+      "BNB": {
+        "funding_history_short": 2,
+        "last_below_threshold": 128,
+        "sign_not_persistent": 102
+      },
+      "BTC": {
+        "funding_history_short": 2,
+        "last_below_threshold": 108,
+        "sign_not_persistent": 122
+      },
+      "DOGE": {
+        "funding_history_short": 2,
+        "last_below_threshold": 128,
+        "sign_not_persistent": 102
+      },
+      "ETH": {
+        "funding_history_short": 2,
+        "last_below_threshold": 157,
+        "sign_not_persistent": 73
+      },
+      "LINK": {
+        "funding_history_short": 2,
+        "last_below_threshold": 96,
+        "sign_not_persistent": 134
+      },
+      "SOL": {
+        "funding_history_short": 2,
+        "last_below_threshold": 129,
+        "sign_not_persistent": 101
+      },
+      "XRP": {
+        "funding_history_short": 2,
+        "last_below_threshold": 128,
+        "sign_not_persistent": 102
+      }
+    },
+    "settlement_observations": 1856,
+    "stage_pass_counts": {
+      "history_ready": 1840,
+      "last_rate_pass": 0,
+      "median_rate_pass": 0,
+      "projected_carry_pass": 0,
+      "sign_persistent": 1004,
+      "signals": 0,
+      "trend_guard_pass": 0
+    }
+  },
+  "candidate_id": "funding_carry_hourly_v1",
+  "continuation_allowed": false,
+  "costs": {
+    "cost_stress_multiplier": 1.5,
+    "round_trip_fee_bps": 8.0,
+    "safety_buffer_bps": 4.0,
+    "slippage_bps": 4.0
+  },
+  "early_rejection": {
+    "applied": true,
+    "cost_floor_bps": 16.0,
+    "max_projected_carry_bps": 7.35,
+    "reason": "zero_signals_and_max_projected_carry_below_cost_floor"
+  },
+  "funding_snapshot": {
+    "allowed_use": "recent_diagnostic_screen_only",
+    "dataset_sha256": "f97b9ea582a7cd10bd5fccce482b8321c6ce97008bb9b18e52e806e7aea145b1",
+    "manifest_sha256": "a828259d3afb987008877f930f212e2bb6a4a32bf7c2a582eb3b749ecbcdb9f8",
+    "observed_common_window": {
+      "end_at": "2026-07-27T08:00:00+00:00",
+      "end_timestamp_ms": 1785139200000,
+      "start_at": "2026-04-28T16:00:00+00:00",
+      "start_timestamp_ms": 1777392000000
+    },
+    "registered_oos_coverage_complete": false
+  },
+  "generated_at": "2026-07-27T10:29:19.234126+00:00",
+  "live_allowed": false,
+  "ohlcv_dataset": {
+    "dataset_id": "bitget_full8_hourly_2022_20260714_v3",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e"
+  },
+  "orders_enabled": false,
+  "overlap": {
+    "bars": 1856,
+    "end_timestamp_ms": 1784070000000,
+    "start_timestamp_ms": 1777392000000
+  },
+  "paper_allowed": false,
+  "portfolio": {
+    "initial_capital_usd": 1000.0,
+    "max_new_positions_per_bar": 1,
+    "max_open_positions": 1,
+    "notional_per_trade_usd": 10.0
+  },
+  "profile_registration_allowed": false,
+  "profile_sha256": "b4040790a82a220a8dc830d5afed2b6b9ac4cc4054c836784912a7492fff9465",
+  "promotion_authority": false,
+  "registered_historical_oos_passed": false,
+  "registry_path": "configs/strategy_candidates_v1.json",
+  "runtime_actor_created": false,
+  "schema_version": "panteon.strategy_lab_evaluation.v1",
+  "screen": {
+    "bars": 1856,
+    "candidate_signals": 0,
+    "closed_trades": 0,
+    "cost_stress_metrics": {
+      "fills": 0,
+      "gross_sum_bps": 0,
+      "lcb_95_net_bps": null,
+      "max_drawdown_usd": 0.0,
+      "mean_gross_bps": null,
+      "mean_net_bps": null,
+      "net_pnl_usd": 0,
+      "net_sum_bps": 0,
+      "positive_rate": 0.0,
+      "positive_trades": 0,
+      "trades": 0
+    },
+    "end_timestamp_ms": 1784070000000,
+    "entry_fills": 0,
+    "exit_fills": 0,
+    "filled_orders": 0,
+    "metrics": {
+      "fills": 0,
+      "gross_sum_bps": 0,
+      "lcb_95_net_bps": null,
+      "max_drawdown_usd": 0.0,
+      "mean_gross_bps": null,
+      "mean_net_bps": null,
+      "net_pnl_usd": 0,
+      "net_sum_bps": 0,
+      "positive_rate": 0.0,
+      "positive_trades": 0,
+      "trades": 0
+    },
+    "per_direction": {},
+    "per_regime": {},
+    "per_symbol": {},
+    "remaining_open_positions": 0,
+    "right_censored_positions": 0,
+    "selected_signals": 0,
+    "split": "recent_screen",
+    "start_timestamp_ms": 1777392000000
+  },
+  "screen_type": "funding_carry_recent_diagnostic",
+  "verdict": "terminal_rejected_recent_activation_and_cost_floor"
+}
