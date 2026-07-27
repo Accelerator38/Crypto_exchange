@@ -94,6 +94,13 @@ from .experiment_registry import (
     StrategyExperimentRegistry,
     validate_experiment_registry,
 )
+from .strategy_candidate_registry import (
+    STRATEGY_CANDIDATE_REGISTRY_SCHEMA_VERSION,
+    StrategyCandidateRegistry,
+    StrategyCandidateRegistryError,
+    compute_candidate_profile_sha256,
+    validate_strategy_candidate_registry,
+)
 
 __all__ = [
     "CandidateSignal",
@@ -138,6 +145,9 @@ __all__ = [
     "RuntimeContext",
     "SignalModel",
     "StrategyExperimentRegistry",
+    "StrategyCandidateRegistry",
+    "StrategyCandidateRegistryError",
+    "STRATEGY_CANDIDATE_REGISTRY_SCHEMA_VERSION",
     "TAPE_SCHEMA_VERSION",
     "CAMPAIGN_SCHEMA_VERSION",
     "CAMPAIGN_STATUS_SCHEMA_VERSION",
@@ -154,6 +164,7 @@ __all__ = [
     "compute_campaign_sha256",
     "compute_manifest_sha256",
     "compute_runtime_fingerprint",
+    "compute_candidate_profile_sha256",
     "compute_sample_sha256",
     "compute_warmup_seed_sha256",
     "compute_root_sha256",
@@ -169,6 +180,7 @@ __all__ = [
     "validate_campaign_payload",
     "validate_evidence_extension_report",
     "validate_experiment_registry",
+    "validate_strategy_candidate_registry",
     "validate_root_payload",
     "validate_warmup_seed",
     "write_warmup_seed",

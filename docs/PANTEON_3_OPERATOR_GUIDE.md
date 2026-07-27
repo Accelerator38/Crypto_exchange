@@ -22,6 +22,20 @@ The old `configs/bitget_hypotheses_20260706.json` manifest is archived
 research-only. Its legacy sweep and canary entry points fail closed and must not
 be used to restart CarryFlow, Flash or ensemble promotion work.
 
+Three replacement research contracts are pre-registered in
+`configs/strategy_candidates_v1.json`. Validate them with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\check_strategy_candidates.py
+```
+
+`regime_pullback_hourly_v1` and
+`ohlcv_compression_transition_hourly_v1` may proceed only to historical OOS on
+the pinned full8 Bitget hourly dataset. `funding_carry_hourly_v1` is blocked
+until timestamped funding settlement history is added; funding must never be
+filled with zero or reconstructed from current values. Pre-registration does
+not create a runtime actor and does not authorize paper or live trading.
+
 The `divergence_short_systemic_guard_v1` evidence extension is complete and
 rejected. Prospective root 003 finished with 74 samples, 10 fills, 5 closed
 trades, negative costed expectancy and a negative 95% LCB. Its terminal

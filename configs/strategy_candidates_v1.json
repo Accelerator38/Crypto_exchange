@@ -1,0 +1,222 @@
+{
+  "schema_version": "panteon.strategy_candidate_registry.v1",
+  "created_at": "2026-07-27T15:00:00+03:00",
+  "exchange": "BITGET",
+  "dataset": {
+    "dataset_id": "bitget_full8_hourly_2022_20260714_v3",
+    "data_dir": "Retrodate/bitget_futures_history_v3_2022_20260714",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "integrity_manifest_sha256": "d65c27dde8feb4181d26bc3f89be57444f6773c262928f634eb85a41fb870c71",
+    "start_at": "2022-01-01T00:00:00+00:00",
+    "end_at": "2026-07-14T23:00:00+00:00",
+    "timeframe": "1h",
+    "symbols": ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "BNB", "LINK"],
+    "fields": ["timestamp", "open", "high", "low", "close", "volume"]
+  },
+  "common_evaluation": {
+    "signal_timing": "closed_bar_signal_next_bar_open_fill",
+    "splits": [
+      {
+        "name": "development",
+        "start_at": "2022-01-01T00:00:00+00:00",
+        "end_at": "2023-12-31T23:00:00+00:00"
+      },
+      {
+        "name": "validation",
+        "start_at": "2024-01-04T00:00:00+00:00",
+        "end_at": "2024-12-31T23:00:00+00:00"
+      },
+      {
+        "name": "oos",
+        "start_at": "2025-01-04T00:00:00+00:00",
+        "end_at": "2025-12-31T23:00:00+00:00"
+      },
+      {
+        "name": "sanity",
+        "start_at": "2026-01-04T00:00:00+00:00",
+        "end_at": "2026-07-14T23:00:00+00:00"
+      }
+    ],
+    "purge_hours": 72,
+    "costs": {
+      "round_trip_fee_bps": 8.0,
+      "slippage_bps": 4.0,
+      "safety_buffer_bps": 4.0,
+      "cost_stress_multiplier": 1.5
+    },
+    "portfolio": {
+      "initial_capital_usd": 1000.0,
+      "notional_per_trade_usd": 10.0,
+      "max_open_positions": 1,
+      "max_new_positions_per_bar": 1
+    },
+    "gates": {
+      "min_total_closed_trades": 50,
+      "min_window_fills": 20,
+      "min_window_closed_trades": 10,
+      "min_costed_expectancy_bps": 0.0,
+      "min_lcb_95_bps": 0.0,
+      "max_drawdown_usd": 0.2,
+      "min_promotable_symbols": 2,
+      "direction_collapse_hard_fail": true,
+      "regime_collapse_hard_fail": true,
+      "root_collapse_hard_fail": true,
+      "require_baseline_improvement": true,
+      "baseline_id": "donchian_24_atr_exit_v1"
+    },
+    "retuning_policy": "new_candidate_id_required_after_any_oos_change"
+  },
+  "operational_candidate_id": null,
+  "candidates": [
+    {
+      "candidate_id": "regime_pullback_hourly_v1",
+      "family_id": "regime_pullback_hourly",
+      "status": "pre_registered",
+      "hypothesis": {
+        "statement": "Directional EMA alignment plus a completed ATR-normalized pullback and close recross has positive costed continuation expectancy.",
+        "directions": ["LONG", "SHORT"],
+        "forbidden_regimes": ["range_low_vol", "neutral", "mixed_rotational", "crash"]
+      },
+      "data_requirements": {
+        "required_fields": ["timestamp", "open", "high", "low", "close", "volume"],
+        "missing_fields": [],
+        "availability": "available"
+      },
+      "event_contract": {
+        "regime_source": "symbol_local_ema_alignment_from_same_closed_hourly_bars",
+        "allowed_regimes": ["bullish", "bearish"],
+        "ema_fast_bars": 24,
+        "ema_slow_bars": 96,
+        "slow_slope_bars": 24,
+        "atr_bars": 14,
+        "pullback_window_bars": 12,
+        "pullback_touch_atr": 0.5,
+        "recross_required": true,
+        "volume_median_bars": 24,
+        "min_volume_ratio": 1.0,
+        "long_rule": "ema_fast_gt_slow_and_slow_slope_positive_then_prior_12_bar_low_touches_fast_with_prior_close_below_fast_and_current_close_recrosses_above_fast",
+        "short_rule": "ema_fast_lt_slow_and_slow_slope_negative_then_prior_12_bar_high_touches_fast_with_prior_close_above_fast_and_current_close_recrosses_below_fast"
+      },
+      "exit_contract": {
+        "stop_atr": 1.5,
+        "target_atr": 3.0,
+        "max_holding_bars": 48,
+        "trend_invalidation_exit": true,
+        "intrabar_priority": "stop_before_target"
+      },
+      "selection_contract": {
+        "cooldown_bars": 24,
+        "portfolio_rank": "recross_distance_atr_times_volume_ratio",
+        "one_entry_per_symbol_per_bar": true,
+        "fallback": "NoTrade"
+      },
+      "profile_sha256": "ff1810677c7daa03ef8e8eb73ae8e0c4942ac55bf0c57e99a6ec0c0aa7b98668",
+      "evaluation_state": "not_started",
+      "historical_evaluation_allowed": true,
+      "runtime_actor_created": false,
+      "paper_allowed": false,
+      "live_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "candidate_id": "ohlcv_compression_transition_hourly_v1",
+      "family_id": "ohlcv_compression_transition_hourly",
+      "status": "pre_registered",
+      "hypothesis": {
+        "statement": "A close outside a trailing range after relative volatility compression and volume expansion has positive costed continuation expectancy without OI.",
+        "directions": ["LONG", "SHORT"],
+        "forbidden_state": "inside_range_without_confirmed_close"
+      },
+      "data_requirements": {
+        "required_fields": ["timestamp", "open", "high", "low", "close", "volume"],
+        "missing_fields": [],
+        "availability": "available"
+      },
+      "event_contract": {
+        "range_bars": 24,
+        "bollinger_bars": 24,
+        "bollinger_std": 2.0,
+        "compression_percentile_lookback_bars": 180,
+        "max_compression_percentile": 0.2,
+        "volume_median_bars": 24,
+        "min_volume_ratio": 1.5,
+        "atr_bars": 14,
+        "atr_expansion_rule": "current_true_range_gt_atr14",
+        "long_rule": "prior_bar_compressed_and_close_above_prior_24_bar_high",
+        "short_rule": "prior_bar_compressed_and_close_below_prior_24_bar_low"
+      },
+      "exit_contract": {
+        "stop_atr": 1.5,
+        "target_atr": 3.0,
+        "max_holding_bars": 36,
+        "failed_breakout_exit_on_range_reentry": true,
+        "intrabar_priority": "stop_before_target"
+      },
+      "selection_contract": {
+        "cooldown_bars": 24,
+        "portfolio_rank": "breakout_distance_atr_times_volume_ratio",
+        "one_entry_per_symbol_per_bar": true,
+        "fallback": "NoTrade"
+      },
+      "profile_sha256": "116f067d2bac93f2d3228fb4ad1edebdb63fe1e8128e225b858a49ad3ab435a3",
+      "evaluation_state": "not_started",
+      "historical_evaluation_allowed": true,
+      "runtime_actor_created": false,
+      "paper_allowed": false,
+      "live_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "candidate_id": "funding_carry_hourly_v1",
+      "family_id": "funding_carry_hourly",
+      "status": "blocked_missing_data",
+      "hypothesis": {
+        "statement": "Funding sign persistence after a settled payment can cover three-window projected carry and directional risk after costs.",
+        "directions": ["LONG", "SHORT"],
+        "entry_timing": "first_closed_hour_after_funding_settlement"
+      },
+      "data_requirements": {
+        "required_fields": ["timestamp", "open", "high", "low", "close", "volume", "funding_settlement_rate"],
+        "missing_fields": ["funding_settlement_rate"],
+        "availability": "missing"
+      },
+      "event_contract": {
+        "funding_history_windows": 3,
+        "min_last_settled_funding_bps": 8.0,
+        "min_trailing_median_funding_bps": 4.0,
+        "projected_windows": 3,
+        "min_projected_carry_bps": 24.0,
+        "atr_bars": 14,
+        "trend_guard_bars": 24,
+        "max_adverse_trend_atr": 1.0,
+        "positive_funding_direction": "SHORT",
+        "negative_funding_direction": "LONG"
+      },
+      "exit_contract": {
+        "stop_atr": 1.5,
+        "max_holding_bars": 24,
+        "exit_on_funding_sign_flip": true,
+        "exit_below_abs_funding_bps": 2.0,
+        "intrabar_priority": "stop_before_carry_exit"
+      },
+      "selection_contract": {
+        "cooldown_bars": 24,
+        "portfolio_rank": "projected_carry_bps_minus_cost_floor",
+        "one_entry_per_symbol_per_bar": true,
+        "fallback": "NoTrade"
+      },
+      "profile_sha256": "b4040790a82a220a8dc830d5afed2b6b9ac4cc4054c836784912a7492fff9465",
+      "evaluation_state": "not_started",
+      "historical_evaluation_allowed": false,
+      "runtime_actor_created": false,
+      "paper_allowed": false,
+      "live_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    }
+  ],
+  "orders_enabled": false,
+  "promotion_authority": false
+}
