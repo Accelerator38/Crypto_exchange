@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 from panteon_v2.selection import FlashAllocatorConfig
 
 
@@ -64,6 +66,27 @@ def _carryflow_top4_hypothesis() -> dict[str, object]:
             "agent:CarryFlowAgentV2|BTC|*|neutral",
         ],
     }
+
+
+def test_archived_manifest_cannot_load_a_canary_profile(tmp_path):
+    tool = _load_tool()
+    manifest_path = tmp_path / "archived.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "exchange": "BITGET",
+                "operational_status": "archived_research_only",
+                "hypotheses": [_hypothesis()],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not operational"):
+        tool.load_hypothesis(
+            manifest_path,
+            "controlled_exploration_loss_budget_deny_richard_btc",
+        )
 
 
 def test_policy_flash_config_matches_controlled_exploration_matrix_profile():

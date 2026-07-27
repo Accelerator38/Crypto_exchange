@@ -72,6 +72,12 @@ _KNOWN_REGIMES = frozenset(
         "range_low_vol_transition",
     }
 )
+_SUPPORTED_SIGNAL_FEATURES = frozenset(
+    {
+        "diagnostic.edge",
+        "diagnostic.price_dislocation_bps",
+    }
+)
 
 
 class ManifestError(ValueError):
@@ -116,8 +122,10 @@ class SignalModel:
     max_expected_move_bps: float
 
     def __post_init__(self) -> None:
-        if str(self.feature or "").strip() != "diagnostic.edge":
+        feature = str(self.feature or "").strip()
+        if feature not in _SUPPORTED_SIGNAL_FEATURES:
             raise ManifestError("signal_model.feature_unsupported")
+        object.__setattr__(self, "feature", feature)
         for name in (
             "intercept_bps",
             "slope_bps_per_unit",

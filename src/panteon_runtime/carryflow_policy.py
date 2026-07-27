@@ -52,6 +52,7 @@ class CarryFlowPolicyProfile:
     min_hold_before_normalization: int = 0
     max_data_age_seconds: int = 1200
     max_positions: int = 1
+    signal_feature: str = "diagnostic.edge"
     signal_slope_bps_per_unit: float = 100.0
     signal_lcb_haircut_bps: float = 4.0
     signal_min_feature: float = 0.20

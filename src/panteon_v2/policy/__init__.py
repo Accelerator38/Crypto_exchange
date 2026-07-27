@@ -88,6 +88,12 @@ from .manifest import (
     seal_manifest_payload,
     validate_policy_manifest,
 )
+from .experiment_registry import (
+    EXPERIMENT_REGISTRY_SCHEMA_VERSION,
+    ExperimentRegistryError,
+    StrategyExperimentRegistry,
+    validate_experiment_registry,
+)
 
 __all__ = [
     "CandidateSignal",
@@ -110,6 +116,8 @@ __all__ = [
     "EvidenceTapeError",
     "EvidenceCampaignError",
     "EvidenceKind",
+    "ExperimentRegistryError",
+    "EXPERIMENT_REGISTRY_SCHEMA_VERSION",
     "ExitIntent",
     "LoadedPolicyManifest",
     "HistoricalDerivativesContext",
@@ -129,6 +137,7 @@ __all__ = [
     "ReplayTradeOutcome",
     "RuntimeContext",
     "SignalModel",
+    "StrategyExperimentRegistry",
     "TAPE_SCHEMA_VERSION",
     "CAMPAIGN_SCHEMA_VERSION",
     "CAMPAIGN_STATUS_SCHEMA_VERSION",
@@ -159,6 +168,7 @@ __all__ = [
     "validate_tape_sample",
     "validate_campaign_payload",
     "validate_evidence_extension_report",
+    "validate_experiment_registry",
     "validate_root_payload",
     "validate_warmup_seed",
     "write_warmup_seed",

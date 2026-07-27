@@ -22,6 +22,7 @@ for path in (SRC, RUNTIME):
 from carryflow_policy import get_carryflow_profile  # noqa: E402
 from panteon_v2.policy.evidence_campaign import (  # noqa: E402
     CAMPAIGN_STATUS_SCHEMA_VERSION,
+    CampaignCollectionDecision,
     CarryFlowEvidenceCampaign,
     EvidenceCampaignError,
     build_campaign_payload,
@@ -30,6 +31,7 @@ from panteon_v2.policy.evidence_campaign import (  # noqa: E402
     sha256_file,
     validate_evidence_extension_report,
     validate_root_payload,
+    validate_root_verdict_payload,
     write_atomic_json,
 )
 from panteon_v2.policy.evidence_tape import CarryFlowEvidenceTape  # noqa: E402
@@ -41,6 +43,7 @@ CAMPAIGN_LOCK_NAME = "campaign_lock.json"
 CAMPAIGN_REPORT_NAME = "screening_report.json"
 CAMPAIGN_STATUS_NAME = "campaign_status.json"
 ROOT_LOCK_NAME = "root_lock.json"
+ROOT_VERDICT_NAME = "root_verdict.json"
 COLLECTOR_TOOL = ROOT / "tools" / "collect_bitget_carryflow_tape.py"
 
 
@@ -160,6 +163,7 @@ def load_campaign_roots(
         seed_path = root_dir / payload["warmup_seed_file"]
         tape = None
         seed = None
+        verdict = None
         if tape_path.is_file():
             tape = CarryFlowEvidenceTape.from_jsonl(
                 tape_path,
@@ -175,6 +179,30 @@ def load_campaign_roots(
                 expected_symbols=campaign.symbols,
             )
             seed.validate_for_tape(tape)
+        verdict_path = root_dir / ROOT_VERDICT_NAME
+        if verdict_path.is_file():
+            if tape is None:
+                raise EvidenceCampaignError(
+                    f"terminal root has no evidence tape: {root_dir}"
+                )
+            verdict = validate_root_verdict_payload(
+                json.loads(verdict_path.read_text(encoding="utf-8")),
+                campaign=campaign,
+                root_payload=payload,
+            )
+            description = tape.describe()
+            if verdict["evidence_tape_sha256"] != sha256_file(tape_path):
+                raise EvidenceCampaignError("terminal root tape SHA-256 changed")
+            if verdict["evidence_head_sha256"] != description["head_sha256"]:
+                raise EvidenceCampaignError("terminal root evidence head changed")
+            if int(verdict["samples"]) != int(description["samples"]):
+                raise EvidenceCampaignError("terminal root sample count changed")
+            if int(verdict["complete_samples"]) != int(
+                description["complete_samples"]
+            ):
+                raise EvidenceCampaignError(
+                    "terminal root complete-sample count changed"
+                )
         result.append(
             {
                 "lock_path": lock_path.resolve(),
@@ -182,11 +210,17 @@ def load_campaign_roots(
                 "payload": payload,
                 "tape": tape,
                 "seed": seed,
+                "verdict": verdict,
             }
         )
     indexes = [int(row["payload"]["root_index"]) for row in result]
     if indexes != list(range(1, len(indexes) + 1)):
         raise EvidenceCampaignError("campaign root indexes are not contiguous")
+    terminal_indexes = [
+        index for index, row in enumerate(result) if row["verdict"] is not None
+    ]
+    if terminal_indexes and terminal_indexes != [len(result) - 1]:
+        raise EvidenceCampaignError("campaign contains a root after terminal verdict")
     return result
 
 
@@ -202,7 +236,6 @@ def run_campaign_once(
         exact_report=exact_report,
         now=observed_at,
     )
-    verify_campaign_environment(campaign)
     roots = load_campaign_roots(campaign)
     latest = roots[-1] if roots else None
     latest_tape = latest["tape"] if latest else None
@@ -211,6 +244,23 @@ def run_campaign_once(
         if latest_tape is not None
         else None
     )
+    if latest is not None and latest["verdict"] is not None:
+        decision = CampaignCollectionDecision(
+            action="terminal",
+            reason=str(latest["verdict"]["reason"]),
+            current_bar_close_timestamp_ms=int(latest_close or 0),
+            next_collection_at="",
+        )
+        summary = build_campaign_status(
+            campaign,
+            roots,
+            run_state="completed_negative",
+            decision=decision,
+        )
+        write_atomic_json(campaign.path.parent / CAMPAIGN_STATUS_NAME, summary)
+        return summary, 0
+
+    verify_campaign_environment(campaign)
     decision = decide_campaign_collection(
         now=observed_at,
         bar_interval_seconds=int(campaign.payload["bar_interval_seconds"]),
@@ -425,6 +475,22 @@ def build_campaign_status(
             "context_coverage_pct": 0.0,
             "head_sha256": "",
             "last_bar_close_timestamp_ms": None,
+            "terminal": root["verdict"] is not None,
+            "verdict": (
+                str(root["verdict"]["verdict"])
+                if root["verdict"] is not None
+                else ""
+            ),
+            "verdict_reason": (
+                str(root["verdict"]["reason"])
+                if root["verdict"] is not None
+                else ""
+            ),
+            "continuation_allowed": (
+                bool(root["verdict"]["continuation_allowed"])
+                if root["verdict"] is not None
+                else True
+            ),
         }
         if tape is not None:
             description = tape.describe()

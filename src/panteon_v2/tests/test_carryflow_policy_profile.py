@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from panteon_v2.app.agent_bootstrap import _ensure_paths
 
 
@@ -70,6 +72,15 @@ def test_divergence_profile_uses_multi_hour_oi_and_price_confirmation():
     assert allowed["BTC"] == 7
     assert allowed_actor.last_signal_diagnostics["BTC"]["oi_lookback_bars"] == 3
     assert allowed_actor.last_signal_diagnostics["BTC"]["price_return"] == 0.0
+    assert allowed_actor.last_signal_diagnostics["BTC"]["ranking_score"] == (
+        allowed_actor.last_signal_diagnostics["BTC"]["edge"]
+    )
+    assert allowed_actor.last_signal_diagnostics["BTC"][
+        "price_dislocation_bps"
+    ] == 50.0
+    assert allowed_actor.last_signal_diagnostics["BTC"][
+        "oi_excess_bps"
+    ] == pytest.approx(50.0)
     assert blocked["BTC"] == 0
     assert (
         blocked_actor.last_signal_diagnostics["BTC"]["reason"]

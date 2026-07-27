@@ -124,7 +124,7 @@ def build_replay_manifest_payload(
         "actor": "CarryFlowAgentV2",
         "actor_config": config,
         "signal_model": {
-            "feature": "diagnostic.edge",
+            "feature": profile.signal_feature,
             "intercept_bps": 0.0,
             "slope_bps_per_unit": profile.signal_slope_bps_per_unit,
             "lcb_haircut_bps": profile.signal_lcb_haircut_bps,

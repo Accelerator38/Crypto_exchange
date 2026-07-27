@@ -1,6 +1,6 @@
 # Panteon Operator Guide
 
-Updated: 2026-07-20
+Updated: 2026-07-27
 
 ## Current verdict
 
@@ -8,27 +8,76 @@ Bitget real trading is **not authorized** until a current `micro_live` policy
 manifest exists and all evidence gates pass. An evidence collector or replay is
 not a trading process and cannot authorize an order.
 
-The current best research profile,
-`divergence_short_systemic_guard_v1`, has positive costed expectancy and no
-independent-root collapse, but its 95% LCB is still negative. It is eligible
-only for no-order evidence extension. It is not an active policy and must not
-be used to create a paper or live manifest. Historical backfill cannot replace
-that extension because Bitget does not expose timestamped historical OI.
+There is currently no operational strategy candidate. The authoritative
+research state is tracked in
+`configs/strategy_experiment_registry_v1.json`; it has
+`operational_candidate_id=null`, `orders_enabled=false` and
+`promotion_authority=false`. Validate it with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\check_strategy_experiment_registry.py
+```
+
+The old `configs/bitget_hypotheses_20260706.json` manifest is archived
+research-only. Its legacy sweep and canary entry points fail closed and must not
+be used to restart CarryFlow, Flash or ensemble promotion work.
+
+The `divergence_short_systemic_guard_v1` evidence extension is complete and
+rejected. Prospective root 003 finished with 74 samples, 10 fills, 5 closed
+trades, negative costed expectancy and a negative 95% LCB. Its terminal
+`root_verdict.json` forbids further collection in that campaign. It is not an
+active policy and must not be used to create a paper or live manifest.
+
+The complete CarryFlow flow-feature family is terminally rejected for the
+current event contract. Changes limited to thresholds, fixed holding time or
+another linear combination of the same flow/OHLCV features are forbidden
+retries. The range-transition OI contract is also terminally rejected as
+specified; only a materially different event contract that first passes
+historical OOS may receive a new experiment ID.
+
+Signal-quality analysis also rejected replacing the six-hour exit with a fixed
+four-hour exit. On the independent historical roots, the four-hour candidate
+averaged `-18.12` net bps versus `-1.17` net bps for the same entries at six
+hours and collapsed in roots `v1` and `v5`. No four-hour policy profile was
+registered.
+
+The runtime now records the manifest's exact signal feature separately from the
+actor ranking score. This is an observability and fail-closed contract change,
+not a new approved model: `diagnostic.edge` remains uncalibrated, and no
+alternative expected-move feature currently has sufficient validation/OOS
+evidence. The cross-root screen had only 16 usable observations, and
+`ranking_score`, price dislocation and OI excess each changed correlation sign
+between roots. No v2 profile was registered.
+
+Forward-label redesign did not rescue CarryFlow. A flow-only ridge and one
+fixed hybrid flow/OHLCV ridge were evaluated leave-one-root-out on
+non-overlapping six-hour labels. The hybrid selected 22 held-out trades but
+returned `-1.42` mean net bps and `-39.66` bps LCB; `v5` collapsed to `-73.64`
+bps with 0% positive trades. This closes the current CarryFlow feature family:
+do not resume its campaign, lower its thresholds or add another exit variant.
+
+A separate range-transition breakout event was audited without adding a runtime
+actor. Compression + close-outside-range + volume + OI confirmation produced 8
+portfolio trades with `+11.74` mean net bps, but LCB remained `-15.82` bps;
+`v4` was inactive and `v5` had negative expectancy. It is research-only and
+cannot start paper/live or a new evidence campaign.
 
 The old Flash/Panteon ensemble remains available for virtual research. It is no
 longer a Bitget live route.
 
-The current evidence-extension operation is one sealed hourly command:
+The archived evidence-extension campaign can be audited with its sealed
+command:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\run_carryflow_evidence_campaign.py `
   --campaign-dir Retrodate\bitget_carryflow_campaign\<campaign>
 ```
 
-It reads public Bitget data only. The campaign pins one profile, published
-source revision and runtime fingerprint. Missed hours create a new independent
-root automatically; they do not reset or splice completed evidence. This
-command cannot create a paper/live manifest and cannot submit an order.
+The terminal verdict makes this command an idempotent no-op with
+`run_state=completed_negative`; it does not fetch another observation. The
+campaign cannot create a paper/live manifest or submit an order. A new campaign
+requires a materially changed profile that first passes offline validation,
+OOS, cost stress and sanity.
 
 ## One launcher
 

@@ -32,6 +32,14 @@ def _validate_manifest(manifest: Mapping[str, Any]) -> None:
     exchange = str(manifest.get("exchange") or "").upper()
     if exchange != "BITGET":
         raise ValueError(f"manifest exchange must be BITGET, got {exchange!r}")
+    operational_status = str(
+        manifest.get("operational_status") or "active"
+    ).strip()
+    if operational_status != "active":
+        raise ValueError(
+            "hypothesis manifest is not operational: "
+            f"{operational_status or 'unknown'}"
+        )
 
 
 def build_sweep_commands(

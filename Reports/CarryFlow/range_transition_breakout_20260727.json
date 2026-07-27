@@ -1,0 +1,308 @@
+{
+  "evaluation": {
+    "aggregate": {
+      "fills": 16,
+      "lcb_95_net_bps": -15.82203060983081,
+      "mean_net_bps": 11.736623461289573,
+      "net_sum_bps": 93.89298769031659,
+      "positive_rate": 0.625,
+      "trades": 8
+    },
+    "direction_collapses": [],
+    "failures": [
+      "closed_trades_below_10",
+      "nonpositive_lcb",
+      "inactive_root:v4",
+      "root_expectancy_collapse:v5"
+    ],
+    "inactive_roots": [
+      "v4"
+    ],
+    "passed": false,
+    "per_direction": {
+      "LONG": {
+        "fills": 8,
+        "lcb_95_net_bps": -38.01277030198507,
+        "mean_net_bps": 12.599615640649478,
+        "net_sum_bps": 50.39846256259791,
+        "positive_rate": 0.75,
+        "trades": 4
+      },
+      "SHORT": {
+        "fills": 8,
+        "lcb_95_net_bps": -20.45176326094475,
+        "mean_net_bps": 10.87363128192967,
+        "net_sum_bps": 43.49452512771868,
+        "positive_rate": 0.5,
+        "trades": 4
+      }
+    },
+    "per_root": {
+      "root003": {
+        "fills": 6,
+        "lcb_95_net_bps": -22.112041218570244,
+        "mean_net_bps": 18.49087269001723,
+        "net_sum_bps": 55.472618070051695,
+        "positive_rate": 0.6666666666666666,
+        "trades": 3
+      },
+      "v1": {
+        "fills": 6,
+        "lcb_95_net_bps": -7.718109018001428,
+        "mean_net_bps": 32.72496978753309,
+        "net_sum_bps": 98.17490936259927,
+        "positive_rate": 0.6666666666666666,
+        "trades": 3
+      },
+      "v4": {
+        "fills": 0,
+        "lcb_95_net_bps": null,
+        "mean_net_bps": null,
+        "net_sum_bps": 0,
+        "positive_rate": 0.0,
+        "trades": 0
+      },
+      "v5": {
+        "fills": 4,
+        "lcb_95_net_bps": -98.83088919465517,
+        "mean_net_bps": -29.877269871167186,
+        "net_sum_bps": -59.75453974233437,
+        "positive_rate": 0.5,
+        "trades": 2
+      }
+    },
+    "root_collapses": [
+      "v5"
+    ],
+    "selected_events": [
+      {
+        "bar": 14,
+        "breakout_distance_bps": 2.7798369162335135,
+        "cost_bps": 11.978092942333014,
+        "direction": "SHORT",
+        "exit_reason": "max_holding",
+        "gross_bps": 0.0,
+        "net_bps": -11.978092942333014,
+        "oi_change": 0.057376742041145734,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.022447203261716033,
+        "ranking_score": 117.93600773045715,
+        "regime": "range_low_vol",
+        "root": "v1",
+        "symbol": "XRP",
+        "timestamp": "2026-07-13T03:00:48.552862+00:00",
+        "volume_ratio": 3.142863142271859
+      },
+      {
+        "bar": 48,
+        "breakout_distance_bps": 298.2246159984037,
+        "cost_bps": 11.978092942333014,
+        "direction": "LONG",
+        "exit_reason": "max_holding",
+        "gross_bps": 84.7995695453322,
+        "net_bps": 72.82147660299918,
+        "oi_change": 0.06414388145670857,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.017963619895841255,
+        "ranking_score": 486.70802626739726,
+        "regime": "range_low_vol",
+        "root": "v1",
+        "symbol": "ETH",
+        "timestamp": "2026-07-14T13:00:50.128604+00:00",
+        "volume_ratio": 14.424741325444431
+      },
+      {
+        "bar": 50,
+        "breakout_distance_bps": 15.745306417693783,
+        "cost_bps": 11.978092942333014,
+        "direction": "LONG",
+        "exit_reason": "max_holding",
+        "gross_bps": 49.30961864426611,
+        "net_bps": 37.331525701933096,
+        "oi_change": 0.01983303485099519,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.029403622776892745,
+        "ranking_score": 43.10409593479549,
+        "regime": "choppy_up",
+        "root": "v1",
+        "symbol": "BTC",
+        "timestamp": "2026-07-14T15:00:49.748364+00:00",
+        "volume_ratio": 4.355240477922746
+      },
+      {
+        "bar": 37,
+        "breakout_distance_bps": 8.771113798557995,
+        "cost_bps": 11.989481383733647,
+        "direction": "LONG",
+        "exit_reason": "max_holding",
+        "gross_bps": 24.033035465324364,
+        "net_bps": 12.043554081590717,
+        "oi_change": 0.01690026306574932,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.010379582812907033,
+        "ranking_score": 14.495845550170328,
+        "regime": "range_low_vol",
+        "root": "v5",
+        "symbol": "SOL",
+        "timestamp": "2026-07-18T18:00:49.236546+00:00",
+        "volume_ratio": 1.4948148174478058
+      },
+      {
+        "bar": 42,
+        "breakout_distance_bps": 11.976047904189713,
+        "cost_bps": 11.989481383733647,
+        "direction": "LONG",
+        "exit_reason": "max_holding",
+        "gross_bps": -59.808612440191446,
+        "net_bps": -71.79809382392509,
+        "oi_change": 0.02769983398321929,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.02240387526491074,
+        "ranking_score": 44.42835709304526,
+        "regime": "range_low_vol",
+        "root": "v5",
+        "symbol": "ADA",
+        "timestamp": "2026-07-18T23:00:48.731884+00:00",
+        "volume_ratio": 1.440544846161463
+      },
+      {
+        "bar": 25,
+        "breakout_distance_bps": 9.287037278585819,
+        "cost_bps": 11.995402298199709,
+        "direction": "SHORT",
+        "exit_reason": "max_holding",
+        "gross_bps": 74.8353674139755,
+        "net_bps": 62.8399651157758,
+        "oi_change": 0.024087453141518722,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.012485158319895849,
+        "ranking_score": 35.41448671070103,
+        "regime": "range_low_vol",
+        "root": "root003",
+        "symbol": "ETH",
+        "timestamp": "2026-07-23T08:00:58.138498+00:00",
+        "volume_ratio": 1.9817633156636805
+      },
+      {
+        "bar": 31,
+        "breakout_distance_bps": 15.292318550758077,
+        "cost_bps": 11.995402298199709,
+        "direction": "SHORT",
+        "exit_reason": "max_holding",
+        "gross_bps": 27.097078228086342,
+        "net_bps": 15.101675929886634,
+        "oi_change": 0.015089741262237721,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.017952902774539512,
+        "ranking_score": 51.33748709851459,
+        "regime": "range_low_vol",
+        "root": "root003",
+        "symbol": "LINK",
+        "timestamp": "2026-07-23T14:00:58.095389+00:00",
+        "volume_ratio": 8.464163078432442
+      },
+      {
+        "bar": 54,
+        "breakout_distance_bps": 23.554414238907697,
+        "cost_bps": 11.995402298199709,
+        "direction": "SHORT",
+        "exit_reason": "max_holding",
+        "gross_bps": -10.473620677411029,
+        "net_bps": -22.469022975610738,
+        "oi_change": 0.01944575444441865,
+        "previous_regime": "range_low_vol",
+        "range_width": 0.01093781648774566,
+        "ranking_score": 44.08076911061702,
+        "regime": "range_low_vol",
+        "root": "root003",
+        "symbol": "BNB",
+        "timestamp": "2026-07-24T13:00:57.814167+00:00",
+        "volume_ratio": 3.1823937521325396
+      }
+    ]
+  },
+  "event_contract": {
+    "event_cooldown_bars": 6,
+    "hold_bars": 6,
+    "max_portfolio_entries_per_bar": 1,
+    "max_range_width": 0.03,
+    "min_oi_expansion": 0.015,
+    "min_volume_ratio": 1.3,
+    "oi_lookback_bars": 3,
+    "range_lookback_bars": 12,
+    "stop_pct": 0.012,
+    "target_pct": 0.024
+  },
+  "generated_at": "2026-07-27T09:02:37.609696+00:00",
+  "inputs": [
+    {
+      "activation_trace_sha256": "e323b46c294552d568daef927f8e9323c37a77650852219da5c03b56681d0733",
+      "replay_dir": "E:\\Crypto_exchange\\Reports\\CarryFlow\\exact_profiles_20260720_121823\\divergence_short_systemic_guard_v1\\segment_1",
+      "replay_summary_sha256": "acadeed09a96af8fd89f2d8d836b9c196f664ba1a99719f5f656d5112aac148d",
+      "root": "v1",
+      "tape_head_sha256": "bfa9d636f4169ca8bfe321c0e32bee14ff8b1b99b17e42c4e42a32c6429af336",
+      "tape_path": "E:\\Crypto_exchange\\Retrodate\\bitget_carryflow_tape\\hourly_root_v1_20260712\\carryflow_evidence_tape.jsonl",
+      "tape_sha256": "31a87f8b4ab638a703311b722a47abfca11197a6698b18858798f07d9942f586"
+    },
+    {
+      "activation_trace_sha256": "36b4809f301a54d201ec9dcc58de48cb52df4aaa13cba2e3d5e397d2476adad1",
+      "replay_dir": "E:\\Crypto_exchange\\Reports\\CarryFlow\\exact_profiles_20260720_121823\\divergence_short_systemic_guard_v1\\segment_2",
+      "replay_summary_sha256": "882a6eb01e2d108ee7343f4af041d8673f45435fe9311128861e8ae0d669d932",
+      "root": "v4",
+      "tape_head_sha256": "3f908e26d07a7382b4f67ad227fa9e5785c1a15a7ce29864eb4257a75f035a9b",
+      "tape_path": "E:\\Crypto_exchange\\Retrodate\\bitget_carryflow_tape\\hourly_root_v4_65891bb_20260715\\carryflow_evidence_tape.jsonl",
+      "tape_sha256": "b25e5b4d80fae99b6ee37e96d981b5421bc7421eb44404c9ec21afaa3db024f9"
+    },
+    {
+      "activation_trace_sha256": "bff335408897f7456346193971b5ec4447e03b94242045ff20b161f0e37c749b",
+      "replay_dir": "E:\\Crypto_exchange\\Reports\\CarryFlow\\exact_profiles_20260720_121823\\divergence_short_systemic_guard_v1\\segment_3",
+      "replay_summary_sha256": "a89e3df8e61d436cf120642873dbd1c2f0f4b30fa423b0cc282469d9f052a393",
+      "root": "v5",
+      "tape_head_sha256": "a21de0717950044e6b922a72053d858ecb367c1eca49a62521cb2c9d3c0f48da",
+      "tape_path": "E:\\Crypto_exchange\\Retrodate\\bitget_carryflow_tape\\hourly_root_v5_65891bb_20260717_recovery\\carryflow_evidence_tape.jsonl",
+      "tape_sha256": "0b59bc51118ee8cf1e5a53d9cce6f5379f666446b80929dd3a980e7e9631bb31"
+    },
+    {
+      "activation_trace_sha256": "7dd61ec84bae90745b20340b22fba034f7f8ae6af72c39b87fa7e4781b077102",
+      "replay_dir": "E:\\Crypto_exchange\\Reports\\PolicyReplayV1\\root003_feature_contract_replay_20260727",
+      "replay_summary_sha256": "9eba21ea5d7b7a456cfb8a785aa35e19a5ca069c8c93d33a7e3396ce80ce7d22",
+      "root": "root003",
+      "tape_head_sha256": "8d4fe27dc94a15c3cf442d706a8a965d0e0d65c9319aab6de0234869540e8184",
+      "tape_path": "E:\\Crypto_exchange\\Retrodate\\bitget_carryflow_campaign\\systemic_guard_640c66a_20260720\\roots\\root_003_20260722T080035Z\\carryflow_evidence_tape.jsonl",
+      "tape_sha256": "a33e7e0be04738830b37b898fcd5ea9c51369c09f1119b6199d89947b30134d1"
+    }
+  ],
+  "next_action": "do_not_add_runtime_actor",
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "research_only": true,
+  "roots": [
+    {
+      "raw_events": 5,
+      "root": "v1",
+      "selected_events": 3,
+      "symbol_regime_transitions": 15
+    },
+    {
+      "raw_events": 0,
+      "root": "v4",
+      "selected_events": 0,
+      "symbol_regime_transitions": 3
+    },
+    {
+      "raw_events": 2,
+      "root": "v5",
+      "selected_events": 2,
+      "symbol_regime_transitions": 6
+    },
+    {
+      "raw_events": 3,
+      "root": "root003",
+      "selected_events": 3,
+      "symbol_regime_transitions": 9
+    }
+  ],
+  "runtime_actor_created": false,
+  "schema_version": "panteon.range_transition_breakout.v1",
+  "verdict": "activation_or_expectancy_failure"
+}

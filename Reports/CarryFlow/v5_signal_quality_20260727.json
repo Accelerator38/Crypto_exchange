@@ -1,0 +1,1284 @@
+{
+  "activation_funnel": {
+    "actor_observations": 528,
+    "actor_selected_candidates": 6,
+    "closed_trades": 4,
+    "flat_observations": 501,
+    "funding_rejected_after_oi": 32,
+    "oi_below_threshold": 442,
+    "oi_pass": 59,
+    "oi_pass_rate": 0.11776447105788423,
+    "policy_allowed_candidates": 5,
+    "policy_allowed_regimes": {
+      "bearish": 1,
+      "range_low_vol": 4
+    },
+    "price_divergence_rejected_after_oi": 11,
+    "raw_actor_candidates": 11,
+    "reasons": {
+      "candidate_short": 6,
+      "candidate_short_pending_selection": 5,
+      "close_short": 4,
+      "in_short_position": 23,
+      "oi_below_threshold": 442,
+      "short_funding_below_threshold": 32,
+      "short_price_divergence_missing": 11,
+      "short_systemic_selloff_guard": 5
+    },
+    "reasons_by_regime": {
+      "bearish": {
+        "candidate_short": 1,
+        "close_short": 1,
+        "in_short_position": 5,
+        "oi_below_threshold": 24,
+        "short_funding_below_threshold": 3,
+        "short_price_divergence_missing": 2
+      },
+      "bullish": {
+        "candidate_short": 1,
+        "oi_below_threshold": 59,
+        "short_funding_below_threshold": 2,
+        "short_price_divergence_missing": 3,
+        "short_systemic_selloff_guard": 2
+      },
+      "range_low_vol": {
+        "candidate_short": 4,
+        "candidate_short_pending_selection": 5,
+        "close_short": 3,
+        "in_short_position": 18,
+        "oi_below_threshold": 359,
+        "short_funding_below_threshold": 27,
+        "short_price_divergence_missing": 6,
+        "short_systemic_selloff_guard": 3
+      }
+    },
+    "reasons_by_symbol": {
+      "ADA": {
+        "candidate_short": 2,
+        "candidate_short_pending_selection": 2,
+        "close_short": 1,
+        "in_short_position": 5,
+        "oi_below_threshold": 41,
+        "short_funding_below_threshold": 8,
+        "short_price_divergence_missing": 5,
+        "short_systemic_selloff_guard": 2
+      },
+      "BNB": {
+        "candidate_short_pending_selection": 1,
+        "oi_below_threshold": 58,
+        "short_funding_below_threshold": 5,
+        "short_price_divergence_missing": 2
+      },
+      "BTC": {
+        "oi_below_threshold": 66
+      },
+      "DOGE": {
+        "candidate_short_pending_selection": 1,
+        "oi_below_threshold": 58,
+        "short_funding_below_threshold": 4,
+        "short_price_divergence_missing": 2,
+        "short_systemic_selloff_guard": 1
+      },
+      "ETH": {
+        "candidate_short": 1,
+        "close_short": 1,
+        "in_short_position": 5,
+        "oi_below_threshold": 58,
+        "short_funding_below_threshold": 1
+      },
+      "LINK": {
+        "candidate_short": 1,
+        "candidate_short_pending_selection": 1,
+        "in_short_position": 3,
+        "oi_below_threshold": 46,
+        "short_funding_below_threshold": 11,
+        "short_price_divergence_missing": 2,
+        "short_systemic_selloff_guard": 2
+      },
+      "SOL": {
+        "candidate_short": 1,
+        "close_short": 1,
+        "in_short_position": 5,
+        "oi_below_threshold": 59
+      },
+      "XRP": {
+        "candidate_short": 1,
+        "close_short": 1,
+        "in_short_position": 5,
+        "oi_below_threshold": 56,
+        "short_funding_below_threshold": 3
+      }
+    },
+    "systemic_guard_rejected_after_oi": 5
+  },
+  "exit_analysis": {
+    "allowed_trades_with_full_six_bar_path": 4,
+    "close_reasons": {
+      "max_holding": 4
+    },
+    "diagnostic_only": true,
+    "fixed_horizon_comparison": {
+      "1": {
+        "mean_net_bps": -29.462973478139002,
+        "observations": 5,
+        "positive_rate": 0.0
+      },
+      "12": {
+        "mean_net_bps": -29.484518278885744,
+        "observations": 4,
+        "positive_rate": 0.25
+      },
+      "2": {
+        "mean_net_bps": -21.52429578303032,
+        "observations": 5,
+        "positive_rate": 0.2
+      },
+      "3": {
+        "mean_net_bps": -40.26449222707581,
+        "observations": 5,
+        "positive_rate": 0.2
+      },
+      "4": {
+        "mean_net_bps": -19.225900236898646,
+        "observations": 4,
+        "positive_rate": 0.0
+      },
+      "6": {
+        "mean_net_bps": 5.539208567491572,
+        "observations": 4,
+        "positive_rate": 0.5
+      },
+      "8": {
+        "mean_net_bps": -12.804369347537298,
+        "observations": 4,
+        "positive_rate": 0.5
+      }
+    },
+    "four_bar_result_is_in_sample_hypothesis": true,
+    "hold_bars": 6,
+    "mean_mae_6_bps": 67.96687989939329,
+    "mean_mfe_6_bps": 64.69882825380981,
+    "normalization_exit_enabled": false,
+    "stop_bps": 120.0,
+    "target_bps": 240.0,
+    "trades_reaching_stop_intrabar_by_hold": 0,
+    "trades_reaching_target_intrabar_by_hold": 0,
+    "trades_with_mfe_above_modeled_cost": 4
+  },
+  "findings": [
+    "OI is the dominant incidence gate: 490 of 562 flat observations failed it.",
+    "Only 12 raw actor candidates survived all actor gates; seven were selected and five passed policy confidence.",
+    "The expected-move model is not calibrated to realized gross returns on the five allowed trades.",
+    "All five policy-allowed candidates occurred in range_low_vol; this root contains no executed evidence for another regime.",
+    "All closed trades exited by max_holding; neither the 120 bps stop nor the 240 bps target triggered.",
+    "Every allowed trade had favorable excursion above modeled cost, but the fixed six-bar exit gave back enough excursion to make aggregate expectancy negative."
+  ],
+  "generated_at": "2026-07-27T08:26:53.275121+00:00",
+  "horizon_analysis": {
+    "actor_selected": {
+      "candidates": 6,
+      "horizons": {
+        "1": {
+          "mean_net_bps": -31.57989397698937,
+          "observations": 6,
+          "positive_rate": 0.0
+        },
+        "12": {
+          "mean_net_bps": -33.22751452085735,
+          "observations": 5,
+          "positive_rate": 0.2
+        },
+        "2": {
+          "mean_net_bps": -19.935160049814204,
+          "observations": 6,
+          "positive_rate": 0.16666666666666666
+        },
+        "3": {
+          "mean_net_bps": -44.6044949461045,
+          "observations": 6,
+          "positive_rate": 0.16666666666666666
+        },
+        "4": {
+          "mean_net_bps": -38.29762672577086,
+          "observations": 5,
+          "positive_rate": 0.0
+        },
+        "6": {
+          "mean_net_bps": -31.76254632076222,
+          "observations": 5,
+          "positive_rate": 0.4
+        },
+        "8": {
+          "mean_net_bps": -24.711397789779596,
+          "observations": 5,
+          "positive_rate": 0.4
+        }
+      }
+    },
+    "all_actor_candidates": {
+      "candidates": 11,
+      "horizons": {
+        "1": {
+          "mean_net_bps": -21.977916532144445,
+          "observations": 11,
+          "positive_rate": 0.18181818181818182
+        },
+        "12": {
+          "mean_net_bps": -33.72416767623235,
+          "observations": 10,
+          "positive_rate": 0.2
+        },
+        "2": {
+          "mean_net_bps": -21.36708576159447,
+          "observations": 11,
+          "positive_rate": 0.36363636363636365
+        },
+        "3": {
+          "mean_net_bps": -30.464917294916813,
+          "observations": 11,
+          "positive_rate": 0.2727272727272727
+        },
+        "4": {
+          "mean_net_bps": -32.56354528434831,
+          "observations": 10,
+          "positive_rate": 0.2
+        },
+        "6": {
+          "mean_net_bps": -38.21917212269203,
+          "observations": 10,
+          "positive_rate": 0.3
+        },
+        "8": {
+          "mean_net_bps": -44.817927359803875,
+          "observations": 10,
+          "positive_rate": 0.3
+        }
+      }
+    },
+    "diagnostic_only": true,
+    "policy_allowed": {
+      "candidates": 5,
+      "horizons": {
+        "1": {
+          "mean_net_bps": -29.462973478139002,
+          "observations": 5,
+          "positive_rate": 0.0
+        },
+        "12": {
+          "mean_net_bps": -29.484518278885744,
+          "observations": 4,
+          "positive_rate": 0.25
+        },
+        "2": {
+          "mean_net_bps": -21.52429578303032,
+          "observations": 5,
+          "positive_rate": 0.2
+        },
+        "3": {
+          "mean_net_bps": -40.26449222707581,
+          "observations": 5,
+          "positive_rate": 0.2
+        },
+        "4": {
+          "mean_net_bps": -19.225900236898646,
+          "observations": 4,
+          "positive_rate": 0.0
+        },
+        "6": {
+          "mean_net_bps": 5.539208567491572,
+          "observations": 4,
+          "positive_rate": 0.5
+        },
+        "8": {
+          "mean_net_bps": -12.804369347537298,
+          "observations": 4,
+          "positive_rate": 0.5
+        }
+      }
+    },
+    "selection_on_this_root_forbidden": true
+  },
+  "next_design_constraints": [
+    "Do not lower the OI threshold based on this root.",
+    "Separate candidate ranking score from calibrated expected move.",
+    "Calibrate expected move on independent train/validation/OOS data.",
+    "Evaluate one profile-level cost-aware exit against the fixed six-bar exit; do not expose independent live exit knobs.",
+    "Treat the four-bar result as a hypothesis only because it was selected after observing five trades."
+  ],
+  "oi_gate": {
+    "by_symbol": {
+      "ADA": {
+        "flat_observations": 60,
+        "median_oi_change_bps": 0.0,
+        "oi_pass": 19,
+        "oi_pass_rate": 0.31666666666666665,
+        "p90_oi_change_bps": 344.4855679321846
+      },
+      "BNB": {
+        "flat_observations": 66,
+        "median_oi_change_bps": 4.052230840406734,
+        "oi_pass": 8,
+        "oi_pass_rate": 0.12121212121212122,
+        "p90_oi_change_bps": 153.23359362908295
+      },
+      "BTC": {
+        "flat_observations": 66,
+        "median_oi_change_bps": 5.2558896059429205,
+        "oi_pass": 0,
+        "oi_pass_rate": 0.0,
+        "p90_oi_change_bps": 50.52989404332742
+      },
+      "DOGE": {
+        "flat_observations": 66,
+        "median_oi_change_bps": 29.687476352343587,
+        "oi_pass": 8,
+        "oi_pass_rate": 0.12121212121212122,
+        "p90_oi_change_bps": 195.7527185290475
+      },
+      "ETH": {
+        "flat_observations": 60,
+        "median_oi_change_bps": 0.0,
+        "oi_pass": 2,
+        "oi_pass_rate": 0.03333333333333333,
+        "p90_oi_change_bps": 99.75618102385944
+      },
+      "LINK": {
+        "flat_observations": 63,
+        "median_oi_change_bps": 22.38254654241656,
+        "oi_pass": 17,
+        "oi_pass_rate": 0.2698412698412698,
+        "p90_oi_change_bps": 201.88255669901343
+      },
+      "SOL": {
+        "flat_observations": 60,
+        "median_oi_change_bps": -13.692581358774603,
+        "oi_pass": 1,
+        "oi_pass_rate": 0.016666666666666666,
+        "p90_oi_change_bps": 65.53275385131997
+      },
+      "XRP": {
+        "flat_observations": 60,
+        "median_oi_change_bps": 3.26619913386339,
+        "oi_pass": 4,
+        "oi_pass_rate": 0.06666666666666667,
+        "p90_oi_change_bps": 111.26542058045533
+      }
+    },
+    "failed_change_quantiles_bps": {
+      "max": 149.73991236563177,
+      "median": 0.0,
+      "min": -748.2265923553844,
+      "p10": -143.76057988853373,
+      "p25": -50.383343728204466,
+      "p75": 35.38773347426638,
+      "p90": 88.14128023800238,
+      "p95": 110.4678481735759
+    },
+    "failed_within_25_bps_of_threshold": 13,
+    "failed_within_50_bps_of_threshold": 32,
+    "interpretation": "The gate is selective, but most failures are not near the threshold. Lowering it would primarily add materially weaker OI observations and is not supported by this root.",
+    "threshold_bps": 150.0,
+    "threshold_sensitivity": [
+      {
+        "flat_observations_passing": 390,
+        "threshold_bps": -50
+      },
+      {
+        "flat_observations_passing": 283,
+        "threshold_bps": 0
+      },
+      {
+        "flat_observations_passing": 144,
+        "threshold_bps": 50
+      },
+      {
+        "flat_observations_passing": 91,
+        "threshold_bps": 100
+      },
+      {
+        "flat_observations_passing": 72,
+        "threshold_bps": 125
+      },
+      {
+        "flat_observations_passing": 59,
+        "threshold_bps": 150
+      },
+      {
+        "flat_observations_passing": 47,
+        "threshold_bps": 175
+      },
+      {
+        "flat_observations_passing": 38,
+        "threshold_bps": 200
+      }
+    ]
+  },
+  "orders_enabled": false,
+  "profile": {
+    "exit_on_normalization": false,
+    "hold_bars": 6,
+    "oi_lookback_bars": 3,
+    "oi_threshold_bps": 150.0,
+    "profile_id": "divergence_short_systemic_guard_v1",
+    "stop_bps": 120.0,
+    "target_bps": 240.0
+  },
+  "promotion_authority": false,
+  "research_only": true,
+  "root": {
+    "collector_run_id": "carryflow-hourly-root-v5-65891bb-20260717-recovery",
+    "complete_samples": 66,
+    "replay_manifest_sha256": "ea8c6ae91888bdafcbba3ad249e9b83672187ff2c291bd0f2ee5c213e2341c15",
+    "samples": 66,
+    "symbols": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "BNB",
+      "XRP",
+      "DOGE",
+      "ADA",
+      "LINK"
+    ],
+    "tape_head_sha256": "a21de0717950044e6b922a72053d858ecb367c1eca49a62521cb2c9d3c0f48da",
+    "tape_sha256": "0b59bc51118ee8cf1e5a53d9cce6f5379f666446b80929dd3a980e7e9631bb31"
+  },
+  "schema_version": "panteon.carryflow_signal_quality.v1",
+  "signal_calibration": {
+    "candidate_details": [
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "max_holding",
+        "actual_gross_bps": 64.9340001639741,
+        "actual_net_bps": 52.972965758792185,
+        "bar": 4,
+        "edge_components": {
+          "basis": 1.1557715634527552,
+          "crowding": 0.43000000000000016,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.103354853256762,
+          "price_divergence": 0.1808738135579242
+        },
+        "feature_value": 2.070000230267442,
+        "horizons": {
+          "1": {
+            "gross_bps": -30.881910852395894,
+            "net_bps": -42.87139223612954
+          },
+          "10": {
+            "gross_bps": -84.77494465852254,
+            "net_bps": -96.76442604225619
+          },
+          "11": {
+            "gross_bps": -55.75141428220079,
+            "net_bps": -67.74089566593443
+          },
+          "12": {
+            "gross_bps": -76.46689076548884,
+            "net_bps": -88.45637214922249
+          },
+          "2": {
+            "gross_bps": -43.72659943702003,
+            "net_bps": -55.716080820753675
+          },
+          "3": {
+            "gross_bps": -48.645841873685285,
+            "net_bps": -60.63532325741893
+          },
+          "4": {
+            "gross_bps": 8.74531988740351,
+            "net_bps": -3.244161496330138
+          },
+          "5": {
+            "gross_bps": 21.590008472028888,
+            "net_bps": 9.600527088295241
+          },
+          "6": {
+            "gross_bps": 64.9340001639741,
+            "net_bps": 52.94451878024046
+          },
+          "7": {
+            "gross_bps": -4.372659943701755,
+            "net_bps": -16.362141327435403
+          },
+          "8": {
+            "gross_bps": -45.47566341450049,
+            "net_bps": -57.465144798234135
+          },
+          "9": {
+            "gross_bps": -63.731518679457146,
+            "net_bps": -75.72100006319079
+          }
+        },
+        "mae_12_bps": 141.8928151731302,
+        "mae_6_bps": 71.71162307671351,
+        "mfe_12_bps": 148.56112158727592,
+        "mfe_6_bps": 148.56112158727592,
+        "oi_change_bps": 253.354853256762,
+        "policy_outcome": "ALLOW_OPEN",
+        "policy_reason": "allowed",
+        "predicted_move_bps": 203.00002302674417,
+        "price_return_bps": 31.91261864420758,
+        "regime": "bearish",
+        "symbol": "ETH"
+      },
+      {
+        "actor_selection": "not_selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 5,
+        "edge_components": {
+          "basis": 1.3151105037151876,
+          "crowding": 1.1508000000000003,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.16489920016899876,
+          "price_divergence": 0.09633027522936112
+        },
+        "feature_value": 2.927139979113548,
+        "horizons": {
+          "1": {
+            "gross_bps": 15.83820662768019,
+            "net_bps": 3.848725243946543
+          },
+          "10": {
+            "gross_bps": -21.92982456140434,
+            "net_bps": -33.91930594513799
+          },
+          "11": {
+            "gross_bps": -51.169590643274624,
+            "net_bps": -63.15907202700827
+          },
+          "12": {
+            "gross_bps": -40.20467836257246,
+            "net_bps": -52.194159746306106
+          },
+          "2": {
+            "gross_bps": 13.401559454192261,
+            "net_bps": 1.4120780704586142
+          },
+          "3": {
+            "gross_bps": 73.09941520467896,
+            "net_bps": 61.109933820945315
+          },
+          "4": {
+            "gross_bps": 96.24756335282727,
+            "net_bps": 84.25808196909362
+          },
+          "5": {
+            "gross_bps": 147.4171539961019,
+            "net_bps": 135.42767261236824
+          },
+          "6": {
+            "gross_bps": 57.261208576998776,
+            "net_bps": 45.27172719326513
+          },
+          "7": {
+            "gross_bps": -32.894736842104344,
+            "net_bps": -44.88421822583799
+          },
+          "8": {
+            "gross_bps": -19.493177387914248,
+            "net_bps": -31.482658771647895
+          },
+          "9": {
+            "gross_bps": -35.33138401559444,
+            "net_bps": -47.320865399328085
+          }
+        },
+        "mae_12_bps": 88.93762183235916,
+        "mae_6_bps": 14.619883040936227,
+        "mfe_12_bps": 249.75633528265115,
+        "mfe_6_bps": 249.75633528265115,
+        "oi_change_bps": 314.89920016899873,
+        "policy_outcome": "UNSELECTED",
+        "policy_reason": "",
+        "predicted_move_bps": 250.0,
+        "price_return_bps": 40.36697247706389,
+        "regime": "range_low_vol",
+        "symbol": "LINK"
+      },
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 16,
+        "edge_components": {
+          "basis": 0.5100465321543055,
+          "crowding": 0.7588000000000004,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.18628203001329738,
+          "price_divergence": 0.07575757575758414
+        },
+        "feature_value": 1.7308861379251874,
+        "horizons": {
+          "1": {
+            "gross_bps": -30.175015087507575,
+            "net_bps": -42.16449647124122
+          },
+          "10": {
+            "gross_bps": -12.070006035003365,
+            "net_bps": -24.059487418737014
+          },
+          "11": {
+            "gross_bps": -18.10500905250588,
+            "net_bps": -30.09449043623953
+          },
+          "12": {
+            "gross_bps": -36.21001810501009,
+            "net_bps": -48.19949948874374
+          },
+          "2": {
+            "gross_bps": 0.0,
+            "net_bps": -11.989481383733647
+          },
+          "3": {
+            "gross_bps": -54.3150271575143,
+            "net_bps": -66.30450854124794
+          },
+          "4": {
+            "gross_bps": -102.59505129752608,
+            "net_bps": -114.58453268125973
+          },
+          "5": {
+            "gross_bps": -108.6300543150286,
+            "net_bps": -120.61953569876225
+          },
+          "6": {
+            "gross_bps": -168.98008449004374,
+            "net_bps": -180.96956587377738
+          },
+          "7": {
+            "gross_bps": -126.7350633675328,
+            "net_bps": -138.72454475126645
+          },
+          "8": {
+            "gross_bps": -60.35003017501515,
+            "net_bps": -72.3395115587488
+          },
+          "9": {
+            "gross_bps": -48.28002414001346,
+            "net_bps": -60.26950552374711
+          }
+        },
+        "mae_12_bps": 211.225105612553,
+        "mae_6_bps": 211.225105612553,
+        "mfe_12_bps": 24.140012070005056,
+        "mfe_6_bps": 24.140012070005056,
+        "oi_change_bps": 336.28203001329734,
+        "policy_outcome": "NO_TRADE",
+        "policy_reason": "regime_not_allowed",
+        "predicted_move_bps": 169.08861379251874,
+        "price_return_bps": 42.424242424241584,
+        "regime": "bullish",
+        "symbol": "ADA"
+      },
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "max_holding",
+        "actual_gross_bps": 5.506102597044452,
+        "actual_net_bps": -6.490593300909179,
+        "bar": 22,
+        "edge_components": {
+          "basis": 0.9682508498029527,
+          "crowding": 1.0468000000000002,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.009923983840788436,
+          "price_divergence": 0.362157691600828
+        },
+        "feature_value": 2.5871325252445696,
+        "horizons": {
+          "1": {
+            "gross_bps": 1.8353675323481509,
+            "net_bps": -10.154113851385496
+          },
+          "10": {
+            "gross_bps": 12.847572726437056,
+            "net_bps": 0.8580913427034087
+          },
+          "11": {
+            "gross_bps": 34.8719831146169,
+            "net_bps": 22.882501730883256
+          },
+          "12": {
+            "gross_bps": 11.92988896026298,
+            "net_bps": -0.059592423470666844
+          },
+          "2": {
+            "gross_bps": 21.10672662200577,
+            "net_bps": 9.117245238272123
+          },
+          "3": {
+            "gross_bps": 23.859777920527996,
+            "net_bps": 11.87029653679435
+          },
+          "4": {
+            "gross_bps": 9.176837661740754,
+            "net_bps": -2.8126437219928935
+          },
+          "5": {
+            "gross_bps": 17.43599155730743,
+            "net_bps": 5.446510173573785
+          },
+          "6": {
+            "gross_bps": 5.506102597044452,
+            "net_bps": -6.483378786689195
+          },
+          "7": {
+            "gross_bps": 35.78966688079098,
+            "net_bps": 23.800185497057335
+          },
+          "8": {
+            "gross_bps": 31.2012480499206,
+            "net_bps": 19.211766666186954
+          },
+          "9": {
+            "gross_bps": 10.09452142791483,
+            "net_bps": -1.894959955818818
+          }
+        },
+        "mae_12_bps": 14.682940258787244,
+        "mae_6_bps": 14.682940258787244,
+        "mfe_12_bps": 61.48481233366917,
+        "mfe_6_bps": 31.2012480499206,
+        "oi_change_bps": 159.92398384078842,
+        "policy_outcome": "ALLOW_OPEN",
+        "policy_reason": "allowed",
+        "predicted_move_bps": 250.0,
+        "price_return_bps": 13.7842308399172,
+        "regime": "range_low_vol",
+        "symbol": "XRP"
+      },
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "max_holding",
+        "actual_gross_bps": -54.31454511568482,
+        "actual_net_bps": -66.34713818791595,
+        "bar": 36,
+        "edge_components": {
+          "basis": 0.9943917399576883,
+          "crowding": 0.8760000000000003,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.008351682968409518,
+          "price_divergence": 0.0036590097261530834
+        },
+        "feature_value": 2.0824024326522514,
+        "horizons": {
+          "1": {
+            "gross_bps": -25.959157592056155,
+            "net_bps": -37.948638975789805
+          },
+          "10": {
+            "gross_bps": -145.63753028568496,
+            "net_bps": -157.6270116694186
+          },
+          "11": {
+            "gross_bps": -97.57980776911049,
+            "net_bps": -109.56928915284414
+          },
+          "12": {
+            "gross_bps": -113.42155009451848,
+            "net_bps": -125.41103147825213
+          },
+          "2": {
+            "gross_bps": -19.036715567507215,
+            "net_bps": -31.026196951240863
+          },
+          "3": {
+            "gross_bps": -31.417236880641685,
+            "net_bps": -43.40671826437533
+          },
+          "4": {
+            "gross_bps": -40.86903272185125,
+            "net_bps": -52.858514105584895
+          },
+          "5": {
+            "gross_bps": -40.60278495167694,
+            "net_bps": -52.592266335410585
+          },
+          "6": {
+            "gross_bps": -54.31454511568482,
+            "net_bps": -66.30402649941847
+          },
+          "7": {
+            "gross_bps": -50.054580792886505,
+            "net_bps": -62.04406217662015
+          },
+          "8": {
+            "gross_bps": -60.970739370057565,
+            "net_bps": -72.96022075379122
+          },
+          "9": {
+            "gross_bps": -75.48124284459215,
+            "net_bps": -87.47072422832579
+          }
+        },
+        "mae_12_bps": 189.83466013472164,
+        "mae_6_bps": 65.49695146303209,
+        "mfe_12_bps": 13.046140738571179,
+        "mfe_6_bps": 13.046140738571179,
+        "oi_change_bps": 158.3516829684095,
+        "policy_outcome": "ALLOW_OPEN",
+        "policy_reason": "allowed",
+        "predicted_move_bps": 204.24024326522513,
+        "price_return_bps": 49.63409902738469,
+        "regime": "range_low_vol",
+        "symbol": "SOL"
+      },
+      {
+        "actor_selection": "not_selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 37,
+        "edge_components": {
+          "basis": 0.6963161835482055,
+          "crowding": 0.7796000000000003,
+          "funding": 0.09999999999999999,
+          "oi_excess": 0.010768758944551676,
+          "price_divergence": 0.43935718617343866
+        },
+        "feature_value": 2.0260421286661963,
+        "horizons": {
+          "1": {
+            "gross_bps": 0.0,
+            "net_bps": -11.989481383733647
+          },
+          "10": {
+            "gross_bps": -109.09090909090884,
+            "net_bps": -121.08039047464248
+          },
+          "11": {
+            "gross_bps": -72.72727272727144,
+            "net_bps": -84.71675411100509
+          },
+          "12": {
+            "gross_bps": -48.48484848484819,
+            "net_bps": -60.47432986858184
+          },
+          "2": {
+            "gross_bps": -48.48484848484819,
+            "net_bps": -60.47432986858184
+          },
+          "3": {
+            "gross_bps": -66.66666666666605,
+            "net_bps": -78.6561480503997
+          },
+          "4": {
+            "gross_bps": -60.60606060606066,
+            "net_bps": -72.5955419897943
+          },
+          "5": {
+            "gross_bps": -133.3333333333321,
+            "net_bps": -145.32281471706574
+          },
+          "6": {
+            "gross_bps": -103.03030303030177,
+            "net_bps": -115.01978441403541
+          },
+          "7": {
+            "gross_bps": -115.15151515151425,
+            "net_bps": -127.1409965352479
+          },
+          "8": {
+            "gross_bps": -121.21212121212132,
+            "net_bps": -133.20160259585498
+          },
+          "9": {
+            "gross_bps": -181.81818181818198,
+            "net_bps": -193.80766320191563
+          }
+        },
+        "mae_12_bps": 224.24242424242308,
+        "mae_6_bps": 133.3333333333321,
+        "mfe_12_bps": 12.121212121212467,
+        "mfe_6_bps": 12.121212121212467,
+        "oi_change_bps": 160.76875894455168,
+        "policy_outcome": "UNSELECTED",
+        "policy_reason": "",
+        "predicted_move_bps": 198.60421286661963,
+        "price_return_bps": 6.064281382656134,
+        "regime": "range_low_vol",
+        "symbol": "ADA"
+      },
+      {
+        "actor_selection": "not_selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 38,
+        "edge_components": {
+          "basis": 0.550465325840853,
+          "crowding": 0.7796000000000003,
+          "funding": 0.03999999999999989,
+          "oi_excess": 0.060610302076674755,
+          "price_divergence": 0.07395009129641485
+        },
+        "feature_value": 1.504625719213943,
+        "horizons": {
+          "1": {
+            "gross_bps": -48.48484848484819,
+            "net_bps": -60.47432986858184
+          },
+          "10": {
+            "gross_bps": -72.72727272727144,
+            "net_bps": -84.71675411100509
+          },
+          "11": {
+            "gross_bps": -48.48484848484819,
+            "net_bps": -60.47432986858184
+          },
+          "12": {
+            "gross_bps": -66.66666666666605,
+            "net_bps": -78.6561480503997
+          },
+          "2": {
+            "gross_bps": -66.66666666666605,
+            "net_bps": -78.6561480503997
+          },
+          "3": {
+            "gross_bps": -60.60606060606066,
+            "net_bps": -72.5955419897943
+          },
+          "4": {
+            "gross_bps": -133.3333333333321,
+            "net_bps": -145.32281471706574
+          },
+          "5": {
+            "gross_bps": -103.03030303030177,
+            "net_bps": -115.01978441403541
+          },
+          "6": {
+            "gross_bps": -115.15151515151425,
+            "net_bps": -127.1409965352479
+          },
+          "7": {
+            "gross_bps": -121.21212121212132,
+            "net_bps": -133.20160259585498
+          },
+          "8": {
+            "gross_bps": -181.81818181818198,
+            "net_bps": -193.80766320191563
+          },
+          "9": {
+            "gross_bps": -109.09090909090884,
+            "net_bps": -121.08039047464248
+          }
+        },
+        "mae_12_bps": 224.24242424242308,
+        "mae_6_bps": 133.3333333333321,
+        "mfe_12_bps": 6.060606060607076,
+        "mfe_6_bps": 6.060606060607076,
+        "oi_change_bps": 210.61030207667474,
+        "policy_outcome": "UNSELECTED",
+        "policy_reason": "",
+        "predicted_move_bps": 146.4625719213943,
+        "price_return_bps": 42.60499087035852,
+        "regime": "range_low_vol",
+        "symbol": "ADA"
+      },
+      {
+        "actor_selection": "not_selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 40,
+        "edge_components": {
+          "basis": 0.8399249409387064,
+          "crowding": 0.4788000000000001,
+          "funding": 0.16999999999999993,
+          "oi_excess": 0.0014321215121095021,
+          "price_divergence": 0.44393047378751227
+        },
+        "feature_value": 1.9340875362383283,
+        "horizons": {
+          "1": {
+            "gross_bps": 11.382740263378702,
+            "net_bps": -0.6067411203549451
+          },
+          "10": {
+            "gross_bps": 41.67834127206493,
+            "net_bps": 29.68885988833128
+          },
+          "11": {
+            "gross_bps": 45.8811992154666,
+            "net_bps": 33.891717831732954
+          },
+          "12": {
+            "gross_bps": 48.332866349117246,
+            "net_bps": 36.3433849653836
+          },
+          "2": {
+            "gross_bps": 17.3367890165314,
+            "net_bps": 5.3473076327977545
+          },
+          "3": {
+            "gross_bps": 8.055477724851547,
+            "net_bps": -3.9340036588820997
+          },
+          "4": {
+            "gross_bps": 4.202857943401673,
+            "net_bps": -7.786623440331974
+          },
+          "5": {
+            "gross_bps": 15.06024096385566,
+            "net_bps": 3.0707595801220133
+          },
+          "6": {
+            "gross_bps": 4.377977024376577,
+            "net_bps": -7.61150435935707
+          },
+          "7": {
+            "gross_bps": 44.30512748669047,
+            "net_bps": 32.315646102956826
+          },
+          "8": {
+            "gross_bps": 50.95965256374279,
+            "net_bps": 38.970171180009146
+          },
+          "9": {
+            "gross_bps": 49.20846175399176,
+            "net_bps": 37.218980370258116
+          }
+        },
+        "mae_12_bps": 20.313813393108745,
+        "mae_6_bps": 20.313813393108745,
+        "mfe_12_bps": 76.00168114317593,
+        "mfe_6_bps": 30.996077332585845,
+        "oi_change_bps": 151.4321215121095,
+        "policy_outcome": "UNSELECTED",
+        "policy_reason": "",
+        "predicted_move_bps": 189.40875362383284,
+        "price_return_bps": 5.606952621248773,
+        "regime": "range_low_vol",
+        "symbol": "BNB"
+      },
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "max_holding",
+        "actual_gross_bps": 53.98920215956714,
+        "actual_net_bps": 42.021599999999225,
+        "bar": 43,
+        "edge_components": {
+          "basis": 0.4548238449063034,
+          "crowding": 0.7960000000000003,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.09510851123036304,
+          "price_divergence": 0.13877182420228795
+        },
+        "feature_value": 1.6847041803389546,
+        "horizons": {
+          "1": {
+            "gross_bps": -11.997600479904364,
+            "net_bps": -23.98708186363801
+          },
+          "10": {
+            "gross_bps": 137.972405518896,
+            "net_bps": 125.98292413516236
+          },
+          "11": {
+            "gross_bps": 95.98080383923157,
+            "net_bps": 83.99132245549792
+          },
+          "12": {
+            "gross_bps": 107.97840431913595,
+            "net_bps": 95.9889229354023
+          },
+          "2": {
+            "gross_bps": -17.996400719857377,
+            "net_bps": -29.985882103591024
+          },
+          "3": {
+            "gross_bps": -77.98440311937753,
+            "net_bps": -89.97388450311118
+          },
+          "4": {
+            "gross_bps": -5.998800239953014,
+            "net_bps": -17.98828162368666
+          },
+          "5": {
+            "gross_bps": 29.994001199760074,
+            "net_bps": 18.004519816026427
+          },
+          "6": {
+            "gross_bps": 53.98920215956714,
+            "net_bps": 41.999720775833495
+          },
+          "7": {
+            "gross_bps": 35.99280143971143,
+            "net_bps": 24.00332005597778
+          },
+          "8": {
+            "gross_bps": 71.98560287942286,
+            "net_bps": 59.99612149568921
+          },
+          "9": {
+            "gross_bps": 59.98800239952015,
+            "net_bps": 47.9985210157865
+          }
+        },
+        "mae_12_bps": 119.9760047990403,
+        "mae_6_bps": 119.9760047990403,
+        "mfe_12_bps": 137.972405518896,
+        "mfe_6_bps": 65.9868026394715,
+        "oi_change_bps": 245.10851123036304,
+        "policy_outcome": "ALLOW_OPEN",
+        "policy_reason": "allowed",
+        "predicted_move_bps": 164.47041803389547,
+        "price_return_bps": 36.12281757977121,
+        "regime": "range_low_vol",
+        "symbol": "ADA"
+      },
+      {
+        "actor_selection": "not_selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 46,
+        "edge_components": {
+          "basis": 0.718705809099772,
+          "crowding": 0.9484000000000004,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.1879783070481124,
+          "price_divergence": 0.38965517241377157
+        },
+        "feature_value": 2.444739288561656,
+        "horizons": {
+          "1": {
+            "gross_bps": 28.93359052080488,
+            "net_bps": 16.944109137071234
+          },
+          "10": {
+            "gross_bps": 30.311380545606482,
+            "net_bps": 18.321899161872835
+          },
+          "11": {
+            "gross_bps": 27.555800496005194,
+            "net_bps": 15.566319112271547
+          },
+          "12": {
+            "gross_bps": -4.133370074399059,
+            "net_bps": -16.122851458132708
+          },
+          "2": {
+            "gross_bps": 28.93359052080488,
+            "net_bps": 16.944109137071234
+          },
+          "3": {
+            "gross_bps": 38.57812069440651,
+            "net_bps": 26.58863931067286
+          },
+          "4": {
+            "gross_bps": 19.289060347203254,
+            "net_bps": 7.299578963469607
+          },
+          "5": {
+            "gross_bps": 23.422430421604226,
+            "net_bps": 11.432949037870578
+          },
+          "6": {
+            "gross_bps": -6.888950124000343,
+            "net_bps": -18.87843150773399
+          },
+          "7": {
+            "gross_bps": 30.311380545606482,
+            "net_bps": 18.321899161872835
+          },
+          "8": {
+            "gross_bps": 6.888950124002255,
+            "net_bps": -5.100531259731392
+          },
+          "9": {
+            "gross_bps": 15.155690272802284,
+            "net_bps": 3.1662088890686366
+          }
+        },
+        "mae_12_bps": 23.422430421602314,
+        "mae_6_bps": 13.777900248000686,
+        "mfe_12_bps": 56.489391016810075,
+        "mfe_6_bps": 48.22265086800814,
+        "oi_change_bps": 337.97830704811236,
+        "policy_outcome": "UNSELECTED",
+        "policy_reason": "",
+        "predicted_move_bps": 240.4739288561656,
+        "price_return_bps": 11.034482758622843,
+        "regime": "range_low_vol",
+        "symbol": "DOGE"
+      },
+      {
+        "actor_selection": "selected",
+        "actual_close_reason": "",
+        "actual_gross_bps": null,
+        "actual_net_bps": null,
+        "bar": 63,
+        "edge_components": {
+          "basis": 1.171706997391385,
+          "crowding": 1.1912000000000003,
+          "funding": 0.19999999999999998,
+          "oi_excess": 0.07106629594746741,
+          "price_divergence": 0.3079692750840186
+        },
+        "feature_value": 2.9419425684228715,
+        "horizons": {
+          "1": {
+            "gross_bps": -20.364159080018517,
+            "net_bps": -32.353640463752164
+          },
+          "2": {
+            "gross_bps": 11.978917105895498,
+            "net_bps": -0.010564277838149394
+          },
+          "3": {
+            "gross_bps": -7.18735026353432,
+            "net_bps": -19.176831647267967
+          }
+        },
+        "mae_12_bps": 73.07139434595105,
+        "mae_6_bps": null,
+        "mfe_12_bps": 35.936751317682244,
+        "mfe_6_bps": null,
+        "oi_change_bps": 221.0662959474674,
+        "policy_outcome": "ALLOW_OPEN",
+        "policy_reason": "allowed",
+        "predicted_move_bps": 250.0,
+        "price_return_bps": 19.20307249159814,
+        "regime": "range_low_vol",
+        "symbol": "LINK"
+      }
+    ],
+    "edge_component_means": {
+      "all_actor_candidates": {
+        "basis": 0.8523194809825558,
+        "crowding": 0.8396363636363638,
+        "funding": 0.17363636363636362,
+        "oi_excess": 0.08179782245523044,
+        "price_divergence": 0.22840112625720857
+      },
+      "policy_allowed": {
+        "basis": 0.9489889991022169,
+        "crowding": 0.8680000000000003,
+        "funding": 0.19999999999999998,
+        "oi_excess": 0.057561065448758074,
+        "price_divergence": 0.19868632283424237
+      }
+    },
+    "interpretation": "diagnostic.edge is a ranking score, not a calibrated forward return. Mapping it linearly to expected bps materially overstates the observed move.",
+    "mean_predicted_move_bps": 205.4276710814662,
+    "mean_realized_gross_bps": 17.528689951225218,
+    "mean_realized_net_bps": 5.539208567491571,
+    "pearson_predicted_vs_gross": -0.36054412189317875,
+    "policy_allowed_edge_component_shares": {
+      "basis": 0.41746164383449286,
+      "crowding": 0.3818344650898424,
+      "funding": 0.08798029149535536,
+      "oi_excess": 0.025321196584824818,
+      "price_divergence": 0.08740240299548462
+    },
+    "prediction_overstatement_bps": 187.898981130241,
+    "realized_to_predicted_ratio": 0.08532779376286599,
+    "sample_too_small_for_calibration": true,
+    "trades": 4
+  },
+  "strategy_changed": false
+}

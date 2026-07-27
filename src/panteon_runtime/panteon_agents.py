@@ -2898,6 +2898,20 @@ class CarryFlowAgentV2:
                         -cooldown
                     )
                     rank_score = price_return if overextension_model else edge
+                    oi_excess_bps = (
+                        max(oi_chg - self.OI_SPIKE, 0.0) * 10000.0
+                        if oi_expansion_required
+                        else 0.0
+                    )
+                    price_dislocation_bps = (
+                        max(self.MAX_PRICE_RETURN - price_return, 0.0)
+                        * 10000.0
+                        if divergence_model
+                        else max(price_return - self.MIN_PRICE_RETURN, 0.0)
+                        * 10000.0
+                        if overextension_model
+                        else 0.0
+                    )
                     candidates.append((rank_score,sym,7,'short',px))
                     _set_signal_diag(
                         diagnostics,
@@ -2906,6 +2920,9 @@ class CarryFlowAgentV2:
                         reason="candidate_short_pending_selection",
                         action=0,
                         edge=edge,
+                        ranking_score=rank_score,
+                        oi_excess_bps=oi_excess_bps,
+                        price_dislocation_bps=price_dislocation_bps,
                     )
                 elif (
                     self.ALLOW_LONG

@@ -17,6 +17,7 @@ from .evidence_tape import CarryFlowEvidenceTape
 
 CAMPAIGN_SCHEMA_VERSION = "panteon.carryflow_evidence_campaign.v1"
 ROOT_SCHEMA_VERSION = "panteon.carryflow_evidence_campaign_root.v1"
+ROOT_VERDICT_SCHEMA_VERSION = "panteon.carryflow_evidence_root_verdict.v1"
 CAMPAIGN_STATUS_SCHEMA_VERSION = "panteon.carryflow_evidence_campaign_status.v1"
 BITGET_FULL8 = ("BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "LINK")
 EXACT_REPORT_SCHEMA_VERSION = "panteon.carryflow_exact_profile_evaluation.v1"
@@ -86,6 +87,45 @@ _ROOT_KEYS = frozenset(
         "orders_enabled",
         "promotion_authority",
         "root_sha256",
+    }
+)
+_ROOT_VERDICT_KEYS = frozenset(
+    {
+        "schema_version",
+        "recorded_at",
+        "campaign_id",
+        "campaign_sha256",
+        "root_id",
+        "root_sha256",
+        "evidence_tape_sha256",
+        "evidence_head_sha256",
+        "samples",
+        "complete_samples",
+        "context_coverage_pct",
+        "replay_summary_sha256",
+        "replay_manifest_sha256",
+        "verdict",
+        "reason",
+        "evidence_failures",
+        "metrics",
+        "terminal",
+        "continuation_allowed",
+        "orders_enabled",
+        "promotion_authority",
+        "verdict_sha256",
+    }
+)
+_ROOT_VERDICT_METRIC_KEYS = frozenset(
+    {
+        "filled_orders",
+        "closed_trades",
+        "gross_pnl_usd",
+        "total_costs_usd",
+        "net_pnl_usd",
+        "expectancy_after_costs_usd",
+        "expectancy_lcb_usd",
+        "max_drawdown_usd",
+        "remaining_open_positions",
     }
 )
 
@@ -499,6 +539,193 @@ def validate_root_payload(
             raise EvidenceCampaignError("campaign root ID mismatch")
         if row["campaign_sha256"] != campaign.campaign_sha256:
             raise EvidenceCampaignError("campaign root lock mismatch")
+    return row
+
+
+def build_negative_root_verdict(
+    *,
+    campaign: CarryFlowEvidenceCampaign,
+    root_payload: Mapping[str, Any],
+    tape_description: Mapping[str, Any],
+    evidence_tape_sha256: str,
+    replay_summary: Mapping[str, Any],
+    replay_summary_sha256: str,
+    recorded_at: datetime,
+) -> dict[str, Any]:
+    """Seal a terminal rejection when prospective costed evidence is negative."""
+
+    root = validate_root_payload(root_payload, campaign=campaign)
+    tape_sha = str(evidence_tape_sha256).strip().lower()
+    replay_sha = str(replay_summary_sha256).strip().lower()
+    if not _SHA256_RE.fullmatch(tape_sha):
+        raise EvidenceCampaignError("root verdict tape SHA-256 is invalid")
+    if not _SHA256_RE.fullmatch(replay_sha):
+        raise EvidenceCampaignError("root verdict replay SHA-256 is invalid")
+
+    summary = _json_copy(replay_summary)
+    evidence = summary.get("evidence_tape")
+    if not isinstance(evidence, Mapping):
+        raise EvidenceCampaignError("root verdict replay has no evidence tape")
+    if evidence.get("collector_run_id") != root["root_id"]:
+        raise EvidenceCampaignError("root verdict replay/root ID mismatch")
+    if str(evidence.get("file_sha256") or "").lower() != tape_sha:
+        raise EvidenceCampaignError("root verdict replay/tape SHA-256 mismatch")
+    if summary.get("evidence_eligible") is not False:
+        raise EvidenceCampaignError("eligible replay cannot be terminally rejected")
+    if summary.get("research_only") is not True:
+        raise EvidenceCampaignError("root verdict replay is not research-only")
+    if summary.get("promotion_authority") is not False:
+        raise EvidenceCampaignError("root verdict replay has promotion authority")
+
+    failures = tuple(str(item) for item in summary.get("evidence_failures") or ())
+    required_failures = {"nonpositive_expectancy", "nonpositive_lcb"}
+    if not required_failures.issubset(failures):
+        raise EvidenceCampaignError(
+            "negative root verdict requires expectancy and LCB failures"
+        )
+    metrics = {
+        key: _json_copy(summary.get(key))
+        for key in _ROOT_VERDICT_METRIC_KEYS
+    }
+    if _finite(metrics["expectancy_after_costs_usd"], "root expectancy") > 0.0:
+        raise EvidenceCampaignError("negative root verdict has positive expectancy")
+    if _finite(metrics["expectancy_lcb_usd"], "root expectancy LCB") > 0.0:
+        raise EvidenceCampaignError("negative root verdict has positive LCB")
+    if int(metrics["remaining_open_positions"] or 0) != 0:
+        raise EvidenceCampaignError("negative root verdict has open positions")
+
+    samples = int(tape_description.get("samples") or 0)
+    complete_samples = int(tape_description.get("complete_samples") or 0)
+    head_sha = str(tape_description.get("head_sha256") or "").strip().lower()
+    if not _SHA256_RE.fullmatch(head_sha):
+        raise EvidenceCampaignError("root verdict evidence head is invalid")
+    if int(evidence.get("samples") or 0) != samples:
+        raise EvidenceCampaignError("root verdict replay/tape sample mismatch")
+    if int(evidence.get("complete_samples") or 0) != complete_samples:
+        raise EvidenceCampaignError(
+            "root verdict replay/tape complete-sample mismatch"
+        )
+    coverage = _finite(
+        tape_description.get("context_coverage_pct"),
+        "root context coverage",
+    )
+    replay_coverage = _finite(
+        evidence.get("context_coverage_pct"),
+        "replay context coverage",
+    )
+    if not math.isclose(coverage, replay_coverage, rel_tol=0.0, abs_tol=1e-9):
+        raise EvidenceCampaignError("root verdict replay/tape coverage mismatch")
+    manifest_sha = str(summary.get("manifest_sha256") or "").strip().lower()
+    if not _SHA256_RE.fullmatch(manifest_sha):
+        raise EvidenceCampaignError("root verdict manifest SHA-256 is invalid")
+
+    payload = {
+        "schema_version": ROOT_VERDICT_SCHEMA_VERSION,
+        "recorded_at": _as_utc(recorded_at).isoformat(),
+        "campaign_id": campaign.payload["campaign_id"],
+        "campaign_sha256": campaign.campaign_sha256,
+        "root_id": root["root_id"],
+        "root_sha256": root["root_sha256"],
+        "evidence_tape_sha256": tape_sha,
+        "evidence_head_sha256": head_sha,
+        "samples": samples,
+        "complete_samples": complete_samples,
+        "context_coverage_pct": coverage,
+        "replay_summary_sha256": replay_sha,
+        "replay_manifest_sha256": manifest_sha,
+        "verdict": "rejected",
+        "reason": "negative_costed_expectancy_and_lcb",
+        "evidence_failures": list(failures),
+        "metrics": metrics,
+        "terminal": True,
+        "continuation_allowed": False,
+        "orders_enabled": False,
+        "promotion_authority": False,
+    }
+    payload["verdict_sha256"] = compute_root_verdict_sha256(payload)
+    return validate_root_verdict_payload(
+        payload,
+        campaign=campaign,
+        root_payload=root,
+    )
+
+
+def compute_root_verdict_sha256(payload: Mapping[str, Any]) -> str:
+    canonical = _json_copy(payload)
+    canonical.pop("verdict_sha256", None)
+    return _sha256_json(canonical)
+
+
+def validate_root_verdict_payload(
+    payload: Mapping[str, Any],
+    *,
+    campaign: CarryFlowEvidenceCampaign | None = None,
+    root_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    row = _json_copy(payload)
+    _exact_keys(row, _ROOT_VERDICT_KEYS, "root verdict")
+    if row["schema_version"] != ROOT_VERDICT_SCHEMA_VERSION:
+        raise EvidenceCampaignError("unsupported root verdict schema")
+    _parse_datetime(row["recorded_at"], "root verdict recorded_at")
+    for key in (
+        "campaign_sha256",
+        "root_sha256",
+        "evidence_tape_sha256",
+        "evidence_head_sha256",
+        "replay_summary_sha256",
+        "replay_manifest_sha256",
+        "verdict_sha256",
+    ):
+        value = str(row[key]).strip().lower()
+        if not _SHA256_RE.fullmatch(value):
+            raise EvidenceCampaignError(f"root verdict {key} is invalid")
+        row[key] = value
+    if int(row["samples"]) < 1:
+        raise EvidenceCampaignError("root verdict has no samples")
+    complete_samples = int(row["complete_samples"])
+    if complete_samples < 0 or complete_samples > int(row["samples"]):
+        raise EvidenceCampaignError("root verdict complete samples are invalid")
+    coverage = _finite(row["context_coverage_pct"], "root verdict coverage")
+    if not 0.0 <= coverage <= 100.0:
+        raise EvidenceCampaignError("root verdict coverage is invalid")
+    if row["verdict"] != "rejected":
+        raise EvidenceCampaignError("root verdict must reject the experiment")
+    if row["reason"] != "negative_costed_expectancy_and_lcb":
+        raise EvidenceCampaignError("root verdict reason is invalid")
+    failures = tuple(str(item) for item in row["evidence_failures"])
+    if not {"nonpositive_expectancy", "nonpositive_lcb"}.issubset(failures):
+        raise EvidenceCampaignError("root verdict failures are incomplete")
+    metrics = row["metrics"]
+    if not isinstance(metrics, Mapping):
+        raise EvidenceCampaignError("root verdict metrics are invalid")
+    _exact_keys(metrics, _ROOT_VERDICT_METRIC_KEYS, "root verdict metrics")
+    for key in _ROOT_VERDICT_METRIC_KEYS:
+        _finite(metrics[key], f"root verdict metric {key}")
+    if float(metrics["expectancy_after_costs_usd"]) > 0.0:
+        raise EvidenceCampaignError("root verdict expectancy is positive")
+    if float(metrics["expectancy_lcb_usd"]) > 0.0:
+        raise EvidenceCampaignError("root verdict LCB is positive")
+    if int(metrics["remaining_open_positions"]) != 0:
+        raise EvidenceCampaignError("root verdict has open positions")
+    if (
+        row["terminal"] is not True
+        or row["continuation_allowed"] is not False
+        or row["orders_enabled"] is not False
+        or row["promotion_authority"] is not False
+    ):
+        raise EvidenceCampaignError("root verdict safety flags are invalid")
+    if str(row["verdict_sha256"]).lower() != compute_root_verdict_sha256(row):
+        raise EvidenceCampaignError("root verdict SHA-256 mismatch")
+    if campaign is not None:
+        if row["campaign_id"] != campaign.payload["campaign_id"]:
+            raise EvidenceCampaignError("root verdict campaign ID mismatch")
+        if row["campaign_sha256"] != campaign.campaign_sha256:
+            raise EvidenceCampaignError("root verdict campaign SHA-256 mismatch")
+    if root_payload is not None:
+        if row["root_id"] != root_payload["root_id"]:
+            raise EvidenceCampaignError("root verdict root ID mismatch")
+        if row["root_sha256"] != root_payload["root_sha256"]:
+            raise EvidenceCampaignError("root verdict root SHA-256 mismatch")
     return row
 
 

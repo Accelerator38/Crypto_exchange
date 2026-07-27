@@ -24,6 +24,7 @@ from panteon_v2.policy import (
 )
 from panteon_v2.policy.manifest import (
     RUNTIME_FINGERPRINT_PATHS,
+    SignalModel,
     parse_manifest_payload,
     sha256_file,
 )
@@ -230,6 +231,29 @@ def _context(**overrides) -> RuntimeContext:
     }
     values.update(overrides)
     return RuntimeContext(**values)
+
+
+def test_signal_model_supports_separate_diagnostic_move_feature():
+    model = SignalModel(
+        feature=" diagnostic.price_dislocation_bps ",
+        intercept_bps=0.0,
+        slope_bps_per_unit=0.5,
+        lcb_haircut_bps=4.0,
+        min_feature_value=0.0,
+        max_expected_move_bps=100.0,
+    )
+
+    assert model.feature == "diagnostic.price_dislocation_bps"
+    assert model.estimate_bps(50.0) == 21.0
+    with pytest.raises(ManifestError, match="feature_unsupported"):
+        SignalModel(
+            feature="diagnostic.unsealed_runtime_guess",
+            intercept_bps=0.0,
+            slope_bps_per_unit=1.0,
+            lcb_haircut_bps=0.0,
+            min_feature_value=0.0,
+            max_expected_move_bps=100.0,
+        )
 
 
 def test_valid_paper_manifest_requires_all_robust_evidence(tmp_path):

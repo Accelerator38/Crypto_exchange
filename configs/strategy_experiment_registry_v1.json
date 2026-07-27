@@ -1,0 +1,183 @@
+{
+  "schema_version": "panteon.strategy_experiment_registry.v1",
+  "updated_at": "2026-07-27T00:00:00+03:00",
+  "exchange": "BITGET",
+  "operational_candidate_id": null,
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "family_verdicts": [
+    {
+      "family_id": "carryflow_flow_features_v1",
+      "status": "terminal_rejected",
+      "reason": "prospective_negative_expectancy_and_cross_root_feature_instability",
+      "retry_policy": "forbidden",
+      "forbidden_variants": [
+        "threshold_change",
+        "fixed_holding_change",
+        "linear_flow_feature_combination",
+        "flow_ohlcv_linear_combination"
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "family_id": "range_transition_breakout_v1",
+      "status": "terminal_rejected",
+      "reason": "insufficient_incidence_negative_lcb_and_root_collapse",
+      "retry_policy": "materially_different_event_contract_only",
+      "forbidden_variants": [
+        "rerun_same_contract",
+        "threshold_tuning_on_existing_roots",
+        "prospective_campaign_before_historical_oos"
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    }
+  ],
+  "experiments": [
+    {
+      "experiment_id": "divergence_short_systemic_guard_v1_prospective",
+      "family_id": "carryflow_flow_features_v1",
+      "profile_id": "divergence_short_systemic_guard_v1",
+      "status": "terminal_rejected",
+      "verdict_reason": "negative_costed_expectancy_and_lcb",
+      "retry_policy": "forbidden",
+      "metrics": {
+        "samples": 74,
+        "complete_samples": 72,
+        "filled_orders": 10,
+        "closed_trades": 5,
+        "expectancy_after_costs_usd": -0.004334816858264702,
+        "expectancy_lcb_usd": -0.05324874702454379,
+        "max_drawdown_usd": 0.07739411452700865
+      },
+      "artifacts": [
+        {
+          "kind": "terminal_root_verdict",
+          "path": "Retrodate/bitget_carryflow_campaign/systemic_guard_640c66a_20260720/roots/root_003_20260722T080035Z/root_verdict.json",
+          "sha256": "5e57298a4370a9d8b96df6cb6851887cb85cd6890ac28b864416b1cf2537fe0f"
+        },
+        {
+          "kind": "signal_quality_report",
+          "path": "Reports/CarryFlow/root003_signal_quality_20260727.json",
+          "sha256": "7e5cc512ebb102ae4d6effa9c2a7953fbff58ce0259efdd07131005ed8325afd"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "carryflow_fixed_exit_4h_v1",
+      "family_id": "carryflow_flow_features_v1",
+      "profile_id": "",
+      "status": "terminal_rejected",
+      "verdict_reason": "failed_independent_baseline_comparison_and_root_collapse",
+      "retry_policy": "forbidden",
+      "metrics": {
+        "independent_observations": 11,
+        "candidate_mean_net_bps": -18.1195050387008,
+        "baseline_mean_net_bps": -1.1712736291240198,
+        "collapsed_roots": 2
+      },
+      "artifacts": [
+        {
+          "kind": "cross_root_exit_report",
+          "path": "Reports/CarryFlow/fixed_exit_cross_root_20260727.json",
+          "sha256": "8c5b81d8dce243469af15f085377058fa5224122be7ab99702d97a2a64c87755"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "carryflow_forward_labels_flow_only_v1",
+      "family_id": "carryflow_flow_features_v1",
+      "profile_id": "",
+      "status": "terminal_rejected",
+      "verdict_reason": "nonpositive_costed_expectancy_lcb_and_root_collapse",
+      "retry_policy": "forbidden",
+      "metrics": {
+        "trades": 27,
+        "mean_net_bps": -0.3580281793347258,
+        "lcb_95_net_bps": -30.365938094286143,
+        "collapsed_roots": 2
+      },
+      "artifacts": [
+        {
+          "kind": "leave_one_root_out_report",
+          "path": "Reports/CarryFlow/forward_labels_loro_flow_only_20260727.json",
+          "sha256": "29b134f71145e9c35694733799b4fde69a649791cfe21df316bcd1506cd500a5"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "carryflow_forward_labels_hybrid_v1",
+      "family_id": "carryflow_flow_features_v1",
+      "profile_id": "",
+      "status": "terminal_rejected",
+      "verdict_reason": "nonpositive_costed_expectancy_lcb_and_v5_collapse",
+      "retry_policy": "forbidden",
+      "metrics": {
+        "dataset_rows": 209,
+        "trades": 22,
+        "mean_net_bps": -1.42,
+        "lcb_95_net_bps": -39.66,
+        "v5_mean_net_bps": -73.64
+      },
+      "artifacts": [
+        {
+          "kind": "leave_one_root_out_report",
+          "path": "Reports/CarryFlow/forward_labels_loro_hybrid_20260727.json",
+          "sha256": "dc58ef4c8f7a4ff42f55cae3a45154eeb71012bd6bd8acdc35e078f0b37119df"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "range_transition_breakout_oi_v1",
+      "family_id": "range_transition_breakout_v1",
+      "profile_id": "",
+      "status": "terminal_rejected",
+      "verdict_reason": "closed_trades_below_10_nonpositive_lcb_inactive_v4_negative_v5",
+      "retry_policy": "materially_different_event_contract_only",
+      "metrics": {
+        "trades": 8,
+        "mean_net_bps": 11.736623461289573,
+        "lcb_95_net_bps": -15.82203060983081,
+        "inactive_roots": 1,
+        "collapsed_roots": 1
+      },
+      "artifacts": [
+        {
+          "kind": "event_audit_report",
+          "path": "Reports/CarryFlow/range_transition_breakout_20260727.json",
+          "sha256": "4051db326c3da766323831dd011822e3e875128d97fb53ed52b7100ebbb180e1"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    }
+  ]
+}

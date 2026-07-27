@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "tools" / "run_bitget_hypothesis_sweep.py"
@@ -110,3 +112,20 @@ def test_build_commands_supports_policy_level_candidate_runner_args(tmp_path):
         "--candidate-runner-arg=agent:RichardDennis|BTC/USDT|FUT_LONG_FULL|neutral"
         in command
     )
+
+
+def test_archived_manifest_cannot_start_a_sweep(tmp_path):
+    tool = _load_tool()
+    manifest = {
+        "exchange": "BITGET",
+        "operational_status": "archived_research_only",
+        "hypotheses": [],
+    }
+
+    with pytest.raises(ValueError, match="not operational"):
+        tool.build_sweep_commands(
+            manifest,
+            python_executable="python",
+            results_root=tmp_path / "Results",
+            reports_root=tmp_path / "Reports",
+        )

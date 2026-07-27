@@ -61,6 +61,7 @@ def test_tool_builds_exact_research_only_carryflow_manifest():
     assert manifest.data.bar_interval_seconds == 3600
     assert manifest.data.max_derivatives_age_seconds == 1200
     assert manifest.evidence == ()
+    assert manifest.signal_model.feature == "diagnostic.edge"
     assert dict(manifest.actor_config) == {"PROFILE_ID": "screened_short_v1"}
     assert {rule.symbol for rule in manifest.rules} == {"ADA", "BNB"}
     assert "neutral" in {rule.regime for rule in manifest.rules}

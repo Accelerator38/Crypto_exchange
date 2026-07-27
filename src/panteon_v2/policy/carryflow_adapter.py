@@ -89,6 +89,7 @@ class ActorActivationTrace:
     raw_action: str
     diagnostic_reason: str
     derivatives_context_present: bool | None
+    feature_name: str
     feature_value: float | None
     expected_move_bps: float | None
     candidate_signal_id: str
@@ -105,6 +106,7 @@ class ActorActivationTrace:
             "raw_action": self.raw_action,
             "diagnostic_reason": self.diagnostic_reason,
             "derivatives_context_present": self.derivatives_context_present,
+            "feature_name": self.feature_name,
             "feature_value": self.feature_value,
             "expected_move_bps": self.expected_move_bps,
             "candidate_signal_id": self.candidate_signal_id,
@@ -266,7 +268,8 @@ class CarryFlowPolicyAdapter:
             diag = dict(raw_diag) if isinstance(raw_diag, Mapping) else {}
             diagnostic_reason = str(diag.get("reason") or "actor_hold")
             regime = market.regime_for_symbol(execution_symbol).label
-            feature = _finite_float(diag.get("edge"))
+            feature_name = self.manifest.signal_model.feature
+            feature = _diagnostic_feature(diag, feature_name)
             derivatives_context_present = (
                 bool(diag.get("derivatives_context_complete"))
                 if "derivatives_context_complete" in diag
@@ -331,6 +334,7 @@ class CarryFlowPolicyAdapter:
                         raw_action=action.name,
                         diagnostic_reason=diagnostic_reason,
                         derivatives_context_present=derivatives_context_present,
+                        feature_name=feature_name,
                         feature_value=feature,
                         expected_move_bps=expected_move,
                         candidate_signal_id=candidate_id,
@@ -376,6 +380,7 @@ class CarryFlowPolicyAdapter:
                         raw_action=action.name,
                         diagnostic_reason=diagnostic_reason,
                         derivatives_context_present=derivatives_context_present,
+                        feature_name=feature_name,
                         feature_value=feature,
                         expected_move_bps=None,
                         candidate_signal_id=candidate_id,
@@ -395,6 +400,7 @@ class CarryFlowPolicyAdapter:
                     raw_action=Action.HOLD.name,
                     diagnostic_reason=diagnostic_reason,
                     derivatives_context_present=derivatives_context_present,
+                    feature_name=feature_name,
                     feature_value=feature,
                     expected_move_bps=None,
                     candidate_signal_id="",
@@ -433,6 +439,20 @@ def _finite_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _diagnostic_feature(
+    diagnostics: Mapping[str, Any],
+    feature_name: str,
+) -> float | None:
+    prefix = "diagnostic."
+    name = str(feature_name or "").strip()
+    if not name.startswith(prefix):
+        return None
+    key = name[len(prefix):]
+    if not key or "." in key:
+        return None
+    return _finite_float(diagnostics.get(key))
 
 
 def _coerce_config_value(name: str, value: Any, current: Any) -> Any:
@@ -502,9 +522,10 @@ def _validate_profile_manifest(profile: Any, manifest: PolicyManifest) -> None:
             raise CarryFlowAdapterError(
                 f"profile manifest mismatch: {name}={actual}, expected {expected}"
             )
-    if manifest.signal_model.feature != "diagnostic.edge":
+    if manifest.signal_model.feature != profile.signal_feature:
         raise CarryFlowAdapterError(
-            "profile manifest mismatch: signal.feature must be diagnostic.edge"
+            "profile manifest mismatch: signal.feature must be "
+            f"{profile.signal_feature}"
         )
     if not math.isclose(
         float(manifest.signal_model.intercept_bps),

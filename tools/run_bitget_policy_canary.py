@@ -74,6 +74,14 @@ def _load_json(path: str | Path) -> dict[str, Any]:
 
 def load_hypothesis(manifest_path: str | Path, profile_id: str) -> dict[str, Any]:
     manifest = _load_json(manifest_path)
+    operational_status = str(
+        manifest.get("operational_status") or "active"
+    ).strip()
+    if operational_status != "active":
+        raise ValueError(
+            "hypothesis manifest is not operational: "
+            f"{operational_status or 'unknown'}"
+        )
     for item in manifest.get("hypotheses") or ():
         if not isinstance(item, Mapping):
             continue
