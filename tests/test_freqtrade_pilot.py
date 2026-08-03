@@ -79,3 +79,65 @@ def test_generated_report_rejects_sample_strategy_when_present() -> None:
     assert report["eligible_for_live"] is False
     assert report["safety"]["orders_enabled"] is False
     assert report["safety"]["promotion_authority"] is False
+
+
+def test_long_horizon_candidate_is_fixed_and_fail_closed() -> None:
+    candidate = json.loads(
+        (PILOT / "candidates" / "long_horizon_trend_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = (
+        PILOT / "user_data" / "strategies" / "LongHorizonTrendStrategyV1.py"
+    ).read_text(encoding="utf-8")
+
+    assert candidate["stage"] == "fixed_retrospective_only"
+    assert candidate["entry_contract"] == {
+        "ema_fast_hours": 72,
+        "ema_slow_hours": 336,
+        "breakout_hours": 168,
+        "momentum_hours": 672,
+        "min_abs_momentum": 0.05,
+        "directions": ["LONG", "SHORT"],
+    }
+    assert candidate["paper_allowed"] is False
+    assert candidate["live_allowed"] is False
+    assert 'self.config.get("dry_run") is not True' in source
+    assert "can_short = True" in source
+    assert 'timeframe = "1h"' in source
+
+
+def test_historical_override_is_explicitly_zero_funding() -> None:
+    override = json.loads(
+        (PILOT / "user_data" / "config.historical.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    runner = (ROOT / "tools" / "run_freqtrade_long_horizon_v1.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert override == {"futures_funding_rate": 0}
+    assert '"paper_allowed": False' in runner
+    assert '"live_allowed": False' in runner
+    assert '"promotion_authority": False' in runner
+
+
+def test_long_horizon_report_never_promotes_when_present() -> None:
+    report_path = ROOT / "Reports" / "FreqtradePilot" / "long_horizon_trend_v1.json"
+    if not report_path.exists():
+        return
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["paper_allowed"] is False
+    assert report["live_allowed"] is False
+    assert report["orders_enabled"] is False
+    assert report["promotion_authority"] is False
+    assert report["status"] == "TERMINAL_REJECTED_RETROSPECTIVE"
+    assert len(report["failed_windows"]) == 8
+    assert report["source"]["dataset_sha256"] == (
+        "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e"
+    )
+    assert all(
+        item["rows"] == 39744 for item in report["conversion"]["pairs"].values()
+    )

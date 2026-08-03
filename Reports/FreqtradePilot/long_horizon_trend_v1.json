@@ -1,0 +1,1588 @@
+{
+  "schema_version": "panteon.freqtrade_candidate_report.v1",
+  "generated_at": "2026-08-03T08:54:21.150934+00:00",
+  "status": "TERMINAL_REJECTED_RETROSPECTIVE",
+  "candidate_id": "long_horizon_trend_1h_v1",
+  "candidate_contract_sha256": "1241abd3a1e4a287df8e408f3a3c66ad4b099699a54ef352d8a992b50c726a6a",
+  "source": {
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "manifest_sha256": "d65c27dde8feb4181d26bc3f89be57444f6773c262928f634eb85a41fb870c71",
+    "rows": 317952,
+    "symbols": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "XRP/USDT",
+      "DOGE/USDT",
+      "ADA/USDT",
+      "BNB/USDT",
+      "LINK/USDT"
+    ],
+    "start": "2022-01-01",
+    "end": "2026-07-14",
+    "coverage_pass": true
+  },
+  "conversion": {
+    "schema_version": "panteon.freqtrade_data_conversion.v1",
+    "generated_at": "2026-08-03T08:50:29.830969+00:00",
+    "source_dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "timeframe": "1h",
+    "pairs": {
+      "BTC": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "25e170e21d017df79289c3f3bde2694141e609a0a98b25547f435bfef5348586"
+      },
+      "ETH": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "099a300674431e875a49a0fbe2854beb4551327dc0a134a3ac79cebf06ca876f"
+      },
+      "SOL": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "4bdab9bc28881933394661d2a596c58991d39ad84aaababcc054665db2380b71"
+      },
+      "XRP": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "11b1ab51c9b4d0c59e206e6f218479fa870b1e5188274fc7d8fad6714b87e58d"
+      },
+      "DOGE": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "2230f0ce5a518e2aa45b66ec6206e931a5a8cfc761192ab29104783e0c2be86b"
+      },
+      "ADA": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "428fc2607d4d5c9fd231e53fa3c350ae077e3102aa8239cd34f607a3cb2af965"
+      },
+      "BNB": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "1042132c96dea7e41d50876ee4e194cdb0356c10ee3f889bc248c00b554b7b8e"
+      },
+      "LINK": {
+        "rows": 39744,
+        "start": "2022-01-01T00:00:00+00:00",
+        "end": "2026-07-14T23:00:00+00:00",
+        "sha256": "7114bc11cf833fc8fd65b6eae0c00aeb232b2a2340702f495085ceafce6737e5"
+      }
+    }
+  },
+  "funding_assumption": {
+    "rate": 0,
+    "reason": "canonical dataset has no historical funding series",
+    "limitation": "result cannot authorize paper or live trading"
+  },
+  "baseline": {
+    "baseline_id": "no_trade_cash_v1",
+    "net_pnl": 0
+  },
+  "evaluations": {
+    "development": {
+      "timerange": "20220101-20240101",
+      "base": {
+        "fee_per_fill": 0.0004,
+        "fills": 452,
+        "closed_trades": 226,
+        "mean_net_bps": 36.31262333128324,
+        "lcb_95_net_bps": -90.53888176048756,
+        "profit_total_abs": 8.59898163,
+        "profit_total_ratio": 0.00859898163,
+        "profit_factor": 1.172356435447,
+        "max_drawdown_abs": 9.240877479999996,
+        "max_drawdown_account": 0.009142488442054614,
+        "wins": 77,
+        "losses": 149,
+        "backtest_start": "2022-01-30 04:00:00",
+        "backtest_end": "2024-01-01 00:00:00",
+        "market_change": -0.12581559823768892,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 109,
+            "profit_mean": 0.015643083712633947,
+            "profit_mean_pct": 1.56,
+            "profit_total_abs": 15.698563159999997,
+            "profit_total": 0.015698563159999998,
+            "profit_total_pct": 1.57,
+            "duration_avg": "2 days, 14:33:00",
+            "wins": 47,
+            "draws": 0,
+            "losses": 62,
+            "winrate": 0.43119266055045874,
+            "cagr": 0.008155165953605659,
+            "expectancy": 0.1440235152293578,
+            "expectancy_ratio": 0.509041450716295,
+            "sortino": 2.772515768450504,
+            "sharpe": 0.38854654652258425,
+            "calmar": 8.497170394185677,
+            "sqn": 1.3573,
+            "p_value": 0.1775114292763721,
+            "profit_factor": 1.8949277117431633,
+            "max_drawdown_account": 0.005042361400279308,
+            "max_drawdown_abs": 5.102694779999997
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 95,
+            "profit_mean": 0.00939254173590114,
+            "profit_mean_pct": 0.94,
+            "profit_total_abs": 8.755753850000001,
+            "profit_total": 0.00875575385,
+            "profit_total_pct": 0.88,
+            "duration_avg": "2 days, 8:51:00",
+            "wins": 30,
+            "draws": 0,
+            "losses": 65,
+            "winrate": 0.3157894736842105,
+            "cagr": 0.0045559759747482165,
+            "expectancy": 0.09216583000000003,
+            "expectancy_ratio": 0.36321741532471985,
+            "sortino": 1.5670135614638532,
+            "sharpe": 0.3328325199681582,
+            "calmar": 5.605263999948021,
+            "sqn": 1.2446,
+            "p_value": 0.21638572962585464,
+            "profit_factor": 1.5308562223976676,
+            "max_drawdown_account": 0.004263299703092895,
+            "max_drawdown_abs": 4.29037591
+          },
+          {
+            "key": "stop_loss",
+            "trades": 22,
+            "profit_mean": -0.08076010465003214,
+            "profit_mean_pct": -8.08,
+            "profit_total_abs": -15.855335379999998,
+            "profit_total": -0.01585533538,
+            "profit_total_pct": -1.59,
+            "duration_avg": "18:30:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 22,
+            "winrate": 0.0,
+            "cagr": -0.00829903866055759,
+            "expectancy": -0.7206970627272726,
+            "expectancy_ratio": -1.0,
+            "sortino": -4.45719285636753,
+            "sharpe": -4.45719285636753,
+            "calmar": -2.7292818820775353,
+            "sqn": -34.0173,
+            "p_value": 7.495753322304808e-20,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.015855335380000043,
+            "max_drawdown_abs": 15.855335379999998
+          },
+          {
+            "key": "TOTAL",
+            "trades": 226,
+            "profit_mean": 0.0036312623331283232,
+            "profit_mean_pct": 0.36,
+            "profit_total_abs": 8.59898163,
+            "profit_total": 0.00859898163,
+            "profit_total_pct": 0.86,
+            "duration_avg": "2 days, 7:52:00",
+            "wins": 77,
+            "draws": 0,
+            "losses": 149,
+            "winrate": 0.3407079646017699,
+            "cagr": 0.004474567765657689,
+            "expectancy": 0.03804859128318577,
+            "expectancy_ratio": 0.1136332251398362,
+            "sortino": 1.0774292440345972,
+            "sharpe": 0.25208232033809297,
+            "calmar": 2.567030291131805,
+            "sqn": 0.613,
+            "p_value": 0.5404802312661924,
+            "profit_factor": 1.172356435447,
+            "max_drawdown_account": 0.009142488442054614,
+            "max_drawdown_abs": 9.240877479999996
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 123,
+            "mean_net_bps": 46.75830735319977,
+            "lcb_95_net_bps": -150.85443498668945
+          },
+          "SHORT": {
+            "closed_trades": 103,
+            "mean_net_bps": 23.838651149771266,
+            "lcb_95_net_bps": -124.8063027022321
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 35,
+            "mean_net_bps": 5.776902238798235,
+            "lcb_95_net_bps": -156.9152588481543
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 3,
+            "mean_net_bps": -337.8292191871234,
+            "lcb_95_net_bps": -938.7863180125526
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 42,
+            "mean_net_bps": 176.07045356597084,
+            "lcb_95_net_bps": -107.83014845783865
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 32,
+            "mean_net_bps": -101.15116656075197,
+            "lcb_95_net_bps": -282.0978036989367
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 29,
+            "mean_net_bps": 87.17654501534336,
+            "lcb_95_net_bps": -652.5369253223736
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 34,
+            "mean_net_bps": -22.808820734712178,
+            "lcb_95_net_bps": -201.74149697303795
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 30,
+            "mean_net_bps": -34.812216825208864,
+            "lcb_95_net_bps": -243.92971603747367
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 21,
+            "mean_net_bps": 197.69399221610732,
+            "lcb_95_net_bps": -250.55380293979917
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\development\\fee_400\\backtest-result-2026-08-03_11-53-40.zip"
+      },
+      "stress": {
+        "fee_per_fill": 0.0008,
+        "fills": 452,
+        "closed_trades": 226,
+        "mean_net_bps": 28.30124740050262,
+        "lcb_95_net_bps": -98.50640577841178,
+        "profit_total_abs": 6.95513927,
+        "profit_total_ratio": 0.00695513927,
+        "profit_factor": 1.1364324862396682,
+        "max_drawdown_abs": 9.63068893,
+        "max_drawdown_account": 0.009535812166218738,
+        "wins": 76,
+        "losses": 150,
+        "backtest_start": "2022-01-30 04:00:00",
+        "backtest_end": "2024-01-01 00:00:00",
+        "market_change": -0.12581559823768892,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 109,
+            "profit_mean": 0.014830893872817805,
+            "profit_mean_pct": 1.48,
+            "profit_total_abs": 14.916748330000004,
+            "profit_total": 0.014916748330000004,
+            "profit_total_pct": 1.49,
+            "duration_avg": "2 days, 14:33:00",
+            "wins": 46,
+            "draws": 0,
+            "losses": 63,
+            "winrate": 0.42201834862385323,
+            "cagr": 0.007750458424321094,
+            "expectancy": 0.13685090211009177,
+            "expectancy_ratio": 0.4794261638228021,
+            "sortino": 2.5815160523252976,
+            "sharpe": 0.3693613378237081,
+            "calmar": 7.700352330654127,
+            "sqn": 1.2903,
+            "p_value": 0.1997045839012767,
+            "profit_factor": 1.8294833628045306,
+            "max_drawdown_account": 0.005287032230266932,
+            "max_drawdown_abs": 5.348770539999999
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 95,
+            "profit_mean": 0.00859973836927456,
+            "profit_mean_pct": 0.86,
+            "profit_total_abs": 8.04903969,
+            "profit_total": 0.00804903969,
+            "profit_total_pct": 0.8,
+            "duration_avg": "2 days, 8:51:00",
+            "wins": 30,
+            "draws": 0,
+            "losses": 65,
+            "winrate": 0.3157894736842105,
+            "cagr": 0.004188947669947263,
+            "expectancy": 0.08472673357894739,
+            "expectancy_ratio": 0.3242453155888838,
+            "sortino": 1.4395852660931059,
+            "sharpe": 0.3058687648346802,
+            "calmar": 4.9679899752296715,
+            "sqn": 1.1437,
+            "p_value": 0.25563607581435455,
+            "profit_factor": 1.4738969997068303,
+            "max_drawdown_account": 0.004421928849207159,
+            "max_drawdown_abs": 4.449300830000002
+          },
+          {
+            "key": "stop_loss",
+            "trades": 22,
+            "profit_mean": -0.08154247208940299,
+            "profit_mean_pct": -8.15,
+            "profit_total_abs": -16.01064875,
+            "profit_total": -0.016010648750000002,
+            "profit_total_pct": -1.6,
+            "duration_avg": "18:30:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 22,
+            "winrate": 0.0,
+            "cagr": -0.008380648375463595,
+            "expectancy": -0.7277567613636364,
+            "expectancy_ratio": -1.0,
+            "sortino": -4.457190588361716,
+            "sharpe": -4.457190588361716,
+            "calmar": -2.7292818820775473,
+            "sqn": -34.0173,
+            "p_value": 7.495832054257462e-20,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.016010648749999974,
+            "max_drawdown_abs": 16.01064875
+          },
+          {
+            "key": "TOTAL",
+            "trades": 226,
+            "profit_mean": 0.002830124740050262,
+            "profit_mean_pct": 0.28,
+            "profit_total_abs": 6.95513927,
+            "profit_total": 0.00695513927,
+            "profit_total_pct": 0.7,
+            "duration_avg": "2 days, 7:52:00",
+            "wins": 76,
+            "draws": 0,
+            "losses": 150,
+            "winrate": 0.336283185840708,
+            "cagr": 0.003620593295397212,
+            "expectancy": 0.030774952522123922,
+            "expectancy_ratio": 0.0905525351148242,
+            "sortino": 0.8670431869093618,
+            "sharpe": 0.20393881632879493,
+            "calmar": 1.9906574569687883,
+            "sqn": 0.4959,
+            "p_value": 0.6204166587999379,
+            "profit_factor": 1.1364324862396682,
+            "max_drawdown_account": 0.009535812166218738,
+            "max_drawdown_abs": 9.63068893
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 123,
+            "mean_net_bps": 38.724111884061415,
+            "lcb_95_net_bps": -158.73060352280902
+          },
+          "SHORT": {
+            "closed_trades": 103,
+            "mean_net_bps": 15.854525735670277,
+            "lcb_95_net_bps": -132.9093916866531
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 35,
+            "mean_net_bps": -2.238872704303781,
+            "lcb_95_net_bps": -164.92873713095972
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 3,
+            "mean_net_bps": -346.10279464019845,
+            "lcb_95_net_bps": -947.540851681881
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 42,
+            "mean_net_bps": 168.0188283445493,
+            "lcb_95_net_bps": -115.91018411754024
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 32,
+            "mean_net_bps": -109.10549822550914,
+            "lcb_95_net_bps": -290.0882500185361
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 29,
+            "mean_net_bps": 79.00816786948057,
+            "lcb_95_net_bps": -660.2094335925661
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 34,
+            "mean_net_bps": -30.670199912780678,
+            "lcb_95_net_bps": -209.6269050911856
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 30,
+            "mean_net_bps": -42.798620159710445,
+            "lcb_95_net_bps": -251.93481813363334
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 21,
+            "mean_net_bps": 189.6592632114744,
+            "lcb_95_net_bps": -258.52646153880283
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\development\\fee_800\\backtest-result-2026-08-03_11-53-47.zip"
+      }
+    },
+    "validation": {
+      "timerange": "20240104-20250101",
+      "base": {
+        "fee_per_fill": 0.0004,
+        "fills": 232,
+        "closed_trades": 116,
+        "mean_net_bps": 142.31359722731352,
+        "lcb_95_net_bps": -82.55774349602794,
+        "profit_total_abs": 15.565406350000002,
+        "profit_total_ratio": 0.015565406350000002,
+        "profit_factor": 1.66534916907139,
+        "max_drawdown_abs": 4.65121766,
+        "max_drawdown_account": 0.004651217660000043,
+        "wins": 37,
+        "losses": 79,
+        "backtest_start": "2024-01-04 00:00:00",
+        "backtest_end": "2025-01-01 00:00:00",
+        "market_change": 1.3000602156742604,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 66,
+            "profit_mean": 0.03708789109219976,
+            "profit_mean_pct": 3.71,
+            "profit_total_abs": 23.031011059999997,
+            "profit_total": 0.02303101106,
+            "profit_total_pct": 2.3,
+            "duration_avg": "2 days, 15:11:00",
+            "wins": 25,
+            "draws": 0,
+            "losses": 41,
+            "winrate": 0.3787878787878788,
+            "cagr": 0.02315936187601153,
+            "expectancy": 0.348954713030303,
+            "expectancy_ratio": 1.496230454606088,
+            "sortino": 7.573916096660337,
+            "sharpe": 0.8137455789162699,
+            "calmar": 42.09378029511849,
+            "sqn": 1.8887,
+            "p_value": 0.06339615123990472,
+            "profit_factor": 3.408566097658581,
+            "max_drawdown_account": 0.0028796180099999445,
+            "max_drawdown_abs": 2.8796180099999997
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 45,
+            "profit_mean": -0.008738709500777774,
+            "profit_mean_pct": -0.87,
+            "profit_total_abs": -3.4867986799999997,
+            "profit_total": -0.0034867986799999996,
+            "profit_total_pct": -0.35,
+            "duration_avg": "1 day, 23:27:00",
+            "wins": 12,
+            "draws": 0,
+            "losses": 33,
+            "winrate": 0.26666666666666666,
+            "cagr": -0.0035059759760200926,
+            "expectancy": -0.07748441511111112,
+            "expectancy_ratio": -0.25950259031176703,
+            "sortino": -1.1008978403808665,
+            "sharpe": -0.3922384571164339,
+            "calmar": -4.346706077400683,
+            "sqn": -1.0986,
+            "p_value": 0.2779346867327361,
+            "profit_factor": 0.6461328313930449,
+            "max_drawdown_account": 0.004221885061823909,
+            "max_drawdown_abs": 4.22500167
+          },
+          {
+            "key": "stop_loss",
+            "trades": 5,
+            "profit_mean": -0.08074423134266948,
+            "profit_mean_pct": -8.07,
+            "profit_total_abs": -3.97880603,
+            "profit_total": -0.0039788060299999995,
+            "profit_total_pct": -0.4,
+            "duration_avg": "15:12:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 5,
+            "winrate": 0.0,
+            "cagr": -0.004000683916784764,
+            "expectancy": -0.795761206,
+            "expectancy_ratio": -1.0,
+            "sortino": -26.461018802653044,
+            "sharpe": -26.461018802653044,
+            "calmar": -5.263078009515938,
+            "sqn": -201.1068,
+            "p_value": 3.667521629350842e-09,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.003978806029999987,
+            "max_drawdown_abs": 3.97880603
+          },
+          {
+            "key": "TOTAL",
+            "trades": 116,
+            "profit_mean": 0.014231359722731353,
+            "profit_mean_pct": 1.42,
+            "profit_total_abs": 15.565406350000002,
+            "profit_total": 0.015565406350000002,
+            "profit_total_pct": 1.56,
+            "duration_avg": "2 days, 7:01:00",
+            "wins": 37,
+            "draws": 0,
+            "losses": 79,
+            "winrate": 0.31896551724137934,
+            "cagr": 0.015651833848880248,
+            "expectancy": 0.13418453749999995,
+            "expectancy_ratio": 0.45312572721241184,
+            "sortino": 3.9617046085899443,
+            "sharpe": 0.6854806533687272,
+            "calmar": 17.613011013091082,
+            "sqn": 1.2041,
+            "p_value": 0.23104074494698687,
+            "profit_factor": 1.66534916907139,
+            "max_drawdown_account": 0.004651217660000043,
+            "max_drawdown_abs": 4.65121766
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 70,
+            "mean_net_bps": 303.56156813166547,
+            "lcb_95_net_bps": -54.47719612992239
+          },
+          "SHORT": {
+            "closed_trades": 46,
+            "mean_net_bps": -103.06374980104812,
+            "lcb_95_net_bps": -238.1380801955006
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 26,
+            "mean_net_bps": 65.70265352110549,
+            "lcb_95_net_bps": -177.59373893740798
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 4,
+            "mean_net_bps": -250.8327265976834,
+            "lcb_95_net_bps": -460.89128535541295
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 18,
+            "mean_net_bps": 145.69612511877867,
+            "lcb_95_net_bps": -452.64360931064607
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 23,
+            "mean_net_bps": 495.3066196725948,
+            "lcb_95_net_bps": -420.34443593732624
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 21,
+            "mean_net_bps": -43.62149148708218,
+            "lcb_95_net_bps": -283.5549313712904
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 18,
+            "mean_net_bps": 124.99542131080811,
+            "lcb_95_net_bps": -278.64056030670906
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 6,
+            "mean_net_bps": 75.8317377061405,
+            "lcb_95_net_bps": -525.6698809008813
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\validation\\fee_400\\backtest-result-2026-08-03_11-53-53.zip"
+      },
+      "stress": {
+        "fee_per_fill": 0.0008,
+        "fills": 232,
+        "closed_trades": 116,
+        "mean_net_bps": 134.13505808797083,
+        "lcb_95_net_bps": -90.57909308433588,
+        "profit_total_abs": 14.733351710000003,
+        "profit_total_ratio": 0.014733351710000002,
+        "profit_factor": 1.615189189198105,
+        "max_drawdown_abs": 4.802470369999999,
+        "max_drawdown_account": 0.004802470370000037,
+        "wins": 37,
+        "losses": 79,
+        "backtest_start": "2024-01-04 00:00:00",
+        "backtest_end": "2025-01-01 00:00:00",
+        "market_change": 1.3000602156742604,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 66,
+            "profit_mean": 0.03625855225675235,
+            "profit_mean_pct": 3.63,
+            "profit_total_abs": 22.570487110000002,
+            "profit_total": 0.022570487110000002,
+            "profit_total_pct": 2.26,
+            "duration_avg": "2 days, 15:11:00",
+            "wins": 25,
+            "draws": 0,
+            "losses": 41,
+            "winrate": 0.3787878787878788,
+            "cagr": 0.022696243082096945,
+            "expectancy": 0.34197707742424244,
+            "expectancy_ratio": 1.4258539254031395,
+            "sortino": 7.388347159395433,
+            "sharpe": 0.7978914319253946,
+            "calmar": 39.942136964436294,
+            "sqn": 1.8519,
+            "p_value": 0.06858311721956552,
+            "profit_factor": 3.2952770506489557,
+            "max_drawdown_account": 0.0029740580599999476,
+            "max_drawdown_abs": 2.97405806
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 45,
+            "profit_mean": -0.00954602356568008,
+            "profit_mean_pct": -0.95,
+            "profit_total_abs": -3.8198603099999997,
+            "profit_total": -0.0038198603099999996,
+            "profit_total_pct": -0.38,
+            "duration_avg": "1 day, 23:27:00",
+            "wins": 12,
+            "draws": 0,
+            "losses": 33,
+            "winrate": 0.26666666666666666,
+            "cagr": -0.0038408659030587655,
+            "expectancy": -0.08488578466666666,
+            "expectancy_ratio": -0.2773886162761705,
+            "sortino": -1.2011146704360072,
+            "sharpe": -0.4296355943778202,
+            "calmar": -4.6090846975334046,
+            "sqn": -1.2033,
+            "p_value": 0.23529439418980122,
+            "profit_factor": 0.6217427959870402,
+            "max_drawdown_account": 0.00436186881263923,
+            "max_drawdown_abs": 4.364243340000001
+          },
+          {
+            "key": "stop_loss",
+            "trades": 5,
+            "profit_mean": -0.0815053429339179,
+            "profit_mean_pct": -8.15,
+            "profit_total_abs": -4.01727509,
+            "profit_total": -0.00401727509,
+            "profit_total_pct": -0.4,
+            "duration_avg": "15:12:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 5,
+            "winrate": 0.0,
+            "cagr": -0.004039364073773699,
+            "expectancy": -0.803455018,
+            "expectancy_ratio": -1.0,
+            "sortino": -26.23812134086121,
+            "sharpe": -26.23812134086121,
+            "calmar": -5.263078009515926,
+            "sqn": -199.4127,
+            "p_value": 3.793733008589886e-09,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.004017275089999999,
+            "max_drawdown_abs": 4.01727509
+          },
+          {
+            "key": "TOTAL",
+            "trades": 116,
+            "profit_mean": 0.013413505808797084,
+            "profit_mean_pct": 1.34,
+            "profit_total_abs": 14.733351710000003,
+            "profit_total": 0.014733351710000002,
+            "profit_total_pct": 1.47,
+            "duration_avg": "2 days, 7:01:00",
+            "wins": 37,
+            "draws": 0,
+            "losses": 79,
+            "winrate": 0.31896551724137934,
+            "cagr": 0.014815125574437316,
+            "expectancy": 0.12701165267241388,
+            "expectancy_ratio": 0.4189650512642267,
+            "sortino": 3.737329039914484,
+            "sharpe": 0.6491029564674686,
+            "calmar": 16.146435775170485,
+            "sqn": 1.1402,
+            "p_value": 0.2565898900254272,
+            "profit_factor": 1.615189189198105,
+            "max_drawdown_account": 0.004802470370000037,
+            "max_drawdown_abs": 4.802470369999999
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 70,
+            "mean_net_bps": 295.32201185267405,
+            "lcb_95_net_bps": -62.43043578713031
+          },
+          "SHORT": {
+            "closed_trades": 46,
+            "mean_net_bps": -111.14943677136017,
+            "lcb_95_net_bps": -246.33186996341078
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 26,
+            "mean_net_bps": 57.61486381949891,
+            "lcb_95_net_bps": -185.49797309267066
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 4,
+            "mean_net_bps": -258.7516312366258,
+            "lcb_95_net_bps": -468.68114414056504
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 18,
+            "mean_net_bps": 137.3506983868476,
+            "lcb_95_net_bps": -460.56174674777446
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 23,
+            "mean_net_bps": 486.8848582250868,
+            "lcb_95_net_bps": -428.07297341201803
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 21,
+            "mean_net_bps": -51.72941869810929,
+            "lcb_95_net_bps": -291.62804715737957
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 18,
+            "mean_net_bps": 116.93136560072423,
+            "lcb_95_net_bps": -286.41331676000163
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 6,
+            "mean_net_bps": 67.9292842585258,
+            "lcb_95_net_bps": -534.0274306423223
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\validation\\fee_800\\backtest-result-2026-08-03_11-53-59.zip"
+      }
+    },
+    "oos": {
+      "timerange": "20250104-20260101",
+      "base": {
+        "fee_per_fill": 0.0004,
+        "fills": 192,
+        "closed_trades": 96,
+        "mean_net_bps": 53.53687963596367,
+        "lcb_95_net_bps": -76.02147091002563,
+        "profit_total_abs": 5.217699989999999,
+        "profit_total_ratio": 0.005217699989999999,
+        "profit_factor": 1.3140514863171426,
+        "max_drawdown_abs": 2.8431128099999996,
+        "max_drawdown_account": 0.002841774890673338,
+        "wins": 39,
+        "losses": 57,
+        "backtest_start": "2025-01-04 00:00:00",
+        "backtest_end": "2026-01-01 00:00:00",
+        "market_change": -0.3243197869061137,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 37,
+            "profit_mean": 0.017858933074461635,
+            "profit_mean_pct": 1.79,
+            "profit_total_abs": 6.18816015,
+            "profit_total": 0.00618816015,
+            "profit_total_pct": 0.62,
+            "duration_avg": "2 days, 18:10:00",
+            "wins": 19,
+            "draws": 0,
+            "losses": 18,
+            "winrate": 0.5135135135135135,
+            "cagr": 0.006239602907873731,
+            "expectancy": 0.1672475716216216,
+            "expectancy_ratio": 0.6261939097801137,
+            "sortino": 1.9589634112114964,
+            "sharpe": 0.425856556446986,
+            "calmar": 15.768598134919024,
+            "sqn": 1.3085,
+            "p_value": 0.19899513375419278,
+            "profit_factor": 2.287176370103567,
+            "max_drawdown_account": 0.002071125048796507,
+            "max_drawdown_abs": 2.07240542
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 55,
+            "profit_mean": 5.342093969251813e-05,
+            "profit_mean_pct": 0.01,
+            "profit_total_abs": 0.3274961799999999,
+            "profit_total": 0.0003274961799999999,
+            "profit_total_pct": 0.03,
+            "duration_avg": "2 days, 6:02:00",
+            "wins": 19,
+            "draws": 0,
+            "losses": 36,
+            "winrate": 0.34545454545454546,
+            "cagr": 0.0003302106847964392,
+            "expectancy": 0.005954476000000097,
+            "expectancy_ratio": 0.020633644347584967,
+            "sortino": 0.1305594305056129,
+            "sharpe": 0.0360974272800977,
+            "calmar": 0.6317425441938704,
+            "sqn": 0.0914,
+            "p_value": 0.9275252307363864,
+            "profit_factor": 1.0315236233088105,
+            "max_drawdown_account": 0.002735923660399004,
+            "max_drawdown_abs": 2.73962719
+          },
+          {
+            "key": "force_exit",
+            "trades": 2,
+            "profit_mean": 0.0058953781217662565,
+            "profit_mean_pct": 0.59,
+            "profit_total_abs": 0.11774218,
+            "profit_total": 0.00011774218,
+            "profit_total_pct": 0.01,
+            "duration_avg": "7:00:00",
+            "wins": 1,
+            "draws": 0,
+            "losses": 1,
+            "winrate": 0.5,
+            "cagr": 0.0001187180018407119,
+            "expectancy": 0.05887109,
+            "expectancy_ratio": 29.48271734775641,
+            "sortino": -100.0,
+            "sharpe": 0.10208964347185272,
+            "calmar": 311.2342370300901,
+            "sqn": 0.9672,
+            "p_value": 0.5106154615770646,
+            "profit_factor": 59.96543469551282,
+            "max_drawdown_account": 1.9965609337455962e-06,
+            "max_drawdown_abs": 0.001996799999999993
+          },
+          {
+            "key": "stop_loss",
+            "trades": 2,
+            "profit_mean": -0.08077769358822506,
+            "profit_mean_pct": -8.08,
+            "profit_total_abs": -1.41569852,
+            "profit_total": -0.00141569852,
+            "profit_total_pct": -0.14,
+            "duration_avg": "4:00:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 2,
+            "winrate": 0.0,
+            "cagr": -0.0014274224507261346,
+            "expectancy": -0.70784926,
+            "expectancy_ratio": -1.0,
+            "sortino": -2.6732843937972945,
+            "sharpe": -2.6732843937972945,
+            "calmar": -5.277616899045053,
+            "sqn": -25.3266,
+            "p_value": 0.025123334551404065,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.0014156985199999781,
+            "max_drawdown_abs": 1.41569852
+          },
+          {
+            "key": "TOTAL",
+            "trades": 96,
+            "profit_mean": 0.005353687963596366,
+            "profit_mean_pct": 0.54,
+            "profit_total_abs": 5.217699989999999,
+            "profit_total": 0.005217699989999999,
+            "profit_total_pct": 0.52,
+            "duration_avg": "2 days, 8:41:00",
+            "wins": 39,
+            "draws": 0,
+            "losses": 57,
+            "winrate": 0.40625,
+            "cagr": 0.005261054145107691,
+            "expectancy": 0.05435104156250001,
+            "expectancy_ratio": 0.18646807000080345,
+            "sortino": 1.6569496817561806,
+            "sharpe": 0.448795992183244,
+            "calmar": 9.690078454752648,
+            "sqn": 0.8634,
+            "p_value": 0.39010343398916325,
+            "profit_factor": 1.3140514863171426,
+            "max_drawdown_account": 0.002841774890673338,
+            "max_drawdown_abs": 2.8431128099999996
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 38,
+            "mean_net_bps": 152.64799033107505,
+            "lcb_95_net_bps": -107.25015701769684
+          },
+          "SHORT": {
+            "closed_trades": 58,
+            "mean_net_bps": -11.397985991867914,
+            "lcb_95_net_bps": -141.24260680323533
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 17,
+            "mean_net_bps": -31.77901199829924,
+            "lcb_95_net_bps": -177.14886680501886
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 3,
+            "mean_net_bps": -203.08434200803728,
+            "lcb_95_net_bps": -433.79406603095765
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 16,
+            "mean_net_bps": 264.88657064887644,
+            "lcb_95_net_bps": -311.2096698002836
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 20,
+            "mean_net_bps": 56.863364418200355,
+            "lcb_95_net_bps": -197.91406830459135
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 19,
+            "mean_net_bps": 52.918384141823836,
+            "lcb_95_net_bps": -220.9491877210192
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 20,
+            "mean_net_bps": -28.645167561846925,
+            "lcb_95_net_bps": -205.1833109952863
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 1,
+            "mean_net_bps": 481.03830884396683,
+            "lcb_95_net_bps": null
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\oos\\fee_400\\backtest-result-2026-08-03_11-54-05.zip"
+      },
+      "stress": {
+        "fee_per_fill": 0.0008,
+        "fills": 192,
+        "closed_trades": 96,
+        "mean_net_bps": 45.48237881441548,
+        "lcb_95_net_bps": -84.04818273286861,
+        "profit_total_abs": 4.49112002,
+        "profit_total_ratio": 0.00449112002,
+        "profit_factor": 1.263527687681739,
+        "max_drawdown_abs": 3.0206256,
+        "max_drawdown_account": 0.003019654001322356,
+        "wins": 38,
+        "losses": 58,
+        "backtest_start": "2025-01-04 00:00:00",
+        "backtest_end": "2026-01-01 00:00:00",
+        "market_change": -0.3243197869061137,
+        "exit_reasons": [
+          {
+            "key": "long_trend_invalidation",
+            "trades": 37,
+            "profit_mean": 0.01704497132670836,
+            "profit_mean_pct": 1.7,
+            "profit_total_abs": 5.91265035,
+            "profit_total": 0.00591265035,
+            "profit_total_pct": 0.59,
+            "duration_avg": "2 days, 18:10:00",
+            "wins": 18,
+            "draws": 0,
+            "losses": 19,
+            "winrate": 0.4864864864864865,
+            "cagr": 0.005961795990162111,
+            "expectancy": 0.15980136081081078,
+            "expectancy_ratio": 0.6150238251349072,
+            "sortino": 1.7937830644192914,
+            "sharpe": 0.40708031735443223,
+            "calmar": 14.644315081003912,
+            "sqn": 1.2508,
+            "p_value": 0.21907186854568855,
+            "profit_factor": 2.197677975262714,
+            "max_drawdown_account": 0.0021308407551119822,
+            "max_drawdown_abs": 2.13210081
+          },
+          {
+            "key": "force_exit",
+            "trades": 2,
+            "profit_mean": 0.005099775628176545,
+            "profit_mean_pct": 0.51,
+            "profit_total_abs": 0.10180434999999999,
+            "profit_total": 0.00010180434999999999,
+            "profit_total_pct": 0.01,
+            "duration_avg": "7:00:00",
+            "wins": 1,
+            "draws": 0,
+            "losses": 1,
+            "winrate": 0.5,
+            "cagr": 0.000102648075758216,
+            "expectancy": 0.050902174999999994,
+            "expectancy_ratio": 5.093477325488312,
+            "sortino": -100.0,
+            "sharpe": 0.08823015356258936,
+            "calmar": 53.7688545913858,
+            "sqn": 0.8359,
+            "p_value": 0.5567564837652723,
+            "profit_factor": 11.186954650976624,
+            "max_drawdown_account": 9.992482860930539e-06,
+            "max_drawdown_abs": 0.009993600000000005
+          },
+          {
+            "key": "short_trend_invalidation",
+            "trades": 55,
+            "profit_mean": -0.0007468567060175697,
+            "profit_mean_pct": -0.07,
+            "profit_total_abs": -0.09363763999999969,
+            "profit_total": -9.363763999999969e-05,
+            "profit_total_pct": -0.01,
+            "duration_avg": "2 days, 6:02:00",
+            "wins": 19,
+            "draws": 0,
+            "losses": 36,
+            "winrate": 0.34545454545454546,
+            "cagr": -9.441360590767278e-05,
+            "expectancy": -0.0017025025454545095,
+            "expectancy_ratio": -0.005746382816003037,
+            "sortino": -0.037251086009043914,
+            "sharpe": -0.010317554613027628,
+            "calmar": -0.1700798789634893,
+            "sqn": -0.0261,
+            "p_value": 0.9792579171963796,
+            "profit_factor": 0.9912208040311065,
+            "max_drawdown_account": 0.0029055970304210595,
+            "max_drawdown_abs": 2.90924438
+          },
+          {
+            "key": "stop_loss",
+            "trades": 2,
+            "profit_mean": -0.08157776744760377,
+            "profit_mean_pct": -8.16,
+            "profit_total_abs": -1.4296970400000002,
+            "profit_total": -0.0014296970400000002,
+            "profit_total_pct": -0.14,
+            "duration_avg": "4:00:00",
+            "wins": 0,
+            "draws": 0,
+            "losses": 2,
+            "winrate": 0.0,
+            "cagr": -0.0014415368140281437,
+            "expectancy": -0.7148485200000001,
+            "expectancy_ratio": -1.0,
+            "sortino": -2.6998319925469825,
+            "sharpe": -2.6998319925469825,
+            "calmar": -5.277616899045154,
+            "sqn": -25.5781,
+            "p_value": 0.024876548044061978,
+            "profit_factor": 0.0,
+            "max_drawdown_account": 0.001429697039999951,
+            "max_drawdown_abs": 1.4296970400000002
+          },
+          {
+            "key": "TOTAL",
+            "trades": 96,
+            "profit_mean": 0.004548237881441548,
+            "profit_mean_pct": 0.45,
+            "profit_total_abs": 4.49112002,
+            "profit_total": 0.00449112002,
+            "profit_total_pct": 0.45,
+            "duration_avg": "2 days, 8:41:00",
+            "wins": 38,
+            "draws": 0,
+            "losses": 58,
+            "winrate": 0.3958333333333333,
+            "cagr": 0.004528423392495595,
+            "expectancy": 0.04678250020833333,
+            "expectancy_ratio": 0.1592146446410505,
+            "sortino": 1.3979425520256124,
+            "sharpe": 0.38636151875132557,
+            "calmar": 7.8493797311915605,
+            "sqn": 0.7433,
+            "p_value": 0.45915245762889667,
+            "profit_factor": 1.263527687681739,
+            "max_drawdown_account": 0.003019654001322356,
+            "max_drawdown_abs": 3.0206256
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 38,
+            "mean_net_bps": 144.52911761500826,
+            "lcb_95_net_bps": -115.16119425378287
+          },
+          "SHORT": {
+            "closed_trades": 58,
+            "mean_net_bps": -19.410312123903918,
+            "lcb_95_net_bps": -149.3588502937268
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 17,
+            "mean_net_bps": -39.81202556433645,
+            "lcb_95_net_bps": -185.19304796482885
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 3,
+            "mean_net_bps": -211.25007838923185,
+            "lcb_95_net_bps": -442.1444441071339
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 16,
+            "mean_net_bps": 256.68702680874554,
+            "lcb_95_net_bps": -319.089933181492
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 20,
+            "mean_net_bps": 48.832260374380525,
+            "lcb_95_net_bps": -206.01790690650762
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 19,
+            "mean_net_bps": 44.97681757092594,
+            "lcb_95_net_bps": -228.99784362128773
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 20,
+            "mean_net_bps": -36.73771120477054,
+            "lcb_95_net_bps": -213.19004131455222
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 1,
+            "mean_net_bps": 473.4200897655805,
+            "lcb_95_net_bps": null
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\oos\\fee_800\\backtest-result-2026-08-03_11-54-10.zip"
+      }
+    },
+    "sanity": {
+      "timerange": "20260104-20260715",
+      "base": {
+        "fee_per_fill": 0.0004,
+        "fills": 112,
+        "closed_trades": 56,
+        "mean_net_bps": -2.382349149134335,
+        "lcb_95_net_bps": -160.31640434427595,
+        "profit_total_abs": 0.24283798000000045,
+        "profit_total_ratio": 0.00024283798000000045,
+        "profit_factor": 1.0238588154504005,
+        "max_drawdown_abs": 6.081222350000001,
+        "max_drawdown_account": 0.006067357332960966,
+        "wins": 16,
+        "losses": 40,
+        "backtest_start": "2026-01-04 00:00:00",
+        "backtest_end": "2026-07-14 23:00:00",
+        "market_change": -0.4191313275970464,
+        "exit_reasons": [
+          {
+            "key": "short_trend_invalidation",
+            "trades": 32,
+            "profit_mean": 0.0013114965882714052,
+            "profit_mean_pct": 0.13,
+            "profit_total_abs": 0.5912774300000005,
+            "profit_total": 0.0005912774300000005,
+            "profit_total_pct": 0.06,
+            "duration_avg": "2 days, 3:24:00",
+            "wins": 8,
+            "draws": 0,
+            "losses": 24,
+            "winrate": 0.25,
+            "cagr": 0.0011302323859407881,
+            "expectancy": 0.018477419687499996,
+            "expectancy_ratio": 0.06300142734100378,
+            "sortino": 0.3379240737913432,
+            "sharpe": 0.08278883473803222,
+            "calmar": 1.1689298900860035,
+            "sqn": 0.144,
+            "p_value": 0.8864254945040704,
+            "profit_factor": 1.0840019031213382,
+            "max_drawdown_account": 0.005059596723890178,
+            "max_drawdown_abs": 5.072381979999999
+          },
+          {
+            "key": "long_trend_invalidation",
+            "trades": 24,
+            "profit_mean": -0.002304543585826552,
+            "profit_mean_pct": -0.23,
+            "profit_total_abs": -0.3484394500000003,
+            "profit_total": -0.0003484394500000003,
+            "profit_total_pct": -0.03,
+            "duration_avg": "2 days, 2:12:00",
+            "wins": 8,
+            "draws": 0,
+            "losses": 16,
+            "winrate": 0.3333333333333333,
+            "cagr": -0.0006657602818107566,
+            "expectancy": -0.014518310416666666,
+            "expectancy_ratio": -0.07399594046128255,
+            "sortino": -0.21994114353897187,
+            "sharpe": -0.10054450936532103,
+            "calmar": -2.1314836988118597,
+            "sqn": -0.2009,
+            "p_value": 0.8425720739671178,
+            "profit_factor": 0.8890060893080763,
+            "max_drawdown_account": 0.00163515289999998,
+            "max_drawdown_abs": 1.6351528999999998
+          },
+          {
+            "key": "TOTAL",
+            "trades": 56,
+            "profit_mean": -0.00023823491491343308,
+            "profit_mean_pct": -0.02,
+            "profit_total_abs": 0.24283798000000045,
+            "profit_total": 0.00024283798000000045,
+            "profit_total_pct": 0.02,
+            "duration_avg": "2 days, 2:54:00",
+            "wins": 16,
+            "draws": 0,
+            "losses": 40,
+            "winrate": 0.2857142857142857,
+            "cagr": 0.0004641134388747581,
+            "expectancy": 0.004336392499999953,
+            "expectancy_ratio": 0.017042011036000337,
+            "sortino": 0.13866392502240232,
+            "sharpe": 0.041451028234375284,
+            "calmar": 0.40034103113161434,
+            "sqn": 0.0549,
+            "p_value": 0.9564327902332278,
+            "profit_factor": 1.0238588154504005,
+            "max_drawdown_account": 0.006067357332960966,
+            "max_drawdown_abs": 6.081222350000001
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 24,
+            "mean_net_bps": -23.045435858265524,
+            "lcb_95_net_bps": -171.2978835954065
+          },
+          "SHORT": {
+            "closed_trades": 32,
+            "mean_net_bps": 13.114965882714056,
+            "lcb_95_net_bps": -242.12008195130696
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 5,
+            "mean_net_bps": 352.36145148746743,
+            "lcb_95_net_bps": -178.01292743808062
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 4,
+            "mean_net_bps": 10.285373078571176,
+            "lcb_95_net_bps": -412.44898143983454
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 8,
+            "mean_net_bps": -291.1248624638968,
+            "lcb_95_net_bps": -556.2944181728458
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 11,
+            "mean_net_bps": -35.93676926583441,
+            "lcb_95_net_bps": -349.98575081762857
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 11,
+            "mean_net_bps": 85.94978851064754,
+            "lcb_95_net_bps": -429.3799657025513
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 10,
+            "mean_net_bps": -118.45227926100786,
+            "lcb_95_net_bps": -201.33160639261132
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 7,
+            "mean_net_bps": 146.716882646452,
+            "lcb_95_net_bps": -507.2649524765265
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_expectancy",
+          "nonpositive_lcb",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\sanity\\fee_400\\backtest-result-2026-08-03_11-54-15.zip"
+      },
+      "stress": {
+        "fee_per_fill": 0.0008,
+        "fills": 112,
+        "closed_trades": 56,
+        "mean_net_bps": -10.368913808443269,
+        "lcb_95_net_bps": -168.3893183912348,
+        "profit_total_abs": -0.16095402000000014,
+        "profit_total_ratio": -0.00016095402000000015,
+        "profit_factor": 0.9846279128235154,
+        "max_drawdown_abs": 6.324614690000001,
+        "max_drawdown_account": 0.006310627534687919,
+        "wins": 16,
+        "losses": 40,
+        "backtest_start": "2026-01-04 00:00:00",
+        "backtest_end": "2026-07-14 23:00:00",
+        "market_change": -0.4191313275970464,
+        "exit_reasons": [
+          {
+            "key": "short_trend_invalidation",
+            "trades": 32,
+            "profit_mean": 0.0005122258354751433,
+            "profit_mean_pct": 0.05,
+            "profit_total_abs": 0.35575486,
+            "profit_total": 0.00035575486,
+            "profit_total_pct": 0.04,
+            "duration_avg": "2 days, 3:24:00",
+            "wins": 8,
+            "draws": 0,
+            "losses": 24,
+            "winrate": 0.25,
+            "cagr": 0.0006799558395758076,
+            "expectancy": 0.011117339375000035,
+            "expectancy_ratio": 0.03694943804454809,
+            "sortino": 0.2030652970228593,
+            "sharpe": 0.04979844414271039,
+            "calmar": 0.6863975978206698,
+            "sqn": 0.0866,
+            "p_value": 0.9315282298429808,
+            "profit_factor": 1.0492659173927308,
+            "max_drawdown_account": 0.005184276445981245,
+            "max_drawdown_abs": 5.19717396
+          },
+          {
+            "key": "long_trend_invalidation",
+            "trades": 24,
+            "profit_mean": -0.0031023810026036217,
+            "profit_mean_pct": -0.31,
+            "profit_total_abs": -0.5167088799999999,
+            "profit_total": -0.0005167088799999999,
+            "profit_total_pct": -0.05,
+            "duration_avg": "2 days, 2:12:00",
+            "wins": 8,
+            "draws": 0,
+            "losses": 16,
+            "winrate": 0.3333333333333333,
+            "cagr": -0.000987195560241072,
+            "expectancy": -0.021529536666666668,
+            "expectancy_ratio": -0.10601039551012037,
+            "sortino": -0.32551402427263854,
+            "sharpe": -0.14920257112981378,
+            "calmar": -2.9921767888927278,
+            "sqn": -0.2981,
+            "p_value": 0.7683269851560364,
+            "profit_factor": 0.8409844067348196,
+            "max_drawdown_account": 0.0017273157800000263,
+            "max_drawdown_abs": 1.7273157799999999
+          },
+          {
+            "key": "TOTAL",
+            "trades": 56,
+            "profit_mean": -0.001036891380844328,
+            "profit_mean_pct": -0.1,
+            "profit_total_abs": -0.16095402000000014,
+            "profit_total": -0.00016095402000000015,
+            "profit_total_pct": -0.02,
+            "duration_avg": "2 days, 2:54:00",
+            "wins": 16,
+            "draws": 0,
+            "losses": 40,
+            "winrate": 0.2857142857142857,
+            "cagr": -0.0003075597392915297,
+            "expectancy": -0.002874178928571419,
+            "expectancy_ratio": -0.010980062268917679,
+            "sortino": -0.09172958210586661,
+            "sharpe": -0.02747076742129391,
+            "calmar": -0.25511873045824285,
+            "sqn": -0.0364,
+            "p_value": 0.9711185050972446,
+            "profit_factor": 0.9846279128235154,
+            "max_drawdown_account": 0.006310627534687919,
+            "max_drawdown_abs": 6.324614690000001
+          }
+        ],
+        "directions": {
+          "LONG": {
+            "closed_trades": 24,
+            "mean_net_bps": -31.02381002603622,
+            "lcb_95_net_bps": -179.15770318954478
+          },
+          "SHORT": {
+            "closed_trades": 32,
+            "mean_net_bps": 5.122258354751442,
+            "lcb_95_net_bps": -250.3170591741513
+          }
+        },
+        "symbols": {
+          "BTC/USDT:USDT": {
+            "closed_trades": 5,
+            "mean_net_bps": 344.6273361465472,
+            "lcb_95_net_bps": -186.14831466478898
+          },
+          "ETH/USDT:USDT": {
+            "closed_trades": 0,
+            "mean_net_bps": null,
+            "lcb_95_net_bps": null
+          },
+          "SOL/USDT:USDT": {
+            "closed_trades": 4,
+            "mean_net_bps": 2.1159408326758467,
+            "lcb_95_net_bps": -420.4882476059031
+          },
+          "XRP/USDT:USDT": {
+            "closed_trades": 8,
+            "mean_net_bps": -299.2222662612451,
+            "lcb_95_net_bps": -564.492533414214
+          },
+          "DOGE/USDT:USDT": {
+            "closed_trades": 11,
+            "mean_net_bps": -43.99410368997375,
+            "lcb_95_net_bps": -358.0232737386157
+          },
+          "ADA/USDT:USDT": {
+            "closed_trades": 11,
+            "mean_net_bps": 77.92090596765256,
+            "lcb_95_net_bps": -437.7813445812994
+          },
+          "BNB/USDT:USDT": {
+            "closed_trades": 10,
+            "mean_net_bps": -126.39877172940014,
+            "lcb_95_net_bps": -209.26949732686114
+          },
+          "LINK/USDT:USDT": {
+            "closed_trades": 7,
+            "mean_net_bps": 138.90162928474757,
+            "lcb_95_net_bps": -515.5688401751383
+          }
+        },
+        "promotable_symbols": 0,
+        "failures": [
+          "nonpositive_expectancy",
+          "nonpositive_lcb",
+          "profit_factor_not_above_one",
+          "direction_collapse:LONG",
+          "direction_collapse:SHORT",
+          "promotable_symbols_below_minimum",
+          "does_not_beat_no_trade_baseline"
+        ],
+        "gate_pass": false,
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\sanity\\fee_800\\backtest-result-2026-08-03_11-54-20.zip"
+      }
+    }
+  },
+  "failed_windows": [
+    "development:base",
+    "development:stress",
+    "validation:base",
+    "validation:stress",
+    "oos:base",
+    "oos:stress",
+    "sanity:base",
+    "sanity:stress"
+  ],
+  "live_guard_probe": {
+    "pass": true,
+    "exception": "long horizon candidate is restricted to dry_run=true"
+  },
+  "retrospective_pass": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "archived_candidates_not_retried": {
+    "funding_carry_hourly_v1": "max projected carry below cost floor and zero signals",
+    "cross_sectional_trend_4h_v1": "negative LCB, direction collapse, and below baseline"
+  },
+  "next_decision": "Prospective dry-run is forbidden unless every retrospective base and stress window passes."
+}

@@ -52,5 +52,46 @@ cost-stress backtest, runtime live-guard и короткий dry-run startup smo
 `SampleStrategy` следует отклонить. До paper/live нужна отдельная стратегия с
 положительными OOS и cost-stress метриками.
 
+## Первый фиксированный кандидат
+
+`LongHorizonTrendStrategyV1` является отдельным low-turnover long/short
+кандидатом на canonical full8 1h dataset 2022-2026. Параметры закреплены в
+`candidates/long_horizon_trend_v1.json`; sweep и автоматическая оптимизация не
+используются.
+
+Единый ретроспективный запуск:
+
+```powershell
+.venv-freqtrade\Scripts\python.exe tools\run_freqtrade_long_horizon_v1.py
+```
+
+Launcher проверяет SHA исходных CSV, автоматически строит изолированный
+Freqtrade dataset и выполняет development/validation/OOS/sanity при base и
+stress costs. Старый dataset не содержит funding history, поэтому только для
+этого ретротеста явно используется `futures_funding_rate=0`. Независимо от
+результата launcher не имеет promotion authority и не включает paper/live.
+
+Если canonical dataset отсутствует, он восстанавливается из публичного Bitget
+API перед запуском кандидата:
+
+```powershell
+.venv\Scripts\python.exe tools\build_exchange_futures_retrodate.py `
+  --exchange BITGET `
+  --symbols BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,BNB/USDT,LINK/USDT `
+  --start-date 2022-01-01 --end-date 2026-07-14 --timeframe 1h `
+  --source-api bitget-v3 --parallel-workers 8 `
+  --output-dir Retrodate\bitget_futures_history_v3_2022_20260714 `
+  --report Retrodate\bitget_futures_history_v3_2022_20260714\build_report.json `
+  --integrity-manifest Retrodate\bitget_futures_history_v3_2022_20260714\integrity_manifest.json
+```
+
+Первый зафиксированный прогон завершился
+`TERMINAL_REJECTED_RETROSPECTIVE`. Средняя доходность сделки была положительной
+на development/validation/OOS, но LCB оставался отрицательным во всех окнах и
+для обоих направлений. В sanity-2026 средняя net expectancy стала отрицательной:
+`-2.38 bps` при base costs и `-10.37 bps` при stress. Ни один символ не прошел
+per-symbol LCB. Профиль `long_horizon_trend_1h_v1` больше не настраивается и не
+перезапускается как новый кандидат.
+
 Docker опционален. На машине разработки Docker не был установлен. Compose
 закреплен на `freqtradeorg/freqtrade:2026.7`.

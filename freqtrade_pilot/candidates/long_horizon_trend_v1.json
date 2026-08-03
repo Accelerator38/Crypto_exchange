@@ -1,0 +1,56 @@
+{
+  "schema_version": "panteon.freqtrade_candidate.v1",
+  "candidate_id": "long_horizon_trend_1h_v1",
+  "stage": "fixed_retrospective_only",
+  "hypothesis": "A low-turnover symmetric 7-day breakout aligned with 3-day/14-day EMA trend and 28-day momentum has positive expectancy after Bitget futures costs.",
+  "dataset": {
+    "dataset_id": "bitget_full8_hourly_2022_20260714_v3",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "source_dir": "Retrodate/bitget_futures_history_v3_2022_20260714",
+    "timeframe": "1h",
+    "symbols": ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "BNB", "LINK"]
+  },
+  "splits": {
+    "development": "20220101-20240101",
+    "validation": "20240104-20250101",
+    "oos": "20250104-20260101",
+    "sanity": "20260104-20260715"
+  },
+  "entry_contract": {
+    "ema_fast_hours": 72,
+    "ema_slow_hours": 336,
+    "breakout_hours": 168,
+    "momentum_hours": 672,
+    "min_abs_momentum": 0.05,
+    "directions": ["LONG", "SHORT"]
+  },
+  "exit_contract": {
+    "trend_invalidation_ema_hours": 72,
+    "max_holding_hours": 336,
+    "stoploss_ratio": -0.08
+  },
+  "costs": {
+    "base_fee_per_fill": 0.0004,
+    "stress_fee_per_fill": 0.0008,
+    "funding_rate_assumption": 0,
+    "stress_model": "fee_slippage_safety_proxy_not_order_book_replay"
+  },
+  "gates": {
+    "min_fills_per_split": 20,
+    "min_closed_trades_per_split": 10,
+    "min_direction_trades_per_split": 5,
+    "min_promotable_symbols_per_split": 2,
+    "min_mean_net_bps": 0,
+    "min_lcb_95_net_bps": 0,
+    "min_profit_factor": 1,
+    "max_drawdown_account": 0.2,
+    "direction_collapse_hard_fail": true,
+    "require_base_and_stress_pass": true
+  },
+  "baseline_id": "no_trade_cash_v1",
+  "retuning_policy": "any parameter change requires a new candidate_id",
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}
