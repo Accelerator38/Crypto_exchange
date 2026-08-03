@@ -1,0 +1,11 @@
+services:
+  freqtrade:
+    image: freqtradeorg/freqtrade:stable
+    restart: "no"
+    volumes:
+      - ./user_data:/freqtrade/user_data
+    command: >
+      trade
+      --config /freqtrade/user_data/config.json
+      --strategy NoTradeStrategy
+      --logfile /freqtrade/user_data/logs/no_trade.log

@@ -282,8 +282,8 @@ def test_unified_launcher_dry_run_requires_live_preflight(capsys):
 
     out = capsys.readouterr().out
     assert exit_code == 2
-    assert "BITGET: preflight_failed" in out
-    assert "live preflight failed" in out
+    assert "BITGET: blocked" in out
+    assert "external-order path is frozen" in out
 
 
 def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
@@ -311,8 +311,8 @@ def test_unified_launcher_blocks_live_when_preflight_fails(tmp_path):
         )
 
     spawn.assert_not_called()
-    assert result.status == "preflight_failed"
-    assert "live preflight failed" in result.message
+    assert result.status == "blocked"
+    assert "external-order path is frozen" in result.message
 
 
 def test_unified_launcher_multi_dry_run_still_requires_preflight(tmp_path):
@@ -339,7 +339,7 @@ def test_unified_launcher_multi_dry_run_still_requires_preflight(tmp_path):
         )
 
     spawn.assert_not_called()
-    assert result.status == "preflight_failed"
+    assert result.status == "blocked"
 
 
 def test_unified_launcher_spawns_live_singleton_with_override_and_preflight(tmp_path):
@@ -373,10 +373,10 @@ def test_unified_launcher_spawns_live_singleton_with_override_and_preflight(tmp_
             parsed_regime=parsed,
         )
 
-    preflight.assert_called_once_with("BITGET", "live_futures")
-    spawn.assert_called_once()
-    assert result.status == "launched"
-    assert result.pid == 12345
+    preflight.assert_not_called()
+    spawn.assert_not_called()
+    assert result.status == "blocked"
+    assert result.pid is None
 
 
 def test_unified_launcher_spawns_bitget_live_multi_only_after_preflight(tmp_path):
@@ -404,10 +404,10 @@ def test_unified_launcher_spawns_bitget_live_multi_only_after_preflight(tmp_path
             parsed_regime=parsed,
         )
 
-    preflight.assert_called_once_with("BITGET", "live_futures")
-    spawn.assert_called_once_with("BITGET", "python-test", parsed)
-    assert result.status == "launched"
-    assert result.pid == 12345
+    preflight.assert_not_called()
+    spawn.assert_not_called()
+    assert result.status == "blocked"
+    assert result.pid is None
 
 
 def test_unified_launcher_blocks_live_singleton_without_override(tmp_path):
@@ -439,7 +439,7 @@ def test_unified_launcher_blocks_live_singleton_without_override(tmp_path):
     preflight.assert_not_called()
     spawn.assert_not_called()
     assert result.status == "blocked"
-    assert "PANTEON_ALLOW_LIVE_SINGLETON=1" in result.message
+    assert "external-order path is frozen" in result.message
 
 
 def test_unified_launcher_main_returns_nonzero_when_preflight_fails(tmp_path):

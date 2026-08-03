@@ -1,0 +1,142 @@
+{
+  "schema_version": "simple_research.preregistered_batch.v1",
+  "registration_status": "sealed_before_batch_run",
+  "registered_at": "2026-08-03T00:00:00Z",
+  "dataset": {
+    "id": "bitget_full8_hourly_2022_20260714",
+    "source_manifest_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "feature_tape": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet",
+    "timeframe": "1h"
+  },
+  "splits": [
+    {
+      "id": "development",
+      "start": "2022-01-01T00:00:00Z",
+      "end": "2025-01-01T00:00:00Z"
+    },
+    {
+      "id": "validation",
+      "start": "2025-01-01T00:00:00Z",
+      "end": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "oos",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-07-15T00:00:00Z"
+    }
+  ],
+  "costs": {
+    "base": {
+      "fee_bps_per_fill": 4.0,
+      "slippage_bps_per_fill": 2.0
+    },
+    "stress": {
+      "fee_bps_per_fill": 4.0,
+      "slippage_bps_per_fill": 4.0
+    }
+  },
+  "screening_gate": {
+    "min_closed_trades_per_validation_split": 30,
+    "require_positive_mean_net_bps": true,
+    "require_positive_lcb_95": true,
+    "require_positive_multiple_testing_lcb_95": true,
+    "require_positive_stress_mean_net_bps": true,
+    "max_drawdown": 0.2,
+    "require_beats_long_only_oos": true
+  },
+  "trial_budget": {
+    "maximum_strategies": 10,
+    "maximum_variants_per_family": 3,
+    "registered_trials": 10
+  },
+  "strategies": [
+    {
+      "id": "flat_v1",
+      "family": "baseline_flat",
+      "kind": "flat",
+      "params": {}
+    },
+    {
+      "id": "long_only_v1",
+      "family": "baseline_long_only",
+      "kind": "long_only",
+      "params": {}
+    },
+    {
+      "id": "ema_trend_12_48_v1",
+      "family": "time_series_trend",
+      "kind": "ema_trend",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 5.0
+      }
+    },
+    {
+      "id": "ema_trend_24_96_v1",
+      "family": "time_series_trend",
+      "kind": "ema_trend",
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 8.0
+      }
+    },
+    {
+      "id": "donchian_20_v1",
+      "family": "donchian_breakout",
+      "kind": "donchian",
+      "params": {
+        "window": 20
+      }
+    },
+    {
+      "id": "donchian_55_v1",
+      "family": "donchian_breakout",
+      "kind": "donchian",
+      "params": {
+        "window": 55
+      }
+    },
+    {
+      "id": "mean_reversion_24_v1",
+      "family": "mean_reversion",
+      "kind": "mean_reversion",
+      "params": {
+        "window": 24,
+        "entry_z": 2.0,
+        "exit_z": 0.25
+      }
+    },
+    {
+      "id": "vol_compression_breakout_v1",
+      "family": "volatility_compression",
+      "kind": "vol_compression",
+      "params": {
+        "compression_threshold": 0.65,
+        "breakout_window": 20
+      }
+    },
+    {
+      "id": "regime_pullback_12_48_v1",
+      "family": "regime_pullback",
+      "kind": "regime_pullback",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "pullback_bps": 15.0
+      }
+    },
+    {
+      "id": "candle_momentum_3_v1",
+      "family": "candle_momentum",
+      "kind": "candle_momentum",
+      "params": {
+        "bars": 3,
+        "threshold_bps": 25.0
+      }
+    }
+  ],
+  "orders_enabled": false,
+  "promotion_authority": false
+}

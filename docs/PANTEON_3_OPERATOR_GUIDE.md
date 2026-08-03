@@ -1,12 +1,17 @@
 # Panteon Operator Guide
 
-Updated: 2026-07-27
+Updated: 2026-08-03
 
 ## Current verdict
 
-Bitget real trading is **not authorized** until a current `micro_live` policy
-manifest exists and all evidence gates pass. An evidence collector or replay is
-not a trading process and cannot authorize an order.
+The legacy Pantheon Bitget real-order path is permanently frozen by
+`panteon_v2.app.live_freeze`. Neither a manifest nor an environment variable can
+unfreeze it. Pantheon remains available only for paper, demo and research work.
+The replacement execution spike lives under `freqtrade_reset/` and is also
+hard-configured for dry-run; it is not a live authorization.
+
+An evidence collector or replay is not a trading process and cannot authorize
+an order.
 
 There is currently no operational strategy candidate. The authoritative
 research state is tracked in

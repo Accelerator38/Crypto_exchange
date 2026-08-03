@@ -52,6 +52,7 @@ from .live_state import (
     seed_perf_open_position_for_adoption,
     should_adopt_existing_position,
 )
+from .live_freeze import legacy_panteon_live_freeze_reason
 from .migration import (
     load_v2_snapshot,
     migrate_from_v1_memory_files,
@@ -3929,6 +3930,10 @@ def start_production(
     log.info("=" * 70)
     log.info("Panteon v2 production startup: %s mode=%s", exchange, mode)
     log.info("=" * 70)
+    freeze_reason = legacy_panteon_live_freeze_reason(exchange, mode)
+    if freeze_reason:
+        log.error(freeze_reason)
+        return 2
     bitget_external = (
         str(exchange or "").strip().upper() == "BITGET"
         and not _is_virtual_exchange_mode(mode)

@@ -387,6 +387,13 @@ def _live_preflight_result(exchange: str, launch_mode: str):
     )
 
 
+def _legacy_live_freeze_reason(exchange: str, launch_mode: str) -> str:
+    _prepare_imports()
+    from panteon_v2.app.live_freeze import legacy_panteon_live_freeze_reason
+
+    return legacy_panteon_live_freeze_reason(exchange, launch_mode)
+
+
 def _run_exchange_worker(
     exchange: str,
     parsed_regime: TradeRegime | None = None,
@@ -403,6 +410,11 @@ def _run_exchange_worker(
     launch_mode = _launch_mode(exchange)
     os.environ["CRYPTO_EXCHANGE"] = exchange
     os.environ[MODE_ENV[exchange]] = launch_mode
+
+    freeze_reason = _legacy_live_freeze_reason(exchange, launch_mode)
+    if freeze_reason:
+        print(f"[Start_panteon] {exchange} blocked: {freeze_reason}", file=sys.stderr)
+        return 2
 
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
@@ -475,6 +487,9 @@ def _launch_exchange(
     _load_env()
     launch_mode = _launch_mode(exchange)
     parsed_regime = parsed_regime or _parse_trade_regime()
+    freeze_reason = _legacy_live_freeze_reason(exchange, launch_mode)
+    if freeze_reason:
+        return LaunchResult(exchange, "blocked", freeze_reason)
     singleton_block = _singleton_live_block_message(exchange, launch_mode, parsed_regime)
     if singleton_block:
         return LaunchResult(exchange, "blocked", singleton_block)

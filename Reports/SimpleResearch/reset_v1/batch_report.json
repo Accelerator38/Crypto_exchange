@@ -1,0 +1,2419 @@
+{
+  "schema_version": "simple_research.batch_report.v1",
+  "generated_at": "2026-08-03T07:29:36.145325+00:00",
+  "registry_path": "configs/simple_research/preregistered_strategies_v1.json",
+  "registry_sha256": "1d31e7a92fed6c8218b3267ae143433b3a690f44d88330704b41daa2b82aed06",
+  "feature_tape_manifest_sha256": "eb2785de1c080d683a1bab5a6f005a62ebaae15f4e8e50ccffdf7e50c87be304",
+  "decision_tape_path": "Retrodate/simple_research_reset_v1/decision_tape.parquet",
+  "decision_tape_sha256": "eeb5562f6d256a3efa662673ab840e64ddbf1f31414215d48095063d9bfbcf95",
+  "strategy_count": 10,
+  "trial_count_for_adjustment": 10,
+  "elapsed_sec": 38.5,
+  "strategies": [
+    {
+      "id": "flat_v1",
+      "family": "baseline_flat",
+      "kind": "flat",
+      "params": {},
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 0,
+            "fills": 0,
+            "mean_gross_bps": 0.0,
+            "mean_net_bps": 0.0,
+            "lcb_95_net_bps": null,
+            "multiple_testing_lcb_95_net_bps": null,
+            "win_rate": 0.0,
+            "total_net_return": 0.0,
+            "max_drawdown": -0.0,
+            "direction": {},
+            "symbol_trade_counts": {},
+            "max_symbol_trade_share": 0.0,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 2.547,
+      "screening_pass": false,
+      "screening_reasons": [
+        "baseline_not_candidate"
+      ]
+    },
+    {
+      "id": "long_only_v1",
+      "family": "baseline_long_only",
+      "kind": "long_only",
+      "params": {},
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": 4143.435596163616,
+            "mean_net_bps": 4131.435596163616,
+            "lcb_95_net_bps": 439.54939076148685,
+            "multiple_testing_lcb_95_net_bps": -1650.0324429516477,
+            "win_rate": 0.625,
+            "total_net_return": 0.7984917945381043,
+            "max_drawdown": 0.7144813205212344,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": 4131.435596163616
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": 4143.435596163616,
+            "mean_net_bps": 4127.435596163616,
+            "lcb_95_net_bps": 435.54939076148685,
+            "multiple_testing_lcb_95_net_bps": -1654.0324429516477,
+            "win_rate": 0.625,
+            "total_net_return": 0.7977722233976352,
+            "max_drawdown": 0.7144813205212366,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": 4127.435596163616
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": -2529.7089942578878,
+            "mean_net_bps": -2541.7089942578878,
+            "lcb_95_net_bps": -4245.030272795109,
+            "multiple_testing_lcb_95_net_bps": -5209.098232257236,
+            "win_rate": 0.125,
+            "total_net_return": -0.24902440591967978,
+            "max_drawdown": 0.5133731093449512,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": -2541.7089942578878
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": -2529.7089942578878,
+            "mean_net_bps": -2545.7089942578878,
+            "lcb_95_net_bps": -4249.030272795109,
+            "multiple_testing_lcb_95_net_bps": -5213.098232257236,
+            "win_rate": 0.125,
+            "total_net_return": -0.2493230661757163,
+            "max_drawdown": 0.5133731093449506,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": -2545.7089942578878
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": -3633.3323471287213,
+            "mean_net_bps": -3645.3323471287213,
+            "lcb_95_net_bps": -4059.2240532765227,
+            "multiple_testing_lcb_95_net_bps": -4293.483871205222,
+            "win_rate": 0.0,
+            "total_net_return": -0.35913144154601484,
+            "max_drawdown": 0.5206400852243036,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": -3645.3323471287213
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 8,
+            "fills": 16,
+            "mean_gross_bps": -3633.3323471287213,
+            "mean_net_bps": -3649.3323471287213,
+            "lcb_95_net_bps": -4063.2240532765227,
+            "multiple_testing_lcb_95_net_bps": -4297.483871205222,
+            "win_rate": 0.0,
+            "total_net_return": -0.35938757498129215,
+            "max_drawdown": 0.5206400852243056,
+            "direction": {
+              "long": {
+                "trades": 8,
+                "mean_net_bps": -3649.3323471287213
+              },
+              "short": {
+                "trades": 0,
+                "mean_net_bps": null
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1,
+              "BNB/USDT": 1,
+              "BTC/USDT": 1,
+              "DOGE/USDT": 1,
+              "ETH/USDT": 1,
+              "LINK/USDT": 1,
+              "SOL/USDT": 1,
+              "XRP/USDT": 1
+            },
+            "max_symbol_trade_share": 0.125,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 2.953,
+      "screening_pass": false,
+      "screening_reasons": [
+        "baseline_not_candidate"
+      ]
+    },
+    {
+      "id": "ema_trend_12_48_v1",
+      "family": "time_series_trend",
+      "kind": "ema_trend",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 5.0
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 5308,
+            "fills": 10616,
+            "mean_gross_bps": 23.991841668533276,
+            "mean_net_bps": 11.991841668533276,
+            "lcb_95_net_bps": -1.3678821924675049,
+            "multiple_testing_lcb_95_net_bps": -8.929392686079922,
+            "win_rate": 0.2680859080633007,
+            "total_net_return": -9.011448194728988e-05,
+            "max_drawdown": 0.6614124627803413,
+            "direction": {
+              "long": {
+                "trades": 2636,
+                "mean_net_bps": 32.43774461834487
+              },
+              "short": {
+                "trades": 2672,
+                "mean_net_bps": -8.178592528960499
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 629,
+              "BNB/USDT": 699,
+              "BTC/USDT": 662,
+              "DOGE/USDT": 698,
+              "ETH/USDT": 652,
+              "LINK/USDT": 646,
+              "SOL/USDT": 614,
+              "XRP/USDT": 708
+            },
+            "max_symbol_trade_share": 0.1333835719668425,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 5308,
+            "fills": 10616,
+            "mean_gross_bps": 23.991841668533276,
+            "mean_net_bps": 7.991841668533278,
+            "lcb_95_net_bps": -5.367882192467503,
+            "multiple_testing_lcb_95_net_bps": -12.92939268607992,
+            "win_rate": 0.26375282592313487,
+            "total_net_return": -0.23321545138144884,
+            "max_drawdown": 0.7220120238005183,
+            "direction": {
+              "long": {
+                "trades": 2636,
+                "mean_net_bps": 28.43774461834487
+              },
+              "short": {
+                "trades": 2672,
+                "mean_net_bps": -12.178592528960499
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 629,
+              "BNB/USDT": 699,
+              "BTC/USDT": 662,
+              "DOGE/USDT": 698,
+              "ETH/USDT": 652,
+              "LINK/USDT": 646,
+              "SOL/USDT": 614,
+              "XRP/USDT": 708
+            },
+            "max_symbol_trade_share": 0.1333835719668425,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 1816,
+            "fills": 3632,
+            "mean_gross_bps": -0.6191235721290695,
+            "mean_net_bps": -12.619123572129071,
+            "lcb_95_net_bps": -31.17844417719089,
+            "multiple_testing_lcb_95_net_bps": -41.68289014999706,
+            "win_rate": 0.27422907488986786,
+            "total_net_return": -0.4124906576849512,
+            "max_drawdown": 0.532404618241309,
+            "direction": {
+              "long": {
+                "trades": 903,
+                "mean_net_bps": -14.320787726759157
+              },
+              "short": {
+                "trades": 913,
+                "mean_net_bps": -10.93609757910501
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 203,
+              "BNB/USDT": 237,
+              "BTC/USDT": 235,
+              "DOGE/USDT": 213,
+              "ETH/USDT": 238,
+              "LINK/USDT": 243,
+              "SOL/USDT": 223,
+              "XRP/USDT": 224
+            },
+            "max_symbol_trade_share": 0.13381057268722468,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 1816,
+            "fills": 3632,
+            "mean_gross_bps": -0.6191235721290695,
+            "mean_net_bps": -16.61912357212907,
+            "lcb_95_net_bps": -35.17844417719089,
+            "multiple_testing_lcb_95_net_bps": -45.68289014999706,
+            "win_rate": 0.269273127753304,
+            "total_net_return": -0.46348963720857583,
+            "max_drawdown": 0.571241452133469,
+            "direction": {
+              "long": {
+                "trades": 903,
+                "mean_net_bps": -18.32078772675916
+              },
+              "short": {
+                "trades": 913,
+                "mean_net_bps": -14.93609757910501
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 203,
+              "BNB/USDT": 237,
+              "BTC/USDT": 235,
+              "DOGE/USDT": 213,
+              "ETH/USDT": 238,
+              "LINK/USDT": 243,
+              "SOL/USDT": 223,
+              "XRP/USDT": 224
+            },
+            "max_symbol_trade_share": 0.13381057268722468,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 956,
+            "fills": 1912,
+            "mean_gross_bps": 1.8046839959673486,
+            "mean_net_bps": -10.195316004032652,
+            "lcb_95_net_bps": -30.795852332771084,
+            "multiple_testing_lcb_95_net_bps": -42.455612163475436,
+            "win_rate": 0.29916317991631797,
+            "total_net_return": -0.15369967776166082,
+            "max_drawdown": 0.5085000737434364,
+            "direction": {
+              "long": {
+                "trades": 477,
+                "mean_net_bps": -44.253382249547776
+              },
+              "short": {
+                "trades": 479,
+                "mean_net_bps": 23.720545371981366
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 131,
+              "BNB/USDT": 114,
+              "BTC/USDT": 108,
+              "DOGE/USDT": 126,
+              "ETH/USDT": 109,
+              "LINK/USDT": 130,
+              "SOL/USDT": 120,
+              "XRP/USDT": 118
+            },
+            "max_symbol_trade_share": 0.13702928870292888,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 956,
+            "fills": 1912,
+            "mean_gross_bps": 1.8046839959673486,
+            "mean_net_bps": -14.195316004032652,
+            "lcb_95_net_bps": -34.795852332771084,
+            "multiple_testing_lcb_95_net_bps": -46.455612163475436,
+            "win_rate": 0.2939330543933054,
+            "total_net_return": -0.19321751832574952,
+            "max_drawdown": 0.5233889932535913,
+            "direction": {
+              "long": {
+                "trades": 477,
+                "mean_net_bps": -48.253382249547776
+              },
+              "short": {
+                "trades": 479,
+                "mean_net_bps": 19.72054537198137
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 131,
+              "BNB/USDT": 114,
+              "BTC/USDT": 108,
+              "DOGE/USDT": 126,
+              "ETH/USDT": 109,
+              "LINK/USDT": 130,
+              "SOL/USDT": 120,
+              "XRP/USDT": 118
+            },
+            "max_symbol_trade_share": 0.13702928870292888,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 3.094,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "ema_trend_24_96_v1",
+      "family": "time_series_trend",
+      "kind": "ema_trend",
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 8.0
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 2563,
+            "fills": 5126,
+            "mean_gross_bps": 61.6898408226485,
+            "mean_net_bps": 49.6898408226485,
+            "lcb_95_net_bps": 18.838348508270496,
+            "multiple_testing_lcb_95_net_bps": 1.3766191113204655,
+            "win_rate": 0.28443230589153334,
+            "total_net_return": 0.8403076424931306,
+            "max_drawdown": 0.4263421970756418,
+            "direction": {
+              "long": {
+                "trades": 1266,
+                "mean_net_bps": 93.13891194485416
+              },
+              "short": {
+                "trades": 1297,
+                "mean_net_bps": 7.279259449701383
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 311,
+              "BNB/USDT": 310,
+              "BTC/USDT": 312,
+              "DOGE/USDT": 332,
+              "ETH/USDT": 322,
+              "LINK/USDT": 328,
+              "SOL/USDT": 294,
+              "XRP/USDT": 354
+            },
+            "max_symbol_trade_share": 0.13811939133827547,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 2563,
+            "fills": 5126,
+            "mean_gross_bps": 61.6898408226485,
+            "mean_net_bps": 45.689840822648485,
+            "lcb_95_net_bps": 14.838348508270489,
+            "multiple_testing_lcb_95_net_bps": -2.6233808886795416,
+            "win_rate": 0.28092079594225516,
+            "total_net_return": 0.6189335590173204,
+            "max_drawdown": 0.4389440676516472,
+            "direction": {
+              "long": {
+                "trades": 1266,
+                "mean_net_bps": 89.13891194485416
+              },
+              "short": {
+                "trades": 1297,
+                "mean_net_bps": 3.279259449701381
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 311,
+              "BNB/USDT": 310,
+              "BTC/USDT": 312,
+              "DOGE/USDT": 332,
+              "ETH/USDT": 322,
+              "LINK/USDT": 328,
+              "SOL/USDT": 294,
+              "XRP/USDT": 354
+            },
+            "max_symbol_trade_share": 0.13811939133827547,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 968,
+            "fills": 1936,
+            "mean_gross_bps": -23.37181480777777,
+            "mean_net_bps": -35.371814807777774,
+            "lcb_95_net_bps": -68.18120854229775,
+            "multiple_testing_lcb_95_net_bps": -86.751096482635,
+            "win_rate": 0.2603305785123967,
+            "total_net_return": -0.5012009039932945,
+            "max_drawdown": 0.5906241487537539,
+            "direction": {
+              "long": {
+                "trades": 483,
+                "mean_net_bps": -48.41596012565133
+              },
+              "short": {
+                "trades": 485,
+                "mean_net_bps": -22.381459779874827
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 119,
+              "BNB/USDT": 118,
+              "BTC/USDT": 126,
+              "DOGE/USDT": 104,
+              "ETH/USDT": 122,
+              "LINK/USDT": 135,
+              "SOL/USDT": 134,
+              "XRP/USDT": 110
+            },
+            "max_symbol_trade_share": 0.13946280991735538,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 968,
+            "fills": 1936,
+            "mean_gross_bps": -23.37181480777777,
+            "mean_net_bps": -39.37181480777778,
+            "lcb_95_net_bps": -72.18120854229775,
+            "multiple_testing_lcb_95_net_bps": -90.75109648263502,
+            "win_rate": 0.25826446280991733,
+            "total_net_return": -0.5247734436896123,
+            "max_drawdown": 0.6081231514755205,
+            "direction": {
+              "long": {
+                "trades": 483,
+                "mean_net_bps": -52.41596012565133
+              },
+              "short": {
+                "trades": 485,
+                "mean_net_bps": -26.38145977987483
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 119,
+              "BNB/USDT": 118,
+              "BTC/USDT": 126,
+              "DOGE/USDT": 104,
+              "ETH/USDT": 122,
+              "LINK/USDT": 135,
+              "SOL/USDT": 134,
+              "XRP/USDT": 110
+            },
+            "max_symbol_trade_share": 0.13946280991735538,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 470,
+            "fills": 940,
+            "mean_gross_bps": -3.44598805717465,
+            "mean_net_bps": -15.44598805717465,
+            "lcb_95_net_bps": -55.63871717344561,
+            "multiple_testing_lcb_95_net_bps": -78.38752142581416,
+            "win_rate": 0.28936170212765955,
+            "total_net_return": -0.1200670052235544,
+            "max_drawdown": 0.5020017499888976,
+            "direction": {
+              "long": {
+                "trades": 232,
+                "mean_net_bps": -73.59534689756298
+              },
+              "short": {
+                "trades": 238,
+                "mean_net_bps": 41.23742056034674
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 54,
+              "BNB/USDT": 52,
+              "BTC/USDT": 58,
+              "DOGE/USDT": 54,
+              "ETH/USDT": 64,
+              "LINK/USDT": 76,
+              "SOL/USDT": 56,
+              "XRP/USDT": 56
+            },
+            "max_symbol_trade_share": 0.16170212765957448,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 470,
+            "fills": 940,
+            "mean_gross_bps": -3.44598805717465,
+            "mean_net_bps": -19.44598805717465,
+            "lcb_95_net_bps": -59.63871717344561,
+            "multiple_testing_lcb_95_net_bps": -82.38752142581416,
+            "win_rate": 0.2851063829787234,
+            "total_net_return": -0.14050370930044243,
+            "max_drawdown": 0.5095640971675737,
+            "direction": {
+              "long": {
+                "trades": 232,
+                "mean_net_bps": -77.59534689756299
+              },
+              "short": {
+                "trades": 238,
+                "mean_net_bps": 37.237420560346756
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 54,
+              "BNB/USDT": 52,
+              "BTC/USDT": 58,
+              "DOGE/USDT": 54,
+              "ETH/USDT": 64,
+              "LINK/USDT": 76,
+              "SOL/USDT": 56,
+              "XRP/USDT": 56
+            },
+            "max_symbol_trade_share": 0.16170212765957448,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 2.672,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "donchian_20_v1",
+      "family": "donchian_breakout",
+      "kind": "donchian",
+      "params": {
+        "window": 20
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 7155,
+            "fills": 14310,
+            "mean_gross_bps": 0.9581847867409575,
+            "mean_net_bps": -11.041815213259042,
+            "lcb_95_net_bps": -17.91987791388482,
+            "multiple_testing_lcb_95_net_bps": -21.812813413721567,
+            "win_rate": 0.33039832285115306,
+            "total_net_return": -0.7511628479489527,
+            "max_drawdown": 0.7945179103323514,
+            "direction": {
+              "long": {
+                "trades": 3569,
+                "mean_net_bps": 2.4431163910361215
+              },
+              "short": {
+                "trades": 3586,
+                "mean_net_bps": -24.46281936711555
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 905,
+              "BNB/USDT": 924,
+              "BTC/USDT": 862,
+              "DOGE/USDT": 896,
+              "ETH/USDT": 902,
+              "LINK/USDT": 926,
+              "SOL/USDT": 901,
+              "XRP/USDT": 839
+            },
+            "max_symbol_trade_share": 0.12941998602375962,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 7155,
+            "fills": 14310,
+            "mean_gross_bps": 0.9581847867409575,
+            "mean_net_bps": -15.041815213259042,
+            "lcb_95_net_bps": -21.91987791388482,
+            "multiple_testing_lcb_95_net_bps": -25.812813413721567,
+            "win_rate": 0.3246680642907058,
+            "total_net_return": -0.826025550340475,
+            "max_drawdown": 0.8553721104979335,
+            "direction": {
+              "long": {
+                "trades": 3569,
+                "mean_net_bps": -1.5568836089638787
+              },
+              "short": {
+                "trades": 3586,
+                "mean_net_bps": -28.46281936711555
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 905,
+              "BNB/USDT": 924,
+              "BTC/USDT": 862,
+              "DOGE/USDT": 896,
+              "ETH/USDT": 902,
+              "LINK/USDT": 926,
+              "SOL/USDT": 901,
+              "XRP/USDT": 839
+            },
+            "max_symbol_trade_share": 0.12941998602375962,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 2522,
+            "fills": 5044,
+            "mean_gross_bps": 1.611582810812815,
+            "mean_net_bps": -10.388417189187185,
+            "lcb_95_net_bps": -21.84399340418485,
+            "multiple_testing_lcb_95_net_bps": -28.32776961552885,
+            "win_rate": 0.31958762886597936,
+            "total_net_return": -0.3737142155187356,
+            "max_drawdown": 0.48783662194236177,
+            "direction": {
+              "long": {
+                "trades": 1251,
+                "mean_net_bps": -6.1793964828425025
+              },
+              "short": {
+                "trades": 1271,
+                "mean_net_bps": -14.531206255778217
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 312,
+              "BNB/USDT": 323,
+              "BTC/USDT": 318,
+              "DOGE/USDT": 323,
+              "ETH/USDT": 303,
+              "LINK/USDT": 318,
+              "SOL/USDT": 331,
+              "XRP/USDT": 294
+            },
+            "max_symbol_trade_share": 0.13124504361617764,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 2522,
+            "fills": 5044,
+            "mean_gross_bps": 1.611582810812815,
+            "mean_net_bps": -14.388417189187185,
+            "lcb_95_net_bps": -25.84399340418485,
+            "multiple_testing_lcb_95_net_bps": -32.32776961552885,
+            "win_rate": 0.3140364789849326,
+            "total_net_return": -0.44791623623653887,
+            "max_drawdown": 0.5435813345998104,
+            "direction": {
+              "long": {
+                "trades": 1251,
+                "mean_net_bps": -10.179396482842503
+              },
+              "short": {
+                "trades": 1271,
+                "mean_net_bps": -18.53120625577822
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 312,
+              "BNB/USDT": 323,
+              "BTC/USDT": 318,
+              "DOGE/USDT": 323,
+              "ETH/USDT": 303,
+              "LINK/USDT": 318,
+              "SOL/USDT": 331,
+              "XRP/USDT": 294
+            },
+            "max_symbol_trade_share": 0.13124504361617764,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 1265,
+            "fills": 2530,
+            "mean_gross_bps": 6.539865737444187,
+            "mean_net_bps": -5.460134262555813,
+            "lcb_95_net_bps": -17.120706232930125,
+            "multiple_testing_lcb_95_net_bps": -23.720508611547793,
+            "win_rate": 0.3430830039525692,
+            "total_net_return": -0.11856864701458636,
+            "max_drawdown": 0.2508200555638441,
+            "direction": {
+              "long": {
+                "trades": 611,
+                "mean_net_bps": -8.496154945145081
+              },
+              "short": {
+                "trades": 654,
+                "mean_net_bps": -2.6237296187300614
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 159,
+              "BNB/USDT": 162,
+              "BTC/USDT": 158,
+              "DOGE/USDT": 162,
+              "ETH/USDT": 147,
+              "LINK/USDT": 157,
+              "SOL/USDT": 160,
+              "XRP/USDT": 160
+            },
+            "max_symbol_trade_share": 0.12806324110671938,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 1265,
+            "fills": 2530,
+            "mean_gross_bps": 6.539865737444187,
+            "mean_net_bps": -9.460134262555814,
+            "lcb_95_net_bps": -21.120706232930125,
+            "multiple_testing_lcb_95_net_bps": -27.720508611547793,
+            "win_rate": 0.3359683794466403,
+            "total_net_return": -0.1726089550903449,
+            "max_drawdown": 0.2859398532114449,
+            "direction": {
+              "long": {
+                "trades": 611,
+                "mean_net_bps": -12.496154945145083
+              },
+              "short": {
+                "trades": 654,
+                "mean_net_bps": -6.623729618730062
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 159,
+              "BNB/USDT": 162,
+              "BTC/USDT": 158,
+              "DOGE/USDT": 162,
+              "ETH/USDT": 147,
+              "LINK/USDT": 157,
+              "SOL/USDT": 160,
+              "XRP/USDT": 160
+            },
+            "max_symbol_trade_share": 0.12806324110671938,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 5.484,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "donchian_55_v1",
+      "family": "donchian_breakout",
+      "kind": "donchian",
+      "params": {
+        "window": 55
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 2876,
+            "fills": 5752,
+            "mean_gross_bps": 16.340914530668584,
+            "mean_net_bps": 4.340914530668583,
+            "lcb_95_net_bps": -13.540336014534441,
+            "multiple_testing_lcb_95_net_bps": -23.660999064402063,
+            "win_rate": 0.3226703755215577,
+            "total_net_return": -0.2298561324038415,
+            "max_drawdown": 0.6108104334185986,
+            "direction": {
+              "long": {
+                "trades": 1445,
+                "mean_net_bps": 31.057882517947654
+              },
+              "short": {
+                "trades": 1431,
+                "mean_net_bps": -22.637435393592956
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 356,
+              "BNB/USDT": 357,
+              "BTC/USDT": 354,
+              "DOGE/USDT": 358,
+              "ETH/USDT": 364,
+              "LINK/USDT": 374,
+              "SOL/USDT": 361,
+              "XRP/USDT": 352
+            },
+            "max_symbol_trade_share": 0.13004172461752433,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 2876,
+            "fills": 5752,
+            "mean_gross_bps": 16.340914530668584,
+            "mean_net_bps": 0.34091453066858357,
+            "lcb_95_net_bps": -17.54033601453444,
+            "multiple_testing_lcb_95_net_bps": -27.660999064402063,
+            "win_rate": 0.3191933240611961,
+            "total_net_return": -0.3330466157163753,
+            "max_drawdown": 0.6552541524180014,
+            "direction": {
+              "long": {
+                "trades": 1445,
+                "mean_net_bps": 27.057882517947654
+              },
+              "short": {
+                "trades": 1431,
+                "mean_net_bps": -26.637435393592956
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 356,
+              "BNB/USDT": 357,
+              "BTC/USDT": 354,
+              "DOGE/USDT": 358,
+              "ETH/USDT": 364,
+              "LINK/USDT": 374,
+              "SOL/USDT": 361,
+              "XRP/USDT": 352
+            },
+            "max_symbol_trade_share": 0.13004172461752433,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 1042,
+            "fills": 2084,
+            "mean_gross_bps": 2.546740473084522,
+            "mean_net_bps": -9.45325952691548,
+            "lcb_95_net_bps": -34.740987077204885,
+            "multiple_testing_lcb_95_net_bps": -49.05366443645094,
+            "win_rate": 0.34069097888675626,
+            "total_net_return": -0.23440202942842547,
+            "max_drawdown": 0.4208098321317427,
+            "direction": {
+              "long": {
+                "trades": 508,
+                "mean_net_bps": -8.512134578939065
+              },
+              "short": {
+                "trades": 534,
+                "mean_net_bps": -10.348561911881816
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 130,
+              "BNB/USDT": 131,
+              "BTC/USDT": 131,
+              "DOGE/USDT": 128,
+              "ETH/USDT": 127,
+              "LINK/USDT": 133,
+              "SOL/USDT": 133,
+              "XRP/USDT": 129
+            },
+            "max_symbol_trade_share": 0.1276391554702495,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 1042,
+            "fills": 2084,
+            "mean_gross_bps": 2.546740473084522,
+            "mean_net_bps": -13.45325952691548,
+            "lcb_95_net_bps": -38.740987077204885,
+            "multiple_testing_lcb_95_net_bps": -53.05366443645094,
+            "win_rate": 0.3330134357005758,
+            "total_net_return": -0.27327052580487154,
+            "max_drawdown": 0.4478047017940512,
+            "direction": {
+              "long": {
+                "trades": 508,
+                "mean_net_bps": -12.512134578939067
+              },
+              "short": {
+                "trades": 534,
+                "mean_net_bps": -14.348561911881816
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 130,
+              "BNB/USDT": 131,
+              "BTC/USDT": 131,
+              "DOGE/USDT": 128,
+              "ETH/USDT": 127,
+              "LINK/USDT": 133,
+              "SOL/USDT": 133,
+              "XRP/USDT": 129
+            },
+            "max_symbol_trade_share": 0.1276391554702495,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 543,
+            "fills": 1086,
+            "mean_gross_bps": -6.587318297269384,
+            "mean_net_bps": -18.587318297269384,
+            "lcb_95_net_bps": -47.09280821895226,
+            "multiple_testing_lcb_95_net_bps": -63.22671662985721,
+            "win_rate": 0.30755064456721914,
+            "total_net_return": -0.14622813661024603,
+            "max_drawdown": 0.4052755092494823,
+            "direction": {
+              "long": {
+                "trades": 262,
+                "mean_net_bps": -49.059792267212615
+              },
+              "short": {
+                "trades": 281,
+                "mean_net_bps": 9.824739283247068
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 64,
+              "BNB/USDT": 72,
+              "BTC/USDT": 75,
+              "DOGE/USDT": 68,
+              "ETH/USDT": 66,
+              "LINK/USDT": 68,
+              "SOL/USDT": 67,
+              "XRP/USDT": 63
+            },
+            "max_symbol_trade_share": 0.13812154696132597,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 543,
+            "fills": 1086,
+            "mean_gross_bps": -6.587318297269384,
+            "mean_net_bps": -22.587318297269384,
+            "lcb_95_net_bps": -51.09280821895226,
+            "multiple_testing_lcb_95_net_bps": -67.22671662985721,
+            "win_rate": 0.3001841620626151,
+            "total_net_return": -0.16910139264143376,
+            "max_drawdown": 0.4146864727779309,
+            "direction": {
+              "long": {
+                "trades": 262,
+                "mean_net_bps": -53.059792267212615
+              },
+              "short": {
+                "trades": 281,
+                "mean_net_bps": 5.8247392832470695
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 64,
+              "BNB/USDT": 72,
+              "BTC/USDT": 75,
+              "DOGE/USDT": 68,
+              "ETH/USDT": 66,
+              "LINK/USDT": 68,
+              "SOL/USDT": 67,
+              "XRP/USDT": 63
+            },
+            "max_symbol_trade_share": 0.13812154696132597,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 4.5,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "mean_reversion_24_v1",
+      "family": "mean_reversion",
+      "kind": "mean_reversion",
+      "params": {
+        "window": 24,
+        "entry_z": 2.0,
+        "exit_z": 0.25
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 7355,
+            "fills": 14710,
+            "mean_gross_bps": -6.351445893827876,
+            "mean_net_bps": -18.351445893827876,
+            "lcb_95_net_bps": -24.994544586411067,
+            "multiple_testing_lcb_95_net_bps": -28.754492097055785,
+            "win_rate": 0.6388851121685928,
+            "total_net_return": -0.8448143708085089,
+            "max_drawdown": 0.8716411988735991,
+            "direction": {
+              "long": {
+                "trades": 3744,
+                "mean_net_bps": -10.693898900948488
+              },
+              "short": {
+                "trades": 3611,
+                "mean_net_bps": -26.29103491109191
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 917,
+              "BNB/USDT": 922,
+              "BTC/USDT": 930,
+              "DOGE/USDT": 905,
+              "ETH/USDT": 947,
+              "LINK/USDT": 944,
+              "SOL/USDT": 889,
+              "XRP/USDT": 901
+            },
+            "max_symbol_trade_share": 0.12875594833446635,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 7355,
+            "fills": 14710,
+            "mean_gross_bps": -6.351445893827876,
+            "mean_net_bps": -22.351445893827876,
+            "lcb_95_net_bps": -28.994544586411067,
+            "multiple_testing_lcb_95_net_bps": -32.75449209705579,
+            "win_rate": 0.6319510537049626,
+            "total_net_return": -0.8925801456587188,
+            "max_drawdown": 0.9104716450715398,
+            "direction": {
+              "long": {
+                "trades": 3744,
+                "mean_net_bps": -14.693898900948488
+              },
+              "short": {
+                "trades": 3611,
+                "mean_net_bps": -30.29103491109191
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 917,
+              "BNB/USDT": 922,
+              "BTC/USDT": 930,
+              "DOGE/USDT": 905,
+              "ETH/USDT": 947,
+              "LINK/USDT": 944,
+              "SOL/USDT": 889,
+              "XRP/USDT": 901
+            },
+            "max_symbol_trade_share": 0.12875594833446635,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 2463,
+            "fills": 4926,
+            "mean_gross_bps": -5.121139443314127,
+            "mean_net_bps": -17.121139443314128,
+            "lcb_95_net_bps": -28.022124529593484,
+            "multiple_testing_lcb_95_net_bps": -34.19200603150344,
+            "win_rate": 0.6390580592773041,
+            "total_net_return": -0.45668140405578594,
+            "max_drawdown": 0.5578831219451802,
+            "direction": {
+              "long": {
+                "trades": 1304,
+                "mean_net_bps": -8.174023654545298
+              },
+              "short": {
+                "trades": 1159,
+                "mean_net_bps": -27.1876096663983
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 318,
+              "BNB/USDT": 299,
+              "BTC/USDT": 318,
+              "DOGE/USDT": 296,
+              "ETH/USDT": 312,
+              "LINK/USDT": 306,
+              "SOL/USDT": 318,
+              "XRP/USDT": 296
+            },
+            "max_symbol_trade_share": 0.12911084043848964,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 2463,
+            "fills": 4926,
+            "mean_gross_bps": -5.121139443314127,
+            "mean_net_bps": -21.121139443314128,
+            "lcb_95_net_bps": -32.02212452959348,
+            "multiple_testing_lcb_95_net_bps": -38.19200603150344,
+            "win_rate": 0.6321559074299634,
+            "total_net_return": -0.5196636761724835,
+            "max_drawdown": 0.6049389728880842,
+            "direction": {
+              "long": {
+                "trades": 1304,
+                "mean_net_bps": -12.174023654545298
+              },
+              "short": {
+                "trades": 1159,
+                "mean_net_bps": -31.1876096663983
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 318,
+              "BNB/USDT": 299,
+              "BTC/USDT": 318,
+              "DOGE/USDT": 296,
+              "ETH/USDT": 312,
+              "LINK/USDT": 306,
+              "SOL/USDT": 318,
+              "XRP/USDT": 296
+            },
+            "max_symbol_trade_share": 0.12911084043848964,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 1261,
+            "fills": 2522,
+            "mean_gross_bps": -6.396751789261755,
+            "mean_net_bps": -18.396751789261756,
+            "lcb_95_net_bps": -30.72121326641888,
+            "multiple_testing_lcb_95_net_bps": -37.696772473872784,
+            "win_rate": 0.6169706582077716,
+            "total_net_return": -0.2794216644518839,
+            "max_drawdown": 0.3540664610800698,
+            "direction": {
+              "long": {
+                "trades": 640,
+                "mean_net_bps": -23.31345866611928
+              },
+              "short": {
+                "trades": 621,
+                "mean_net_bps": -13.329614267218565
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 165,
+              "BNB/USDT": 153,
+              "BTC/USDT": 150,
+              "DOGE/USDT": 164,
+              "ETH/USDT": 153,
+              "LINK/USDT": 154,
+              "SOL/USDT": 166,
+              "XRP/USDT": 156
+            },
+            "max_symbol_trade_share": 0.1316415543219667,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 1261,
+            "fills": 2522,
+            "mean_gross_bps": -6.396751789261755,
+            "mean_net_bps": -22.396751789261756,
+            "lcb_95_net_bps": -34.72121326641888,
+            "multiple_testing_lcb_95_net_bps": -41.696772473872784,
+            "win_rate": 0.6130055511498811,
+            "total_net_return": -0.3234691741202794,
+            "max_drawdown": 0.3834165725349614,
+            "direction": {
+              "long": {
+                "trades": 640,
+                "mean_net_bps": -27.313458666119278
+              },
+              "short": {
+                "trades": 621,
+                "mean_net_bps": -17.329614267218567
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 165,
+              "BNB/USDT": 153,
+              "BTC/USDT": 150,
+              "DOGE/USDT": 164,
+              "ETH/USDT": 153,
+              "LINK/USDT": 154,
+              "SOL/USDT": 166,
+              "XRP/USDT": 156
+            },
+            "max_symbol_trade_share": 0.1316415543219667,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 4.906,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "vol_compression_breakout_v1",
+      "family": "volatility_compression",
+      "kind": "vol_compression",
+      "params": {
+        "compression_threshold": 0.65,
+        "breakout_window": 20
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 1930,
+            "fills": 3860,
+            "mean_gross_bps": -9.774790027529182,
+            "mean_net_bps": -21.774790027529185,
+            "lcb_95_net_bps": -30.783853393433887,
+            "multiple_testing_lcb_95_net_bps": -35.88292040168001,
+            "win_rate": 0.28704663212435233,
+            "total_net_return": -0.4322243326434979,
+            "max_drawdown": 0.47481695694105397,
+            "direction": {
+              "long": {
+                "trades": 939,
+                "mean_net_bps": -16.025690592998277
+              },
+              "short": {
+                "trades": 991,
+                "mean_net_bps": -27.22222127780619
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 215,
+              "BNB/USDT": 258,
+              "BTC/USDT": 271,
+              "DOGE/USDT": 251,
+              "ETH/USDT": 259,
+              "LINK/USDT": 187,
+              "SOL/USDT": 210,
+              "XRP/USDT": 279
+            },
+            "max_symbol_trade_share": 0.14455958549222797,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 1930,
+            "fills": 3860,
+            "mean_gross_bps": -9.774790027529182,
+            "mean_net_bps": -25.77479002752918,
+            "lcb_95_net_bps": -34.78385339343388,
+            "multiple_testing_lcb_95_net_bps": -39.88292040168001,
+            "win_rate": 0.2782383419689119,
+            "total_net_return": -0.4844629393804125,
+            "max_drawdown": 0.5176647800631238,
+            "direction": {
+              "long": {
+                "trades": 939,
+                "mean_net_bps": -20.025690592998274
+              },
+              "short": {
+                "trades": 991,
+                "mean_net_bps": -31.222221277806195
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 215,
+              "BNB/USDT": 258,
+              "BTC/USDT": 271,
+              "DOGE/USDT": 251,
+              "ETH/USDT": 259,
+              "LINK/USDT": 187,
+              "SOL/USDT": 210,
+              "XRP/USDT": 279
+            },
+            "max_symbol_trade_share": 0.14455958549222797,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 703,
+            "fills": 1406,
+            "mean_gross_bps": -0.7202119666341035,
+            "mean_net_bps": -12.720211966634102,
+            "lcb_95_net_bps": -27.78480767280962,
+            "multiple_testing_lcb_95_net_bps": -36.311263735782596,
+            "win_rate": 0.29871977240398295,
+            "total_net_return": -0.11278838482232434,
+            "max_drawdown": 0.24085703711566464,
+            "direction": {
+              "long": {
+                "trades": 388,
+                "mean_net_bps": -19.291913587654538
+              },
+              "short": {
+                "trades": 315,
+                "mean_net_bps": -4.625544573123216
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 72,
+              "BNB/USDT": 100,
+              "BTC/USDT": 103,
+              "DOGE/USDT": 101,
+              "ETH/USDT": 85,
+              "LINK/USDT": 84,
+              "SOL/USDT": 76,
+              "XRP/USDT": 82
+            },
+            "max_symbol_trade_share": 0.1465149359886202,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 703,
+            "fills": 1406,
+            "mean_gross_bps": -0.7202119666341035,
+            "mean_net_bps": -16.720211966634103,
+            "lcb_95_net_bps": -31.784807672809624,
+            "multiple_testing_lcb_95_net_bps": -40.311263735782596,
+            "win_rate": 0.28591749644381226,
+            "total_net_return": -0.14343941915953096,
+            "max_drawdown": 0.25951268316444187,
+            "direction": {
+              "long": {
+                "trades": 388,
+                "mean_net_bps": -23.291913587654538
+              },
+              "short": {
+                "trades": 315,
+                "mean_net_bps": -8.625544573123216
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 72,
+              "BNB/USDT": 100,
+              "BTC/USDT": 103,
+              "DOGE/USDT": 101,
+              "ETH/USDT": 85,
+              "LINK/USDT": 84,
+              "SOL/USDT": 76,
+              "XRP/USDT": 82
+            },
+            "max_symbol_trade_share": 0.1465149359886202,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 355,
+            "fills": 710,
+            "mean_gross_bps": -4.488312467221252,
+            "mean_net_bps": -16.488312467221256,
+            "lcb_95_net_bps": -30.419496971671375,
+            "multiple_testing_lcb_95_net_bps": -38.304450202355824,
+            "win_rate": 0.3183098591549296,
+            "total_net_return": -0.07284839387840891,
+            "max_drawdown": 0.09792224259154858,
+            "direction": {
+              "long": {
+                "trades": 159,
+                "mean_net_bps": -20.26468601051073
+              },
+              "short": {
+                "trades": 196,
+                "mean_net_bps": -13.424825766287443
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 45,
+              "BNB/USDT": 39,
+              "BTC/USDT": 51,
+              "DOGE/USDT": 38,
+              "ETH/USDT": 51,
+              "LINK/USDT": 44,
+              "SOL/USDT": 41,
+              "XRP/USDT": 46
+            },
+            "max_symbol_trade_share": 0.14366197183098592,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 355,
+            "fills": 710,
+            "mean_gross_bps": -4.488312467221252,
+            "mean_net_bps": -20.488312467221256,
+            "lcb_95_net_bps": -34.41949697167138,
+            "multiple_testing_lcb_95_net_bps": -42.304450202355824,
+            "win_rate": 0.30985915492957744,
+            "total_net_return": -0.08916066838098602,
+            "max_drawdown": 0.10727945665271155,
+            "direction": {
+              "long": {
+                "trades": 159,
+                "mean_net_bps": -24.26468601051073
+              },
+              "short": {
+                "trades": 196,
+                "mean_net_bps": -17.424825766287444
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 45,
+              "BNB/USDT": 39,
+              "BTC/USDT": 51,
+              "DOGE/USDT": 38,
+              "ETH/USDT": 51,
+              "LINK/USDT": 44,
+              "SOL/USDT": 41,
+              "XRP/USDT": 46
+            },
+            "max_symbol_trade_share": 0.14366197183098592,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 4.219,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean"
+      ]
+    },
+    {
+      "id": "regime_pullback_12_48_v1",
+      "family": "regime_pullback",
+      "kind": "regime_pullback",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "pullback_bps": 15.0
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 12688,
+            "fills": 25376,
+            "mean_gross_bps": 1.1359714830489949,
+            "mean_net_bps": -10.864028516951008,
+            "lcb_95_net_bps": -13.057601976736606,
+            "multiple_testing_lcb_95_net_bps": -14.299149250262063,
+            "win_rate": 0.5324716267339218,
+            "total_net_return": -0.8320253631384938,
+            "max_drawdown": 0.8688143185454487,
+            "direction": {
+              "long": {
+                "trades": 6298,
+                "mean_net_bps": -6.715408737265565
+              },
+              "short": {
+                "trades": 6390,
+                "mean_net_bps": -14.952918559589332
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1735,
+              "BNB/USDT": 1432,
+              "BTC/USDT": 1220,
+              "DOGE/USDT": 1685,
+              "ETH/USDT": 1366,
+              "LINK/USDT": 1782,
+              "SOL/USDT": 1885,
+              "XRP/USDT": 1583
+            },
+            "max_symbol_trade_share": 0.14856557377049182,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 12688,
+            "fills": 25376,
+            "mean_gross_bps": 1.1359714830489949,
+            "mean_net_bps": -14.864028516951008,
+            "lcb_95_net_bps": -17.057601976736606,
+            "multiple_testing_lcb_95_net_bps": -18.29914925026206,
+            "win_rate": 0.5300283732660782,
+            "total_net_return": -0.9109437899794361,
+            "max_drawdown": 0.9256838442719272,
+            "direction": {
+              "long": {
+                "trades": 6298,
+                "mean_net_bps": -10.715408737265566
+              },
+              "short": {
+                "trades": 6390,
+                "mean_net_bps": -18.95291855958933
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1735,
+              "BNB/USDT": 1432,
+              "BTC/USDT": 1220,
+              "DOGE/USDT": 1685,
+              "ETH/USDT": 1366,
+              "LINK/USDT": 1782,
+              "SOL/USDT": 1885,
+              "XRP/USDT": 1583
+            },
+            "max_symbol_trade_share": 0.14856557377049182,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 4356,
+            "fills": 8712,
+            "mean_gross_bps": -1.945125379151128,
+            "mean_net_bps": -13.945125379151127,
+            "lcb_95_net_bps": -17.456557405520535,
+            "multiple_testing_lcb_95_net_bps": -19.444003432942388,
+            "win_rate": 0.5071166207529844,
+            "total_net_return": -0.5407634118230178,
+            "max_drawdown": 0.5617412945068938,
+            "direction": {
+              "long": {
+                "trades": 2036,
+                "mean_net_bps": -10.803497160432233
+              },
+              "short": {
+                "trades": 2320,
+                "mean_net_bps": -16.702174971095815
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 632,
+              "BNB/USDT": 458,
+              "BTC/USDT": 383,
+              "DOGE/USDT": 602,
+              "ETH/USDT": 535,
+              "LINK/USDT": 609,
+              "SOL/USDT": 598,
+              "XRP/USDT": 539
+            },
+            "max_symbol_trade_share": 0.14508723599632692,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 4356,
+            "fills": 8712,
+            "mean_gross_bps": -1.945125379151128,
+            "mean_net_bps": -17.945125379151126,
+            "lcb_95_net_bps": -21.45655740552053,
+            "multiple_testing_lcb_95_net_bps": -23.444003432942388,
+            "win_rate": 0.5039026629935721,
+            "total_net_return": -0.6306658965712051,
+            "max_drawdown": 0.6430689553405815,
+            "direction": {
+              "long": {
+                "trades": 2036,
+                "mean_net_bps": -14.803497160432233
+              },
+              "short": {
+                "trades": 2320,
+                "mean_net_bps": -20.702174971095815
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 632,
+              "BNB/USDT": 458,
+              "BTC/USDT": 383,
+              "DOGE/USDT": 602,
+              "ETH/USDT": 535,
+              "LINK/USDT": 609,
+              "SOL/USDT": 598,
+              "XRP/USDT": 539
+            },
+            "max_symbol_trade_share": 0.14508723599632692,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 2042,
+            "fills": 4084,
+            "mean_gross_bps": -1.9721257722855776,
+            "mean_net_bps": -13.972125772285578,
+            "lcb_95_net_bps": -18.130448782858174,
+            "multiple_testing_lcb_95_net_bps": -20.484030593936062,
+            "win_rate": 0.5039177277179236,
+            "total_net_return": -0.3043275347396476,
+            "max_drawdown": 0.331016530463342,
+            "direction": {
+              "long": {
+                "trades": 933,
+                "mean_net_bps": -21.281311868956653
+              },
+              "short": {
+                "trades": 1109,
+                "mean_net_bps": -7.822918713499182
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 273,
+              "BNB/USDT": 229,
+              "BTC/USDT": 226,
+              "DOGE/USDT": 266,
+              "ETH/USDT": 262,
+              "LINK/USDT": 280,
+              "SOL/USDT": 247,
+              "XRP/USDT": 259
+            },
+            "max_symbol_trade_share": 0.13712047012732614,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 2042,
+            "fills": 4084,
+            "mean_gross_bps": -1.9721257722855776,
+            "mean_net_bps": -17.97212577228558,
+            "lcb_95_net_bps": -22.130448782858178,
+            "multiple_testing_lcb_95_net_bps": -24.484030593936065,
+            "win_rate": 0.5019588638589618,
+            "total_net_return": -0.3718627471341297,
+            "max_drawdown": 0.3844517516163515,
+            "direction": {
+              "long": {
+                "trades": 933,
+                "mean_net_bps": -25.281311868956653
+              },
+              "short": {
+                "trades": 1109,
+                "mean_net_bps": -11.822918713499181
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 273,
+              "BNB/USDT": 229,
+              "BTC/USDT": 226,
+              "DOGE/USDT": 266,
+              "ETH/USDT": 262,
+              "LINK/USDT": 280,
+              "SOL/USDT": 247,
+              "XRP/USDT": 259
+            },
+            "max_symbol_trade_share": 0.13712047012732614,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 4.235,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown"
+      ]
+    },
+    {
+      "id": "candle_momentum_3_v1",
+      "family": "candle_momentum",
+      "kind": "candle_momentum",
+      "params": {
+        "bars": 3,
+        "threshold_bps": 25.0
+      },
+      "splits": {
+        "development": {
+          "base": {
+            "closed_trades": 55610,
+            "fills": 111220,
+            "mean_gross_bps": -1.954208935305946,
+            "mean_net_bps": -13.954208935305946,
+            "lcb_95_net_bps": -15.022980822431094,
+            "multiple_testing_lcb_95_net_bps": -15.62789825364882,
+            "win_rate": 0.29197985973745727,
+            "total_net_return": -0.9999637085878926,
+            "max_drawdown": 0.999966066655188,
+            "direction": {
+              "long": {
+                "trades": 28195,
+                "mean_net_bps": -11.825552110914822
+              },
+              "short": {
+                "trades": 27415,
+                "mean_net_bps": -16.143429404527456
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 7138,
+              "BNB/USDT": 6724,
+              "BTC/USDT": 6399,
+              "DOGE/USDT": 7228,
+              "ETH/USDT": 6792,
+              "LINK/USDT": 7100,
+              "SOL/USDT": 7184,
+              "XRP/USDT": 7045
+            },
+            "max_symbol_trade_share": 0.12997662290954864,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 55610,
+            "fills": 111220,
+            "mean_gross_bps": -1.954208935305946,
+            "mean_net_bps": -17.954208935305946,
+            "lcb_95_net_bps": -19.022980822431094,
+            "multiple_testing_lcb_95_net_bps": -19.62789825364882,
+            "win_rate": 0.26986153569501886,
+            "total_net_return": -0.9999977542320091,
+            "max_drawdown": 0.999997863831531,
+            "direction": {
+              "long": {
+                "trades": 28195,
+                "mean_net_bps": -15.825552110914822
+              },
+              "short": {
+                "trades": 27415,
+                "mean_net_bps": -20.143429404527456
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 7138,
+              "BNB/USDT": 6724,
+              "BTC/USDT": 6399,
+              "DOGE/USDT": 7228,
+              "ETH/USDT": 6792,
+              "LINK/USDT": 7100,
+              "SOL/USDT": 7184,
+              "XRP/USDT": 7045
+            },
+            "max_symbol_trade_share": 0.12997662290954864,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "validation": {
+          "base": {
+            "closed_trades": 18374,
+            "fills": 36748,
+            "mean_gross_bps": -1.3370892522689792,
+            "mean_net_bps": -13.33708925226898,
+            "lcb_95_net_bps": -15.197522081544792,
+            "multiple_testing_lcb_95_net_bps": -16.250514082546847,
+            "win_rate": 0.3024926526613693,
+            "total_net_return": -0.9608724197706127,
+            "max_drawdown": 0.9634264082306075,
+            "direction": {
+              "long": {
+                "trades": 9347,
+                "mean_net_bps": -13.482087760056741
+              },
+              "short": {
+                "trades": 9027,
+                "mean_net_bps": -13.186950662228854
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 2401,
+              "BNB/USDT": 2230,
+              "BTC/USDT": 2048,
+              "DOGE/USDT": 2344,
+              "ETH/USDT": 2298,
+              "LINK/USDT": 2394,
+              "SOL/USDT": 2321,
+              "XRP/USDT": 2338
+            },
+            "max_symbol_trade_share": 0.13067377816479808,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 18374,
+            "fills": 36748,
+            "mean_gross_bps": -1.3370892522689792,
+            "mean_net_bps": -17.337089252268978,
+            "lcb_95_net_bps": -19.19752208154479,
+            "multiple_testing_lcb_95_net_bps": -20.250514082546843,
+            "win_rate": 0.28028736257755527,
+            "total_net_return": -0.9843971027480769,
+            "max_drawdown": 0.9850645525858562,
+            "direction": {
+              "long": {
+                "trades": 9347,
+                "mean_net_bps": -17.482087760056743
+              },
+              "short": {
+                "trades": 9027,
+                "mean_net_bps": -17.186950662228856
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 2401,
+              "BNB/USDT": 2230,
+              "BTC/USDT": 2048,
+              "DOGE/USDT": 2344,
+              "ETH/USDT": 2298,
+              "LINK/USDT": 2394,
+              "SOL/USDT": 2321,
+              "XRP/USDT": 2338
+            },
+            "max_symbol_trade_share": 0.13067377816479808,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        },
+        "oos": {
+          "base": {
+            "closed_trades": 9449,
+            "fills": 18898,
+            "mean_gross_bps": 2.5326136440028213,
+            "mean_net_bps": -9.467386355997178,
+            "lcb_95_net_bps": -11.502131057059,
+            "multiple_testing_lcb_95_net_bps": -12.653782361305993,
+            "win_rate": 0.30130172505026986,
+            "total_net_return": -0.692315201842475,
+            "max_drawdown": 0.7055222463604065,
+            "direction": {
+              "long": {
+                "trades": 4698,
+                "mean_net_bps": -11.600919454943964
+              },
+              "short": {
+                "trades": 4751,
+                "mean_net_bps": -7.3576539841066255
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1229,
+              "BNB/USDT": 1106,
+              "BTC/USDT": 1079,
+              "DOGE/USDT": 1203,
+              "ETH/USDT": 1164,
+              "LINK/USDT": 1246,
+              "SOL/USDT": 1214,
+              "XRP/USDT": 1208
+            },
+            "max_symbol_trade_share": 0.13186580590538682,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 2.0,
+              "round_trip_bps": 12.0
+            }
+          },
+          "stress": {
+            "closed_trades": 9449,
+            "fills": 18898,
+            "mean_gross_bps": 2.5326136440028213,
+            "mean_net_bps": -13.467386355997178,
+            "lcb_95_net_bps": -15.502131057059,
+            "multiple_testing_lcb_95_net_bps": -16.653782361305993,
+            "win_rate": 0.27653719970367235,
+            "total_net_return": -0.8082188820674759,
+            "max_drawdown": 0.8154304605016671,
+            "direction": {
+              "long": {
+                "trades": 4698,
+                "mean_net_bps": -15.600919454943964
+              },
+              "short": {
+                "trades": 4751,
+                "mean_net_bps": -11.357653984106626
+              }
+            },
+            "symbol_trade_counts": {
+              "ADA/USDT": 1229,
+              "BNB/USDT": 1106,
+              "BTC/USDT": 1079,
+              "DOGE/USDT": 1203,
+              "ETH/USDT": 1164,
+              "LINK/USDT": 1246,
+              "SOL/USDT": 1214,
+              "XRP/USDT": 1208
+            },
+            "max_symbol_trade_share": 0.13186580590538682,
+            "cost_model": {
+              "fee_bps_per_fill": 4.0,
+              "slippage_bps_per_fill": 4.0,
+              "round_trip_bps": 16.0
+            }
+          }
+        }
+      },
+      "elapsed_sec": 3.734,
+      "screening_pass": false,
+      "screening_reasons": [
+        "validation:nonpositive_mean",
+        "validation:nonpositive_lcb",
+        "validation:nonpositive_adjusted_lcb",
+        "validation:nonpositive_stress_mean",
+        "validation:drawdown",
+        "oos:nonpositive_mean",
+        "oos:nonpositive_lcb",
+        "oos:nonpositive_adjusted_lcb",
+        "oos:nonpositive_stress_mean",
+        "oos:drawdown",
+        "oos:does_not_beat_long_only"
+      ]
+    }
+  ],
+  "survivors": [],
+  "screening_complete": true,
+  "paper_or_live_authorized": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

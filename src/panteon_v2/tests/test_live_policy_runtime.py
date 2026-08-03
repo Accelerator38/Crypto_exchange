@@ -629,7 +629,7 @@ def test_policy_daily_loss_activates_nonrecovering_manage_only_kill_switch():
     assert exchange.orders_log == []
 
 
-def test_startup_policy_mode_registers_only_manifest_actor(monkeypatch, tmp_path):
+def test_startup_policy_mode_is_blocked_by_legacy_freeze(monkeypatch, tmp_path):
     manifest = _manifest()
     actor = _NeverCalledAgent()
     runtime = _SingleSignalRuntime(manifest, actor)
@@ -673,18 +673,8 @@ def test_startup_policy_mode_registers_only_manifest_actor(monkeypatch, tmp_path
         configure_pipeline=configure_probe,
     )
 
-    pipeline = captured["pipeline"]
-    assert result == 3
-    assert captured["leverage_override"] == 1
-    assert pipeline.registry.all_labels() == ["CarryFlowAgentV2"]
-    assert pipeline.policy_runtime_v1 is runtime
-    assert pipeline.flash_enabled is False
-    assert pipeline.flash_allocator is None
-    assert pipeline.profiles == []
-    assert pipeline.shadow_tournament is None
-    assert pipeline.risk_config.max_notional_usd == 10.0
-    assert pipeline.risk_config.max_open_positions == 1
-    assert pipeline.risk_config.max_leverage == 1
+    assert result == 2
+    assert captured == {}
 
 
 def test_startup_policy_mode_fails_when_real_exchange_adapter_is_unavailable(
