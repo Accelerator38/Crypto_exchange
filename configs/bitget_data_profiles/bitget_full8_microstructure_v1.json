@@ -1,0 +1,33 @@
+{
+  "schema_version": "panteon.bitget_data_profile.v1",
+  "profile_id": "bitget_full8_microstructure_v1",
+  "source_exchange": "BITGET",
+  "market_type": "usdt_futures",
+  "websocket_url": "wss://ws.bitget.com/v2/ws/public",
+  "rest_base_url": "https://api.bitget.com",
+  "instrument_type": "USDT-FUTURES",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "LINKUSDT"
+  ],
+  "channels": [
+    "trade",
+    "books5",
+    "ticker"
+  ],
+  "segment_seconds": 900,
+  "commit_batch_events": 250,
+  "commit_interval_ms": 1000,
+  "heartbeat_seconds": 30,
+  "reconnect_max_seconds": 30,
+  "rest_reconcile_seconds": 60,
+  "rules_refresh_seconds": 21600,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

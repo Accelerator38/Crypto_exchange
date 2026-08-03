@@ -98,6 +98,61 @@ actor, paper canary or live manifest. Reproduce its immutable development run:
 .\.venv\Scripts\python.exe tools\run_market_neutral_pair_development_v1.py
 ```
 
+The one-run-budget `weekly_top2_bottom2_relative_momentum_4h_v1`
+four-leg portfolio is terminally rejected at development. It completed 96
+weekly portfolios with 772 fills and `+50.83 bps` mean net expectancy, but its
+95% LCB was `-22.99 bps`, stress LCB was `-28.99 bps`, and drawdown was `$7.65`
+against the `$1` limit. The pre-registered raw-momentum baseline was stronger
+at `+71.83 bps`, but it also failed robustness with `-3.99 bps` LCB and `$7.85`
+drawdown.
+
+Validation/OOS/sanity remained sealed. The raw baseline cannot be promoted
+post-hoc, and changing top/bottom count, weights, weekly schedule or dispersion
+threshold on this revealed development window is forbidden. Reproduce the
+fixed result with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_market_neutral_portfolio_development_v1.py
+```
+
+The fixed failure decomposition was produced only after an immutable replay
+matched the sealed development report projection exactly. It shows that fees
+are not the primary failure (`19.1%` of mean gross edge), market beta is small
+(`0.050`, correlation `0.117`), and the worst five weeks account for only
+`24.8%` of total losses. The dominant defect is unstable symbol contribution:
+SOL contributes `+$29.10`, while DOGE and ADA together contribute `-$22.76`.
+Both 2022 and 2023 retain positive point means but negative LCB, and the maximum
+drawdown spans 29 portfolio weeks. This rejects further cross-sectional
+momentum ranking variants on the revealed window; the next hypothesis must use
+a different alpha source, not symbol exclusions or rank/weight tuning.
+
+Run the read-only parity-guarded diagnostic with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_portfolio_failure_decomposition_v1.py
+```
+
+The structurally different
+`walk_forward_cointegration_spread_4h_v1` contract is terminally rejected at
+development. It used `statsmodels` Engle-Granger formation across all 28 full8
+pairs, trailing-only 252-bar windows and weekly refits. Of 99 refits, 78 found
+a qualified pair; the strategy completed 94 trades with 376 exchange fills and
+no formation leakage. Pair selection was diversified: the largest pair
+represented only `15.96%` of trades.
+
+The point mean was `+2.57 bps`, but gross mean was only `14.57 bps` against
+`12 bps` realistic costs. Cost stress was `-3.43 bps`, LCB was `-27.62 bps`,
+and drawdown was `$3.09` against the `$1` limit. Both spread directions had
+negative LCB. Successful mean-reversion exits cannot justify removing the
+z-score stop after the result; formation, half-life, z-score, pair and exit
+variants are forbidden on this revealed development window.
+
+Reproduce the fixed profile with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_cointegration_spread_development_v1.py
+```
+
 Run the fixed-profile historical evaluation with no strategy flags:
 
 ```powershell
@@ -153,6 +208,34 @@ cannot start paper/live or a new evidence campaign.
 
 The old Flash/Panteon ensemble remains available for virtual research. It is no
 longer a Bitget live route.
+
+## Bitget public data layer
+
+New model research must use the actor-independent public event collector
+described in `docs/BITGET_DATA_LAYER_V1.md`. The fixed
+`bitget_full8_microstructure_v1` profile records public `trade`, `books5` and
+`ticker` events plus public REST candle/OI/funding/rule reconciliation into
+immutable 15-minute SQLite segments. It does not load API keys, policy
+manifests or order clients and cannot authorize paper/live. Unclean committed
+WAL state is recovered and sealed before a new collector session starts.
+
+Start the collector with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\run_bitget_data_layer.py
+```
+
+Materialize research frames only from one stopped, validated session:
+
+```powershell
+.\.venv\Scripts\python.exe tools\materialize_bitget_frame_1s.py `
+  --session-dir Retrodate\bitget_data_v1\sessions\<session-id> `
+  --output-dir Retrodate\bitget_data_v1\datasets\<dataset-id>
+```
+
+Do not treat collector uptime, channel coverage or a valid segment hash chain
+as strategy evidence. Promotion still requires a separately frozen dataset,
+validation, OOS, cost stress, sanity and strict paper canaries.
 
 The archived evidence-extension campaign can be audited with its sealed
 command:

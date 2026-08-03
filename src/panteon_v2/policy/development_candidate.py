@@ -137,43 +137,48 @@ def validate_development_candidate(
     if not isinstance(candidate, Mapping):
         raise DevelopmentCandidateError("development candidate is invalid")
     candidate_id = str(candidate.get("candidate_id") or "")
+    candidate_kind = {
+        "cross_sectional_trend_4h_v1": "single",
+        "market_neutral_relative_momentum_4h_v1": "pair",
+        "weekly_top2_bottom2_relative_momentum_4h_v1": "portfolio",
+        "walk_forward_cointegration_spread_4h_v1": "cointegration",
+    }.get(candidate_id)
+    if candidate_kind is None:
+        raise DevelopmentCandidateError("unexpected development candidate ID")
     portfolio = protocol["portfolio"]
-    expected_positions = (
-        2
-        if candidate_id == "market_neutral_relative_momentum_4h_v1"
-        else 1
+    expected_positions = {
+        "single": 1,
+        "pair": 2,
+        "portfolio": 4,
+        "cointegration": 2,
+    }[candidate_kind]
+    notional_key = (
+        "gross_notional_per_trade_usd"
+        if candidate_kind == "cointegration"
+        else "notional_per_trade_usd"
     )
-    if float(portfolio["notional_per_trade_usd"]) <= 0.0 or int(
+    if float(portfolio[notional_key]) <= 0.0 or int(
         portfolio["max_open_positions"]
     ) != expected_positions:
         raise DevelopmentCandidateError("development portfolio is invalid")
     gates = protocol["gates"]
-    if not _gates_are_strict(
-        gates,
-        paired=candidate_id == "market_neutral_relative_momentum_4h_v1",
-    ):
+    if not _gates_are_strict(gates, candidate_kind=candidate_kind):
         raise DevelopmentCandidateError("development gates are too weak")
 
-    if candidate_id not in {
-        "cross_sectional_trend_4h_v1",
-        "market_neutral_relative_momentum_4h_v1",
-    }:
-        raise DevelopmentCandidateError("unexpected development candidate ID")
     if candidate["status"] != "pre_registered_development_only":
         raise DevelopmentCandidateError("development candidate status is invalid")
     event = candidate["event_contract"]
-    low_turnover_cost_aware = (
-        int(event["aggregate_bars"]) == 4
-        and int(event["decision_every_bars"]) == 6
-    )
-    if candidate_id == "cross_sectional_trend_4h_v1":
+    low_turnover_cost_aware = int(event["aggregate_bars"]) == 4
+    if candidate_kind == "single":
         low_turnover_cost_aware = (
             low_turnover_cost_aware
+            and int(event["decision_every_bars"]) == 6
             and float(event["min_momentum_bps"]) >= cost_floor * 4.0
         )
-    else:
+    elif candidate_kind == "pair":
         low_turnover_cost_aware = (
             low_turnover_cost_aware
+            and int(event["decision_every_bars"]) == 6
             and float(event["min_cross_sectional_spread_bps"])
             >= cost_floor * 8.0
             and candidate["hypothesis"]["portfolio_unit"]
@@ -182,6 +187,57 @@ def validate_development_candidate(
             and candidate["selection_contract"]["equal_notional_legs"] is True
             and int(candidate["selection_contract"]["max_open_positions"]) == 2
             and candidate["exit_contract"]["execution"]
+            == "both_legs_next_bar_open"
+        )
+    elif candidate_kind == "portfolio":
+        selection = candidate["selection_contract"]
+        exit_contract = candidate["exit_contract"]
+        low_turnover_cost_aware = (
+            low_turnover_cost_aware
+            and int(event["decision_every_bars"]) == 42
+            and int(exit_contract["rebalance_interval_bars"]) == 42
+            and float(event["min_cross_sectional_dispersion_bps"])
+            >= cost_floor * 8.0
+            and candidate["hypothesis"]["portfolio_unit"]
+            == "four_leg_dollar_neutral_basket"
+            and int(selection["long_legs"]) == 2
+            and int(selection["short_legs"]) == 2
+            and selection["equal_notional_legs"] is True
+            and int(selection["max_open_positions"]) == 4
+            and int(selection["development_run_budget"]) == 1
+            and selection["parameter_sweep_allowed"] is False
+            and exit_contract["signal_dependent_stop"] is False
+            and exit_contract["execution"] == "all_legs_next_bar_open"
+        )
+    else:
+        selection = candidate["selection_contract"]
+        exit_contract = candidate["exit_contract"]
+        low_turnover_cost_aware = (
+            low_turnover_cost_aware
+            and int(event["decision_every_bars"]) == 1
+            and int(event["formation_bars"]) == 252
+            and int(event["refit_every_bars"]) == 42
+            and event["cointegration_test"]
+            == "statsmodels_engle_granger"
+            and event["cointegration_trend"] == "c"
+            and event["adf_autolag"] == "aic"
+            and float(event["max_cointegration_pvalue"]) <= 0.05
+            and float(event["min_half_life_bars"]) >= 2.0
+            and float(event["max_half_life_bars"]) <= 42.0
+            and float(event["entry_abs_zscore"]) >= 2.0
+            and float(event["min_estimated_reversion_bps"])
+            >= cost_floor * 3.0
+            and candidate["hypothesis"]["symbol_allowlist"] == []
+            and candidate["hypothesis"]["portfolio_unit"]
+            == "hedge_weighted_cointegration_pair"
+            and selection["pair_universe"]
+            == "all_28_unordered_full8_pairs"
+            and int(selection["max_open_positions"]) == 2
+            and int(selection["development_run_budget"]) == 1
+            and selection["parameter_sweep_allowed"] is False
+            and int(exit_contract["max_holding_bars"]) <= 42
+            and exit_contract["close_on_pair_reselection"] is True
+            and exit_contract["execution"]
             == "both_legs_next_bar_open"
         )
     if not low_turnover_cost_aware:
@@ -205,20 +261,45 @@ def validate_development_candidate(
     return row
 
 
-def _gates_are_strict(gates: Mapping[str, Any], *, paired: bool) -> bool:
+def _gates_are_strict(
+    gates: Mapping[str, Any],
+    *,
+    candidate_kind: str,
+) -> bool:
+    min_fills = {
+        "single": 20,
+        "pair": 40,
+        "portfolio": 80,
+        "cointegration": 40,
+    }[candidate_kind]
     common = (
-        int(gates["min_filled_orders"]) >= (40 if paired else 20)
+        int(gates["min_filled_orders"]) >= min_fills
         and int(gates["min_closed_trades"]) >= 10
         and float(gates["min_mean_net_bps"]) >= 0.0
         and float(gates["min_lcb_95_net_bps"]) >= 0.0
         and gates["cost_stress_hard_fail"] is True
         and gates["require_baseline_improvement"] is True
     )
-    if paired:
+    if candidate_kind == "pair":
         return (
             common
             and gates["pair_collapse_hard_fail"] is True
             and gates["paired_fill_atomicity_hard_fail"] is True
+        )
+    if candidate_kind == "portfolio":
+        return (
+            common
+            and gates["portfolio_collapse_hard_fail"] is True
+            and gates["portfolio_fill_atomicity_hard_fail"] is True
+        )
+    if candidate_kind == "cointegration":
+        return (
+            common
+            and int(gates["min_spread_direction_trades"]) >= 5
+            and gates["direction_collapse_hard_fail"] is True
+            and gates["formation_leakage_hard_fail"] is True
+            and gates["paired_fill_atomicity_hard_fail"] is True
+            and float(gates["max_single_pair_trade_share"]) <= 0.75
         )
     return (
         common

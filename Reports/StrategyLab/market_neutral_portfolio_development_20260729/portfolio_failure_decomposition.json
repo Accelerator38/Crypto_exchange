@@ -1,0 +1,298 @@
+{
+  "candidate_id": "weekly_top2_bottom2_relative_momentum_4h_v1",
+  "concentration": {
+    "best_5_profit_share": 0.36993032453763375,
+    "largest_symbol_abs_pnl_share": 0.4042467273204953,
+    "worst_5_loss_share": 0.24824999849093643
+  },
+  "continuation_allowed": false,
+  "costs": {
+    "cost_share_of_abs_mean_gross": 0.19099733143850992,
+    "mean_gross_bps": 62.82810293537167,
+    "mean_net_bps": 50.82810293537167,
+    "round_trip_cost_bps_per_leg": 12.0
+  },
+  "diagnostic_flags": {
+    "cost_dominant": false,
+    "market_beta_material": false,
+    "ranking_transform_underperformed_baseline": true,
+    "symbol_concentration_material": true,
+    "tail_loss_concentration_material": false
+  },
+  "drawdown": {
+    "end_exit_timestamp_ms": 1694390400000,
+    "end_trade_index": 81,
+    "interval_net_pnl_usd": -7.653259070876468,
+    "interval_portfolios": 29,
+    "max_drawdown_usd": 7.653259070876467,
+    "start_entry_timestamp_ms": 1676851200000,
+    "start_trade_index": 53
+  },
+  "generated_at": "2026-07-29T08:28:33.889090+00:00",
+  "live_allowed": false,
+  "market_exposure": {
+    "alpha_intercept_bps": 49.04902560916635,
+    "benchmark_mean_bps": 35.60959243053283,
+    "beta": 0.04996062029285907,
+    "correlation": 0.11744754916466893,
+    "portfolio_mean_net_bps": 50.82810293537167
+  },
+  "observations": {
+    "closed_portfolios": 96,
+    "first_entry_timestamp_ms": 1644192000000,
+    "last_exit_timestamp_ms": 1703462400000,
+    "leg_trades": 384
+  },
+  "orders_enabled": false,
+  "paper_allowed": false,
+  "per_direction": {
+    "LONG": {
+      "mean_net_bps": 60.74760856234589,
+      "net_pnl_usd": 11.66354084397041,
+      "positive_rate": 0.4427083333333333,
+      "trades": 192
+    },
+    "SHORT": {
+      "mean_net_bps": 40.90859730839745,
+      "net_pnl_usd": 7.854450683212311,
+      "positive_rate": 0.515625,
+      "trades": 192
+    }
+  },
+  "per_symbol": {
+    "ADA": {
+      "mean_net_bps": -250.88264963234536,
+      "net_pnl_usd": -11.038836583823196,
+      "positive_rate": 0.4772727272727273,
+      "trades": 44
+    },
+    "BNB": {
+      "mean_net_bps": -84.8335323496587,
+      "net_pnl_usd": -3.478174826336007,
+      "positive_rate": 0.4146341463414634,
+      "trades": 41
+    },
+    "BTC": {
+      "mean_net_bps": 94.33260894689121,
+      "net_pnl_usd": 5.093960883132126,
+      "positive_rate": 0.5185185185185185,
+      "trades": 54
+    },
+    "DOGE": {
+      "mean_net_bps": -192.10475456464562,
+      "net_pnl_usd": -11.718390028443382,
+      "positive_rate": 0.3442622950819672,
+      "trades": 61
+    },
+    "ETH": {
+      "mean_net_bps": 29.742062862279326,
+      "net_pnl_usd": 1.130198388766614,
+      "positive_rate": 0.47368421052631576,
+      "trades": 38
+    },
+    "LINK": {
+      "mean_net_bps": 139.31136762653128,
+      "net_pnl_usd": 5.43314333743472,
+      "positive_rate": 0.5384615384615384,
+      "trades": 39
+    },
+    "SOL": {
+      "mean_net_bps": 559.6391258023422,
+      "net_pnl_usd": 29.10123454172179,
+      "positive_rate": 0.5576923076923077,
+      "trades": 52
+    },
+    "XRP": {
+      "mean_net_bps": 90.81556026781914,
+      "net_pnl_usd": 4.994855814730053,
+      "positive_rate": 0.5272727272727272,
+      "trades": 55
+    }
+  },
+  "per_year": {
+    "2022": {
+      "lcb_95_net_bps": -73.22840631069172,
+      "mean_net_bps": 31.761592940213376,
+      "net_pnl_usd": 5.844133100999261,
+      "portfolios": 46
+    },
+    "2023": {
+      "lcb_95_net_bps": -36.137642752830416,
+      "mean_net_bps": 68.3692921309173,
+      "net_pnl_usd": 13.67385842618346,
+      "portfolios": 50
+    }
+  },
+  "profile_registration_allowed": false,
+  "profile_sha256": "f4fe24ec44c8306bb5229af5c5bf83dc3044e6974707b1b19b6e93a4f74759d2",
+  "promotion_authority": false,
+  "ranking_comparison": {
+    "baseline_lcb_95_net_bps": -3.9920793705818625,
+    "baseline_mean_net_bps": 71.82935617972349,
+    "candidate_lcb_95_net_bps": -22.992231688825193,
+    "candidate_mean_net_bps": 50.82810293537167,
+    "volatility_adjusted_rank_harmed_point_estimate": true
+  },
+  "replay_parity": {
+    "passed": true,
+    "replay_projection_sha256": "c9c45d34112273de06010aeabb1a47855d0c208d7d4ce737eacbac92dd3fe216",
+    "sealed_projection_sha256": "c9c45d34112273de06010aeabb1a47855d0c208d7d4ce737eacbac92dd3fe216"
+  },
+  "runtime_actor_created": false,
+  "schema_version": "panteon.portfolio_failure_decomposition.v1",
+  "source_report_sha256": "fc362de4a20558ee0a04d3bf756a5b474c27ccf63884c91a9d3927e14c9a8d76",
+  "source_verdict": "terminal_rejected_development",
+  "tail": {
+    "best_5": [
+      {
+        "entry_timestamp_ms": 1697414400000,
+        "exit_timestamp_ms": 1698019200000,
+        "long_symbols": [
+          "LINK",
+          "SOL"
+        ],
+        "net_bps": 1471.806755025005,
+        "net_pnl_usd": 5.8872270201000205,
+        "short_symbols": [
+          "ETH",
+          "DOGE"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1673222400000,
+        "exit_timestamp_ms": 1673827200000,
+        "long_symbols": [
+          "ETH",
+          "SOL"
+        ],
+        "net_bps": 1317.4834091457544,
+        "net_pnl_usd": 5.269933636583017,
+        "short_symbols": [
+          "DOGE",
+          "LINK"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1663545600000,
+        "exit_timestamp_ms": 1664150400000,
+        "long_symbols": [
+          "LINK",
+          "XRP"
+        ],
+        "net_bps": 960.8737497849404,
+        "net_pnl_usd": 3.843494999139762,
+        "short_symbols": [
+          "DOGE",
+          "ETH"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1655078400000,
+        "exit_timestamp_ms": 1655683200000,
+        "long_symbols": [
+          "ADA",
+          "LINK"
+        ],
+        "net_bps": 899.9564552720327,
+        "net_pnl_usd": 3.599825821088131,
+        "short_symbols": [
+          "DOGE",
+          "ETH"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1699228800000,
+        "exit_timestamp_ms": 1699833600000,
+        "long_symbols": [
+          "BTC",
+          "SOL"
+        ],
+        "net_bps": 832.7292862330177,
+        "net_pnl_usd": 3.3309171449320703,
+        "short_symbols": [
+          "DOGE",
+          "XRP"
+        ]
+      }
+    ],
+    "best_5_profit_share": 0.36993032453763375,
+    "negative_portfolios": 54,
+    "positive_portfolios": 42,
+    "total_loss_usd": 39.76722292300998,
+    "total_profit_usd": 59.285214450192704,
+    "worst_5": [
+      {
+        "entry_timestamp_ms": 1653868800000,
+        "exit_timestamp_ms": 1654473600000,
+        "long_symbols": [
+          "BNB",
+          "DOGE"
+        ],
+        "net_bps": -534.3540590445832,
+        "net_pnl_usd": -2.137416236178333,
+        "short_symbols": [
+          "XRP",
+          "ADA"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1648425600000,
+        "exit_timestamp_ms": 1649030400000,
+        "long_symbols": [
+          "BTC",
+          "BNB"
+        ],
+        "net_bps": -497.12536071932175,
+        "net_pnl_usd": -1.988501442877287,
+        "short_symbols": [
+          "DOGE",
+          "SOL"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1668384000000,
+        "exit_timestamp_ms": 1668988800000,
+        "long_symbols": [
+          "DOGE",
+          "BNB"
+        ],
+        "net_bps": -488.77155243773666,
+        "net_pnl_usd": -1.9550862097509467,
+        "short_symbols": [
+          "XRP",
+          "BTC"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1670198400000,
+        "exit_timestamp_ms": 1670803200000,
+        "long_symbols": [
+          "DOGE",
+          "LINK"
+        ],
+        "net_bps": -476.4891801670933,
+        "net_pnl_usd": -1.9059567206683732,
+        "short_symbols": [
+          "SOL",
+          "BTC"
+        ]
+      },
+      {
+        "entry_timestamp_ms": 1664150400000,
+        "exit_timestamp_ms": 1664755200000,
+        "long_symbols": [
+          "XRP",
+          "LINK"
+        ],
+        "net_bps": -471.31310528775526,
+        "net_pnl_usd": -1.885252421151021,
+        "short_symbols": [
+          "ETH",
+          "BTC"
+        ]
+      }
+    ],
+    "worst_5_loss_share": 0.24824999849093643
+  },
+  "validation_opened": false
+}

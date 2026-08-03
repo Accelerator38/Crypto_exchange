@@ -51,12 +51,14 @@ from .strategy_lab import (
     evaluate_cross_sectional_development,
     evaluate_funding_recent_screen,
     evaluate_market_neutral_pair_development,
+    evaluate_market_neutral_portfolio_development,
     evaluate_registered_candidates,
     load_aligned_hourly_market,
     verify_registered_dataset,
     write_cross_sectional_development_report,
     write_funding_recent_screen_report,
     write_market_neutral_pair_development_report,
+    write_market_neutral_portfolio_development_report,
     write_strategy_lab_report,
 )
 from .bitget_funding_history import (
@@ -65,6 +67,34 @@ from .bitget_funding_history import (
     build_or_verify_funding_snapshot,
     load_funding_snapshot,
     verify_funding_snapshot,
+)
+from .portfolio_failure_decomposition import (
+    PORTFOLIO_FAILURE_DECOMPOSITION_SCHEMA_VERSION,
+    PortfolioFailureDecompositionError,
+    build_portfolio_failure_decomposition,
+    verify_development_replay_parity,
+    write_portfolio_failure_decomposition,
+)
+from .cointegration_development import (
+    CointegrationDevelopmentError,
+    CointegrationModel,
+    CointegrationSignal,
+    evaluate_cointegration_development,
+    fit_best_cointegration_pair,
+    model_entry_signal,
+    model_zscore,
+    simulate_cointegration_split,
+    write_cointegration_development_report,
+)
+from .cost_aware_directional import (
+    REPORT_SCHEMA_VERSION as COST_AWARE_DIRECTIONAL_SCHEMA_VERSION,
+    evaluate_cost_aware_directional,
+    render_directional_markdown,
+)
+from .rare_event_discovery import (
+    REPORT_SCHEMA_VERSION as RARE_EVENT_DISCOVERY_SCHEMA_VERSION,
+    evaluate_rare_event_discovery,
+    render_rare_event_markdown,
 )
 
 __all__ = [
@@ -83,6 +113,13 @@ __all__ = [
     "StrategyLabError",
     "FUNDING_HISTORY_SCHEMA_VERSION",
     "FundingHistoryError",
+    "PORTFOLIO_FAILURE_DECOMPOSITION_SCHEMA_VERSION",
+    "PortfolioFailureDecompositionError",
+    "CointegrationDevelopmentError",
+    "CointegrationModel",
+    "CointegrationSignal",
+    "COST_AWARE_DIRECTIONAL_SCHEMA_VERSION",
+    "RARE_EVENT_DISCOVERY_SCHEMA_VERSION",
     "DEFAULT_PROFITABILITY_GATES",
     "allocation_diagnostics_to_dict",
     "analyze_trading_log",
@@ -99,6 +136,7 @@ __all__ = [
     "evaluate_cross_sectional_development",
     "evaluate_funding_recent_screen",
     "evaluate_market_neutral_pair_development",
+    "evaluate_market_neutral_portfolio_development",
     "evaluate_registered_candidates",
     "load_flash_run_metrics",
     "load_aligned_hourly_market",
@@ -120,5 +158,19 @@ __all__ = [
     "write_strategy_lab_report",
     "write_funding_recent_screen_report",
     "write_market_neutral_pair_development_report",
+    "write_market_neutral_portfolio_development_report",
     "build_or_verify_funding_snapshot",
+    "build_portfolio_failure_decomposition",
+    "verify_development_replay_parity",
+    "write_portfolio_failure_decomposition",
+    "evaluate_cointegration_development",
+    "evaluate_cost_aware_directional",
+    "evaluate_rare_event_discovery",
+    "fit_best_cointegration_pair",
+    "model_entry_signal",
+    "model_zscore",
+    "simulate_cointegration_split",
+    "render_directional_markdown",
+    "render_rare_event_markdown",
+    "write_cointegration_development_report",
 ]

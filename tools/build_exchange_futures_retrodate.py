@@ -480,6 +480,8 @@ def build_integrity_manifest(
     total_missing_bars = 0
     total_off_grid = 0
     total_irregular = 0
+    total_head_missing = 0
+    total_tail_missing = 0
     for symbol in sorted(timestamps_by_symbol):
         timestamps = sorted(set(timestamps_by_symbol[symbol]))
         missing_bars = 0
@@ -496,6 +498,18 @@ def build_integrity_manifest(
         total_irregular += irregular_intervals
         first = timestamps[0] if timestamps else None
         last = timestamps[-1] if timestamps else None
+        head_missing = (
+            max(0, (first - requested_start_ms) // step_ms)
+            if first is not None
+            else None
+        )
+        tail_missing = (
+            max(0, (requested_end_exclusive_ms - step_ms - last) // step_ms)
+            if last is not None
+            else None
+        )
+        total_head_missing += int(head_missing or 0)
+        total_tail_missing += int(tail_missing or 0)
         expected_inside = (
             ((last - first) // step_ms + 1)
             if first is not None and last is not None
@@ -520,14 +534,8 @@ def build_integrity_manifest(
                 len(timestamps) / expected_inside * 100.0
                 if expected_inside else 0.0
             ),
-            "head_missing_bars_from_requested_start": (
-                max(0, (first - requested_start_ms) // step_ms)
-                if first is not None else None
-            ),
-            "tail_missing_bars_to_requested_end": (
-                max(0, (requested_end_exclusive_ms - step_ms - last) // step_ms)
-                if last is not None else None
-            ),
+            "head_missing_bars_from_requested_start": head_missing,
+            "tail_missing_bars_to_requested_end": tail_missing,
         }
     dataset_fingerprint = hashlib.sha256(
         "\n".join(str(item["sha256"]) for item in files).encode("ascii")
@@ -551,12 +559,16 @@ def build_integrity_manifest(
                 and total_missing_bars == 0
                 and total_off_grid == 0
                 and total_irregular == 0
+                and total_head_missing == 0
+                and total_tail_missing == 0
                 and all(item["rows"] for item in coverage.values())
             ),
             "duplicate_rows": duplicate_rows,
             "missing_bars_inside_coverage": total_missing_bars,
             "off_grid_timestamps": total_off_grid,
             "irregular_intervals": total_irregular,
+            "head_missing_bars": total_head_missing,
+            "tail_missing_bars": total_tail_missing,
         },
     }
     return manifest

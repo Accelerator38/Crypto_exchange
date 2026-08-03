@@ -81,7 +81,7 @@ def test_registry_tool_reports_terminal_state():
         artifact_integrity=artifact_integrity,
     )
 
-    assert summary["artifact_integrity"] == {"checked": 12, "passed": True}
+    assert summary["artifact_integrity"] == {"checked": 15, "passed": True}
     assert summary["operational_candidate_id"] is None
     assert summary["orders_enabled"] is False
     assert summary["promotion_authority"] is False

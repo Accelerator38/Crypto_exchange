@@ -1,0 +1,97 @@
+{
+  "schema_version": "panteon.strategy_development_candidate.v1",
+  "created_at": "2026-07-29T00:00:00+03:00",
+  "exchange": "BITGET",
+  "dataset": {
+    "dataset_id": "bitget_full8_hourly_2022_20260714_v3",
+    "data_dir": "Retrodate/bitget_futures_history_v3_2022_20260714",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "integrity_manifest_sha256": "d65c27dde8feb4181d26bc3f89be57444f6773c262928f634eb85a41fb870c71",
+    "symbols": ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "BNB", "LINK"]
+  },
+  "protocol": {
+    "stage": "development_only",
+    "development_start_at": "2022-01-01T00:00:00+00:00",
+    "development_end_at": "2023-12-31T19:00:00+00:00",
+    "sealed_windows": ["validation", "oos", "sanity"],
+    "signal_timing": "closed_4h_bar_signal_next_4h_bar_open_fill",
+    "retuning_policy": "new_candidate_id_required_after_development_result",
+    "costs": {
+      "round_trip_fee_bps": 8.0,
+      "slippage_bps": 4.0,
+      "safety_buffer_bps": 4.0,
+      "cost_stress_multiplier": 1.5
+    },
+    "portfolio": {
+      "initial_capital_usd": 1000.0,
+      "notional_per_trade_usd": 10.0,
+      "max_open_positions": 4
+    },
+    "gates": {
+      "min_filled_orders": 80,
+      "min_closed_trades": 10,
+      "min_mean_net_bps": 0.0,
+      "min_lcb_95_net_bps": 0.0,
+      "max_drawdown_usd": 1.0,
+      "portfolio_collapse_hard_fail": true,
+      "cost_stress_hard_fail": true,
+      "portfolio_fill_atomicity_hard_fail": true,
+      "require_baseline_improvement": true,
+      "baseline_id": "weekly_top2_bottom2_raw_momentum_v1"
+    }
+  },
+  "candidate": {
+    "candidate_id": "weekly_top2_bottom2_relative_momentum_4h_v1",
+    "family_id": "weekly_market_neutral_relative_momentum_4h",
+    "status": "pre_registered_development_only",
+    "hypothesis": {
+      "statement": "A weekly equal-notional full8 portfolio that is long the two strongest and short the two weakest assets by 30-day skip-one-day volatility-adjusted momentum reduces idiosyncratic variance enough to retain positive expectancy and LCB after four-leg Bitget costs.",
+      "directions": ["LONG", "SHORT"],
+      "portfolio_unit": "four_leg_dollar_neutral_basket",
+      "forbidden_regimes": ["cross_sectional_dispersion_below_cost_floor"]
+    },
+    "data_requirements": {
+      "required_fields": ["timestamp", "open", "high", "low", "close", "volume"],
+      "missing_fields": [],
+      "availability": "available"
+    },
+    "event_contract": {
+      "source_timeframe": "1h",
+      "aggregate_bars": 4,
+      "decision_every_bars": 42,
+      "rebalance_weekday_utc": 0,
+      "rebalance_close_hour_utc": 0,
+      "momentum_lookback_bars": 180,
+      "skip_recent_bars": 6,
+      "volatility_lookback_bars": 42,
+      "min_cross_sectional_dispersion_bps": 128.0,
+      "long_rule": "top_two_signed_skip_one_day_momentum_divided_by_realized_volatility",
+      "short_rule": "bottom_two_signed_skip_one_day_momentum_divided_by_realized_volatility"
+    },
+    "exit_contract": {
+      "rebalance_interval_bars": 42,
+      "exit_rule": "scheduled_weekly_rebalance_only",
+      "signal_dependent_stop": false,
+      "execution": "all_legs_next_bar_open"
+    },
+    "selection_contract": {
+      "portfolio_rank": "signed_skip_one_day_momentum_divided_by_realized_volatility",
+      "long_legs": 2,
+      "short_legs": 2,
+      "equal_notional_legs": true,
+      "max_open_positions": 4,
+      "development_run_budget": 1,
+      "parameter_sweep_allowed": false,
+      "fallback": "NoTrade"
+    },
+    "profile_sha256": "f4fe24ec44c8306bb5229af5c5bf83dc3044e6974707b1b19b6e93a4f74759d2",
+    "runtime_actor_created": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "operational_candidate_id": null,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

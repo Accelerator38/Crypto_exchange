@@ -102,6 +102,23 @@ class PairPosition:
     pending_exit_reason: str = ""
 
 
+@dataclass(frozen=True)
+class PortfolioSignal:
+    long_symbols: tuple[str, ...]
+    short_symbols: tuple[str, ...]
+    signal_index: int
+    score_dispersion: float
+    momentum_dispersion_bps: float
+
+
+@dataclass
+class PortfolioPosition:
+    signal: PortfolioSignal
+    entry_index: int
+    entry_timestamp_ms: int
+    entry_prices: dict[str, float]
+
+
 def verify_registered_dataset(
     registry: StrategyCandidateRegistry,
     *,
@@ -637,6 +654,118 @@ def evaluate_market_neutral_pair_development(
     }
 
 
+def evaluate_market_neutral_portfolio_development(
+    contract: Mapping[str, Any],
+    registry: StrategyCandidateRegistry,
+    *,
+    repository_root: str | Path,
+) -> dict[str, Any]:
+    root = Path(repository_root).resolve()
+    contract_dataset = contract["dataset"]
+    registered_dataset = registry.payload["dataset"]
+    for key in (
+        "dataset_id",
+        "data_dir",
+        "dataset_sha256",
+        "integrity_manifest_sha256",
+        "symbols",
+    ):
+        if contract_dataset[key] != registered_dataset[key]:
+            raise StrategyLabError(
+                f"portfolio development dataset mismatch: {key}"
+            )
+    provenance = verify_registered_dataset(registry, repository_root=root)
+    hourly_frames, _ = load_aligned_hourly_market(
+        registry,
+        repository_root=root,
+    )
+    candidate = contract["candidate"]
+    aggregate_bars = int(candidate["event_contract"]["aggregate_bars"])
+    frames = aggregate_market_frames(
+        hourly_frames,
+        bars_per_frame=aggregate_bars,
+    )
+    symbols = tuple(str(item) for item in contract_dataset["symbols"])
+    series = {
+        symbol: _build_symbol_series(symbol, frames) for symbol in symbols
+    }
+    timestamps = [frame.timestamp_ms for frame in frames]
+    protocol = contract["protocol"]
+    start_index = bisect_left(
+        timestamps,
+        _timestamp_ms(protocol["development_start_at"]),
+    )
+    end_index = bisect_right(
+        timestamps,
+        _timestamp_ms(protocol["development_end_at"]),
+    ) - 1
+    if end_index < start_index:
+        raise StrategyLabError("portfolio development split has no 4h bars")
+
+    split = _simulate_portfolio_split(
+        candidate,
+        split_name="development",
+        frames=frames,
+        series=series,
+        start_index=start_index,
+        end_index=end_index,
+        costs=protocol["costs"],
+        portfolio=protocol["portfolio"],
+    )
+    baseline_candidate = _portfolio_baseline_candidate(candidate)
+    baseline_split = _simulate_portfolio_split(
+        baseline_candidate,
+        split_name="development",
+        frames=frames,
+        series=series,
+        start_index=start_index,
+        end_index=end_index,
+        costs=protocol["costs"],
+        portfolio=protocol["portfolio"],
+    )
+    verdict = _portfolio_development_verdict(
+        split=split,
+        baseline_split=baseline_split,
+        gates=protocol["gates"],
+    )
+    return {
+        "schema_version": STRATEGY_LAB_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "screen_type": "weekly_top2_bottom2_4h_development",
+        "stage": "development_only",
+        "sealed_windows": list(protocol["sealed_windows"]),
+        "candidate_id": candidate["candidate_id"],
+        "profile_sha256": candidate["profile_sha256"],
+        "contract_path": (
+            "configs/strategy_candidate_p5_market_neutral_portfolio_v1.json"
+        ),
+        "dataset": provenance,
+        "aggregation": {
+            "source_timeframe": "1h",
+            "bars_per_frame": aggregate_bars,
+            "result_timeframe": "4h",
+            "frame_count": len(frames),
+        },
+        "development_window": {
+            "start_timestamp_ms": frames[start_index].timestamp_ms,
+            "end_timestamp_ms": frames[end_index].timestamp_ms,
+            "bars": end_index - start_index + 1,
+        },
+        "costs": protocol["costs"],
+        "portfolio": protocol["portfolio"],
+        "gates": protocol["gates"],
+        "candidate": split,
+        "baseline": baseline_split,
+        **verdict,
+        "runtime_actor_created": False,
+        "validation_opened": False,
+        "paper_allowed": False,
+        "live_allowed": False,
+        "orders_enabled": False,
+        "promotion_authority": False,
+    }
+
+
 def aggregate_market_frames(
     frames: Sequence[MarketFrame],
     *,
@@ -775,12 +904,41 @@ def write_market_neutral_pair_development_report(
     return json_path, markdown_path
 
 
+def write_market_neutral_portfolio_development_report(
+    report: Mapping[str, Any],
+    *,
+    output_dir: str | Path,
+) -> tuple[Path, Path]:
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    json_path = target / "market_neutral_portfolio_development.json"
+    markdown_path = target / "market_neutral_portfolio_development.md"
+    json_path.write_text(
+        json.dumps(
+            _compact_report(report),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        _render_market_neutral_portfolio_development_markdown(report),
+        encoding="utf-8",
+    )
+    return json_path, markdown_path
+
+
 def _compact_report(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {
             key: _compact_report(item)
             for key, item in value.items()
-            if not (key == "trades" and isinstance(item, list))
+            if not (
+                key in {"trades", "leg_trades"}
+                and isinstance(item, list)
+            )
         }
     if isinstance(value, list):
         return [_compact_report(item) for item in value]
@@ -1351,6 +1509,285 @@ def _pair_metrics(
 ) -> dict[str, Any]:
     result = _metrics(trades, net_field=net_field)
     result["fills"] = len(trades) * 4
+    return result
+
+
+def _simulate_portfolio_split(
+    candidate: Mapping[str, Any],
+    *,
+    split_name: str,
+    frames: Sequence[MarketFrame],
+    series: Mapping[str, SymbolSeries],
+    start_index: int,
+    end_index: int,
+    costs: Mapping[str, Any],
+    portfolio: Mapping[str, Any],
+) -> dict[str, Any]:
+    real_cost_bps = float(costs["round_trip_fee_bps"]) + float(
+        costs["slippage_bps"]
+    )
+    stressed_cost_bps = max(
+        real_cost_bps * float(costs["cost_stress_multiplier"]),
+        real_cost_bps + float(costs.get("safety_buffer_bps", 0.0)),
+    )
+    notional_per_leg = float(portfolio["notional_per_trade_usd"])
+    position: PortfolioPosition | None = None
+    rebalance_due = False
+    pending_target: PortfolioSignal | None = None
+    portfolio_trades: list[dict[str, Any]] = []
+    leg_trades: list[dict[str, Any]] = []
+    candidate_signals = selected_signals = 0
+    entry_fills = exit_fills = 0
+
+    for index in range(start_index, end_index + 1):
+        frame = frames[index]
+        if rebalance_due:
+            if position is not None:
+                portfolio_trade, legs = _close_portfolio_trade(
+                    position,
+                    frame=frame,
+                    exit_index=index,
+                    real_cost_bps=real_cost_bps,
+                    stressed_cost_bps=stressed_cost_bps,
+                    notional_per_leg_usd=notional_per_leg,
+                )
+                portfolio_trades.append(portfolio_trade)
+                leg_trades.extend(legs)
+                position = None
+                exit_fills += 4
+            if pending_target is not None:
+                symbols = (
+                    pending_target.long_symbols
+                    + pending_target.short_symbols
+                )
+                position = PortfolioPosition(
+                    signal=pending_target,
+                    entry_index=index,
+                    entry_timestamp_ms=frame.timestamp_ms,
+                    entry_prices={
+                        symbol: frame.bars[symbol].open for symbol in symbols
+                    },
+                )
+                entry_fills += 4
+            pending_target = None
+            rebalance_due = False
+
+        if _portfolio_decision_index(
+            candidate,
+            index=index,
+            series=series,
+        ):
+            signal = _market_neutral_portfolio_signal(
+                candidate,
+                index=index,
+                series=series,
+            )
+            if signal is not None:
+                candidate_signals += 1
+            if index < end_index:
+                pending_target = signal
+                rebalance_due = True
+                if signal is not None:
+                    selected_signals += 1
+
+    metrics = _portfolio_metrics(portfolio_trades, net_field="net_bps")
+    return {
+        "split": split_name,
+        "start_timestamp_ms": frames[start_index].timestamp_ms,
+        "end_timestamp_ms": frames[end_index].timestamp_ms,
+        "bars": end_index - start_index + 1,
+        "candidate_signals": candidate_signals,
+        "selected_signals": selected_signals,
+        "entry_fills": entry_fills,
+        "exit_fills": exit_fills,
+        "filled_orders": entry_fills + exit_fills,
+        "closed_trades": len(portfolio_trades),
+        "closed_portfolios": len(portfolio_trades),
+        "remaining_open_positions": 4 if position is not None else 0,
+        "right_censored_positions": 4 if position is not None else 0,
+        "portfolio_fill_atomicity_violations": 0,
+        "long_notional_usd": notional_per_leg * 2.0,
+        "short_notional_usd": notional_per_leg * 2.0,
+        "net_notional_usd": 0.0,
+        "real_cost_bps_per_leg": real_cost_bps,
+        "total_portfolio_round_trip_cost_bps": real_cost_bps * 4.0,
+        "metrics": metrics,
+        "cost_stress_metrics": _portfolio_metrics(
+            portfolio_trades,
+            net_field="stressed_net_bps",
+        ),
+        "per_symbol": _group_metrics(leg_trades, "symbol"),
+        "per_direction": _group_metrics(leg_trades, "direction"),
+        "per_exit_reason": _group_metrics(portfolio_trades, "exit_reason"),
+        "trades": portfolio_trades,
+        "leg_trades": leg_trades,
+    }
+
+
+def _market_neutral_portfolio_signal(
+    candidate: Mapping[str, Any],
+    *,
+    index: int,
+    series: Mapping[str, SymbolSeries],
+) -> PortfolioSignal | None:
+    if not _portfolio_decision_index(candidate, index=index, series=series):
+        return None
+    snapshot = _relative_momentum_snapshot(
+        candidate,
+        index=index,
+        series=series,
+    )
+    if len(snapshot) < 4:
+        return None
+    ordered = sorted(
+        snapshot,
+        key=lambda symbol: (snapshot[symbol]["rank_score"], symbol),
+    )
+    short_symbols = tuple(ordered[:2])
+    long_symbols = tuple(reversed(ordered[-2:]))
+    long_momentum = mean(
+        snapshot[symbol]["momentum"] for symbol in long_symbols
+    )
+    short_momentum = mean(
+        snapshot[symbol]["momentum"] for symbol in short_symbols
+    )
+    momentum_dispersion_bps = (
+        long_momentum - short_momentum
+    ) * 10_000.0
+    if momentum_dispersion_bps < float(
+        candidate["event_contract"]["min_cross_sectional_dispersion_bps"]
+    ):
+        return None
+    long_score = mean(
+        snapshot[symbol]["rank_score"] for symbol in long_symbols
+    )
+    short_score = mean(
+        snapshot[symbol]["rank_score"] for symbol in short_symbols
+    )
+    return PortfolioSignal(
+        long_symbols=long_symbols,
+        short_symbols=short_symbols,
+        signal_index=index,
+        score_dispersion=long_score - short_score,
+        momentum_dispersion_bps=momentum_dispersion_bps,
+    )
+
+
+def _portfolio_decision_index(
+    candidate: Mapping[str, Any],
+    *,
+    index: int,
+    series: Mapping[str, SymbolSeries],
+) -> bool:
+    event = candidate["event_contract"]
+    first_series = next(iter(series.values()))
+    close_timestamp_ms = int(first_series.timestamps[index]) + int(
+        event["aggregate_bars"]
+    ) * 3_600_000
+    close_time = datetime.fromtimestamp(
+        close_timestamp_ms / 1000.0,
+        tz=timezone.utc,
+    )
+    return (
+        close_time.weekday() == int(event["rebalance_weekday_utc"])
+        and close_time.hour == int(event["rebalance_close_hour_utc"])
+    )
+
+
+def _close_portfolio_trade(
+    position: PortfolioPosition,
+    *,
+    frame: MarketFrame,
+    exit_index: int,
+    real_cost_bps: float,
+    stressed_cost_bps: float,
+    notional_per_leg_usd: float,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    gross_by_leg: list[tuple[str, str, float]] = []
+    for symbol in position.signal.long_symbols:
+        gross_by_leg.append(
+            (
+                symbol,
+                "LONG",
+                (
+                    frame.bars[symbol].open
+                    / max(position.entry_prices[symbol], 1e-12)
+                    - 1.0
+                )
+                * 10_000.0,
+            )
+        )
+    for symbol in position.signal.short_symbols:
+        gross_by_leg.append(
+            (
+                symbol,
+                "SHORT",
+                (
+                    position.entry_prices[symbol]
+                    / max(frame.bars[symbol].open, 1e-12)
+                    - 1.0
+                )
+                * 10_000.0,
+            )
+        )
+    portfolio_gross_bps = mean(row[2] for row in gross_by_leg)
+    portfolio_net_bps = portfolio_gross_bps - real_cost_bps
+    stressed_net_bps = portfolio_gross_bps - stressed_cost_bps
+    total_notional = notional_per_leg_usd * 4.0
+    common = {
+        "direction": "PORTFOLIO",
+        "regime": "weekly_market_neutral_relative_momentum",
+        "signal_index": position.signal.signal_index,
+        "entry_index": position.entry_index,
+        "exit_index": exit_index,
+        "entry_timestamp_ms": position.entry_timestamp_ms,
+        "exit_timestamp_ms": frame.timestamp_ms,
+        "holding_bars": exit_index - position.entry_index,
+        "exit_reason": "scheduled_rebalance",
+        "funding_bps": 0.0,
+    }
+    portfolio_trade = {
+        **common,
+        "symbol": (
+            "L:"
+            + ",".join(position.signal.long_symbols)
+            + "|S:"
+            + ",".join(position.signal.short_symbols)
+        ),
+        "long_symbols": list(position.signal.long_symbols),
+        "short_symbols": list(position.signal.short_symbols),
+        "gross_bps": portfolio_gross_bps,
+        "cost_bps": real_cost_bps,
+        "stressed_cost_bps": stressed_cost_bps,
+        "net_bps": portfolio_net_bps,
+        "stressed_net_bps": stressed_net_bps,
+        "net_pnl_usd": total_notional * portfolio_net_bps / 10_000.0,
+        "stressed_net_pnl_usd": (
+            total_notional * stressed_net_bps / 10_000.0
+        ),
+    }
+    legs = [
+        _pair_leg_trade(
+            common,
+            symbol=symbol,
+            direction=direction,
+            gross_bps=gross_bps,
+            real_cost_bps=real_cost_bps,
+            stressed_cost_bps=stressed_cost_bps,
+            notional_usd=notional_per_leg_usd,
+        )
+        for symbol, direction, gross_bps in gross_by_leg
+    ]
+    return portfolio_trade, legs
+
+
+def _portfolio_metrics(
+    trades: Sequence[Mapping[str, Any]],
+    *,
+    net_field: str,
+) -> dict[str, Any]:
+    result = _metrics(trades, net_field=net_field)
+    result["fills"] = len(trades) * 8
     return result
 
 
@@ -2300,6 +2737,24 @@ def _paired_baseline_candidate(
     }
 
 
+def _portfolio_baseline_candidate(
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    selection = dict(candidate["selection_contract"])
+    selection["portfolio_rank"] = "signed_skip_one_day_momentum"
+    return {
+        "candidate_id": "weekly_top2_bottom2_raw_momentum_v1",
+        "profile_sha256": "",
+        "hypothesis": {
+            "directions": ["LONG", "SHORT"],
+            "portfolio_unit": "four_leg_dollar_neutral_basket",
+        },
+        "event_contract": dict(candidate["event_contract"]),
+        "exit_contract": dict(candidate["exit_contract"]),
+        "selection_contract": selection,
+    }
+
+
 def _development_verdict(
     candidate: Mapping[str, Any],
     *,
@@ -2387,6 +2842,70 @@ def _paired_development_verdict(
         failures.append("closed_pairs_below_minimum")
     if int(split["paired_fill_atomicity_violations"]) != 0:
         failures.append("paired_fill_atomicity_violation")
+    if (metrics["mean_net_bps"] or -math.inf) <= float(
+        gates["min_mean_net_bps"]
+    ):
+        failures.append("nonpositive_costed_expectancy")
+    if (metrics["lcb_95_net_bps"] or -math.inf) <= float(
+        gates["min_lcb_95_net_bps"]
+    ):
+        failures.append("nonpositive_lcb")
+    if float(metrics["max_drawdown_usd"]) > float(
+        gates["max_drawdown_usd"]
+    ):
+        failures.append("max_drawdown_exceeded")
+    if (stress["mean_net_bps"] or -math.inf) <= 0.0:
+        failures.append("cost_stress_nonpositive_expectancy")
+    if (stress["lcb_95_net_bps"] or -math.inf) <= 0.0:
+        failures.append("cost_stress_nonpositive_lcb")
+
+    beats_baseline = (
+        (metrics["mean_net_bps"] or -math.inf)
+        > (baseline["mean_net_bps"] or -math.inf)
+        and float(metrics["net_sum_bps"]) > float(baseline["net_sum_bps"])
+    )
+    if not beats_baseline:
+        failures.append("does_not_beat_baseline")
+    unique_failures = sorted(set(failures))
+    passed = not unique_failures
+    return {
+        "verdict": (
+            "accepted_for_sealed_validation"
+            if passed
+            else "terminal_rejected_development"
+        ),
+        "passed": passed,
+        "failures": unique_failures,
+        "baseline_comparison": {
+            "baseline_id": gates["baseline_id"],
+            "candidate_mean_net_bps": metrics["mean_net_bps"],
+            "baseline_mean_net_bps": baseline["mean_net_bps"],
+            "candidate_net_sum_bps": metrics["net_sum_bps"],
+            "baseline_net_sum_bps": baseline["net_sum_bps"],
+            "beats_baseline": beats_baseline,
+        },
+        "continuation_allowed": passed,
+    }
+
+
+def _portfolio_development_verdict(
+    *,
+    split: Mapping[str, Any],
+    baseline_split: Mapping[str, Any],
+    gates: Mapping[str, Any],
+) -> dict[str, Any]:
+    metrics = split["metrics"]
+    stress = split["cost_stress_metrics"]
+    baseline = baseline_split["metrics"]
+    failures: list[str] = []
+    if int(split["filled_orders"]) < int(gates["min_filled_orders"]):
+        failures.append("filled_orders_below_minimum")
+    if int(split["closed_portfolios"]) < int(gates["min_closed_trades"]):
+        failures.append("closed_portfolios_below_minimum")
+    if int(split["portfolio_fill_atomicity_violations"]) != 0:
+        failures.append("portfolio_fill_atomicity_violation")
+    if float(split["net_notional_usd"]) != 0.0:
+        failures.append("portfolio_not_dollar_neutral")
     if (metrics["mean_net_bps"] or -math.inf) <= float(
         gates["min_mean_net_bps"]
     ):
@@ -2702,6 +3221,71 @@ def _render_market_neutral_pair_development_markdown(
         lines.append(
             f"| {reason} | {row['trades']} | "
             f"{_fmt(row['mean_net_bps'])} |"
+        )
+    return "\n".join(lines)
+
+
+def _render_market_neutral_portfolio_development_markdown(
+    report: Mapping[str, Any],
+) -> str:
+    candidate = report["candidate"]
+    metrics = candidate["metrics"]
+    stress = candidate["cost_stress_metrics"]
+    baseline = report["baseline"]["metrics"]
+    lines = [
+        "# Weekly top2/bottom2 market-neutral development screen",
+        "",
+        "## Safety",
+        "",
+        "- Stage: `development_only`",
+        "- Development run budget: `1`",
+        "- Parameter sweep allowed: `false`",
+        "- Validation/OOS/sanity opened: `false`",
+        "- Runtime actor created: `false`",
+        "- Paper/live allowed: `false`",
+        "- Orders enabled: `false`",
+        "- Promotion authority: `false`",
+        "",
+        "## Verdict",
+        "",
+        f"- Result: `{report['verdict']}`",
+        f"- Continuation allowed: `{str(report['continuation_allowed']).lower()}`",
+        "- Failures: "
+        + (", ".join(f"`{item}`" for item in report["failures"]) or "none"),
+        "",
+        "## Portfolio metrics",
+        "",
+        "| Candidate | Signals | Fills | Closed portfolios | Mean bps | "
+        "LCB bps | Stress mean | DD USD |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        f"| {report['candidate_id']} | {candidate['candidate_signals']} | "
+        f"{candidate['filled_orders']} | {candidate['closed_portfolios']} | "
+        f"{_fmt(metrics['mean_net_bps'])} | "
+        f"{_fmt(metrics['lcb_95_net_bps'])} | "
+        f"{_fmt(stress['mean_net_bps'])} | "
+        f"{_fmt(metrics['max_drawdown_usd'])} |",
+        f"| {report['baseline_comparison']['baseline_id']} | "
+        f"{report['baseline']['candidate_signals']} | "
+        f"{report['baseline']['filled_orders']} | "
+        f"{report['baseline']['closed_portfolios']} | "
+        f"{_fmt(baseline['mean_net_bps'])} | "
+        f"{_fmt(baseline['lcb_95_net_bps'])} | n/a | "
+        f"{_fmt(baseline['max_drawdown_usd'])} |",
+        "",
+        f"Long notional: `${candidate['long_notional_usd']}`; short notional: "
+        f"`${candidate['short_notional_usd']}`; net: "
+        f"`${candidate['net_notional_usd']}`.",
+        "",
+        "## Leg diagnostics",
+        "",
+        "| Direction | Legs | Mean net bps | LCB bps |",
+        "|---|---:|---:|---:|",
+    ]
+    for direction, row in candidate["per_direction"].items():
+        lines.append(
+            f"| {direction} | {row['trades']} | "
+            f"{_fmt(row['mean_net_bps'])} | "
+            f"{_fmt(row['lcb_95_net_bps'])} |"
         )
     return "\n".join(lines)
 

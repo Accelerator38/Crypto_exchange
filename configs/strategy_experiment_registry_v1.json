@@ -1,6 +1,6 @@
 {
   "schema_version": "panteon.strategy_experiment_registry.v1",
-  "updated_at": "2026-07-27T14:37:50+03:00",
+  "updated_at": "2026-07-29T11:59:39+03:00",
   "exchange": "BITGET",
   "operational_candidate_id": null,
   "orders_enabled": false,
@@ -111,6 +111,38 @@
         "pair_stop_removal_after_revealed_development",
         "holding_horizon_tuning_on_revealed_development",
         "per_symbol_or_exit_reason_cherry_pick_from_revealed_development"
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "family_id": "weekly_market_neutral_relative_momentum_4h",
+      "status": "terminal_rejected",
+      "reason": "development_nonpositive_lcb_drawdown_and_raw_baseline_underperformance",
+      "retry_policy": "materially_different_event_contract_only",
+      "forbidden_variants": [
+        "rerun_same_contract",
+        "promote_revealed_raw_momentum_baseline",
+        "top_bottom_count_or_weight_tuning_on_revealed_development",
+        "rebalance_schedule_or_dispersion_tuning_on_revealed_development"
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "family_id": "walk_forward_cointegration_spread_4h",
+      "status": "terminal_rejected",
+      "reason": "development_gross_edge_barely_above_cost_floor_with_negative_stress_and_lcb",
+      "retry_policy": "materially_different_event_contract_only",
+      "forbidden_variants": [
+        "rerun_same_contract",
+        "remove_zscore_stop_after_revealed_development",
+        "formation_half_life_or_zscore_tuning_on_revealed_development",
+        "pair_or_exit_reason_cherry_pick_from_revealed_development"
       ],
       "continuation_allowed": false,
       "profile_registration_allowed": false,
@@ -419,6 +451,82 @@
           "kind": "development_screen",
           "path": "Reports/StrategyLab/market_neutral_pair_development_20260727/market_neutral_pair_development.json",
           "sha256": "98f105d6ed6e70ba78a865399ad09a33c2c8efa87c68d5a21920a2f6dd848225"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "weekly_top2_bottom2_relative_momentum_4h_v1",
+      "family_id": "weekly_market_neutral_relative_momentum_4h",
+      "profile_id": "weekly_top2_bottom2_relative_momentum_4h_v1",
+      "status": "terminal_rejected",
+      "verdict_reason": "development_nonpositive_lcb_cost_stress_lcb_drawdown_and_baseline_underperformance",
+      "retry_policy": "materially_different_event_contract_only",
+      "metrics": {
+        "profile_sha256": "f4fe24ec44c8306bb5229af5c5bf83dc3044e6974707b1b19b6e93a4f74759d2",
+        "development_closed_portfolios": 96,
+        "development_filled_orders": 772,
+        "mean_net_bps": 50.82810293537167,
+        "lcb_95_net_bps": -22.992231688825193,
+        "stress_mean_net_bps": 44.82810293537167,
+        "stress_lcb_95_net_bps": -28.992231688825193,
+        "max_drawdown_usd": 7.653259070876467,
+        "baseline_mean_net_bps": 71.82935617972349,
+        "baseline_lcb_95_net_bps": -3.9920793705818625,
+        "baseline_max_drawdown_usd": 7.846444381043384,
+        "beats_baseline": false,
+        "validation_opened": false
+      },
+      "artifacts": [
+        {
+          "kind": "development_screen",
+          "path": "Reports/StrategyLab/market_neutral_portfolio_development_20260729/market_neutral_portfolio_development.json",
+          "sha256": "fc362de4a20558ee0a04d3bf756a5b474c27ccf63884c91a9d3927e14c9a8d76"
+        },
+        {
+          "kind": "failure_decomposition",
+          "path": "Reports/StrategyLab/market_neutral_portfolio_development_20260729/portfolio_failure_decomposition.json",
+          "sha256": "f93aa02d78db220fb745b1d8c37c1be5123c4f57210bab4efaa3a4b0bd46dffa"
+        }
+      ],
+      "continuation_allowed": false,
+      "profile_registration_allowed": false,
+      "runtime_actor_created": false,
+      "orders_enabled": false,
+      "promotion_authority": false
+    },
+    {
+      "experiment_id": "walk_forward_cointegration_spread_4h_v1",
+      "family_id": "walk_forward_cointegration_spread_4h",
+      "profile_id": "walk_forward_cointegration_spread_4h_v1",
+      "status": "terminal_rejected",
+      "verdict_reason": "development_negative_stress_lcb_direction_lcb_and_drawdown",
+      "retry_policy": "materially_different_event_contract_only",
+      "metrics": {
+        "profile_sha256": "1deed6f1c7794211f126d4da65e68ceadc68b990d227caf6f9a08cdeeefd2923",
+        "formation_refits": 99,
+        "qualified_refits": 78,
+        "development_closed_trades": 94,
+        "development_filled_orders": 376,
+        "mean_gross_bps": 14.573941181142793,
+        "mean_net_bps": 2.57394118114279,
+        "lcb_95_net_bps": -27.61791942353273,
+        "stress_mean_net_bps": -3.426058818857203,
+        "stress_lcb_95_net_bps": -33.61791942353272,
+        "max_drawdown_usd": 3.0925760496121675,
+        "max_single_pair_trade_share": 0.1595744680851064,
+        "formation_leakage_violations": 0,
+        "validation_opened": false
+      },
+      "artifacts": [
+        {
+          "kind": "development_screen",
+          "path": "Reports/StrategyLab/cointegration_spread_development_20260729/cointegration_spread_development.json",
+          "sha256": "c01e52dca2c3c9848f062263c303351f69a7b2a13ac17a036a7a525368523fef"
         }
       ],
       "continuation_allowed": false,

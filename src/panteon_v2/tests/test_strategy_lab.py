@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ from panteon_v2.analysis.strategy_lab import (
     MarketFrame,
     OpenPosition,
     PairSignal,
+    PortfolioSignal,
     _build_symbol_series,
     _metrics,
     aggregate_market_frames,
@@ -373,6 +375,162 @@ def test_market_neutral_pair_fills_and_exits_both_legs_atomically(monkeypatch):
     assert trade["net_bps"] == pytest.approx(expected_gross - 12.0)
     assert trade["net_pnl_usd"] == pytest.approx(
         20.0 * (expected_gross - 12.0) / 10_000.0
+    )
+
+
+def test_market_neutral_portfolio_selects_disjoint_top2_bottom2():
+    symbols = ("BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "BNB", "LINK")
+    drifts = {
+        symbol: 0.002 - index * 0.00055
+        for index, symbol in enumerate(symbols)
+    }
+    frames = []
+    for index in range(210):
+        timestamp = index * 4 * 3_600_000
+        prices = {
+            symbol: 100.0
+            * math.exp(
+                drift * index + 0.002 * math.sin(index / 3.0)
+            )
+            for symbol, drift in drifts.items()
+        }
+        frames.append(
+            MarketFrame(
+                timestamp_ms=timestamp,
+                bars={
+                    symbol: MarketBar(
+                        timestamp_ms=timestamp,
+                        open=price,
+                        high=price * 1.001,
+                        low=price * 0.999,
+                        close=price,
+                        volume=100.0,
+                    )
+                    for symbol, price in prices.items()
+                },
+            )
+        )
+    series = {
+        symbol: _build_symbol_series(symbol, frames) for symbol in symbols
+    }
+    candidate = json.loads(
+        (
+            ROOT
+            / "configs"
+            / "strategy_candidate_p5_market_neutral_portfolio_v1.json"
+        ).read_text(encoding="utf-8")
+    )["candidate"]
+    decision_index = next(
+        index
+        for index in range(180, len(frames))
+        if strategy_lab._portfolio_decision_index(
+            candidate,
+            index=index,
+            series=series,
+        )
+    )
+
+    signal = strategy_lab._market_neutral_portfolio_signal(
+        candidate,
+        index=decision_index,
+        series=series,
+    )
+
+    assert signal is not None
+    assert len(signal.long_symbols) == 2
+    assert len(signal.short_symbols) == 2
+    assert set(signal.long_symbols).isdisjoint(signal.short_symbols)
+    assert signal.momentum_dispersion_bps >= 128.0
+
+
+def test_market_neutral_portfolio_rebalances_all_four_legs(monkeypatch):
+    symbols = ("BTC", "ETH", "SOL", "XRP")
+    prices = (
+        {"BTC": 100.0, "ETH": 200.0, "SOL": 50.0, "XRP": 20.0},
+        {"BTC": 101.0, "ETH": 202.0, "SOL": 49.0, "XRP": 19.8},
+        {"BTC": 103.0, "ETH": 203.0, "SOL": 48.0, "XRP": 19.4},
+    )
+    frames = []
+    for index, row in enumerate(prices):
+        timestamp = index * 4 * 3_600_000
+        frames.append(
+            MarketFrame(
+                timestamp_ms=timestamp,
+                bars={
+                    symbol: MarketBar(
+                        timestamp_ms=timestamp,
+                        open=price,
+                        high=price,
+                        low=price,
+                        close=price,
+                        volume=100.0,
+                    )
+                    for symbol, price in row.items()
+                },
+            )
+        )
+    series = {
+        symbol: _build_symbol_series(symbol, frames) for symbol in symbols
+    }
+    candidate = json.loads(
+        (
+            ROOT
+            / "configs"
+            / "strategy_candidate_p5_market_neutral_portfolio_v1.json"
+        ).read_text(encoding="utf-8")
+    )["candidate"]
+    signal = PortfolioSignal(
+        long_symbols=("BTC", "ETH"),
+        short_symbols=("SOL", "XRP"),
+        signal_index=0,
+        score_dispersion=1.0,
+        momentum_dispersion_bps=500.0,
+    )
+
+    monkeypatch.setattr(
+        strategy_lab,
+        "_portfolio_decision_index",
+        lambda candidate, *, index, series: index in {0, 1},
+    )
+    monkeypatch.setattr(
+        strategy_lab,
+        "_market_neutral_portfolio_signal",
+        lambda candidate, *, index, series: signal if index in {0, 1} else None,
+    )
+    result = strategy_lab._simulate_portfolio_split(
+        candidate,
+        split_name="test",
+        frames=frames,
+        series=series,
+        start_index=0,
+        end_index=2,
+        costs={
+            "round_trip_fee_bps": 8.0,
+            "slippage_bps": 4.0,
+            "safety_buffer_bps": 4.0,
+            "cost_stress_multiplier": 1.5,
+        },
+        portfolio={"notional_per_trade_usd": 10.0},
+    )
+
+    assert result["entry_fills"] == 8
+    assert result["exit_fills"] == 4
+    assert result["closed_portfolios"] == 1
+    assert result["remaining_open_positions"] == 4
+    assert result["portfolio_fill_atomicity_violations"] == 0
+    assert result["net_notional_usd"] == 0.0
+    trade = result["trades"][0]
+    leg_returns = [
+        103.0 / 101.0 - 1.0,
+        203.0 / 202.0 - 1.0,
+        49.0 / 48.0 - 1.0,
+        19.8 / 19.4 - 1.0,
+    ]
+    expected_gross = sum(leg_returns) / 4.0 * 10_000.0
+    assert trade["gross_bps"] == pytest.approx(expected_gross)
+    assert trade["net_bps"] == pytest.approx(expected_gross - 12.0)
+    assert trade["net_pnl_usd"] == pytest.approx(
+        40.0 * (expected_gross - 12.0) / 10_000.0
     )
 
 

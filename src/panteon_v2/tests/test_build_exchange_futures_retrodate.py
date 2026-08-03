@@ -169,3 +169,36 @@ def test_integrity_manifest_reports_hashes_and_internal_gaps(tmp_path):
     assert manifest["coverage"]["BTC/USDT"]["rows"] == 2
     assert len(manifest["files"][0]["sha256"]) == 64
     assert len(manifest["dataset_sha256"]) == 64
+
+
+def test_integrity_manifest_fails_when_requested_edges_are_missing(tmp_path):
+    module = _load_tool()
+    rows = [
+        module.normalize_ohlcv_row(
+            exchange="BITGET",
+            symbol="BTC/USDT",
+            ohlcv=[
+                int(datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc).timestamp() * 1000),
+                100,
+                101,
+                99,
+                100,
+                10,
+            ],
+        )
+    ]
+    module.write_year_files(tmp_path, rows)
+
+    manifest = module.build_integrity_manifest(
+        tmp_path,
+        exchange="BITGET",
+        symbols=("BTC/USDT",),
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 1),
+        timeframe="1m",
+        source={},
+    )
+
+    assert manifest["validation"]["passed"] is False
+    assert manifest["validation"]["head_missing_bars"] == 1
+    assert manifest["validation"]["tail_missing_bars"] == 1438

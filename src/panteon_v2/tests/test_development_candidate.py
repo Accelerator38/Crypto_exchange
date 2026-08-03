@@ -19,6 +19,14 @@ CONTRACT_PATH = (
 PAIRED_CONTRACT_PATH = (
     ROOT / "configs" / "strategy_candidate_p4_market_neutral_pair_v1.json"
 )
+PORTFOLIO_CONTRACT_PATH = (
+    ROOT
+    / "configs"
+    / "strategy_candidate_p5_market_neutral_portfolio_v1.json"
+)
+COINTEGRATION_CONTRACT_PATH = (
+    ROOT / "configs" / "strategy_candidate_p6_cointegration_spread_v1.json"
+)
 
 
 def _payload():
@@ -78,4 +86,56 @@ def test_paired_contract_cannot_weaken_atomic_fill_gate():
     payload["protocol"]["gates"]["paired_fill_atomicity_hard_fail"] = False
 
     with pytest.raises(DevelopmentCandidateError, match="gates are too weak"):
+        validate_development_candidate(payload)
+
+
+def test_portfolio_development_candidate_has_one_run_budget():
+    contract = DevelopmentCandidateContract.from_json(PORTFOLIO_CONTRACT_PATH)
+    selection = contract.payload["candidate"]["selection_contract"]
+
+    assert selection["long_legs"] == 2
+    assert selection["short_legs"] == 2
+    assert selection["development_run_budget"] == 1
+    assert selection["parameter_sweep_allowed"] is False
+    assert contract.payload["protocol"]["portfolio"]["max_open_positions"] == 4
+
+
+def test_portfolio_contract_cannot_enable_parameter_sweep():
+    payload = json.loads(PORTFOLIO_CONTRACT_PATH.read_text(encoding="utf-8"))
+    payload["candidate"]["selection_contract"]["parameter_sweep_allowed"] = True
+
+    with pytest.raises(
+        DevelopmentCandidateError,
+        match="low-turnover cost-aware",
+    ):
+        validate_development_candidate(payload)
+
+
+def test_cointegration_candidate_has_no_symbol_allowlist_or_sweep():
+    contract = DevelopmentCandidateContract.from_json(
+        COINTEGRATION_CONTRACT_PATH
+    )
+    candidate = contract.payload["candidate"]
+
+    assert candidate["hypothesis"]["symbol_allowlist"] == []
+    assert candidate["selection_contract"]["pair_universe"] == (
+        "all_28_unordered_full8_pairs"
+    )
+    assert candidate["selection_contract"]["development_run_budget"] == 1
+    assert candidate["selection_contract"]["parameter_sweep_allowed"] is False
+    assert contract.payload["protocol"]["portfolio"][
+        "gross_notional_per_trade_usd"
+    ] == 20.0
+
+
+def test_cointegration_candidate_cannot_add_symbol_allowlist():
+    payload = json.loads(
+        COINTEGRATION_CONTRACT_PATH.read_text(encoding="utf-8")
+    )
+    payload["candidate"]["hypothesis"]["symbol_allowlist"] = ["BTC", "ETH"]
+
+    with pytest.raises(
+        DevelopmentCandidateError,
+        match="low-turnover cost-aware",
+    ):
         validate_development_candidate(payload)
