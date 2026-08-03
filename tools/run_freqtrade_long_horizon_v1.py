@@ -7,6 +7,7 @@ import math
 import os
 import statistics
 import subprocess
+import sys
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,16 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from simple_research.regimes import (  # noqa: E402
+    REGIME_CONTRACT,
+    REGIME_ORDER,
+    build_market_regime_lookup,
+)
+
 PILOT = ROOT / "freqtrade_pilot"
 USER_DIR = PILOT / "user_data"
 BASE_CONFIG = USER_DIR / "config.dryrun.json"
@@ -35,7 +46,6 @@ STRATEGY_NAME = "LongHorizonTrendStrategyV1"
 PAIR_WHITELIST = json.loads(BASE_CONFIG.read_text(encoding="utf-8"))["exchange"][
     "pair_whitelist"
 ]
-REGIME_ORDER = ("bullish", "bearish", "volatile_mixed", "range_low_vol", "neutral", "unknown")
 
 
 def _sha256(path: Path) -> str:
@@ -182,36 +192,11 @@ def _strategy_args() -> list[str]:
 
 def _market_regime_lookup() -> dict[int, str]:
     frame = pd.read_feather(DATA_DIR / "BTC_USDT_USDT-1h-futures.feather")
-    frame = frame.sort_values("date").reset_index(drop=True)
-    close = frame["close"]
-    ema_fast = close.ewm(span=72, adjust=False).mean()
-    ema_slow = close.ewm(span=336, adjust=False).mean()
-    momentum_7d = close.pct_change(168)
-    previous_close = close.shift(1)
-    true_range = pd.concat(
-        [
-            frame["high"] - frame["low"],
-            (frame["high"] - previous_close).abs(),
-            (frame["low"] - previous_close).abs(),
-        ],
-        axis=1,
-    ).max(axis=1)
-    atr_pct = true_range.rolling(14, min_periods=14).mean() / close
-    trailing_atr = atr_pct.shift(1).rolling(4320, min_periods=720)
-    low_vol_threshold = trailing_atr.quantile(0.25)
-    high_vol_threshold = trailing_atr.quantile(0.75)
-
-    bullish = (close > ema_fast) & (ema_fast > ema_slow) & (momentum_7d > 0)
-    bearish = (close < ema_fast) & (ema_fast < ema_slow) & (momentum_7d < 0)
-    regimes = pd.Series("neutral", index=frame.index, dtype="object")
-    regimes.loc[atr_pct <= low_vol_threshold] = "range_low_vol"
-    regimes.loc[atr_pct >= high_vol_threshold] = "volatile_mixed"
-    regimes.loc[bullish] = "bullish"
-    regimes.loc[bearish] = "bearish"
-    timestamps = frame["date"].map(
+    frame["timestamp"] = frame["date"].map(
         lambda value: int(pd.Timestamp(value).timestamp() * 1000)
     )
-    return {int(timestamp): str(regime) for timestamp, regime in zip(timestamps, regimes)}
+    frame["symbol"] = "BTC/USDT"
+    return build_market_regime_lookup(frame)
 
 
 def _lcb(values: list[float]) -> float | None:
@@ -515,20 +500,7 @@ def main() -> int:
         "candidate_contract_sha256": _sha256(CANDIDATE_PATH),
         "source": source,
         "conversion": conversion,
-        "regime_diagnostic": {
-            "source": "BTC/USDT:USDT",
-            "timeframe": "1h",
-            "attribution_time": "last_closed_hour_before_trade_entry",
-            "trend_priority": True,
-            "ema_fast_hours": 72,
-            "ema_slow_hours": 336,
-            "momentum_hours": 168,
-            "atr_hours": 14,
-            "volatility_percentile_lookback_hours": 4320,
-            "low_vol_percentile": 0.25,
-            "high_vol_percentile": 0.75,
-            "used_by_strategy": False,
-        },
+        "regime_diagnostic": {**REGIME_CONTRACT, "source": "BTC/USDT:USDT"},
         "funding_assumption": {
             "rate": 0,
             "reason": "canonical dataset has no historical funding series",

@@ -147,10 +147,14 @@ def test_regime_attribution_is_diagnostic_and_lagged() -> None:
     runner = (ROOT / "tools" / "run_freqtrade_long_horizon_v1.py").read_text(
         encoding="utf-8"
     )
+    regime_module = (ROOT / "src" / "simple_research" / "regimes.py").read_text(
+        encoding="utf-8"
+    )
 
     assert 'decision_timestamp = int(trade["open_timestamp"]) - 3_600_000' in runner
-    assert '"used_by_strategy": False' in runner
-    assert 'REGIME_ORDER = ("bullish", "bearish", "volatile_mixed"' in runner
+    assert '"used_by_strategy": False' in regime_module
+    assert '"volatile_mixed"' in regime_module
+    assert "build_market_regime_lookup" in runner
 
     report_path = ROOT / "Reports" / "FreqtradePilot" / "long_horizon_trend_v1.json"
     if report_path.exists():
