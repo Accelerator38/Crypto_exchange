@@ -1,0 +1,150 @@
+{
+  "schema_version": "panteon.research_archive_check.v1",
+  "passed": true,
+  "require_local_data": true,
+  "checks": [
+    {
+      "name": "archive_safety_contract",
+      "passed": true,
+      "detail": {
+        "legacy_panteon_bitget_live_frozen": true,
+        "orders_enabled": false,
+        "promotion_authority": false,
+        "approved_model_checkpoints": 0,
+        "approved_live_strategies": 0
+      }
+    },
+    {
+      "name": "freeze_config",
+      "passed": true,
+      "detail": "configs/panteon_legacy_freeze_v1.json"
+    },
+    {
+      "name": "freeze_source_constant",
+      "passed": true,
+      "detail": "src/panteon_v2/app/live_freeze.py"
+    },
+    {
+      "name": "source_snapshot_sha256",
+      "passed": true,
+      "detail": "configs/research_snapshots/panteon_freeze_2026-08-03.json"
+    },
+    {
+      "name": "dataset_present:bitget_full8_hourly_2022_20260714",
+      "passed": true,
+      "detail": {
+        "path": "Retrodate/bitget_futures_history_v3_2022_20260714",
+        "present": true,
+        "required_by_command": true
+      }
+    },
+    {
+      "name": "dataset_manifest:bitget_full8_hourly_2022_20260714",
+      "passed": true,
+      "detail": "Retrodate/bitget_futures_history_v3_2022_20260714/integrity_manifest.json"
+    },
+    {
+      "name": "dataset_present:bitget_full8_1m_20260615_20260728",
+      "passed": true,
+      "detail": {
+        "path": "Retrodate/bitget_1m_discovery_v1_20260615_20260728",
+        "present": true,
+        "required_by_command": true
+      }
+    },
+    {
+      "name": "dataset_manifest:bitget_full8_1m_20260615_20260728",
+      "passed": true,
+      "detail": "Retrodate/bitget_1m_discovery_v1_20260615_20260728/integrity_manifest.json"
+    },
+    {
+      "name": "dataset_present:bitget_funding_recent_20260727",
+      "passed": true,
+      "detail": {
+        "path": "Retrodate/bitget_funding_history_v1_20260727",
+        "present": true,
+        "required_by_command": true
+      }
+    },
+    {
+      "name": "dataset_manifest:bitget_funding_recent_20260727",
+      "passed": true,
+      "detail": "Retrodate/bitget_funding_history_v1_20260727/integrity_manifest.json"
+    },
+    {
+      "name": "dataset_present:bitget_microstructure_research_v3",
+      "passed": true,
+      "detail": {
+        "path": "Retrodate/bitget_data_v3",
+        "present": true,
+        "required_by_command": true
+      }
+    },
+    {
+      "name": "dataset_file:bitget_microstructure_research_v3:microstructure_research_v3.sqlite",
+      "passed": true,
+      "detail": "Retrodate/bitget_data_v3/research/precursor_20260729T105449Z-68d7ac53/microstructure_research_v3.sqlite"
+    },
+    {
+      "name": "dataset_file:bitget_microstructure_research_v3:microstructure_research_v3.sqlite",
+      "passed": true,
+      "detail": "Retrodate/bitget_data_v3/research/precursor_20260801T213112Z-b434b442/microstructure_research_v3.sqlite"
+    },
+    {
+      "name": "dataset_file:bitget_microstructure_research_v3:microstructure_research_v3.sqlite",
+      "passed": true,
+      "detail": "Retrodate/bitget_data_v3/research/precursor_20260802T111040Z-f2ed3d03/microstructure_research_v3.sqlite"
+    },
+    {
+      "name": "dataset_present:simple_research_reset_v1",
+      "passed": true,
+      "detail": {
+        "path": "Retrodate/simple_research_reset_v1",
+        "present": true,
+        "required_by_command": true
+      }
+    },
+    {
+      "name": "dataset_file:simple_research_reset_v1:bitget_full8_1h.parquet",
+      "passed": true,
+      "detail": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet"
+    },
+    {
+      "name": "dataset_file:simple_research_reset_v1:bitget_full8_1m.parquet",
+      "passed": true,
+      "detail": "Retrodate/simple_research_reset_v1/bitget_full8_1m.parquet"
+    },
+    {
+      "name": "dataset_file:simple_research_reset_v1:decision_tape.parquet",
+      "passed": true,
+      "detail": "Retrodate/simple_research_reset_v1/decision_tape.parquet"
+    },
+    {
+      "name": "hypothesis_registry_terminal",
+      "passed": true,
+      "detail": {
+        "statuses": [
+          "ARCHIVED_ARCHITECTURE",
+          "CALIBRATION_ONLY",
+          "DATA_BLOCKED",
+          "ENGINEERING_ONLY",
+          "TERMINAL_REJECTED"
+        ],
+        "count": 17
+      }
+    },
+    {
+      "name": "no_local_model_checkpoints",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "no_tracked_backups_or_models",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "failed": [],
+  "orders_enabled": false,
+  "promotion_authority": false
+}

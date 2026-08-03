@@ -1,0 +1,162 @@
+{
+  "schema_version": "panteon.research_hypotheses.v1",
+  "reviewed_on": "2026-08-03",
+  "authoritative_for_trading": false,
+  "active_candidates": 0,
+  "status_definitions": {
+    "ARCHIVED_ARCHITECTURE": "Retained for engineering history; prohibited as a live route.",
+    "TERMINAL_REJECTED": "Failed independent or costed evidence; the same hypothesis may not be retuned on revealed OOS.",
+    "DATA_BLOCKED": "Could not receive a valid test with the available field or horizon.",
+    "CALIBRATION_ONLY": "Useful for execution measurement, not alpha or promotion.",
+    "ENGINEERING_ONLY": "Validates plumbing and safety but makes no profitability claim."
+  },
+  "hypotheses": [
+    {
+      "id": "ARCH-PANTHEON-ENSEMBLE-V1",
+      "family": "runtime_architecture",
+      "status": "ARCHIVED_ARCHITECTURE",
+      "claim": "Dynamic Pantheon/Flash/agent selection can produce a robust live edge.",
+      "verdict": "No costed OOS evidence established a robust edge; complexity made signal attribution and parity expensive.",
+      "reusable": ["exchange adapters", "safety guards", "sealed evidence formats", "diagnostic tooling"],
+      "prohibited": ["live activation", "promotion bypass", "using shadow leaderboard as expectancy evidence"]
+    },
+    {
+      "id": "ARCH-GENETICS-V2",
+      "family": "genetic_agents",
+      "status": "ARCHIVED_ARCHITECTURE",
+      "claim": "GeneticCore agents can be selected and promoted into Bitget live trading.",
+      "verdict": "No checkpoint passed the mandatory costed validation and OOS contract; all generated checkpoints were removed.",
+      "reusable": ["walk-forward contracts", "collapse diagnostics", "fitness research code"],
+      "prohibited": ["checkpoint promotion", "genetics bypass", "live whitelist membership"]
+    },
+    {
+      "id": "CF-BASE-ROOT003",
+      "family": "carryflow",
+      "status": "TERMINAL_REJECTED",
+      "claim": "OI, basis, crowding and funding score predicts a costed six-hour move.",
+      "verdict": "Only 5 policy-allowed trades; mean predicted move 212.17 bps versus realized net -4.33 bps; every exit used max_holding.",
+      "evidence": "Reports/CarryFlow/root003_signal_quality_20260727.md"
+    },
+    {
+      "id": "CF-FIXED-EXIT-4H",
+      "family": "carryflow",
+      "status": "TERMINAL_REJECTED",
+      "claim": "A four-hour fixed exit repairs CarryFlow expectancy.",
+      "verdict": "Independent roots produced -18.12 bps mean versus -1.17 bps baseline; v1 and v5 collapsed.",
+      "evidence": "Reports/CarryFlow/fixed_exit_cross_root_20260727.md"
+    },
+    {
+      "id": "CF-LORO-FLOW",
+      "family": "carryflow",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Leave-one-root-out flow features select positive CarryFlow entries.",
+      "verdict": "27 held-out trades, -0.36 bps mean and -30.37 bps LCB.",
+      "evidence": "Reports/CarryFlow/forward_labels_loro_flow_only_20260727.md"
+    },
+    {
+      "id": "CF-LORO-HYBRID",
+      "family": "carryflow",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Hybrid market and flow features improve held-out CarryFlow entries.",
+      "verdict": "22 held-out trades, -1.42 bps mean and -39.66 bps LCB; v5 collapsed.",
+      "evidence": "Reports/CarryFlow/forward_labels_loro_hybrid_20260727.md"
+    },
+    {
+      "id": "CF-RANGE-TRANSITION",
+      "family": "carryflow",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Trading only range-to-trend transitions creates a robust breakout edge.",
+      "verdict": "8 trades with positive mean but -15.82 bps LCB, one inactive root and v5 collapse.",
+      "evidence": "Reports/CarryFlow/range_transition_breakout_20260727.md"
+    },
+    {
+      "id": "LAB-REGIME-PULLBACK",
+      "family": "directional_hourly",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Regime-filtered hourly pullbacks have positive costed OOS expectancy.",
+      "verdict": "OOS mean -19.94 bps with direction, regime, drawdown and root collapses.",
+      "evidence": "Reports/StrategyLab/p2_historical_oos_20260727/strategy_lab_summary.md"
+    },
+    {
+      "id": "LAB-COMPRESSION-TRANSITION",
+      "family": "directional_hourly",
+      "status": "TERMINAL_REJECTED",
+      "claim": "OHLCV compression transitions have positive costed OOS expectancy.",
+      "verdict": "OOS mean -9.81 bps and LCB -26.37 bps with direction and root collapses.",
+      "evidence": "Reports/StrategyLab/p2_historical_oos_20260727/strategy_lab_summary.md"
+    },
+    {
+      "id": "LAB-FUNDING-CARRY",
+      "family": "carry",
+      "status": "DATA_BLOCKED",
+      "claim": "Recent Bitget funding carry exceeds the executable cost floor.",
+      "verdict": "No signal passed: maximum projected carry 7.35 bps versus 16 bps cost floor; historical split coverage is unavailable.",
+      "evidence": "Reports/StrategyLab/funding_carry_recent_screen_20260727/funding_carry_recent_screen.md"
+    },
+    {
+      "id": "LAB-CROSS-SECTIONAL-TREND",
+      "family": "cross_sectional",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Cross-sectional 4h trend survives costs and uncertainty.",
+      "verdict": "Development means were positive, but LCB, directions, drawdown and baseline comparison failed.",
+      "evidence": "Reports/StrategyLab/cross_sectional_trend_development_20260727/cross_sectional_trend_development.md"
+    },
+    {
+      "id": "LAB-MARKET-NEUTRAL-PAIR",
+      "family": "market_neutral",
+      "status": "TERMINAL_REJECTED",
+      "claim": "One long/short relative-momentum pair has positive costed edge.",
+      "verdict": "96 closed pairs, 13.04 bps mean but -74.06 bps LCB and excessive drawdown.",
+      "evidence": "Reports/StrategyLab/market_neutral_pair_development_20260727/market_neutral_pair_development.md"
+    },
+    {
+      "id": "LAB-MARKET-NEUTRAL-PORTFOLIO",
+      "family": "market_neutral",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Weekly top-two/bottom-two 4h momentum diversifies pair risk.",
+      "verdict": "96 portfolios, 50.83 bps mean but -22.99 bps LCB; drawdown and baseline gates failed.",
+      "evidence": "Reports/StrategyLab/market_neutral_portfolio_development_20260729/market_neutral_portfolio_development.md"
+    },
+    {
+      "id": "LAB-COINTEGRATION-SPREAD",
+      "family": "market_neutral",
+      "status": "TERMINAL_REJECTED",
+      "claim": "Walk-forward cointegration spreads retain edge after costs.",
+      "verdict": "94 trades, 2.57 bps mean, -27.62 bps LCB and -3.43 bps stress mean.",
+      "evidence": "Reports/StrategyLab/cointegration_spread_development_20260729/cointegration_spread_development.md"
+    },
+    {
+      "id": "SIMPLE-RESET-BATCH-V1",
+      "family": "uniform_baseline_screen",
+      "status": "TERMINAL_REJECTED",
+      "claim": "At least one of nine simple strategy families survives one shared simulator and cost model.",
+      "verdict": "Zero of ten preregistered strategies passed; all non-flat OOS means and LCBs were negative.",
+      "evidence": "Reports/SimpleResearch/reset_v1/batch_report.md"
+    },
+    {
+      "id": "DATA-MICROSTRUCTURE-V3",
+      "family": "execution_research",
+      "status": "CALIBRATION_ONLY",
+      "claim": "Three compact microstructure sessions can calibrate spread, depth and execution assumptions.",
+      "verdict": "Useful for execution calibration and parity checks; approximately 48 hours cannot establish alpha.",
+      "evidence": "configs/research_snapshots/panteon_freeze_2026-08-03.json"
+    },
+    {
+      "id": "EXEC-FREQTRADE-PULSE-V1",
+      "family": "execution_harness",
+      "status": "ENGINEERING_ONLY",
+      "claim": "The isolated Bitget Freqtrade dry-run can start deterministically without granting live authority.",
+      "verdict": "NoTrade and deterministic pulse reached RUNNING; dry_run=false pulse startup is rejected.",
+      "evidence": "Reports/FreqtradeReset/acceptance_v1.json"
+    }
+  ],
+  "rules_for_new_work": [
+    "Create a new registry version before opening a new holdout.",
+    "Do not retune a terminal-rejected hypothesis on its revealed OOS.",
+    "Use one shared next-bar simulator and one shared fee/slippage contract.",
+    "A positive mean without positive LCB is not a candidate.",
+    "No research report or dry-run harness grants paper or live authority."
+  ],
+  "orders_enabled": false,
+  "promotion_authority": false
+}

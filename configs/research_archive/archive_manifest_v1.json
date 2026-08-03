@@ -1,0 +1,140 @@
+{
+  "schema_version": "panteon.research_archive.v1",
+  "archive_id": "panteon-research-archive-2026-08-03",
+  "archive_branch": "codex/panteon-research-archive-20260803",
+  "archive_tag": "panteon-research-archive-2026-08-03",
+  "source_freeze": {
+    "tag": "panteon-research-freeze-2026-08-03",
+    "commit": "c0fd836c77a6ce56d29cfaeefc8a8bdc382d7f0c",
+    "snapshot": "configs/research_snapshots/panteon_freeze_2026-08-03.json",
+    "snapshot_sha256": "a7a5d2f6dc0a8a87f567ed60007323cb69d65712caf1c6513830a5aea39fb921"
+  },
+  "safety": {
+    "legacy_panteon_bitget_live_frozen": true,
+    "orders_enabled": false,
+    "promotion_authority": false,
+    "approved_model_checkpoints": 0,
+    "approved_live_strategies": 0
+  },
+  "retained_local_datasets": [
+    {
+      "id": "bitget_full8_hourly_2022_20260714",
+      "path": "Retrodate/bitget_futures_history_v3_2022_20260714",
+      "role": "canonical_long_horizon_ohlcv",
+      "bytes": 32791699,
+      "tracked_by_git": false,
+      "required": true,
+      "integrity_manifest": "Retrodate/bitget_futures_history_v3_2022_20260714/integrity_manifest.json",
+      "integrity_manifest_sha256": "d65c27dde8feb4181d26bc3f89be57444f6773c262928f634eb85a41fb870c71",
+      "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e"
+    },
+    {
+      "id": "bitget_full8_1m_20260615_20260728",
+      "path": "Retrodate/bitget_1m_discovery_v1_20260615_20260728",
+      "role": "canonical_intraday_ohlcv",
+      "bytes": 50413383,
+      "tracked_by_git": false,
+      "required": true,
+      "integrity_manifest": "Retrodate/bitget_1m_discovery_v1_20260615_20260728/integrity_manifest.json",
+      "integrity_manifest_sha256": "d9521f1a748e768f2d6157c374cdaf0fb4d0e9eec5736a973478d8d461dadd31",
+      "dataset_sha256": "280e4b4c96402342ccdaa46bade4ad23814a38cb0ab995538951f7608ee52796"
+    },
+    {
+      "id": "bitget_funding_recent_20260727",
+      "path": "Retrodate/bitget_funding_history_v1_20260727",
+      "role": "recent_funding_diagnostic_only",
+      "bytes": 62537,
+      "tracked_by_git": true,
+      "required": true,
+      "integrity_manifest": "Retrodate/bitget_funding_history_v1_20260727/integrity_manifest.json",
+      "integrity_manifest_sha256": "a828259d3afb987008877f930f212e2bb6a4a32bf7c2a582eb3b749ecbcdb9f8",
+      "dataset_sha256": "f97b9ea582a7cd10bd5fccce482b8321c6ce97008bb9b18e52e806e7aea145b1"
+    },
+    {
+      "id": "bitget_microstructure_research_v3",
+      "path": "Retrodate/bitget_data_v3",
+      "role": "compact_execution_calibration",
+      "bytes": 32228647,
+      "tracked_by_git": false,
+      "required": true,
+      "files": [
+        {
+          "path": "Retrodate/bitget_data_v3/research/precursor_20260729T105449Z-68d7ac53/microstructure_research_v3.sqlite",
+          "sha256": "018a8faaf4e01505fdbfca361fb5a6f358c6ae39f35323d656aa0c16da4b583c"
+        },
+        {
+          "path": "Retrodate/bitget_data_v3/research/precursor_20260801T213112Z-b434b442/microstructure_research_v3.sqlite",
+          "sha256": "ad3e73319ec37267a13a8cab7d906a59fae2f8136883960898435ceaa1814cc5"
+        },
+        {
+          "path": "Retrodate/bitget_data_v3/research/precursor_20260802T111040Z-f2ed3d03/microstructure_research_v3.sqlite",
+          "sha256": "2392d47f58721758b9321edaab285a9b2928731a509f756f691c4faae0c995b9"
+        }
+      ]
+    },
+    {
+      "id": "simple_research_reset_v1",
+      "path": "Retrodate/simple_research_reset_v1",
+      "role": "reproducible_derived_feature_and_decision_tapes",
+      "bytes": 108725691,
+      "tracked_by_git": false,
+      "required": true,
+      "files": [
+        {
+          "path": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet",
+          "sha256": "ead9db0169be907f85e143d9672769fbf49044afa315c499808b399ebf05290f"
+        },
+        {
+          "path": "Retrodate/simple_research_reset_v1/bitget_full8_1m.parquet",
+          "sha256": "bdf9adf0461960dce1c8378fc094fd0281cc4bf06c085ce7fd91a6b4a0c8fb2d"
+        },
+        {
+          "path": "Retrodate/simple_research_reset_v1/decision_tape.parquet",
+          "sha256": "eeb5562f6d256a3efa662673ab840e64ddbf1f31414215d48095063d9bfbcf95"
+        }
+      ]
+    }
+  ],
+  "tracked_evidence": [
+    {
+      "path": "evidence/bitget_carryflow",
+      "role": "small_immutable_negative_evidence_segments"
+    },
+    {
+      "path": "Reports/CarryFlow",
+      "role": "terminal_hypothesis_results"
+    },
+    {
+      "path": "Reports/StrategyLab",
+      "role": "terminal_strategy_family_results"
+    },
+    {
+      "path": "Reports/SimpleResearch/reset_v1",
+      "role": "uniform_costed_batch_result"
+    },
+    {
+      "path": "Reports/ResearchArchive/archive_check_v1.json",
+      "role": "final_archive_integrity_check"
+    }
+  ],
+  "cleanup": {
+    "performed_on": "2026-08-03",
+    "removed_approx_gib": 13.15,
+    "removed_classes": [
+      "bitget_data_v1_raw_event_store",
+      "bitget_data_v2_intermediate_store",
+      "old_carryflow_campaigns_and_tapes",
+      "obsolete_mexc_and_binance_retrodata",
+      "runtime_results_logs_and_state",
+      "generated_freqtrade_databases_and_logs",
+      "unpromoted_genetic_model_checkpoints",
+      "ignored_intermediate_reports_and_ledgers",
+      "test_and_python_caches"
+    ],
+    "protected_local_classes": [
+      "virtual_environments",
+      "local_secrets_and_exchange_settings",
+      "user_supplied_source_reports"
+    ]
+  }
+}
