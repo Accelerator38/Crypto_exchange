@@ -134,6 +134,22 @@
       "evidence": "Reports/SimpleResearch/reset_v1/batch_report.md"
     },
     {
+      "id": "SIMPLE-EMA-NEUTRAL-HARD-V1",
+      "family": "regime_filtered_trend",
+      "status": "TERMINAL_REJECTED",
+      "claim": "EMA 12/48 is profitable when positions are restricted to neutral BTC market hours.",
+      "verdict": "Sealed 14-day holdback produced 91 trades, -0.96 bps gross mean, -16.96 bps stress mean, -36.36 bps LCB and negative results in both halves.",
+      "evidence": "Reports/SimpleResearch/ema_neutral_confirmation_v1/confirmation_report.md"
+    },
+    {
+      "id": "SIMPLE-EMA-NEUTRAL-ENTRY-V1",
+      "family": "regime_filtered_trend",
+      "status": "TERMINAL_REJECTED",
+      "claim": "EMA 12/48 trades entered in neutral BTC hours preserve the historical regime slice edge.",
+      "verdict": "Exact entry-only diagnostic produced 53 trades, -44.45 bps gross mean, -60.45 bps stress mean, -91.23 bps LCB and negative results in both halves.",
+      "evidence": "Reports/SimpleResearch/ema_trend_12_48_neutral_entry_v1/confirmation_report.md"
+    },
+    {
       "id": "DATA-MICROSTRUCTURE-V3",
       "family": "execution_research",
       "status": "CALIBRATION_ONLY",

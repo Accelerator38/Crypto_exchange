@@ -1,0 +1,86 @@
+{
+  "schema_version": "simple_research.sealed_diagnostic.v1",
+  "candidate_id": "ema_trend_12_48_neutral_entry_v1",
+  "registration_status": "sealed_before_entry_gate_diagnostic_run",
+  "registered_at": "2026-08-03T11:50:00Z",
+  "registered_from_revision": "03c421cee12e4a3c2b40f9b998691ebea7a85cb1",
+  "selection_origin": {
+    "report": "Reports/ModelRegimeAudit/current_models_by_regime_v1.json",
+    "selection_trials_debt": 51,
+    "selected_slice": "ema_trend_12_48_v1 trades entered in neutral",
+    "related_opened_candidate": "ema_trend_12_48_neutral_v1",
+    "discovery_data_end_exclusive": "2026-07-15T00:00:00Z"
+  },
+  "candidate": {
+    "kind": "ema_trend",
+    "params": {
+      "fast": 12,
+      "slow": 48,
+      "threshold_bps": 5.0
+    },
+    "allowed_market_regimes": [
+      "neutral"
+    ],
+    "regime_gate_semantics": "entry_only_follow_base_target_after_entry",
+    "regime_source": "BTC/USDT",
+    "regime_timeframe": "1h",
+    "execution": "bar_close_target_executed_at_next_bar_open"
+  },
+  "confirmation_dataset": {
+    "classification": "diagnostic_replay_not_independent_confirmation",
+    "start_inclusive": "2026-07-15T00:00:00Z",
+    "end_exclusive": "2026-07-29T00:00:00Z",
+    "symbols": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "BNB/USDT",
+      "XRP/USDT",
+      "DOGE/USDT",
+      "ADA/USDT",
+      "LINK/USDT"
+    ],
+    "warmup_tape": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet",
+    "warmup_tape_sha256": "ead9db0169be907f85e143d9672769fbf49044afa315c499808b399ebf05290f",
+    "extension_source": "Retrodate/bitget_1m_discovery_v1_20260615_20260728/crypto_1m_2026_all_symbols.csv",
+    "extension_source_sha256": "28cd57573c8915f6f8417476e6666f6998e4789fb0ba1674b9b64656ec6ff92e",
+    "extension_integrity_manifest": "Retrodate/bitget_1m_discovery_v1_20260615_20260728/integrity_manifest.json",
+    "extension_integrity_manifest_sha256": "d9521f1a748e768f2d6157c374cdaf0fb4d0e9eec5736a973478d8d461dadd31",
+    "extension_resample": "complete_1m_candles_to_1h_ohlcv_utc",
+    "require_overlap_ohlc_parity": true,
+    "minimum_calendar_days_for_confirmation": 30
+  },
+  "costs": {
+    "base": {
+      "fee_bps_per_fill": 4.0,
+      "slippage_bps_per_fill": 2.0
+    },
+    "stress": {
+      "fee_bps_per_fill": 4.0,
+      "slippage_bps_per_fill": 4.0
+    }
+  },
+  "confirmation_gate": {
+    "minimum_closed_trades": 30,
+    "minimum_fills": 60,
+    "minimum_symbols_with_trades": 4,
+    "maximum_symbol_trade_share": 0.35,
+    "require_positive_stress_mean_net_bps": true,
+    "require_positive_stress_lcb_95": true,
+    "require_positive_selection_adjusted_lcb_95": true,
+    "require_positive_stress_mean_in_both_time_halves": true,
+    "maximum_drawdown": 0.2,
+    "block_bootstrap": {
+      "seed": 20260803,
+      "replicates": 5000,
+      "block_hours": 24,
+      "confidence": 0.95,
+      "require_positive_total_return_lcb": true
+    }
+  },
+  "independent_confirmation_authority": false,
+  "orders_enabled": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "promotion_authority": false
+}
