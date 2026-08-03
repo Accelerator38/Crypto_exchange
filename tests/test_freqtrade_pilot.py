@@ -141,3 +141,26 @@ def test_long_horizon_report_never_promotes_when_present() -> None:
     assert all(
         item["rows"] == 39744 for item in report["conversion"]["pairs"].values()
     )
+
+
+def test_regime_attribution_is_diagnostic_and_lagged() -> None:
+    runner = (ROOT / "tools" / "run_freqtrade_long_horizon_v1.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'decision_timestamp = int(trade["open_timestamp"]) - 3_600_000' in runner
+    assert '"used_by_strategy": False' in runner
+    assert 'REGIME_ORDER = ("bullish", "bearish", "volatile_mixed"' in runner
+
+    report_path = ROOT / "Reports" / "FreqtradePilot" / "long_horizon_trend_v1.json"
+    if report_path.exists():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["regime_diagnostic"]["used_by_strategy"] is False
+        assert report["regime_diagnostic"]["attribution_time"] == (
+            "last_closed_hour_before_trade_entry"
+        )
+        assert all(
+            values[cost]["market_regimes"]["unknown"]["closed_trades"] == 0
+            for values in report["evaluations"].values()
+            for cost in ("base", "stress")
+        )

@@ -1,6 +1,6 @@
 {
   "schema_version": "panteon.freqtrade_candidate_report.v1",
-  "generated_at": "2026-08-03T08:54:21.150934+00:00",
+  "generated_at": "2026-08-03T10:57:45.228167+00:00",
   "status": "TERMINAL_REJECTED_RETROSPECTIVE",
   "candidate_id": "long_horizon_trend_1h_v1",
   "candidate_contract_sha256": "1241abd3a1e4a287df8e408f3a3c66ad4b099699a54ef352d8a992b50c726a6a",
@@ -78,6 +78,20 @@
       }
     }
   },
+  "regime_diagnostic": {
+    "source": "BTC/USDT:USDT",
+    "timeframe": "1h",
+    "attribution_time": "last_closed_hour_before_trade_entry",
+    "trend_priority": true,
+    "ema_fast_hours": 72,
+    "ema_slow_hours": 336,
+    "momentum_hours": 168,
+    "atr_hours": 14,
+    "volatility_percentile_lookback_hours": 4320,
+    "low_vol_percentile": 0.25,
+    "high_vol_percentile": 0.75,
+    "used_by_strategy": false
+  },
   "funding_assumption": {
     "rate": 0,
     "reason": "canonical dataset has no historical funding series",
@@ -94,14 +108,17 @@
         "fee_per_fill": 0.0004,
         "fills": 452,
         "closed_trades": 226,
+        "wins": 77,
+        "win_rate": 0.3407079646017699,
         "mean_net_bps": 36.31262333128324,
+        "median_net_bps": -181.4694282821619,
         "lcb_95_net_bps": -90.53888176048756,
+        "profit_factor": 1.172356435447,
+        "net_profit_abs": 8.59898163,
         "profit_total_abs": 8.59898163,
         "profit_total_ratio": 0.00859898163,
-        "profit_factor": 1.172356435447,
         "max_drawdown_abs": 9.240877479999996,
         "max_drawdown_account": 0.009142488442054614,
-        "wins": 77,
         "losses": 149,
         "backtest_start": "2022-01-30 04:00:00",
         "backtest_end": "2024-01-01 00:00:00",
@@ -211,55 +228,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 123,
+            "wins": 47,
+            "win_rate": 0.3821138211382114,
             "mean_net_bps": 46.75830735319977,
-            "lcb_95_net_bps": -150.85443498668945
+            "median_net_bps": -200.53720792263246,
+            "lcb_95_net_bps": -150.85443498668945,
+            "profit_factor": 1.1880345063608324,
+            "net_profit_abs": 5.59084192
           },
           "SHORT": {
             "closed_trades": 103,
+            "wins": 30,
+            "win_rate": 0.2912621359223301,
             "mean_net_bps": 23.838651149771266,
-            "lcb_95_net_bps": -124.8063027022321
+            "median_net_bps": -172.10573845560742,
+            "lcb_95_net_bps": -124.8063027022321,
+            "profit_factor": 1.1009950209694293,
+            "net_profit_abs": 3.0081397100000005
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 35,
+            "wins": 11,
+            "win_rate": 0.3142857142857143,
             "mean_net_bps": 5.776902238798235,
-            "lcb_95_net_bps": -156.9152588481543
+            "median_net_bps": -184.2601160222946,
+            "lcb_95_net_bps": -156.9152588481543,
+            "profit_factor": 1.0336642150807456,
+            "net_profit_abs": -0.23866027999999995
           },
           "ETH/USDT:USDT": {
             "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -337.8292191871234,
-            "lcb_95_net_bps": -938.7863180125526
+            "median_net_bps": -442.8160457319109,
+            "lcb_95_net_bps": -938.7863180125526,
+            "profit_factor": 0.19010159485475586,
+            "net_profit_abs": -0.97285964
           },
           "SOL/USDT:USDT": {
             "closed_trades": 42,
+            "wins": 18,
+            "win_rate": 0.42857142857142855,
             "mean_net_bps": 176.07045356597084,
-            "lcb_95_net_bps": -107.83014845783865
+            "median_net_bps": -50.54633743791237,
+            "lcb_95_net_bps": -107.83014845783865,
+            "profit_factor": 1.7389159067959918,
+            "net_profit_abs": 7.62019452
           },
           "XRP/USDT:USDT": {
             "closed_trades": 32,
+            "wins": 10,
+            "win_rate": 0.3125,
             "mean_net_bps": -101.15116656075197,
-            "lcb_95_net_bps": -282.0978036989367
+            "median_net_bps": -190.57549344926025,
+            "lcb_95_net_bps": -282.0978036989367,
+            "profit_factor": 0.5991401560573401,
+            "net_profit_abs": -3.1325751299999998
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 29,
+            "wins": 6,
+            "win_rate": 0.20689655172413793,
             "mean_net_bps": 87.17654501534336,
-            "lcb_95_net_bps": -652.5369253223736
+            "median_net_bps": -315.836769733583,
+            "lcb_95_net_bps": -652.5369253223736,
+            "profit_factor": 1.2307009838514944,
+            "net_profit_abs": 2.5153803000000003
           },
           "ADA/USDT:USDT": {
             "closed_trades": 34,
+            "wins": 9,
+            "win_rate": 0.2647058823529412,
             "mean_net_bps": -22.808820734712178,
-            "lcb_95_net_bps": -201.74149697303795
+            "median_net_bps": -155.44321880454208,
+            "lcb_95_net_bps": -201.74149697303795,
+            "profit_factor": 0.8936792977465403,
+            "net_profit_abs": -0.7689718599999998
           },
           "BNB/USDT:USDT": {
             "closed_trades": 30,
+            "wins": 12,
+            "win_rate": 0.4,
             "mean_net_bps": -34.812216825208864,
-            "lcb_95_net_bps": -243.92971603747367
+            "median_net_bps": -193.3489340471453,
+            "lcb_95_net_bps": -243.92971603747367,
+            "profit_factor": 0.8447584342666529,
+            "net_profit_abs": -0.41226388000000014
           },
           "LINK/USDT:USDT": {
             "closed_trades": 21,
+            "wins": 10,
+            "win_rate": 0.47619047619047616,
             "mean_net_bps": 197.69399221610732,
-            "lcb_95_net_bps": -250.55380293979917
+            "median_net_bps": -29.97838400732104,
+            "lcb_95_net_bps": -250.55380293979917,
+            "profit_factor": 1.9067916124054525,
+            "net_profit_abs": 3.9887376000000003
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 84,
+            "wins": 35,
+            "win_rate": 0.4166666666666667,
+            "mean_net_bps": 146.87061960171818,
+            "median_net_bps": -166.26759697071063,
+            "lcb_95_net_bps": -129.11469353830202,
+            "profit_factor": 1.6980371312192677,
+            "net_profit_abs": 12.22927334
+          },
+          "bearish": {
+            "closed_trades": 68,
+            "wins": 17,
+            "win_rate": 0.25,
+            "mean_net_bps": -11.743101225706509,
+            "median_net_bps": -208.71002298709985,
+            "lcb_95_net_bps": -208.7887531017978,
+            "profit_factor": 0.956770805141086,
+            "net_profit_abs": -0.5893545499999996
+          },
+          "volatile_mixed": {
+            "closed_trades": 13,
+            "wins": 1,
+            "win_rate": 0.07692307692307693,
+            "mean_net_bps": -403.87149145605974,
+            "median_net_bps": -508.9894131767802,
+            "lcb_95_net_bps": -651.1773683938552,
+            "profit_factor": 0.145764985334168,
+            "net_profit_abs": -4.79652069
+          },
+          "range_low_vol": {
+            "closed_trades": 25,
+            "wins": 12,
+            "win_rate": 0.48,
+            "mean_net_bps": 172.54089531167583,
+            "median_net_bps": -69.72253694116405,
+            "lcb_95_net_bps": -35.53962059606371,
+            "profit_factor": 2.455257543507182,
+            "net_profit_abs": 3.8599906
+          },
+          "neutral": {
+            "closed_trades": 36,
+            "wins": 12,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": -66.53170233859417,
+            "median_net_bps": -167.3446517225736,
+            "lcb_95_net_bps": -279.8124122810082,
+            "profit_factor": 0.7515868933265452,
+            "net_profit_abs": -2.10440707
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -270,20 +399,23 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\development\\fee_400\\backtest-result-2026-08-03_11-53-40.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\development\\fee_400\\backtest-result-2026-08-03_13-57-00.zip"
       },
       "stress": {
         "fee_per_fill": 0.0008,
         "fills": 452,
         "closed_trades": 226,
+        "wins": 76,
+        "win_rate": 0.336283185840708,
         "mean_net_bps": 28.30124740050262,
+        "median_net_bps": -189.32111457755764,
         "lcb_95_net_bps": -98.50640577841178,
+        "profit_factor": 1.1364324862396682,
+        "net_profit_abs": 6.95513927,
         "profit_total_abs": 6.95513927,
         "profit_total_ratio": 0.00695513927,
-        "profit_factor": 1.1364324862396682,
         "max_drawdown_abs": 9.63068893,
         "max_drawdown_account": 0.009535812166218738,
-        "wins": 76,
         "losses": 150,
         "backtest_start": "2022-01-30 04:00:00",
         "backtest_end": "2024-01-01 00:00:00",
@@ -393,55 +525,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 123,
+            "wins": 46,
+            "win_rate": 0.37398373983739835,
             "mean_net_bps": 38.724111884061415,
-            "lcb_95_net_bps": -158.73060352280902
+            "median_net_bps": -208.37365392725644,
+            "lcb_95_net_bps": -158.73060352280902,
+            "profit_factor": 1.1528080618710002,
+            "net_profit_abs": 4.71288485
           },
           "SHORT": {
             "closed_trades": 103,
+            "wins": 30,
+            "win_rate": 0.2912621359223301,
             "mean_net_bps": 15.854525735670277,
-            "lcb_95_net_bps": -132.9093916866531
+            "median_net_bps": -180.2466820289032,
+            "lcb_95_net_bps": -132.9093916866531,
+            "profit_factor": 1.0655419329470601,
+            "net_profit_abs": 2.2422544199999996
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 35,
+            "wins": 11,
+            "win_rate": 0.3142857142857143,
             "mean_net_bps": -2.238872704303781,
-            "lcb_95_net_bps": -164.92873713095972
+            "median_net_bps": -192.4107869917149,
+            "lcb_95_net_bps": -164.92873713095972,
+            "profit_factor": 0.9873550175191428,
+            "net_profit_abs": -0.48328055999999997
           },
           "ETH/USDT:USDT": {
             "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -346.10279464019845,
-            "lcb_95_net_bps": -947.540851681881
+            "median_net_bps": -451.17364428234816,
+            "lcb_95_net_bps": -947.540851681881,
+            "profit_factor": 0.18139283963924935,
+            "net_profit_abs": -0.99881928
           },
           "SOL/USDT:USDT": {
             "closed_trades": 42,
+            "wins": 18,
+            "win_rate": 0.42857142857142855,
             "mean_net_bps": 168.0188283445493,
-            "lcb_95_net_bps": -115.91018411754024
+            "median_net_bps": -58.58999454467569,
+            "lcb_95_net_bps": -115.91018411754024,
+            "profit_factor": 1.6917907357095694,
+            "net_profit_abs": 7.32053905
           },
           "XRP/USDT:USDT": {
             "closed_trades": 32,
+            "wins": 9,
+            "win_rate": 0.28125,
             "mean_net_bps": -109.10549822550914,
-            "lcb_95_net_bps": -290.0882500185361
+            "median_net_bps": -198.56452135422902,
+            "lcb_95_net_bps": -290.0882500185361,
+            "profit_factor": 0.5768709958193101,
+            "net_profit_abs": -3.38215023
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 29,
+            "wins": 6,
+            "win_rate": 0.20689655172413793,
             "mean_net_bps": 79.00816786948057,
-            "lcb_95_net_bps": -660.2094335925661
+            "median_net_bps": -323.58101110203717,
+            "lcb_95_net_bps": -660.2094335925661,
+            "profit_factor": 1.2056558713132215,
+            "net_profit_abs": 2.28198657
           },
           "ADA/USDT:USDT": {
             "closed_trades": 34,
+            "wins": 9,
+            "win_rate": 0.2647058823529412,
             "mean_net_bps": -30.670199912780678,
-            "lcb_95_net_bps": -209.6269050911856
+            "median_net_bps": -163.5708300380997,
+            "lcb_95_net_bps": -209.6269050911856,
+            "profit_factor": 0.8608128231222596,
+            "net_profit_abs": -1.0321837199999997
           },
           "BNB/USDT:USDT": {
             "closed_trades": 30,
+            "wins": 12,
+            "win_rate": 0.4,
             "mean_net_bps": -42.798620159710445,
-            "lcb_95_net_bps": -251.93481813363334
+            "median_net_bps": -201.33532503542423,
+            "lcb_95_net_bps": -251.93481813363334,
+            "profit_factor": 0.8131063671793479,
+            "net_profit_abs": -0.6124277600000002
           },
           "LINK/USDT:USDT": {
             "closed_trades": 21,
+            "wins": 10,
+            "win_rate": 0.47619047619047616,
             "mean_net_bps": 189.6592632114744,
-            "lcb_95_net_bps": -258.52646153880283
+            "median_net_bps": -37.95121471913628,
+            "lcb_95_net_bps": -258.52646153880283,
+            "profit_factor": 1.853713943763774,
+            "net_profit_abs": 3.8614752
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 84,
+            "wins": 34,
+            "win_rate": 0.40476190476190477,
+            "mean_net_bps": 138.7293792885846,
+            "median_net_bps": -174.13143987240312,
+            "lcb_95_net_bps": -137.0386116515956,
+            "profit_factor": 1.6454420798297442,
+            "net_profit_abs": 11.63184167
+          },
+          "bearish": {
+            "closed_trades": 68,
+            "wins": 17,
+            "win_rate": 0.25,
+            "mean_net_bps": -19.720264914301413,
+            "median_net_bps": -216.88026171545727,
+            "lcb_95_net_bps": -216.9177837580766,
+            "profit_factor": 0.929020859355766,
+            "net_profit_abs": -1.0951690800000002
+          },
+          "volatile_mixed": {
+            "closed_trades": 13,
+            "wins": 1,
+            "win_rate": 0.07692307692307693,
+            "mean_net_bps": -411.67787424761525,
+            "median_net_bps": -516.5791881649715,
+            "lcb_95_net_bps": -658.7733423543052,
+            "profit_factor": 0.14220098417248267,
+            "net_profit_abs": -4.89152438
+          },
+          "range_low_vol": {
+            "closed_trades": 25,
+            "wins": 12,
+            "win_rate": 0.48,
+            "mean_net_bps": 164.64567666344612,
+            "median_net_bps": -77.78154727586683,
+            "lcb_95_net_bps": -43.50613395611839,
+            "profit_factor": 2.3418072232282414,
+            "net_profit_abs": 3.6819661999999997
+          },
+          "neutral": {
+            "closed_trades": 36,
+            "wins": 12,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": -74.45937458117143,
+            "median_net_bps": -175.3522599798007,
+            "lcb_95_net_bps": -287.76703638728645,
+            "profit_factor": 0.7273648217483907,
+            "net_profit_abs": -2.37197514
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -452,7 +696,7 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\development\\fee_800\\backtest-result-2026-08-03_11-53-47.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\development\\fee_800\\backtest-result-2026-08-03_13-57-08.zip"
       }
     },
     "validation": {
@@ -461,14 +705,17 @@
         "fee_per_fill": 0.0004,
         "fills": 232,
         "closed_trades": 116,
+        "wins": 37,
+        "win_rate": 0.31896551724137934,
         "mean_net_bps": 142.31359722731352,
+        "median_net_bps": -193.27120514101156,
         "lcb_95_net_bps": -82.55774349602794,
+        "profit_factor": 1.66534916907139,
+        "net_profit_abs": 15.56540635,
         "profit_total_abs": 15.565406350000002,
         "profit_total_ratio": 0.015565406350000002,
-        "profit_factor": 1.66534916907139,
         "max_drawdown_abs": 4.65121766,
         "max_drawdown_account": 0.004651217660000043,
-        "wins": 37,
         "losses": 79,
         "backtest_start": "2024-01-04 00:00:00",
         "backtest_end": "2025-01-01 00:00:00",
@@ -578,55 +825,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 70,
+            "wins": 25,
+            "win_rate": 0.35714285714285715,
             "mean_net_bps": 303.56156813166547,
-            "lcb_95_net_bps": -54.47719612992239
+            "median_net_bps": -142.96320206312026,
+            "lcb_95_net_bps": -54.47719612992239,
+            "profit_factor": 2.494445727799136,
+            "net_profit_abs": 19.85209958
           },
           "SHORT": {
             "closed_trades": 46,
+            "wins": 12,
+            "win_rate": 0.2608695652173913,
             "mean_net_bps": -103.06374980104812,
-            "lcb_95_net_bps": -238.1380801955006
+            "median_net_bps": -273.48994846380424,
+            "lcb_95_net_bps": -238.1380801955006,
+            "profit_factor": 0.5777459779718617,
+            "net_profit_abs": -4.28669323
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 26,
+            "wins": 9,
+            "win_rate": 0.34615384615384615,
             "mean_net_bps": 65.70265352110549,
-            "lcb_95_net_bps": -177.59373893740798
+            "median_net_bps": -118.53213891610267,
+            "lcb_95_net_bps": -177.59373893740798,
+            "profit_factor": 1.4190516480000055,
+            "net_profit_abs": 0.5898271600000001
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 4,
+            "wins": 1,
+            "win_rate": 0.25,
             "mean_net_bps": -250.8327265976834,
-            "lcb_95_net_bps": -460.89128535541295
+            "median_net_bps": -271.84754070134795,
+            "lcb_95_net_bps": -460.89128535541295,
+            "profit_factor": 0.028261515573800196,
+            "net_profit_abs": -1.06044452
           },
           "XRP/USDT:USDT": {
             "closed_trades": 18,
+            "wins": 3,
+            "win_rate": 0.16666666666666666,
             "mean_net_bps": 145.69612511877867,
-            "lcb_95_net_bps": -452.64360931064607
+            "median_net_bps": -302.51427184363604,
+            "lcb_95_net_bps": -452.64360931064607,
+            "profit_factor": 1.4845384639475128,
+            "net_profit_abs": 2.75037011
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 23,
+            "wins": 10,
+            "win_rate": 0.43478260869565216,
             "mean_net_bps": 495.3066196725948,
-            "lcb_95_net_bps": -420.34443593732624
+            "median_net_bps": -184.50016643086116,
+            "lcb_95_net_bps": -420.34443593732624,
+            "profit_factor": 2.910730995265316,
+            "net_profit_abs": 11.3839305
           },
           "ADA/USDT:USDT": {
             "closed_trades": 21,
+            "wins": 8,
+            "win_rate": 0.38095238095238093,
             "mean_net_bps": -43.62149148708218,
-            "lcb_95_net_bps": -283.5549313712904
+            "median_net_bps": -160.90846419273672,
+            "lcb_95_net_bps": -283.5549313712904,
+            "profit_factor": 0.8092065632779634,
+            "net_profit_abs": -0.8395410999999998
           },
           "BNB/USDT:USDT": {
             "closed_trades": 18,
+            "wins": 4,
+            "win_rate": 0.2222222222222222,
             "mean_net_bps": 124.99542131080811,
-            "lcb_95_net_bps": -278.64056030670906
+            "median_net_bps": -164.4161485674088,
+            "lcb_95_net_bps": -278.64056030670906,
+            "profit_factor": 1.7618157883732248,
+            "net_profit_abs": 2.036809
           },
           "LINK/USDT:USDT": {
             "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": 75.8317377061405,
-            "lcb_95_net_bps": -525.6698809008813
+            "median_net_bps": -225.2687476379554,
+            "lcb_95_net_bps": -525.6698809008813,
+            "profit_factor": 1.376552590610412,
+            "net_profit_abs": 0.7044552000000002
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 54,
+            "wins": 20,
+            "win_rate": 0.37037037037037035,
+            "mean_net_bps": 97.88594041797626,
+            "median_net_bps": -152.33097220438913,
+            "lcb_95_net_bps": -125.2268226132108,
+            "profit_factor": 1.4448531753689773,
+            "net_profit_abs": 3.7171974299999997
+          },
+          "bearish": {
+            "closed_trades": 38,
+            "wins": 10,
+            "win_rate": 0.2631578947368421,
+            "mean_net_bps": -38.18888430906293,
+            "median_net_bps": -259.99367702959887,
+            "lcb_95_net_bps": -233.92949320137706,
+            "profit_factor": 0.8395360650687351,
+            "net_profit_abs": -0.8854875999999996
+          },
+          "volatile_mixed": {
+            "closed_trades": 5,
+            "wins": 1,
+            "win_rate": 0.2,
+            "mean_net_bps": 1798.705509841334,
+            "median_net_bps": -260.68021578636126,
+            "lcb_95_net_bps": -2313.6123413190917,
+            "profit_factor": 8.53989442781442,
+            "net_profit_abs": 9.08074246
+          },
+          "range_low_vol": {
+            "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 115.8585157048057,
+            "median_net_bps": -114.76682171154096,
+            "lcb_95_net_bps": -356.2836239520466,
+            "profit_factor": 1.8870716178291322,
+            "net_profit_abs": 0.6114068899999999
+          },
+          "neutral": {
+            "closed_trades": 13,
+            "wins": 4,
+            "win_rate": 0.3076923076923077,
+            "mean_net_bps": 229.6181120081952,
+            "median_net_bps": -213.32455436531853,
+            "lcb_95_net_bps": -464.0070772442442,
+            "profit_factor": 2.1732501637531754,
+            "net_profit_abs": 3.0415471700000003
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -637,20 +996,23 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\validation\\fee_400\\backtest-result-2026-08-03_11-53-53.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\validation\\fee_400\\backtest-result-2026-08-03_13-57-15.zip"
       },
       "stress": {
         "fee_per_fill": 0.0008,
         "fills": 232,
         "closed_trades": 116,
+        "wins": 37,
+        "win_rate": 0.31896551724137934,
         "mean_net_bps": 134.13505808797083,
+        "median_net_bps": -201.2681536860762,
         "lcb_95_net_bps": -90.57909308433588,
+        "profit_factor": 1.615189189198105,
+        "net_profit_abs": 14.73335171,
         "profit_total_abs": 14.733351710000003,
         "profit_total_ratio": 0.014733351710000002,
-        "profit_factor": 1.615189189198105,
         "max_drawdown_abs": 4.802470369999999,
         "max_drawdown_account": 0.004802470370000037,
-        "wins": 37,
         "losses": 79,
         "backtest_start": "2024-01-04 00:00:00",
         "backtest_end": "2025-01-01 00:00:00",
@@ -760,55 +1122,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 70,
+            "wins": 25,
+            "win_rate": 0.35714285714285715,
             "mean_net_bps": 295.32201185267405,
-            "lcb_95_net_bps": -62.43043578713031
+            "median_net_bps": -150.84567945893141,
+            "lcb_95_net_bps": -62.43043578713031,
+            "profit_factor": 2.4191017282523366,
+            "net_profit_abs": 19.361341120000002
           },
           "SHORT": {
             "closed_trades": 46,
+            "wins": 12,
+            "win_rate": 0.2608695652173913,
             "mean_net_bps": -111.14943677136017,
-            "lcb_95_net_bps": -246.33186996341078
+            "median_net_bps": -281.71202706176064,
+            "lcb_95_net_bps": -246.33186996341078,
+            "profit_factor": 0.5557411782278083,
+            "net_profit_abs": -4.62798941
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 26,
+            "wins": 9,
+            "win_rate": 0.34615384615384615,
             "mean_net_bps": 57.61486381949891,
-            "lcb_95_net_bps": -185.49797309267066
+            "median_net_bps": -126.5498253913643,
+            "lcb_95_net_bps": -185.49797309267066,
+            "profit_factor": 1.3557662436556308,
+            "net_profit_abs": 0.43668431
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 4,
+            "wins": 1,
+            "win_rate": 0.25,
             "mean_net_bps": -258.7516312366258,
-            "lcb_95_net_bps": -468.68114414056504
+            "median_net_bps": -279.8723269479794,
+            "lcb_95_net_bps": -468.68114414056504,
+            "profit_factor": 0.02003489738119263,
+            "net_profit_abs": -1.0937990499999999
           },
           "XRP/USDT:USDT": {
             "closed_trades": 18,
+            "wins": 3,
+            "win_rate": 0.16666666666666666,
             "mean_net_bps": 137.3506983868476,
-            "lcb_95_net_bps": -460.56174674777446
+            "median_net_bps": -310.5112198355444,
+            "lcb_95_net_bps": -460.56174674777446,
+            "profit_factor": 1.4468924791548965,
+            "net_profit_abs": 2.61011023
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 23,
+            "wins": 10,
+            "win_rate": 0.43478260869565216,
             "mean_net_bps": 486.8848582250868,
-            "lcb_95_net_bps": -428.07297341201803
+            "median_net_bps": -192.34943110400397,
+            "lcb_95_net_bps": -428.07297341201803,
+            "profit_factor": 2.8462259297419985,
+            "net_profit_abs": 11.196329980000002
           },
           "ADA/USDT:USDT": {
             "closed_trades": 21,
+            "wins": 8,
+            "win_rate": 0.38095238095238093,
             "mean_net_bps": -51.72941869810929,
-            "lcb_95_net_bps": -291.62804715737957
+            "median_net_bps": -168.7765987348949,
+            "lcb_95_net_bps": -291.62804715737957,
+            "profit_factor": 0.7786236162630727,
+            "net_profit_abs": -1.0050021599999999
           },
           "BNB/USDT:USDT": {
             "closed_trades": 18,
+            "wins": 4,
+            "win_rate": 0.2222222222222222,
             "mean_net_bps": 116.93136560072423,
-            "lcb_95_net_bps": -286.41331676000163
+            "median_net_bps": -172.2814720360709,
+            "lcb_95_net_bps": -286.41331676000163,
+            "profit_factor": 1.687027348326594,
+            "net_profit_abs": 1.9381180000000002
           },
           "LINK/USDT:USDT": {
             "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": 67.9292842585258,
-            "lcb_95_net_bps": -534.0274306423223
+            "median_net_bps": -233.25926820480987,
+            "lcb_95_net_bps": -534.0274306423223,
+            "profit_factor": 1.3284519485036914,
+            "net_profit_abs": 0.6509104
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 54,
+            "wins": 20,
+            "win_rate": 0.37037037037037035,
+            "mean_net_bps": 89.81085891528777,
+            "median_net_bps": -160.20596140173353,
+            "lcb_95_net_bps": -133.12348542622163,
+            "profit_factor": 1.399336733372014,
+            "net_profit_abs": 3.34682883
+          },
+          "bearish": {
+            "closed_trades": 38,
+            "wins": 10,
+            "win_rate": 0.2631578947368421,
+            "mean_net_bps": -46.30084862385998,
+            "median_net_bps": -267.9978349341611,
+            "lcb_95_net_bps": -242.07409170043036,
+            "profit_factor": 0.8102880213518816,
+            "net_profit_abs": -1.16127817
+          },
+          "volatile_mixed": {
+            "closed_trades": 5,
+            "wins": 1,
+            "win_rate": 0.2,
+            "mean_net_bps": 1788.9971725760518,
+            "median_net_bps": -268.4685587688089,
+            "lcb_95_net_bps": -2320.1757206295524,
+            "profit_factor": 8.300889059342774,
+            "net_profit_abs": 9.04038491
+          },
+          "range_low_vol": {
+            "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 107.5835232984239,
+            "median_net_bps": -122.7787751781438,
+            "lcb_95_net_bps": -364.29506209930366,
+            "profit_factor": 1.7909381553307098,
+            "net_profit_abs": 0.56469378
+          },
+          "neutral": {
+            "closed_trades": 13,
+            "wins": 4,
+            "win_rate": 0.3076923076923077,
+            "mean_net_bps": 221.448123216535,
+            "median_net_bps": -221.49848619720171,
+            "lcb_95_net_bps": -471.68787666020046,
+            "profit_factor": 2.100480562820328,
+            "net_profit_abs": 2.9427223600000003
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -819,7 +1293,7 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\validation\\fee_800\\backtest-result-2026-08-03_11-53-59.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\validation\\fee_800\\backtest-result-2026-08-03_13-57-21.zip"
       }
     },
     "oos": {
@@ -828,14 +1302,17 @@
         "fee_per_fill": 0.0004,
         "fills": 192,
         "closed_trades": 96,
+        "wins": 39,
+        "win_rate": 0.40625,
         "mean_net_bps": 53.53687963596367,
+        "median_net_bps": -138.1307278024218,
         "lcb_95_net_bps": -76.02147091002563,
+        "profit_factor": 1.3140514863171426,
+        "net_profit_abs": 5.217699989999999,
         "profit_total_abs": 5.217699989999999,
         "profit_total_ratio": 0.005217699989999999,
-        "profit_factor": 1.3140514863171426,
         "max_drawdown_abs": 2.8431128099999996,
         "max_drawdown_account": 0.002841774890673338,
-        "wins": 39,
         "losses": 57,
         "backtest_start": "2025-01-04 00:00:00",
         "backtest_end": "2026-01-01 00:00:00",
@@ -970,55 +1447,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 38,
+            "wins": 19,
+            "win_rate": 0.5,
             "mean_net_bps": 152.64799033107505,
-            "lcb_95_net_bps": -107.25015701769684
+            "median_net_bps": -1.1653299107508563,
+            "lcb_95_net_bps": -107.25015701769684,
+            "profit_factor": 1.9726381429398079,
+            "net_profit_abs": 5.4523620699999995
           },
           "SHORT": {
             "closed_trades": 58,
+            "wins": 20,
+            "win_rate": 0.3448275862068966,
             "mean_net_bps": -11.397985991867914,
-            "lcb_95_net_bps": -141.24260680323533
+            "median_net_bps": -210.03079220594435,
+            "lcb_95_net_bps": -141.24260680323533,
+            "profit_factor": 0.9443832967199041,
+            "net_profit_abs": -0.23466208000000036
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 17,
+            "wins": 8,
+            "win_rate": 0.47058823529411764,
             "mean_net_bps": -31.77901199829924,
-            "lcb_95_net_bps": -177.14886680501886
+            "median_net_bps": -35.347546993901425,
+            "lcb_95_net_bps": -177.14886680501886,
+            "profit_factor": 0.7776370297381583,
+            "net_profit_abs": -0.55402818
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -203.08434200803728,
-            "lcb_95_net_bps": -433.79406603095765
+            "median_net_bps": -276.42128316032495,
+            "lcb_95_net_bps": -433.79406603095765,
+            "profit_factor": 0.042913187054046065,
+            "net_profit_abs": -0.7401216
           },
           "XRP/USDT:USDT": {
             "closed_trades": 16,
+            "wins": 5,
+            "win_rate": 0.3125,
             "mean_net_bps": 264.88657064887644,
-            "lcb_95_net_bps": -311.2096698002836
+            "median_net_bps": -138.31434355200156,
+            "lcb_95_net_bps": -311.2096698002836,
+            "profit_factor": 2.268884942449186,
+            "net_profit_abs": 4.278195599999999
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 20,
+            "wins": 8,
+            "win_rate": 0.4,
             "mean_net_bps": 56.863364418200355,
-            "lcb_95_net_bps": -197.91406830459135
+            "median_net_bps": -177.58224603908812,
+            "lcb_95_net_bps": -197.91406830459135,
+            "profit_factor": 1.2960444860611466,
+            "net_profit_abs": 1.11350789
           },
           "ADA/USDT:USDT": {
             "closed_trades": 19,
+            "wins": 8,
+            "win_rate": 0.42105263157894735,
             "mean_net_bps": 52.918384141823836,
-            "lcb_95_net_bps": -220.9491877210192
+            "median_net_bps": -83.60783493935345,
+            "lcb_95_net_bps": -220.9491877210192,
+            "profit_factor": 1.2486119683047985,
+            "net_profit_abs": 0.9188974399999997
           },
           "BNB/USDT:USDT": {
             "closed_trades": 20,
+            "wins": 8,
+            "win_rate": 0.4,
             "mean_net_bps": -28.645167561846925,
-            "lcb_95_net_bps": -205.1833109952863
+            "median_net_bps": -159.4777687283461,
+            "lcb_95_net_bps": -205.1833109952863,
+            "profit_factor": 0.8389912931562938,
+            "net_profit_abs": -0.38129596
           },
           "LINK/USDT:USDT": {
             "closed_trades": 1,
+            "wins": 1,
+            "win_rate": 1.0,
             "mean_net_bps": 481.03830884396683,
-            "lcb_95_net_bps": null
+            "median_net_bps": 481.03830884396683,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0.5825448
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 28,
+            "wins": 15,
+            "win_rate": 0.5357142857142857,
+            "mean_net_bps": 156.69015786689747,
+            "median_net_bps": 14.436707011370606,
+            "lcb_95_net_bps": -171.05506832702227,
+            "profit_factor": 2.0017360068344963,
+            "net_profit_abs": 4.031650119999999
+          },
+          "bearish": {
+            "closed_trades": 45,
+            "wins": 13,
+            "win_rate": 0.28888888888888886,
+            "mean_net_bps": -89.38648363209376,
+            "median_net_bps": -233.96447494954134,
+            "lcb_95_net_bps": -214.14216224249844,
+            "profit_factor": 0.6096201427732768,
+            "net_profit_abs": -3.39656978
+          },
+          "volatile_mixed": {
+            "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 66.54185556812737,
+            "median_net_bps": -182.73543669936015,
+            "lcb_95_net_bps": -499.45846957546644,
+            "profit_factor": 1.369389253520948,
+            "net_profit_abs": 0.40923553999999995
+          },
+          "range_low_vol": {
+            "closed_trades": 3,
+            "wins": 2,
+            "win_rate": 0.6666666666666666,
+            "mean_net_bps": 197.40007943156596,
+            "median_net_bps": 25.273748936971387,
+            "lcb_95_net_bps": -175.02707223377982,
+            "profit_factor": 60.47833837945426,
+            "net_profit_abs": 0.5151412000000001
+          },
+          "neutral": {
+            "closed_trades": 14,
+            "wins": 7,
+            "win_rate": 0.5,
+            "mean_net_bps": 270.22545832286715,
+            "median_net_bps": 58.95378121766256,
+            "lcb_95_net_bps": -86.59361063305545,
+            "profit_factor": 2.822408093809264,
+            "net_profit_abs": 3.6582429100000002
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -1029,20 +1618,23 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\oos\\fee_400\\backtest-result-2026-08-03_11-54-05.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\oos\\fee_400\\backtest-result-2026-08-03_13-57-27.zip"
       },
       "stress": {
         "fee_per_fill": 0.0008,
         "fills": 192,
         "closed_trades": 96,
+        "wins": 38,
+        "win_rate": 0.3958333333333333,
         "mean_net_bps": 45.48237881441548,
+        "median_net_bps": -146.24447770547897,
         "lcb_95_net_bps": -84.04818273286861,
+        "profit_factor": 1.263527687681739,
+        "net_profit_abs": 4.491120019999999,
         "profit_total_abs": 4.49112002,
         "profit_total_ratio": 0.00449112002,
-        "profit_factor": 1.263527687681739,
         "max_drawdown_abs": 3.0206256,
         "max_drawdown_account": 0.003019654001322356,
-        "wins": 38,
         "losses": 58,
         "backtest_start": "2025-01-04 00:00:00",
         "backtest_end": "2026-01-01 00:00:00",
@@ -1177,55 +1769,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 38,
+            "wins": 18,
+            "win_rate": 0.47368421052631576,
             "mean_net_bps": 144.52911761500826,
-            "lcb_95_net_bps": -115.16119425378287
+            "median_net_bps": -9.161202779875273,
+            "lcb_95_net_bps": -115.16119425378287,
+            "profit_factor": 1.89867297822179,
+            "net_profit_abs": 5.16985419
           },
           "SHORT": {
             "closed_trades": 58,
+            "wins": 20,
+            "win_rate": 0.3448275862068966,
             "mean_net_bps": -19.410312123903918,
-            "lcb_95_net_bps": -149.3588502937268
+            "median_net_bps": -218.20208897956542,
+            "lcb_95_net_bps": -149.3588502937268,
+            "profit_factor": 0.9077218389043407,
+            "net_profit_abs": -0.6787341700000001
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 17,
+            "wins": 7,
+            "win_rate": 0.4117647058823529,
             "mean_net_bps": -39.81202556433645,
-            "lcb_95_net_bps": -185.19304796482885
+            "median_net_bps": -43.316086171345745,
+            "lcb_95_net_bps": -185.19304796482885,
+            "profit_factor": 0.7295208491167373,
+            "net_profit_abs": -0.6949863500000001
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -211.25007838923185,
-            "lcb_95_net_bps": -442.1444441071339
+            "median_net_bps": -284.64571259044266,
+            "lcb_95_net_bps": -442.1444441071339,
+            "profit_factor": 0.02960699496698524,
+            "net_profit_abs": -0.7686432
           },
           "XRP/USDT:USDT": {
             "closed_trades": 16,
+            "wins": 5,
+            "win_rate": 0.3125,
             "mean_net_bps": 256.68702680874554,
-            "lcb_95_net_bps": -319.089933181492
+            "median_net_bps": -146.4282431831435,
+            "lcb_95_net_bps": -319.089933181492,
+            "profit_factor": 2.1977190198139582,
+            "net_profit_abs": 4.1671911999999995
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 20,
+            "wins": 8,
+            "win_rate": 0.4,
             "mean_net_bps": 48.832260374380525,
-            "lcb_95_net_bps": -206.01790690650762
+            "median_net_bps": -185.72757257303743,
+            "lcb_95_net_bps": -206.01790690650762,
+            "profit_factor": 1.2478969777403897,
+            "net_profit_abs": 0.95456581
           },
           "ADA/USDT:USDT": {
             "closed_trades": 19,
+            "wins": 8,
+            "win_rate": 0.42105263157894735,
             "mean_net_bps": 44.97681757092594,
-            "lcb_95_net_bps": -228.99784362128773
+            "median_net_bps": -91.67795183650122,
+            "lcb_95_net_bps": -228.99784362128773,
+            "profit_factor": 1.2067331539101789,
+            "net_profit_abs": 0.7727948800000001
           },
           "BNB/USDT:USDT": {
             "closed_trades": 20,
+            "wins": 8,
+            "win_rate": 0.4,
             "mean_net_bps": -36.73771120477054,
-            "lcb_95_net_bps": -213.19004131455222
+            "median_net_bps": -167.347041322493,
+            "lcb_95_net_bps": -213.19004131455222,
+            "profit_factor": 0.7989014710071266,
+            "net_profit_abs": -0.5128919199999998
           },
           "LINK/USDT:USDT": {
             "closed_trades": 1,
+            "wins": 1,
+            "win_rate": 1.0,
             "mean_net_bps": 473.4200897655805,
-            "lcb_95_net_bps": null
+            "median_net_bps": 473.4200897655805,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0.5730896
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 28,
+            "wins": 14,
+            "win_rate": 0.5,
+            "mean_net_bps": 148.56805289557283,
+            "median_net_bps": 6.4283574993731145,
+            "lcb_95_net_bps": -178.91508178793165,
+            "profit_factor": 1.9284354671137494,
+            "net_profit_abs": 3.81796029
+          },
+          "bearish": {
+            "closed_trades": 45,
+            "wins": 13,
+            "win_rate": 0.28888888888888886,
+            "mean_net_bps": -97.43995305674935,
+            "median_net_bps": -242.1549253305975,
+            "lcb_95_net_bps": -222.2924162430147,
+            "profit_factor": 0.5850550902769674,
+            "net_profit_abs": -3.74044957
+          },
+          "volatile_mixed": {
+            "closed_trades": 6,
+            "wins": 2,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 58.634783033651395,
+            "median_net_bps": -190.75625997589577,
+            "lcb_95_net_bps": -507.8055337830773,
+            "profit_factor": 1.315959376395309,
+            "net_profit_abs": 0.36296108999999993
+          },
+          "range_low_vol": {
+            "closed_trades": 3,
+            "wins": 2,
+            "win_rate": 0.6666666666666666,
+            "mean_net_bps": 189.2454186228527,
+            "median_net_bps": 17.25673417828056,
+            "lcb_95_net_bps": -182.88391035493254,
+            "profit_factor": 32.63684756947313,
+            "net_profit_abs": 0.4950824
+          },
+          "neutral": {
+            "closed_trades": 14,
+            "wins": 7,
+            "win_rate": 0.5,
+            "mean_net_bps": 262.26112989936433,
+            "median_net_bps": 50.99775628176545,
+            "lcb_95_net_bps": -94.5764651046718,
+            "profit_factor": 2.721956307409501,
+            "net_profit_abs": 3.55556581
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -1236,7 +1940,7 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\oos\\fee_800\\backtest-result-2026-08-03_11-54-10.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\oos\\fee_800\\backtest-result-2026-08-03_13-57-33.zip"
       }
     },
     "sanity": {
@@ -1245,14 +1949,17 @@
         "fee_per_fill": 0.0004,
         "fills": 112,
         "closed_trades": 56,
+        "wins": 16,
+        "win_rate": 0.2857142857142857,
         "mean_net_bps": -2.382349149134335,
+        "median_net_bps": -165.78645293787127,
         "lcb_95_net_bps": -160.31640434427595,
+        "profit_factor": 1.0238588154504005,
+        "net_profit_abs": 0.24283798000000026,
         "profit_total_abs": 0.24283798000000045,
         "profit_total_ratio": 0.00024283798000000045,
-        "profit_factor": 1.0238588154504005,
         "max_drawdown_abs": 6.081222350000001,
         "max_drawdown_account": 0.006067357332960966,
-        "wins": 16,
         "losses": 40,
         "backtest_start": "2026-01-04 00:00:00",
         "backtest_end": "2026-07-14 23:00:00",
@@ -1337,55 +2044,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 24,
+            "wins": 8,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -23.045435858265524,
-            "lcb_95_net_bps": -171.2978835954065
+            "median_net_bps": -123.66242998785629,
+            "lcb_95_net_bps": -171.2978835954065,
+            "profit_factor": 0.8426629773686676,
+            "net_profit_abs": -0.34843945000000004
           },
           "SHORT": {
             "closed_trades": 32,
+            "wins": 8,
+            "win_rate": 0.25,
             "mean_net_bps": 13.114965882714056,
-            "lcb_95_net_bps": -242.12008195130696
+            "median_net_bps": -226.6986777599352,
+            "lcb_95_net_bps": -242.12008195130696,
+            "profit_factor": 1.0556556074485222,
+            "net_profit_abs": 0.5912774300000003
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 5,
+            "wins": 4,
+            "win_rate": 0.8,
             "mean_net_bps": 352.36145148746743,
-            "lcb_95_net_bps": -178.01292743808062
+            "median_net_bps": 126.13557029492661,
+            "lcb_95_net_bps": -178.01292743808062,
+            "profit_factor": 11.314954344108855,
+            "net_profit_abs": 1.2978478800000002
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 4,
+            "wins": 2,
+            "win_rate": 0.5,
             "mean_net_bps": 10.285373078571176,
-            "lcb_95_net_bps": -412.44898143983454
+            "median_net_bps": -25.26993132044676,
+            "lcb_95_net_bps": -412.44898143983454,
+            "profit_factor": 1.058799660096134,
+            "net_profit_abs": 0.05952444000000001
           },
           "XRP/USDT:USDT": {
             "closed_trades": 8,
+            "wins": 1,
+            "win_rate": 0.125,
             "mean_net_bps": -291.1248624638968,
-            "lcb_95_net_bps": -556.2944181728458
+            "median_net_bps": -357.9417217849319,
+            "lcb_95_net_bps": -556.2944181728458,
+            "profit_factor": 0.17412906519390195,
+            "net_profit_abs": -2.15969912
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 11,
+            "wins": 3,
+            "win_rate": 0.2727272727272727,
             "mean_net_bps": -35.93676926583441,
-            "lcb_95_net_bps": -349.98575081762857
+            "median_net_bps": -214.39155083712038,
+            "lcb_95_net_bps": -349.98575081762857,
+            "profit_factor": 0.8460976351429187,
+            "net_profit_abs": -0.3949213400000001
           },
           "ADA/USDT:USDT": {
             "closed_trades": 11,
+            "wins": 2,
+            "win_rate": 0.18181818181818182,
             "mean_net_bps": 85.94978851064754,
-            "lcb_95_net_bps": -429.3799657025513
+            "median_net_bps": -122.00811976540005,
+            "lcb_95_net_bps": -429.3799657025513,
+            "profit_factor": 1.4222983769677486,
+            "net_profit_abs": 0.92414608
           },
           "BNB/USDT:USDT": {
             "closed_trades": 10,
+            "wins": 2,
+            "win_rate": 0.2,
             "mean_net_bps": -118.45227926100786,
-            "lcb_95_net_bps": -201.33160639261132
+            "median_net_bps": -134.77996116194245,
+            "lcb_95_net_bps": -201.33160639261132,
+            "profit_factor": 0.11451173984564303,
+            "net_profit_abs": -0.86873676
           },
           "LINK/USDT:USDT": {
             "closed_trades": 7,
+            "wins": 2,
+            "win_rate": 0.2857142857142857,
             "mean_net_bps": 146.716882646452,
-            "lcb_95_net_bps": -507.2649524765265
+            "median_net_bps": -148.2643936644995,
+            "lcb_95_net_bps": -507.2649524765265,
+            "profit_factor": 1.8415698287617146,
+            "net_profit_abs": 1.3846768000000003
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 17,
+            "wins": 3,
+            "win_rate": 0.17647058823529413,
+            "mean_net_bps": -140.93110360405385,
+            "median_net_bps": -161.0734498630707,
+            "lcb_95_net_bps": -262.8473608597985,
+            "profit_factor": 0.2315350730547784,
+            "net_profit_abs": -2.22965933
+          },
+          "bearish": {
+            "closed_trades": 28,
+            "wins": 8,
+            "win_rate": 0.2857142857142857,
+            "mean_net_bps": 43.28531867069983,
+            "median_net_bps": -226.6986777599352,
+            "lcb_95_net_bps": -246.55104582197458,
+            "profit_factor": 1.17863457087463,
+            "net_profit_abs": 1.3617662700000004
+          },
+          "volatile_mixed": {
+            "closed_trades": 2,
+            "wins": 1,
+            "win_rate": 0.5,
+            "mean_net_bps": 5.683184487801917,
+            "median_net_bps": 5.683184487801917,
+            "lcb_95_net_bps": -97.61654204503256,
+            "profit_factor": 1.241730876972917,
+            "net_profit_abs": -0.011324479999999998
+          },
+          "range_low_vol": {
+            "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 297.09878471696123,
+            "median_net_bps": -14.18479683411351,
+            "lcb_95_net_bps": -481.8478627073226,
+            "profit_factor": 5.5750813841706215,
+            "net_profit_abs": 0.9435352799999999
+          },
+          "neutral": {
+            "closed_trades": 6,
+            "wins": 3,
+            "win_rate": 0.5,
+            "mean_net_bps": 24.627593835218274,
+            "median_net_bps": -26.566891388249104,
+            "lcb_95_net_bps": -295.96489431720136,
+            "profit_factor": 1.1620757527375902,
+            "net_profit_abs": 0.17852023999999997
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -1397,20 +2216,23 @@
           "promotable_symbols_below_minimum"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\sanity\\fee_400\\backtest-result-2026-08-03_11-54-15.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\sanity\\fee_400\\backtest-result-2026-08-03_13-57-39.zip"
       },
       "stress": {
         "fee_per_fill": 0.0008,
         "fills": 112,
         "closed_trades": 56,
+        "wins": 16,
+        "win_rate": 0.2857142857142857,
         "mean_net_bps": -10.368913808443269,
+        "median_net_bps": -173.65068060100856,
         "lcb_95_net_bps": -168.3893183912348,
+        "profit_factor": 0.9846279128235154,
+        "net_profit_abs": -0.16095402000000006,
         "profit_total_abs": -0.16095402000000014,
         "profit_total_ratio": -0.00016095402000000015,
-        "profit_factor": 0.9846279128235154,
         "max_drawdown_abs": 6.324614690000001,
         "max_drawdown_account": 0.006310627534687919,
-        "wins": 16,
         "losses": 40,
         "backtest_start": "2026-01-04 00:00:00",
         "backtest_end": "2026-07-14 23:00:00",
@@ -1495,55 +2317,167 @@
         "directions": {
           "LONG": {
             "closed_trades": 24,
+            "wins": 8,
+            "win_rate": 0.3333333333333333,
             "mean_net_bps": -31.02381002603622,
-            "lcb_95_net_bps": -179.15770318954478
+            "median_net_bps": -131.5603434058311,
+            "lcb_95_net_bps": -179.15770318954478,
+            "profit_factor": 0.795473295808769,
+            "net_profit_abs": -0.5167088800000001
           },
           "SHORT": {
             "closed_trades": 32,
+            "wins": 8,
+            "win_rate": 0.25,
             "mean_net_bps": 5.122258354751442,
-            "lcb_95_net_bps": -250.3170591741513
+            "median_net_bps": -234.88331217478208,
+            "lcb_95_net_bps": -250.3170591741513,
+            "profit_factor": 1.0211807107875361,
+            "net_profit_abs": 0.3557548600000001
           }
         },
         "symbols": {
           "BTC/USDT:USDT": {
             "closed_trades": 5,
+            "wins": 4,
+            "win_rate": 0.8,
             "mean_net_bps": 344.6273361465472,
-            "lcb_95_net_bps": -186.14831466478898
+            "median_net_bps": 118.03790082320678,
+            "lcb_95_net_bps": -186.14831466478898,
+            "profit_factor": 10.644701948188295,
+            "net_profit_abs": 1.2664557699999999
           },
           "ETH/USDT:USDT": {
             "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
             "mean_net_bps": null,
-            "lcb_95_net_bps": null
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           },
           "SOL/USDT:USDT": {
             "closed_trades": 4,
+            "wins": 2,
+            "win_rate": 0.5,
             "mean_net_bps": 2.1159408326758467,
-            "lcb_95_net_bps": -420.4882476059031
+            "median_net_bps": -33.246527289513466,
+            "lcb_95_net_bps": -420.4882476059031,
+            "profit_factor": 1.011824515527035,
+            "net_profit_abs": 0.032348879999999997
           },
           "XRP/USDT:USDT": {
             "closed_trades": 8,
+            "wins": 1,
+            "win_rate": 0.125,
             "mean_net_bps": -299.2222662612451,
-            "lcb_95_net_bps": -564.492533414214
+            "median_net_bps": -366.2313936838143,
+            "lcb_95_net_bps": -564.492533414214,
+            "profit_factor": 0.16802421830835373,
+            "net_profit_abs": -2.21859824
           },
           "DOGE/USDT:USDT": {
             "closed_trades": 11,
+            "wins": 3,
+            "win_rate": 0.2727272727272727,
             "mean_net_bps": -43.99410368997375,
-            "lcb_95_net_bps": -358.0232737386157
+            "median_net_bps": -222.5663346068087,
+            "lcb_95_net_bps": -358.0232737386157,
+            "profit_factor": 0.8162157284276893,
+            "net_profit_abs": -0.48283267000000013
           },
           "ADA/USDT:USDT": {
             "closed_trades": 11,
+            "wins": 2,
+            "win_rate": 0.18181818181818182,
             "mean_net_bps": 77.92090596765256,
-            "lcb_95_net_bps": -437.7813445812994
+            "median_net_bps": -130.10896919325535,
+            "lcb_95_net_bps": -437.7813445812994,
+            "profit_factor": 1.3706291639371861,
+            "net_profit_abs": 0.83709216
           },
           "BNB/USDT:USDT": {
             "closed_trades": 10,
+            "wins": 2,
+            "win_rate": 0.2,
             "mean_net_bps": -126.39877172940014,
-            "lcb_95_net_bps": -209.26949732686114
+            "median_net_bps": -142.6689841083217,
+            "lcb_95_net_bps": -209.26949732686114,
+            "profit_factor": 0.09788727225239696,
+            "net_profit_abs": -0.92477352
           },
           "LINK/USDT:USDT": {
             "closed_trades": 7,
+            "wins": 2,
+            "win_rate": 0.2857142857142857,
             "mean_net_bps": 138.90162928474757,
-            "lcb_95_net_bps": -515.5688401751383
+            "median_net_bps": -156.14263337472053,
+            "lcb_95_net_bps": -515.5688401751383,
+            "profit_factor": 1.7713064637757547,
+            "net_profit_abs": 1.3293536000000001
+          }
+        },
+        "market_regimes": {
+          "bullish": {
+            "closed_trades": 17,
+            "wins": 3,
+            "win_rate": 0.17647058823529413,
+            "mean_net_bps": -148.81520663305267,
+            "median_net_bps": -168.9414464223154,
+            "lcb_95_net_bps": -270.633970076117,
+            "profit_factor": 0.21606877298680707,
+            "net_profit_abs": -2.3505286400000003
+          },
+          "bearish": {
+            "closed_trades": 28,
+            "wins": 8,
+            "win_rate": 0.2857142857142857,
+            "mean_net_bps": 35.311568771899495,
+            "median_net_bps": -234.88331217478208,
+            "lcb_95_net_bps": -254.7566265165097,
+            "profit_factor": 1.1422576672595337,
+            "net_profit_abs": 1.15703254
+          },
+          "volatile_mixed": {
+            "closed_trades": 2,
+            "wins": 1,
+            "win_rate": 0.5,
+            "mean_net_bps": -2.3154709863672593,
+            "median_net_bps": -2.3154709863672593,
+            "lcb_95_net_bps": -105.69787039603406,
+            "profit_factor": 0.9158952418712019,
+            "net_profit_abs": -0.023848960000000002
+          },
+          "range_low_vol": {
+            "closed_trades": 3,
+            "wins": 1,
+            "win_rate": 0.3333333333333333,
+            "mean_net_bps": 288.854698245697,
+            "median_net_bps": -22.19935305872864,
+            "lcb_95_net_bps": -489.4764855646466,
+            "profit_factor": 5.113131479117385,
+            "net_profit_abs": 0.92195056
+          },
+          "neutral": {
+            "closed_trades": 6,
+            "wins": 3,
+            "win_rate": 0.5,
+            "mean_net_bps": 16.423710185255,
+            "median_net_bps": -34.54245020379112,
+            "lcb_95_net_bps": -304.08293665856337,
+            "profit_factor": 1.1052697977203954,
+            "net_profit_abs": 0.13444047999999995
+          },
+          "unknown": {
+            "closed_trades": 0,
+            "wins": 0,
+            "win_rate": null,
+            "mean_net_bps": null,
+            "median_net_bps": null,
+            "lcb_95_net_bps": null,
+            "profit_factor": null,
+            "net_profit_abs": 0
           }
         },
         "promotable_symbols": 0,
@@ -1557,7 +2491,7 @@
           "does_not_beat_no_trade_baseline"
         ],
         "gate_pass": false,
-        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T085333Z\\sanity\\fee_800\\backtest-result-2026-08-03_11-54-20.zip"
+        "artifact": "freqtrade_pilot\\research_results\\long_horizon_trend_v1\\20260803T105652Z\\sanity\\fee_800\\backtest-result-2026-08-03_13-57-44.zip"
       }
     }
   },

@@ -93,5 +93,18 @@ API перед запуском кандидата:
 per-symbol LCB. Профиль `long_horizon_trend_1h_v1` больше не настраивается и не
 перезапускается как новый кандидат.
 
+### Диагностика рыночных режимов
+
+Режим не используется стратегией и присваивается сделке только после
+backtest. Источник режима - последняя закрытая BTC 1h свеча перед входом.
+Направленный тренд имеет приоритет: `bullish` требует
+`close > EMA72 > EMA336` и положительный 7-дневный momentum, `bearish` -
+зеркальное условие. Оставшиеся часы делятся на `volatile_mixed`,
+`range_low_vol` и `neutral` по ATR14/close относительно trailing 180-day
+25/75 percentiles.
+
+Ни один режим не прошёл одновременно base и stress LCB gate. Подробная таблица
+находится в `Reports/FreqtradePilot/long_horizon_trend_v1_regimes.md`.
+
 Docker опционален. На машине разработки Docker не был установлен. Compose
 закреплен на `freqtradeorg/freqtrade:2026.7`.

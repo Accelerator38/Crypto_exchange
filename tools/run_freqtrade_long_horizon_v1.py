@@ -28,10 +28,14 @@ DATA_ROOT = PILOT / "research_data" / "bitget"
 DATA_DIR = DATA_ROOT / "futures"
 RESULTS_ROOT = PILOT / "research_results" / "long_horizon_trend_v1"
 REPORT_PATH = ROOT / "Reports" / "FreqtradePilot" / "long_horizon_trend_v1.json"
+REGIME_REPORT_PATH = (
+    ROOT / "Reports" / "FreqtradePilot" / "long_horizon_trend_v1_regimes.md"
+)
 STRATEGY_NAME = "LongHorizonTrendStrategyV1"
 PAIR_WHITELIST = json.loads(BASE_CONFIG.read_text(encoding="utf-8"))["exchange"][
     "pair_whitelist"
 ]
+REGIME_ORDER = ("bullish", "bearish", "volatile_mixed", "range_low_vol", "neutral", "unknown")
 
 
 def _sha256(path: Path) -> str:
@@ -176,6 +180,40 @@ def _strategy_args() -> list[str]:
     ]
 
 
+def _market_regime_lookup() -> dict[int, str]:
+    frame = pd.read_feather(DATA_DIR / "BTC_USDT_USDT-1h-futures.feather")
+    frame = frame.sort_values("date").reset_index(drop=True)
+    close = frame["close"]
+    ema_fast = close.ewm(span=72, adjust=False).mean()
+    ema_slow = close.ewm(span=336, adjust=False).mean()
+    momentum_7d = close.pct_change(168)
+    previous_close = close.shift(1)
+    true_range = pd.concat(
+        [
+            frame["high"] - frame["low"],
+            (frame["high"] - previous_close).abs(),
+            (frame["low"] - previous_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    atr_pct = true_range.rolling(14, min_periods=14).mean() / close
+    trailing_atr = atr_pct.shift(1).rolling(4320, min_periods=720)
+    low_vol_threshold = trailing_atr.quantile(0.25)
+    high_vol_threshold = trailing_atr.quantile(0.75)
+
+    bullish = (close > ema_fast) & (ema_fast > ema_slow) & (momentum_7d > 0)
+    bearish = (close < ema_fast) & (ema_fast < ema_slow) & (momentum_7d < 0)
+    regimes = pd.Series("neutral", index=frame.index, dtype="object")
+    regimes.loc[atr_pct <= low_vol_threshold] = "range_low_vol"
+    regimes.loc[atr_pct >= high_vol_threshold] = "volatile_mixed"
+    regimes.loc[bullish] = "bullish"
+    regimes.loc[bearish] = "bearish"
+    timestamps = frame["date"].map(
+        lambda value: int(pd.Timestamp(value).timestamp() * 1000)
+    )
+    return {int(timestamp): str(regime) for timestamp, regime in zip(timestamps, regimes)}
+
+
 def _lcb(values: list[float]) -> float | None:
     if len(values) < 2:
         return None
@@ -184,14 +222,27 @@ def _lcb(values: list[float]) -> float | None:
 
 def _trade_group(trades: list[dict[str, Any]]) -> dict[str, Any]:
     values = [float(trade["profit_ratio"]) * 10_000.0 for trade in trades]
+    positive = sum(value for value in values if value > 0)
+    negative = abs(sum(value for value in values if value < 0))
+    wins = sum(value > 0 for value in values)
     return {
         "closed_trades": len(trades),
+        "wins": wins,
+        "win_rate": wins / len(trades) if trades else None,
         "mean_net_bps": statistics.mean(values) if values else None,
+        "median_net_bps": statistics.median(values) if values else None,
         "lcb_95_net_bps": _lcb(values),
+        "profit_factor": positive / negative if negative > 0 else None,
+        "net_profit_abs": sum(float(trade["profit_abs"]) for trade in trades),
     }
 
 
-def _parse_backtest(path: Path, fee: float, gates: dict[str, Any]) -> dict[str, Any]:
+def _parse_backtest(
+    path: Path,
+    fee: float,
+    gates: dict[str, Any],
+    regime_lookup: dict[int, str],
+) -> dict[str, Any]:
     with zipfile.ZipFile(path) as archive:
         name = next(
             item
@@ -210,6 +261,16 @@ def _parse_backtest(path: Path, fee: float, gates: dict[str, Any]) -> dict[str, 
     symbols = {
         pair: _trade_group([trade for trade in trades if trade["pair"] == pair])
         for pair in PAIR_WHITELIST
+    }
+    trades_by_regime: dict[str, list[dict[str, Any]]] = {
+        regime: [] for regime in REGIME_ORDER
+    }
+    for trade in trades:
+        decision_timestamp = int(trade["open_timestamp"]) - 3_600_000
+        regime = regime_lookup.get(decision_timestamp, "unknown")
+        trades_by_regime[regime].append(trade)
+    market_regimes = {
+        regime: _trade_group(trades_by_regime[regime]) for regime in REGIME_ORDER
     }
     promotable_symbols = sum(
         1
@@ -261,6 +322,7 @@ def _parse_backtest(path: Path, fee: float, gates: dict[str, Any]) -> dict[str, 
         "exit_reasons": result["exit_reason_summary"],
         "directions": directions,
         "symbols": symbols,
+        "market_regimes": market_regimes,
         "promotable_symbols": promotable_symbols,
         "failures": failures,
         "gate_pass": not failures,
@@ -274,6 +336,7 @@ def _run_backtest(
     fee: float,
     gates: dict[str, Any],
     run_dir: Path,
+    regime_lookup: dict[int, str],
 ) -> dict[str, Any]:
     result_dir = run_dir / split / f"fee_{int(fee * 1_000_000)}"
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -300,7 +363,72 @@ def _run_backtest(
     created = set(result_dir.glob("*.zip")) - before
     if not created:
         raise RuntimeError(f"No backtest artifact created for {split} fee={fee}")
-    return _parse_backtest(max(created, key=lambda path: path.stat().st_mtime), fee, gates)
+    return _parse_backtest(
+        max(created, key=lambda path: path.stat().st_mtime),
+        fee,
+        gates,
+        regime_lookup,
+    )
+
+
+def _number(value: float | None, digits: int = 2) -> str:
+    return "n/a" if value is None else f"{value:.{digits}f}"
+
+
+def _write_regime_report(report: dict[str, Any]) -> None:
+    lines = [
+        "# LongHorizonTrendStrategyV1 regime attribution",
+        "",
+        "This is a post-trade diagnostic. Regimes did not filter or alter entries.",
+        "Each trade is attributed using the last closed BTC 1h candle before entry.",
+        "",
+        "## Regime definition",
+        "",
+        "- `bullish`: BTC close > EMA72 > EMA336 and 7-day momentum > 0.",
+        "- `bearish`: BTC close < EMA72 < EMA336 and 7-day momentum < 0.",
+        "- `volatile_mixed`: no directional trend and ATR14/close is at or above its trailing 180-day 75th percentile.",
+        "- `range_low_vol`: no directional trend and ATR14/close is at or below its trailing 180-day 25th percentile.",
+        "- `neutral`: remaining observations.",
+        "",
+        "## Results",
+        "",
+        "| Window | Regime | Trades | Win % | Mean base bps | LCB base bps | Mean stress bps | LCB stress bps | Regime gate |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    minimum = 10
+    for split, values in report["evaluations"].items():
+        for regime in REGIME_ORDER:
+            base = values["base"]["market_regimes"][regime]
+            stress = values["stress"]["market_regimes"][regime]
+            if base["closed_trades"] == 0 and stress["closed_trades"] == 0:
+                continue
+            passed = (
+                base["closed_trades"] >= minimum
+                and stress["closed_trades"] >= minimum
+                and base["mean_net_bps"] is not None
+                and base["mean_net_bps"] > 0
+                and base["lcb_95_net_bps"] is not None
+                and base["lcb_95_net_bps"] > 0
+                and stress["mean_net_bps"] is not None
+                and stress["mean_net_bps"] > 0
+                and stress["lcb_95_net_bps"] is not None
+                and stress["lcb_95_net_bps"] > 0
+            )
+            lines.append(
+                f"| {split} | {regime} | {base['closed_trades']} | "
+                f"{_number(None if base['win_rate'] is None else base['win_rate'] * 100, 1)} | "
+                f"{_number(base['mean_net_bps'])} | {_number(base['lcb_95_net_bps'])} | "
+                f"{_number(stress['mean_net_bps'])} | {_number(stress['lcb_95_net_bps'])} | "
+                f"{'PASS' if passed else 'FAIL'} |"
+            )
+    lines.extend(
+        [
+            "",
+            "A regime passes only with at least 10 trades and positive mean and LCB under both base and stress costs.",
+            "No regime result grants paper/live authority.",
+        ]
+    )
+    REGIME_REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _live_guard_probe() -> dict[str, Any]:
@@ -328,6 +456,7 @@ def main() -> int:
         list(candidate["dataset"]["symbols"]),
         rebuild=args.rebuild_data,
     )
+    regime_lookup = _market_regime_lookup()
     listing = _run(
         _freqtrade()
         + [
@@ -357,6 +486,7 @@ def main() -> int:
                 candidate["costs"]["base_fee_per_fill"],
                 candidate["gates"],
                 run_dir,
+                regime_lookup,
             ),
             "stress": _run_backtest(
                 split,
@@ -364,6 +494,7 @@ def main() -> int:
                 candidate["costs"]["stress_fee_per_fill"],
                 candidate["gates"],
                 run_dir,
+                regime_lookup,
             ),
         }
 
@@ -384,6 +515,20 @@ def main() -> int:
         "candidate_contract_sha256": _sha256(CANDIDATE_PATH),
         "source": source,
         "conversion": conversion,
+        "regime_diagnostic": {
+            "source": "BTC/USDT:USDT",
+            "timeframe": "1h",
+            "attribution_time": "last_closed_hour_before_trade_entry",
+            "trend_priority": True,
+            "ema_fast_hours": 72,
+            "ema_slow_hours": 336,
+            "momentum_hours": 168,
+            "atr_hours": 14,
+            "volatility_percentile_lookback_hours": 4320,
+            "low_vol_percentile": 0.25,
+            "high_vol_percentile": 0.75,
+            "used_by_strategy": False,
+        },
         "funding_assumption": {
             "rate": 0,
             "reason": "canonical dataset has no historical funding series",
@@ -408,6 +553,7 @@ def main() -> int:
     REPORT_PATH.write_text(
         json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+    _write_regime_report(report)
     compact = {
         "status": report["status"],
         "failed_windows": failed_windows,
