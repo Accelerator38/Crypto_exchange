@@ -1,0 +1,18 @@
+services:
+  freqtrade:
+    image: freqtradeorg/freqtrade:2026.7
+    restart: "no"
+    environment:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    volumes:
+      - ./user_data:/freqtrade/user_data
+      - ../vendor/freqtrade/freqtrade/templates:/freqtrade/upstream_templates:ro
+    command: >
+      trade
+      --config /freqtrade/user_data/config.dryrun.json
+      --userdir /freqtrade/user_data
+      --strategy UpstreamSampleDryRunStrategy
+      --strategy-path /freqtrade/user_data/strategies
+      --db-url sqlite:////freqtrade/user_data/pilot.dryrun.sqlite
+      --logfile /freqtrade/user_data/logs/pilot.log
