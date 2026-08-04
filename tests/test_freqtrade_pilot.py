@@ -26,7 +26,8 @@ def test_pilot_config_is_dry_run_only() -> None:
     assert config["dry_run"] is True
     assert config["trading_mode"] == "futures"
     assert config["margin_mode"] == "isolated"
-    assert config["max_open_trades"] == 2
+    assert config["bot_name"] == "exia-bitget-foundation-v2"
+    assert config["max_open_trades"] == 1
     assert config["stake_amount"] == 10
     assert config["force_entry_enable"] is False
     assert config["exchange"]["name"] == "bitget"
@@ -65,7 +66,8 @@ def test_pinned_docker_image_matches_upstream_release() -> None:
 
     assert "freqtradeorg/freqtrade:2026.7" in compose
     assert "--userdir /freqtrade/user_data" in compose
-    assert "sqlite:////freqtrade/user_data/pilot.dryrun.sqlite" in compose
+    assert "--strategy ExiaMarketModeStrategyV2" in compose
+    assert "sqlite:////freqtrade/user_data/exia.dryrun.sqlite" in compose
     assert 'Path("/freqtrade/upstream_templates")' in strategy
 
 

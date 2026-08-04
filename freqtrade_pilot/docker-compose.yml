@@ -12,7 +12,7 @@ services:
       trade
       --config /freqtrade/user_data/config.dryrun.json
       --userdir /freqtrade/user_data
-      --strategy UpstreamSampleDryRunStrategy
+      --strategy ExiaMarketModeStrategyV2
       --strategy-path /freqtrade/user_data/strategies
-      --db-url sqlite:////freqtrade/user_data/pilot.dryrun.sqlite
-      --logfile /freqtrade/user_data/logs/pilot.log
+      --db-url sqlite:////freqtrade/user_data/exia.dryrun.sqlite
+      --logfile /freqtrade/user_data/logs/exia.log

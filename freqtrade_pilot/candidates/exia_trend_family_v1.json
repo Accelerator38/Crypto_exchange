@@ -1,0 +1,25 @@
+{
+  "schema_version": "exia.candidate_family.v1",
+  "family_id": "exia_trend_family_v1",
+  "trial_family": "exia_trend_v1",
+  "economic_claim": "Low-turnover entries aligned with a causal local trend state can retain positive expectancy after Bitget costs.",
+  "maximum_variants": 3,
+  "candidate_ids": [
+    "exia_trend_state_onset_v1",
+    "exia_trend_donchian48_v1",
+    "exia_trend_pullback_reclaim_v1"
+  ],
+  "selection_window": "development",
+  "selection_cost": "stress",
+  "selection_gate": {
+    "min_closed_trades": 20,
+    "min_mean_net_bps": 0,
+    "min_block_lcb_net_bps": 0,
+    "max_drawdown": 0.2
+  },
+  "maximum_candidates_opened_on_validation": 1,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

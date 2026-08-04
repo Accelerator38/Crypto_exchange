@@ -1,0 +1,164 @@
+{
+  "schema_version": "exia.family_development_decision.v1",
+  "generated_at": "2026-08-04T18:21:28.426391+00:00",
+  "family_id": "exia_trend_family_v1",
+  "family_sha256": "ad8fc0df80cace352687e00d9922499f78cede804f6674a662e3e62c2875f315",
+  "status": "NO_CANDIDATE_FOR_VALIDATION",
+  "taxonomy_runtime": {
+    "status": "REJECTED_RESTART_DEPENDENT",
+    "passed": false,
+    "taxonomy_sha256": "52fc69ea817834a6028be0f5a3f95cc0baa1c6110ad4977950075834bc8d1ac5",
+    "foundation_report": "Reports/Exia/market_mode_foundation_v1/distribution.json",
+    "foundation_report_sha256": "44e543e62b1b15e1311121dd0ff3967c44f84a73e2b12e7dae84591408fbaf34"
+  },
+  "validation_blockers": [
+    "NO_CANDIDATE_PASSED_ALPHA_GATE",
+    "REJECTED_RESTART_DEPENDENT"
+  ],
+  "selection_window": "development",
+  "selection_cost": "stress",
+  "selection_gate": {
+    "min_closed_trades": 20,
+    "min_mean_net_bps": 0,
+    "min_block_lcb_net_bps": 0,
+    "max_drawdown": 0.2
+  },
+  "lookahead_results_sha256": "fb6c57eacec030f814cb3d7f7e3a0ba93a266a2934ad4202cfc6bc53032c9292",
+  "candidates": [
+    {
+      "candidate_id": "exia_trend_state_onset_v1",
+      "experiment_id": "exia_trend_state_onset_v1_20260804t174403z_76f095c9",
+      "manifest_sha256": "776a1d6ccc755265d646587a91b56645ebc8b2ccac819f94922894a10502db4b",
+      "metrics_sha256": "6a3cb7eeb7ac48da616c48270a99da6f225be073ccd43e7a2cc12cf2e6c445e9",
+      "strategy_sha256": "1517f85c6a34ec47e3318cf5a2d06da6649bda4711be7af0abae271a2cb44419",
+      "strategy_class": "ExiaTrendStateOnsetV1",
+      "lookahead": {
+        "strategy": "ExiaTrendStateOnsetV1",
+        "has_bias": false,
+        "total_signals": 100,
+        "biased_entry_signals": 0,
+        "biased_exit_signals": 0,
+        "biased_indicators": ""
+      },
+      "lookahead_status": "PASS",
+      "closed_trades": 440,
+      "fills": 880,
+      "mean_net_bps": -3.151128744010686,
+      "block_lcb_net_bps": -40.31205996754809,
+      "baseline_differential_lcb_bps": -38.58582309200772,
+      "max_drawdown": 0.008941726310774115,
+      "gate_checks": {
+        "minimum_closed_trades": true,
+        "positive_mean_after_stress_costs": false,
+        "positive_block_lcb": false,
+        "positive_baseline_differential_lcb": false,
+        "drawdown_within_limit": true,
+        "catalog_scope_pass": false,
+        "lookahead_no_bias": true,
+        "taxonomy_restart_stable": false
+      },
+      "passes_alpha_gate": false,
+      "passes_selection_gate": false
+    },
+    {
+      "candidate_id": "exia_trend_donchian48_v1",
+      "experiment_id": "exia_trend_donchian48_v1_20260804t174433z_f3f3febc",
+      "manifest_sha256": "12521ad604e6f9f4fb884f285512fa38cab58ba2df7d29d87067df164b9d4c79",
+      "metrics_sha256": "ef861e31ff235dac7b8b215b5350122dfe41b89b2e5064c1107668006ae82774",
+      "strategy_sha256": "1517f85c6a34ec47e3318cf5a2d06da6649bda4711be7af0abae271a2cb44419",
+      "strategy_class": "ExiaTrendDonchian48V1",
+      "lookahead": {
+        "strategy": "ExiaTrendDonchian48V1",
+        "has_bias": false,
+        "total_signals": 100,
+        "biased_entry_signals": 0,
+        "biased_exit_signals": 0,
+        "biased_indicators": ""
+      },
+      "lookahead_status": "PASS",
+      "closed_trades": 293,
+      "fills": 586,
+      "mean_net_bps": -26.720317379957116,
+      "block_lcb_net_bps": -75.86617967120277,
+      "baseline_differential_lcb_bps": -77.47243829300962,
+      "max_drawdown": 0.013149395345571822,
+      "gate_checks": {
+        "minimum_closed_trades": true,
+        "positive_mean_after_stress_costs": false,
+        "positive_block_lcb": false,
+        "positive_baseline_differential_lcb": false,
+        "drawdown_within_limit": true,
+        "catalog_scope_pass": false,
+        "lookahead_no_bias": true,
+        "taxonomy_restart_stable": false
+      },
+      "passes_alpha_gate": false,
+      "passes_selection_gate": false
+    },
+    {
+      "candidate_id": "exia_trend_pullback_reclaim_v1",
+      "experiment_id": "exia_trend_pullback_reclaim_v1_20260804t174501z_c990f06e",
+      "manifest_sha256": "913bf8f4f10c9bb3e67123c997cb343da2fef52957cd762b26146866d398bba4",
+      "metrics_sha256": "17bf888165b9e5c92f5406df9e2b748186f67c3c79cd2edcf52f5d5696ea522f",
+      "strategy_sha256": "1517f85c6a34ec47e3318cf5a2d06da6649bda4711be7af0abae271a2cb44419",
+      "strategy_class": "ExiaTrendPullbackReclaimV1",
+      "lookahead": {
+        "strategy": "ExiaTrendPullbackReclaimV1",
+        "has_bias": false,
+        "total_signals": 100,
+        "biased_entry_signals": 0,
+        "biased_exit_signals": 0,
+        "biased_indicators": ""
+      },
+      "lookahead_status": "PASS",
+      "closed_trades": 398,
+      "fills": 796,
+      "mean_net_bps": 20.87409471160402,
+      "block_lcb_net_bps": -21.21643428546737,
+      "baseline_differential_lcb_bps": -20.01724975414507,
+      "max_drawdown": 0.006006564936739611,
+      "gate_checks": {
+        "minimum_closed_trades": true,
+        "positive_mean_after_stress_costs": true,
+        "positive_block_lcb": false,
+        "positive_baseline_differential_lcb": false,
+        "drawdown_within_limit": true,
+        "catalog_scope_pass": false,
+        "lookahead_no_bias": true,
+        "taxonomy_restart_stable": false
+      },
+      "passes_alpha_gate": false,
+      "passes_selection_gate": false
+    }
+  ],
+  "selected_candidate_ids": [],
+  "exploratory_positive_scopes": [
+    {
+      "candidate_id": "exia_trend_state_onset_v1",
+      "scope": "symbol",
+      "scope_value": "ADA",
+      "closed_trades": 48,
+      "fills": 96,
+      "mean_net_bps": 142.94479250396884,
+      "block_lcb_net_bps": 5.552080235716431,
+      "baseline_differential_lcb_bps": 11.816740352997455,
+      "selection_authority": false
+    },
+    {
+      "candidate_id": "exia_trend_donchian48_v1",
+      "scope": "symbol",
+      "scope_value": "ADA",
+      "closed_trades": 35,
+      "fills": 70,
+      "mean_net_bps": 234.78989453689246,
+      "block_lcb_net_bps": 12.649781349179118,
+      "baseline_differential_lcb_bps": 10.93052838430824,
+      "selection_authority": false
+    }
+  ],
+  "exploratory_scope_warning": "Subscope PASS rows were observed after evaluating the full family and cannot authorize validation without a new preregistered hypothesis.",
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

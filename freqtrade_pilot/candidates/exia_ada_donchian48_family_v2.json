@@ -1,0 +1,23 @@
+{
+  "schema_version": "exia.candidate_family.v1",
+  "family_id": "exia_ada_donchian48_family_v2",
+  "trial_family": "exia_ada_donchian48_v2",
+  "economic_claim": "A fixed ADA-only 48-hour breakout in aligned trend states retains positive costed expectancy under restart-stable taxonomy v2.",
+  "maximum_variants": 1,
+  "candidate_ids": [
+    "exia_ada_donchian48_v2"
+  ],
+  "selection_window": "development",
+  "selection_cost": "stress",
+  "selection_gate": {
+    "min_closed_trades": 20,
+    "min_mean_net_bps": 0,
+    "min_block_lcb_net_bps": 0,
+    "max_drawdown": 0.2
+  },
+  "maximum_candidates_opened_on_validation": 1,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

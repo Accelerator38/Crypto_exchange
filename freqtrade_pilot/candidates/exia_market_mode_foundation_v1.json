@@ -1,0 +1,50 @@
+{
+  "schema_version": "exia.candidate_spec.v1",
+  "candidate_id": "exia_market_mode_foundation_v1",
+  "family": "engineering_foundation",
+  "version": "1.0.0",
+  "status": "DEVELOPMENT",
+  "hypothesis": "A causal four-state classifier can be shared by Freqtrade backtest and dry/live without enabling entries or adding runtime routing.",
+  "strategy": {
+    "source": "freqtrade_pilot/user_data/strategies/ExiaMarketModeStrategyV1.py",
+    "class_name": "ExiaMarketModeStrategyV1",
+    "source_sha256": "dbb2185753ec7bf7496976dfcf7fb79b747151eb5d73abd97a3f6b5fbc0f5eec"
+  },
+  "taxonomy": {
+    "version": "exia.market_mode.v1",
+    "source": "freqtrade_pilot/user_data/strategies/exia_market_mode.py",
+    "source_sha256": "52fc69ea817834a6028be0f5a3f95cc0baa1c6110ad4977950075834bc8d1ac5"
+  },
+  "dataset": {
+    "dataset_id": "bitget_full8_hourly_2022_20260714_v3",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "manifest": "Retrodate/bitget_futures_history_v3_2022_20260714/integrity_manifest.json",
+    "timeframe": "1h",
+    "symbols": ["BTC", "ETH", "SOL", "XRP", "DOGE", "ADA", "BNB", "LINK"]
+  },
+  "splits": {
+    "development": "20220101-20240101",
+    "validation": "20240104-20250101",
+    "oos": "20250104-20260101",
+    "sanity": "20260104-20260715"
+  },
+  "allowed_market_states": ["TREND_UP", "TREND_DOWN", "RANGE", "UNSAFE"],
+  "parameters": {},
+  "costs": {
+    "base_fee_per_fill": 0.0004,
+    "stress_fee_per_fill": 0.0008
+  },
+  "risk": {
+    "max_open_trades": 1,
+    "stake_amount_usdt": 10,
+    "leverage": 1,
+    "daily_loss_limit_usdt": 10,
+    "expiry": null
+  },
+  "baseline_id": "no_trade_cash_v1",
+  "trial_family": "exia_foundation",
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

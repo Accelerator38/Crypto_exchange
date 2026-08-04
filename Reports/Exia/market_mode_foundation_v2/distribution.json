@@ -1,0 +1,472 @@
+{
+  "schema_version": "exia.market_mode_distribution.v2",
+  "generated_at": "2026-08-04T18:06:16.058175+00:00",
+  "status": "FOUNDATION_READY_FOR_CANDIDATE_DESIGN",
+  "candidate_id": "exia_market_mode_foundation_v2",
+  "source": {
+    "candidate_spec": "freqtrade_pilot/candidates/exia_market_mode_foundation_v2.json",
+    "candidate_spec_sha256": "08597ab7f4da517fd1bea6bd6aa6f3104224082097702e02d3959b3c015b91c0",
+    "feature_tape": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet",
+    "feature_tape_sha256": "ead9db0169be907f85e143d9672769fbf49044afa315c499808b399ebf05290f",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "taxonomy": "freqtrade_pilot/user_data/strategies/exia_market_mode_v2.py",
+    "taxonomy_sha256": "9643eec662c99fc1ccb0be3f96ebd9e43560b9221ab7f70dfdb11195e938a3de"
+  },
+  "contract": {
+    "timeframe": "1h",
+    "timeframe_seconds": 3600,
+    "ema_fast_hours": 24,
+    "ema_slow_hours": 96,
+    "momentum_hours": 24,
+    "realized_volatility_hours": 24,
+    "compression_slow_hours": 96,
+    "volatility_lookback_hours": 720,
+    "volatility_min_periods": 720,
+    "unsafe_volatility_percentile": 0.95,
+    "runtime_startup_bars": 999,
+    "state_age_cap_bars": 168,
+    "minimum_history_bars": 744
+  },
+  "checks": {
+    "candidate_contract_valid": true,
+    "dataset_sha_matches": true,
+    "all_four_states_observed": true,
+    "no_unknown_state": true,
+    "full8_present": true,
+    "runtime_startup_within_bitget_limit": true,
+    "restart_parity": true,
+    "entries_disabled": true
+  },
+  "observed_states": [
+    "RANGE",
+    "TREND_DOWN",
+    "TREND_UP",
+    "UNSAFE"
+  ],
+  "windows": {
+    "development": {
+      "rows": 140160,
+      "states": {
+        "TREND_UP": {
+          "rows": 33063,
+          "share": 0.23589469178082192
+        },
+        "TREND_DOWN": {
+          "rows": 37484,
+          "share": 0.26743721461187214
+        },
+        "RANGE": {
+          "rows": 55214,
+          "share": 0.39393550228310503
+        },
+        "UNSAFE": {
+          "rows": 14399,
+          "share": 0.10273259132420091
+        }
+      },
+      "episodes": 17665,
+      "median_episode_bars": 4,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 5952,
+      "volatility_shock_rows": 8447
+    },
+    "validation": {
+      "rows": 69696,
+      "states": {
+        "TREND_UP": {
+          "rows": 19462,
+          "share": 0.27924127640036733
+        },
+        "TREND_DOWN": {
+          "rows": 17131,
+          "share": 0.24579602846648302
+        },
+        "RANGE": {
+          "rows": 28483,
+          "share": 0.40867481634527086
+        },
+        "UNSAFE": {
+          "rows": 4620,
+          "share": 0.06628787878787878
+        }
+      },
+      "episodes": 9164,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 97,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 4620
+    },
+    "oos": {
+      "rows": 69504,
+      "states": {
+        "TREND_UP": {
+          "rows": 17310,
+          "share": 0.24905041436464087
+        },
+        "TREND_DOWN": {
+          "rows": 18989,
+          "share": 0.2732072974217311
+        },
+        "RANGE": {
+          "rows": 29192,
+          "share": 0.42000460405156537
+        },
+        "UNSAFE": {
+          "rows": 4013,
+          "share": 0.05773768416206262
+        }
+      },
+      "episodes": 9169,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 89,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 4013
+    },
+    "sanity": {
+      "rows": 36864,
+      "states": {
+        "TREND_UP": {
+          "rows": 8307,
+          "share": 0.225341796875
+        },
+        "TREND_DOWN": {
+          "rows": 11138,
+          "share": 0.3021375868055556
+        },
+        "RANGE": {
+          "rows": 15117,
+          "share": 0.4100748697916667
+        },
+        "UNSAFE": {
+          "rows": 2302,
+          "share": 0.062445746527777776
+        }
+      },
+      "episodes": 4850,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 100,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 2302
+    }
+  },
+  "symbols": {
+    "ADA/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 8922,
+          "share": 0.2244867149758454
+        },
+        "TREND_DOWN": {
+          "rows": 11841,
+          "share": 0.29793176328502413
+        },
+        "RANGE": {
+          "rows": 15999,
+          "share": 0.4025513285024155
+        },
+        "UNSAFE": {
+          "rows": 2982,
+          "share": 0.07503019323671498
+        }
+      },
+      "episodes": 5059,
+      "median_episode_bars": 4,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2238
+    },
+    "BNB/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10834,
+          "share": 0.2725946054750403
+        },
+        "TREND_DOWN": {
+          "rows": 9384,
+          "share": 0.2361111111111111
+        },
+        "RANGE": {
+          "rows": 16197,
+          "share": 0.4075332125603865
+        },
+        "UNSAFE": {
+          "rows": 3329,
+          "share": 0.08376107085346216
+        }
+      },
+      "episodes": 5314,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2585
+    },
+    "BTC/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10778,
+          "share": 0.27118558776167473
+        },
+        "TREND_DOWN": {
+          "rows": 9867,
+          "share": 0.2482638888888889
+        },
+        "RANGE": {
+          "rows": 15997,
+          "share": 0.40250100644122383
+        },
+        "UNSAFE": {
+          "rows": 3102,
+          "share": 0.07804951690821256
+        }
+      },
+      "episodes": 5129,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2358
+    },
+    "DOGE/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 8674,
+          "share": 0.21824677938808373
+        },
+        "TREND_DOWN": {
+          "rows": 11359,
+          "share": 0.2858041465378422
+        },
+        "RANGE": {
+          "rows": 16515,
+          "share": 0.4155344202898551
+        },
+        "UNSAFE": {
+          "rows": 3196,
+          "share": 0.080414653784219
+        }
+      },
+      "episodes": 5045,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2452
+    },
+    "ETH/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10422,
+          "share": 0.26222826086956524
+        },
+        "TREND_DOWN": {
+          "rows": 9954,
+          "share": 0.2504528985507246
+        },
+        "RANGE": {
+          "rows": 16233,
+          "share": 0.4084390096618358
+        },
+        "UNSAFE": {
+          "rows": 3135,
+          "share": 0.0788798309178744
+        }
+      },
+      "episodes": 5198,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2391
+    },
+    "LINK/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10049,
+          "share": 0.2528431964573269
+        },
+        "TREND_DOWN": {
+          "rows": 10664,
+          "share": 0.26831723027375204
+        },
+        "RANGE": {
+          "rows": 15760,
+          "share": 0.3965378421900161
+        },
+        "UNSAFE": {
+          "rows": 3271,
+          "share": 0.082301731078905
+        }
+      },
+      "episodes": 5142,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2527
+    },
+    "SOL/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10190,
+          "share": 0.25639090177133655
+        },
+        "TREND_DOWN": {
+          "rows": 10968,
+          "share": 0.27596618357487923
+        },
+        "RANGE": {
+          "rows": 15485,
+          "share": 0.38961855877616747
+        },
+        "UNSAFE": {
+          "rows": 3101,
+          "share": 0.07802435587761675
+        }
+      },
+      "episodes": 4967,
+      "median_episode_bars": 4,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2357
+    },
+    "XRP/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 9100,
+          "share": 0.22896537842190015
+        },
+        "TREND_DOWN": {
+          "rows": 10893,
+          "share": 0.2740791062801932
+        },
+        "RANGE": {
+          "rows": 16413,
+          "share": 0.4129679951690821
+        },
+        "UNSAFE": {
+          "rows": 3338,
+          "share": 0.08398752012882447
+        }
+      },
+      "episodes": 5185,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2594
+    }
+  },
+  "restart_parity": {
+    "ADA/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "BNB/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "BTC/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "DOGE/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "ETH/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "LINK/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "SOL/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    },
+    "XRP/USDT": {
+      "runtime_startup_bars": 999,
+      "checkpoint_step_bars": 720,
+      "checkpoints": 55,
+      "mismatches": {
+        "exia_market_mode": 0,
+        "exia_previous_mode": 0,
+        "exia_volatility_shock": 0,
+        "exia_contiguous_bars": 0,
+        "exia_state_age_bars": 0
+      },
+      "passed": true
+    }
+  },
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": "exia.experiment_manifest.v1",
+  "experiment_id": "exia_trend_state_onset_v1_20260804t174403z_76f095c9",
+  "candidate_id": "exia_trend_state_onset_v1",
+  "candidate_spec_sha256": "76f095c973e819a52ca0a422ec034dda33bfde3672bfc58c4035f4ee373c5b9f",
+  "strategy_sha256": "1517f85c6a34ec47e3318cf5a2d06da6649bda4711be7af0abae271a2cb44419",
+  "taxonomy_sha256": "52fc69ea817834a6028be0f5a3f95cc0baa1c6110ad4977950075834bc8d1ac5",
+  "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+  "freqtrade_revision": "52bc96f4480b1a0da6a9b455bd00b17fbb6786a5",
+  "experiment_code_sha256": "5dac4dbb3f33b298891a1cbe4a192d2343f3b574f4258a88345bae70f49465f9",
+  "runtime_config_sha256": "f56c8f57e3bc758fa0912d92b7c7faa546dbf5bdf6805b4ad07bdf6d4f5e3271",
+  "historical_config_sha256": "6b081b24b6f494a5899d6fc416ffcb70dbc710843f104556e0f871e3ba880456",
+  "timeranges": {
+    "development": "20220101-20240101"
+  },
+  "costs": {
+    "base": 0.0004,
+    "stress": 0.0008
+  },
+  "command": [
+    "E:\\Crypto_exchange\\.venv\\Scripts\\python.exe",
+    "tools\\run_exia_experiment_v1.py",
+    "--candidate",
+    "freqtrade_pilot\\candidates\\exia_trend_state_onset_v1.json",
+    "--splits",
+    "development"
+  ],
+  "orders_enabled": false,
+  "promotion_authority": false
+}

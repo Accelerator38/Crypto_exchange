@@ -1,0 +1,362 @@
+{
+  "schema_version": "exia.market_mode_distribution.v1",
+  "generated_at": "2026-08-04T15:17:40.567108+00:00",
+  "status": "FOUNDATION_READY_FOR_CANDIDATE_DESIGN",
+  "candidate_id": "exia_market_mode_foundation_v1",
+  "source": {
+    "candidate_spec": "freqtrade_pilot/candidates/exia_market_mode_foundation_v1.json",
+    "candidate_spec_sha256": "90dd1751ee38047f49d75065c7fa0966756671c1b4dc6c0875a2026a82da51a8",
+    "feature_tape": "Retrodate/simple_research_reset_v1/bitget_full8_1h.parquet",
+    "feature_tape_sha256": "ead9db0169be907f85e143d9672769fbf49044afa315c499808b399ebf05290f",
+    "dataset_sha256": "f1479f4e3b2d32a51dd588b8c9c241a8ef71d85da33a27d8dfd5b3a18314481e",
+    "taxonomy": "freqtrade_pilot/user_data/strategies/exia_market_mode.py",
+    "taxonomy_sha256": "52fc69ea817834a6028be0f5a3f95cc0baa1c6110ad4977950075834bc8d1ac5"
+  },
+  "contract": {
+    "timeframe": "1h",
+    "timeframe_seconds": 3600,
+    "ema_fast_hours": 24,
+    "ema_slow_hours": 96,
+    "momentum_hours": 24,
+    "realized_volatility_hours": 24,
+    "compression_slow_hours": 96,
+    "volatility_lookback_hours": 4320,
+    "volatility_min_periods": 720,
+    "unsafe_volatility_percentile": 0.95,
+    "minimum_history_bars": 744
+  },
+  "checks": {
+    "candidate_contract_valid": true,
+    "dataset_sha_matches": true,
+    "all_four_states_observed": true,
+    "no_unknown_state": true,
+    "full8_present": true,
+    "entries_disabled": true
+  },
+  "observed_states": [
+    "RANGE",
+    "TREND_DOWN",
+    "TREND_UP",
+    "UNSAFE"
+  ],
+  "windows": {
+    "development": {
+      "rows": 140160,
+      "states": {
+        "TREND_UP": {
+          "rows": 34170,
+          "share": 0.2437928082191781
+        },
+        "TREND_DOWN": {
+          "rows": 38590,
+          "share": 0.275328196347032
+        },
+        "RANGE": {
+          "rows": 55540,
+          "share": 0.3962614155251142
+        },
+        "UNSAFE": {
+          "rows": 11860,
+          "share": 0.0846175799086758
+        }
+      },
+      "episodes": 17332,
+      "median_episode_bars": 4.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 5952,
+      "volatility_shock_rows": 5908
+    },
+    "validation": {
+      "rows": 69696,
+      "states": {
+        "TREND_UP": {
+          "rows": 19500,
+          "share": 0.27978650137741046
+        },
+        "TREND_DOWN": {
+          "rows": 17121,
+          "share": 0.24565254820936638
+        },
+        "RANGE": {
+          "rows": 28033,
+          "share": 0.40221820477502296
+        },
+        "UNSAFE": {
+          "rows": 5042,
+          "share": 0.07234274563820019
+        }
+      },
+      "episodes": 8988,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 161,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 5042
+    },
+    "oos": {
+      "rows": 69504,
+      "states": {
+        "TREND_UP": {
+          "rows": 17842,
+          "share": 0.25670465009208104
+        },
+        "TREND_DOWN": {
+          "rows": 19024,
+          "share": 0.27371086556169427
+        },
+        "RANGE": {
+          "rows": 29425,
+          "share": 0.4233569290976059
+        },
+        "UNSAFE": {
+          "rows": 3213,
+          "share": 0.04622755524861878
+        }
+      },
+      "episodes": 9006,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 118,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 3213
+    },
+    "sanity": {
+      "rows": 36864,
+      "states": {
+        "TREND_UP": {
+          "rows": 8452,
+          "share": 0.2292751736111111
+        },
+        "TREND_DOWN": {
+          "rows": 11531,
+          "share": 0.3127983940972222
+        },
+        "RANGE": {
+          "rows": 15324,
+          "share": 0.4156901041666667
+        },
+        "UNSAFE": {
+          "rows": 1557,
+          "share": 0.042236328125
+        }
+      },
+      "episodes": 4797,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 83,
+      "warmup_rows": 0,
+      "volatility_shock_rows": 1557
+    }
+  },
+  "symbols": {
+    "ADA/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 9010,
+          "share": 0.22670088566827698
+        },
+        "TREND_DOWN": {
+          "rows": 12034,
+          "share": 0.3027878421900161
+        },
+        "RANGE": {
+          "rows": 15992,
+          "share": 0.4023752012882448
+        },
+        "UNSAFE": {
+          "rows": 2708,
+          "share": 0.06813607085346216
+        }
+      },
+      "episodes": 4967,
+      "median_episode_bars": 4,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 1964
+    },
+    "BNB/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 11206,
+          "share": 0.2819545088566828
+        },
+        "TREND_DOWN": {
+          "rows": 9445,
+          "share": 0.2376459339774557
+        },
+        "RANGE": {
+          "rows": 16291,
+          "share": 0.4098983494363929
+        },
+        "UNSAFE": {
+          "rows": 2802,
+          "share": 0.07050120772946859
+        }
+      },
+      "episodes": 5183,
+      "median_episode_bars": 3,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2058
+    },
+    "BTC/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 11000,
+          "share": 0.27677133655394526
+        },
+        "TREND_DOWN": {
+          "rows": 9970,
+          "share": 0.2508554750402576
+        },
+        "RANGE": {
+          "rows": 15924,
+          "share": 0.40066425120772947
+        },
+        "UNSAFE": {
+          "rows": 2850,
+          "share": 0.07170893719806763
+        }
+      },
+      "episodes": 5044,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2106
+    },
+    "DOGE/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 8937,
+          "share": 0.22486413043478262
+        },
+        "TREND_DOWN": {
+          "rows": 11581,
+          "share": 0.2913898953301127
+        },
+        "RANGE": {
+          "rows": 16539,
+          "share": 0.41613828502415456
+        },
+        "UNSAFE": {
+          "rows": 2687,
+          "share": 0.06760768921095008
+        }
+      },
+      "episodes": 4944,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 1943
+    },
+    "ETH/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10628,
+          "share": 0.26741143317230276
+        },
+        "TREND_DOWN": {
+          "rows": 10099,
+          "share": 0.25410124798711753
+        },
+        "RANGE": {
+          "rows": 16233,
+          "share": 0.4084390096618358
+        },
+        "UNSAFE": {
+          "rows": 2784,
+          "share": 0.07004830917874397
+        }
+      },
+      "episodes": 5118,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2040
+    },
+    "LINK/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10252,
+          "share": 0.25795088566827695
+        },
+        "TREND_DOWN": {
+          "rows": 11013,
+          "share": 0.2770984299516908
+        },
+        "RANGE": {
+          "rows": 15869,
+          "share": 0.3992803945249597
+        },
+        "UNSAFE": {
+          "rows": 2610,
+          "share": 0.06567028985507246
+        }
+      },
+      "episodes": 5016,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 1866
+    },
+    "SOL/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 10383,
+          "share": 0.2612469806763285
+        },
+        "TREND_DOWN": {
+          "rows": 11213,
+          "share": 0.2821306360708535
+        },
+        "RANGE": {
+          "rows": 15558,
+          "share": 0.3914553140096618
+        },
+        "UNSAFE": {
+          "rows": 2590,
+          "share": 0.0651670692431562
+        }
+      },
+      "episodes": 4890,
+      "median_episode_bars": 4.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 1846
+    },
+    "XRP/USDT": {
+      "rows": 39744,
+      "states": {
+        "TREND_UP": {
+          "rows": 9414,
+          "share": 0.2368659420289855
+        },
+        "TREND_DOWN": {
+          "rows": 11076,
+          "share": 0.27868357487922707
+        },
+        "RANGE": {
+          "rows": 16509,
+          "share": 0.4153834541062802
+        },
+        "UNSAFE": {
+          "rows": 2745,
+          "share": 0.06906702898550725
+        }
+      },
+      "episodes": 5144,
+      "median_episode_bars": 3.0,
+      "maximum_episode_bars": 744,
+      "warmup_rows": 744,
+      "volatility_shock_rows": 2001
+    }
+  },
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}
