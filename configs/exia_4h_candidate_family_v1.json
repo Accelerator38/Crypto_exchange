@@ -1,0 +1,198 @@
+{
+  "schema_version": "exia.4h_candidate_family.v1",
+  "family_id": "exia_4h_market_quorum_v1",
+  "preregistered_at": "2026-08-20T00:00:00Z",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "source": {
+    "manifest": "Retrodate\\exia_full8_timeframes_v1_20220101_20260714\\parts\\full8_240m.manifest.json",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7"
+  },
+  "windows": [
+    {
+      "name": "development",
+      "start": "2022-01-01T00:00:00Z",
+      "end": "2024-01-01T00:00:00Z"
+    },
+    {
+      "name": "validation",
+      "start": "2024-01-01T00:00:00Z",
+      "end": "2025-01-01T00:00:00Z"
+    },
+    {
+      "name": "oos",
+      "start": "2025-01-01T00:00:00Z",
+      "end": "2026-01-01T00:00:00Z"
+    },
+    {
+      "name": "sanity",
+      "start": "2026-01-01T00:00:00Z",
+      "end": "2026-07-15T00:00:00Z"
+    }
+  ],
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "alpha": 0.05,
+    "minimum_trades": 20
+  },
+  "stage_gate": {
+    "minimum_closed_trades": 20,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_lcb": true,
+    "require_positive_familywise_lcb": true,
+    "development_to_validation_limit": 4,
+    "validation_to_oos_limit": 2,
+    "oos_to_sanity_limit": 1
+  },
+  "market_regimes": [
+    "bullish",
+    "bearish",
+    "neutral"
+  ],
+  "candidates": [
+    {
+      "candidate_id": "MQ_EMA12_48_BOTH",
+      "hypothesis": "Medium 4h EMA trend has edge only when full8 return and breadth agree.",
+      "strategy_kind": "ema_market_quorum",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 20.0,
+        "slope_bars": 3,
+        "slope_threshold_bps": 10.0,
+        "market_lookback": 12,
+        "market_threshold_bps": 100.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    },
+    {
+      "candidate_id": "MQ_EMA12_48_LONG",
+      "hypothesis": "The medium EMA edge is concentrated in broad bullish regimes.",
+      "strategy_kind": "ema_market_quorum",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 20.0,
+        "slope_bars": 3,
+        "slope_threshold_bps": 10.0,
+        "market_lookback": 12,
+        "market_threshold_bps": 100.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "long"
+      }
+    },
+    {
+      "candidate_id": "MQ_EMA12_48_SHORT",
+      "hypothesis": "The medium EMA edge is concentrated in broad bearish regimes.",
+      "strategy_kind": "ema_market_quorum",
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 20.0,
+        "slope_bars": 3,
+        "slope_threshold_bps": 10.0,
+        "market_lookback": 12,
+        "market_threshold_bps": 100.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "short"
+      }
+    },
+    {
+      "candidate_id": "MQ_EMA24_96_BOTH",
+      "hypothesis": "A slower 4h EMA trend reduces turnover while retaining broad directional moves.",
+      "strategy_kind": "ema_market_quorum",
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 25.0,
+        "slope_bars": 6,
+        "slope_threshold_bps": 15.0,
+        "market_lookback": 24,
+        "market_threshold_bps": 150.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    },
+    {
+      "candidate_id": "MQ_DONCHIAN20_EMA48",
+      "hypothesis": "Short breakout entries are useful only when local EMA and broad market direction agree.",
+      "strategy_kind": "donchian_market_quorum",
+      "params": {
+        "window": 20,
+        "fast": 12,
+        "slow": 48,
+        "market_lookback": 12,
+        "market_threshold_bps": 100.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    },
+    {
+      "candidate_id": "MQ_DONCHIAN55_EMA96",
+      "hypothesis": "Longer breakouts reduce false entries when confirmed by the slow 4h market trend.",
+      "strategy_kind": "donchian_market_quorum",
+      "params": {
+        "window": 55,
+        "fast": 24,
+        "slow": 96,
+        "market_lookback": 24,
+        "market_threshold_bps": 150.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    },
+    {
+      "candidate_id": "MQ_REL_MOM12",
+      "hypothesis": "Only the strongest and weakest full8 quartiles retain momentum after costs in directional markets.",
+      "strategy_kind": "relative_momentum_market_quorum",
+      "params": {
+        "lookback": 12,
+        "rank_threshold": 0.75,
+        "market_lookback": 12,
+        "market_threshold_bps": 100.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    },
+    {
+      "candidate_id": "MQ_REL_MOM24",
+      "hypothesis": "A slower full8 relative-momentum rank reduces 4h turnover and improves costed expectancy.",
+      "strategy_kind": "relative_momentum_market_quorum",
+      "params": {
+        "lookback": 24,
+        "rank_threshold": 0.75,
+        "market_lookback": 24,
+        "market_threshold_bps": 150.0,
+        "market_breadth": 0.625,
+        "market_minimum_symbols": 6,
+        "market_confirmation_bars": 2,
+        "direction": "both"
+      }
+    }
+  ],
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

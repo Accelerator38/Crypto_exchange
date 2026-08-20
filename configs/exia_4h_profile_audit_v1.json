@@ -1,0 +1,851 @@
+{
+  "schema_version": "exia.timebase_audit.v1",
+  "audit_id": "exia_all_runtime_components_fixed_4h_profile_v1",
+  "purpose": "Evaluate every comparable runtime component under one explicit 4h-bar profile, with no profile selection from the post-2026-07-14 holdout.",
+  "action_normalization": "Legacy spot LONG actions 1/2/3 and simple-research targets are evaluated as equivalent linear Bitget futures positions under one disclosed cost model; source lane remains in trade evidence.",
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "runtime_profile_id": "exia_4h_v1",
+  "selection_policy": {
+    "primary_timeframe_minutes": 240,
+    "profile_family_size": 1,
+    "profile_selected_before_holdout": true,
+    "holdout_not_used_for_parameter_selection": true,
+    "baseline_audit": "Reports/Exia/timebase_audit_v4_full_minute"
+  },
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "alpha": 0.05,
+    "minimum_trades": 10
+  },
+  "stability_gate": {
+    "minimum_trades_per_timeframe": 20,
+    "minimum_adjacent_passing_timeframes": 1,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_lcb": true,
+    "require_no_negative_supported_split": true,
+    "supported_split_minimum_trades": 10
+  },
+  "panels": [
+    {
+      "panel_id": "full8_4h_20220101_20260714",
+      "manifest": "Retrodate\\bitget_full8_1m_panel_v1_20220101_20260714\\integrity_manifest.json",
+      "dataset_sha256": "2e488fb6cbe8cd05b63a9822c8603b0aa9ed4321fdcf2e8bebb64c2c0d8737ca",
+      "source_timeframe_minutes": 1,
+      "timeframes_minutes": [
+        240
+      ],
+      "windows": [
+        {
+          "name": "development",
+          "start": "2022-01-01T00:00:00Z",
+          "end": "2024-01-01T00:00:00Z"
+        },
+        {
+          "name": "validation",
+          "start": "2024-01-01T00:00:00Z",
+          "end": "2025-01-01T00:00:00Z"
+        },
+        {
+          "name": "oos",
+          "start": "2025-01-01T00:00:00Z",
+          "end": "2026-01-01T00:00:00Z"
+        },
+        {
+          "name": "sanity",
+          "start": "2026-01-01T00:00:00Z",
+          "end": "2026-07-15T00:00:00Z"
+        }
+      ],
+      "derived_timeframe_manifests": {
+        "240": {
+          "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+          "manifest": "Retrodate\\exia_full8_timeframes_v1_20220101_20260714\\parts\\full8_240m.manifest.json",
+          "source_timeframe_minutes": 1
+        }
+      }
+    },
+    {
+      "panel_id": "untouched_4h_20260715_20260817",
+      "manifest": "Retrodate\\bitget_full8_1m_holdout_panel_v1_20260715_20260817\\integrity_manifest.json",
+      "dataset_sha256": "520ce5f60e6a6a51b5b2d31773263dd999e2a4e69077dcb5a8e86c3a69bd92bd",
+      "source_timeframe_minutes": 1,
+      "timeframes_minutes": [
+        240
+      ],
+      "windows": [
+        {
+          "name": "prospective_holdout",
+          "start": "2026-07-15T00:00:00+00:00",
+          "end": "2026-08-18T00:00:00+00:00"
+        }
+      ],
+      "derived_timeframe_manifests": {
+        "240": {
+          "dataset_sha256": "c60fbac74acffed4d6f66ef59a62cf7b699bf7892fb29dc5dfc5f25d28927cb7",
+          "manifest": "Retrodate\\exia_full8_holdout_timeframes_v1_20260715_20260817\\parts\\full8_240m.manifest.json",
+          "source_timeframe_minutes": 1
+        }
+      }
+    }
+  ],
+  "modes": [
+    "fixed_profile"
+  ],
+  "agents": [
+    {
+      "agent_id": "Bomberman",
+      "component_type": "agent",
+      "class_name": "Bomberman",
+      "temporal_fields": [
+        "BOP_PERIOD",
+        "MRC_PERIOD",
+        "DONCHIAN_PERIOD",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "MomentumScalper",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveAfterShock",
+      "component_type": "agent",
+      "class_name": "LiveAfterShock",
+      "temporal_fields": [
+        "LOOKBACK",
+        "RSI_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveCrashHunter",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveTrendFollow",
+      "component_type": "agent",
+      "class_name": "LiveTrendFollow",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "RichardDennis",
+      "component_type": "agent",
+      "class_name": "RichardDennisTurtle",
+      "temporal_fields": [
+        "FAST_ENTRY",
+        "SLOW_ENTRY",
+        "FAST_EXIT",
+        "SLOW_EXIT",
+        "ATR_LB",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveRegimePullback",
+      "component_type": "agent",
+      "class_name": "LiveRegimePullback",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "CHECK_INT",
+        "PULLBACK_LB",
+        "TURN_LB",
+        "TREND_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveMeanRev",
+      "component_type": "agent",
+      "class_name": "LiveMeanRev",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "RSI_N",
+        "CHECK_INT",
+        "HOLD",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveVolCompress",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "FundingArbOHLCVFallback",
+      "component_type": "agent",
+      "class_name": "FundingArb",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_F",
+        "EMA_S",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "LiveOIBreakoutVolumeFallback",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {}
+    },
+    {
+      "agent_id": "VolBreakoutHunter",
+      "component_type": "agent",
+      "class_name": "VolBreakoutHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "ATR_WINDOW",
+        "VOL_WINDOW",
+        "HOLD",
+        "COOLDOWN_AFTER_STOP"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "BullRotationAgent",
+      "component_type": "agent",
+      "class_name": "BullRotationAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "REL_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "TURN_LB",
+        "PULLBACK_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "BearReliefFadeAgent",
+      "component_type": "agent",
+      "class_name": "BearReliefFadeAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "BOUNCE_LB",
+        "TURN_LB",
+        "RSI_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NeutralRangeScalper",
+      "component_type": "agent",
+      "class_name": "NeutralRangeScalper",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RANGE_LB",
+        "MARKET_LB",
+        "TURN_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NeutralLiquiditySweep",
+      "component_type": "agent",
+      "class_name": "NeutralLiquiditySweepAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "AnchorFlowMomentum",
+      "component_type": "agent",
+      "class_name": "AnchorFlowMomentumAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "FAST_LB",
+        "SLOW_LB",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "CrashPanicShortAgent",
+      "component_type": "agent",
+      "class_name": "CrashPanicShortAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "SHORT_LB",
+        "MID_LB",
+        "BREAKDOWN_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "ResearchValidatorAgent",
+      "component_type": "agent",
+      "class_name": "ResearchValidatorAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "BREAKOUT",
+        "VOL_WIN",
+        "NOISE_WIN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "CandlePatternAgent",
+      "component_type": "agent",
+      "class_name": "CandlePatternAgent",
+      "temporal_fields": [
+        "AGG_BARS",
+        "HISTORY_MAX",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "MeanRevConfirmedAgent",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "AdaptiveVolTrendAgent",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "AdaptiveVolTrendAgent",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_SLOW",
+        "ATR_N",
+        "CHECK_INT",
+        "HOLD_MAX"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "PlayerBomberman",
+      "component_type": "player",
+      "class_name": "PlayerBomberman",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {}
+    },
+    {
+      "agent_id": "PlayerFundingOHLCVFallback",
+      "component_type": "player",
+      "class_name": "PlayerFunding",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonCore",
+      "component_type": "player",
+      "class_name": "Panteon",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "constructor_kwargs": {
+        "enable_meta_players": false
+      },
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonResearch",
+      "component_type": "player",
+      "class_name": "PanteonResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonTrendResearch",
+      "component_type": "player",
+      "class_name": "PanteonTrendResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonMeanRevResearch",
+      "component_type": "player",
+      "class_name": "PanteonMeanRevResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonDefensiveResearch",
+      "component_type": "player",
+      "class_name": "PanteonDefensiveResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonConsensusResearch",
+      "component_type": "player",
+      "class_name": "PanteonConsensusResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonResilient",
+      "component_type": "player",
+      "class_name": "PanteonResilient",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "PanteonNextResearch",
+      "component_type": "player",
+      "module": "panteon",
+      "class_name": "PanteonNextResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {}
+    },
+    {
+      "agent_id": "NeuroPlayerStub",
+      "component_type": "player_control",
+      "class_name": "NeuroPlayer",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {}
+    },
+    {
+      "agent_id": "SR_Flat",
+      "component_type": "strategy_baseline",
+      "engine": "simple_research",
+      "strategy_kind": "flat",
+      "modes": [
+        "fixed_profile"
+      ],
+      "parameter_base_minutes": 240,
+      "temporal_fields": [],
+      "params": {}
+    },
+    {
+      "agent_id": "SR_LongOnly",
+      "component_type": "strategy_baseline",
+      "engine": "simple_research",
+      "strategy_kind": "long_only",
+      "modes": [
+        "fixed_profile"
+      ],
+      "parameter_base_minutes": 240,
+      "temporal_fields": [],
+      "params": {}
+    },
+    {
+      "agent_id": "SR_EMATrend12_48",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 12.0
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_EMATrend24_96",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 16.0
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_Donchian20",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 20
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_Donchian55",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 55
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_MeanReversion24",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "mean_reversion",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 24,
+        "entry_z": 2.5,
+        "exit_z": 0.5
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_VolCompressionBreakout",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "vol_compression",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast_span",
+        "slow_span",
+        "short_vol_window",
+        "long_vol_window",
+        "short_vol_min_periods",
+        "long_vol_min_periods",
+        "breakout_window"
+      ],
+      "params": {
+        "compression_threshold": 0.65,
+        "fast_span": 12,
+        "slow_span": 48,
+        "short_vol_window": 24,
+        "long_vol_window": 96,
+        "short_vol_min_periods": 12,
+        "long_vol_min_periods": 48,
+        "breakout_window": 20
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_RegimePullback12_48",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "regime_pullback",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "pullback_bps": 80.0
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "SR_CandleMomentum3",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 3,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  ],
+  "equivalent_components": [
+    {
+      "component": "SoloFundingArb",
+      "equivalent_to": "FundingArbOHLCVFallback",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveVolCompress",
+      "equivalent_to": "LiveVolCompress",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveRegimePullback",
+      "equivalent_to": "LiveRegimePullback",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveTrendFollow",
+      "equivalent_to": "LiveTrendFollow",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveCrashHunter",
+      "equivalent_to": "LiveCrashHunter",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloCandlePattern",
+      "equivalent_to": "CandlePatternAgent",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "PanteonPlayer",
+      "equivalent_to": "PanteonCore",
+      "reason": "source-level alias"
+    }
+  ],
+  "excluded_components": [
+    {
+      "component": "CarryFlowAgentV2",
+      "reason": "requires point-in-time funding, OI, crowding and basis; absent from the common OHLCV contract"
+    },
+    {
+      "component": "ExternalSignalAgent",
+      "reason": "requires an external timestamped signal file and is not an autonomous market strategy"
+    },
+    {
+      "component": "CrossExchangeSkewAgent",
+      "reason": "requires synchronized cross-exchange quotes"
+    },
+    {
+      "component": "FundingWindowAgent",
+      "reason": "requires point-in-time funding rates and sub-bar funding-cutoff timing"
+    },
+    {
+      "component": "GenomeEnsemble/Genetics",
+      "reason": "trained checkpoints have a fixed feature cadence and missing runtime dependency crypto_exchange"
+    },
+    {
+      "component": "DefensiveStopOverlayAgent",
+      "reason": "exit-only overlay requires externally synchronized positions and cannot be scored standalone"
+    },
+    {
+      "component": "MasterPlayer Alpha/Beta/Gamma/P7Ways/Ultima/Neuro",
+      "reason": "source dependencies crypto_agents.py and crypto_players.py are absent; current factory builds empty or invalid sub-agent pools"
+    },
+    {
+      "component": "Freqtrade Exia IStrategy classes",
+      "reason": "they require the separate Freqtrade portfolio/ROI/stoploss execution contract and cannot be mixed into the component ledger without changing semantics"
+    },
+    {
+      "component": "pair/portfolio/funding/basis StrategyLab families",
+      "reason": "their multi-leg or derivatives-context contract is not representable by a single-symbol OHLCV timebase audit"
+    }
+  ],
+  "stability_panel_id": "full8_4h_20220101_20260714",
+  "holdout_panel_id": "untouched_4h_20260715_20260817"
+}

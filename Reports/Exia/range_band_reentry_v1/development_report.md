@@ -1,6 +1,6 @@
-# exia_ada_donchian48_family_v2 - development decision
+# exia_range_band_reentry_family_v1 - development decision
 
-Generated: `2026-08-05T07:25:57.058720+00:00`
+Generated: `2026-08-05T07:26:01.344650+00:00`
 
 This is a development-only research decision. It cannot authorize paper or live trading.
 
@@ -12,7 +12,7 @@ Taxonomy runtime status: `PASS_RESTART_STABLE`.
 
 | Candidate | Trades | Fills | Mean net bps | Block LCB bps | Baseline diff LCB bps | Drawdown | Gate |
 |---|---:|---:|---:|---:|---:|---:|---|
-| exia_ada_donchian48_v2 | 180 | 360 | -9.193 | -80.011 | -78.371 | 0.009268 | FAIL |
+| exia_range_band_reentry_v1 | 481 | 962 | -18.973 | -31.584 | -32.409 | 0.008483 | FAIL |
 
 ## Development market-state breakdown
 
@@ -20,14 +20,14 @@ All four market states are shown for base and stress costs. These rows are diagn
 
 | Candidate | Cost | Market state | Trades | Fills | Mean net bps | Block LCB bps | Baseline diff LCB bps | Status |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| exia_ada_donchian48_v2 | base | TREND_UP | 85 | 170 | -2.965 | -112.093 | -122.918 | FAIL |
-| exia_ada_donchian48_v2 | base | TREND_DOWN | 95 | 190 | 0.389 | -80.594 | -85.375 | FAIL |
-| exia_ada_donchian48_v2 | base | RANGE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
-| exia_ada_donchian48_v2 | base | UNSAFE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
-| exia_ada_donchian48_v2 | stress | TREND_UP | 85 | 170 | -10.959 | -129.455 | -129.135 | FAIL |
-| exia_ada_donchian48_v2 | stress | TREND_DOWN | 95 | 190 | -7.613 | -89.407 | -89.352 | FAIL |
-| exia_ada_donchian48_v2 | stress | RANGE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
-| exia_ada_donchian48_v2 | stress | UNSAFE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | base | TREND_UP | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | base | TREND_DOWN | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | base | RANGE | 481 | 962 | -10.972 | -23.616 | -24.108 | FAIL |
+| exia_range_band_reentry_v1 | base | UNSAFE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | stress | TREND_UP | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | stress | TREND_DOWN | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
+| exia_range_band_reentry_v1 | stress | RANGE | 481 | 962 | -18.973 | -32.856 | -32.108 | FAIL |
+| exia_range_band_reentry_v1 | stress | UNSAFE | 0 | 0 | n/a | n/a | n/a | INSUFFICIENT |
 
 ## Exploratory positive subscopes
 
@@ -43,6 +43,6 @@ No validation, OOS, paper, or live stage is opened unless a candidate passes eve
 
 Selected for validation: `none`.
 
-Terminally rejected on development alpha: `exia_ada_donchian48_v2`.
+Terminally rejected on development alpha: `exia_range_band_reentry_v1`.
 
 All order and promotion authority flags remain false.

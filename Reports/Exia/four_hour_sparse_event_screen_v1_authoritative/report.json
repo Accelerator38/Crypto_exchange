@@ -1,0 +1,54 @@
+{
+  "schema_version": "exia.4h_sparse_event_screen_report.v1",
+  "generated_at": "2026-08-20T07:40:09.959495+00:00",
+  "family_id": "exia_4h_sparse_long_events_v1",
+  "family_sha256": "ddf5ed3176ce2e13ecf82981fd54b215b78ba067c0b2ac7828da8fb0a0d6928a",
+  "exit_family_sha256": "272c742c41fb23ff077e19b8ea6c21a94aa644472837064be22c72e382486d8d",
+  "entry_family_sha256": "3042e2834ff0d70cd0d3b7e29a418d7fd47f1ca49286e0ab0b825e6435c54f70",
+  "source_dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "fixed_position_policy": "ATR_BREAKEVEN_PROGRESS24",
+  "entry_mode": "event",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "verdict": "NO_SPARSE_EVENT_PASSED_STAGED_GATE",
+  "event_count": 4,
+  "stage_progression": {
+    "validation": [],
+    "oos": [],
+    "sanity": []
+  },
+  "final_passed": [],
+  "evaluated_configurations": 4,
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "artifacts": {
+    "metrics": {
+      "path": "Reports\\Exia\\four_hour_sparse_event_screen_v1_authoritative\\metrics.parquet",
+      "sha256": "62b9da84d4edfa847217a35a0c9d95ee1073ca0879134a1897a6a1ceb4cc4915"
+    },
+    "trades": {
+      "path": "Reports\\Exia\\four_hour_sparse_event_screen_v1_authoritative\\trades.parquet",
+      "sha256": "596cb7b85732d2f01fce9bf4805edc1a51482a1c5d7fa916484536165fa001f4"
+    },
+    "exit_reason_metrics": {
+      "path": "Reports\\Exia\\four_hour_sparse_event_screen_v1_authoritative\\exit_reason_metrics.parquet",
+      "sha256": "ff47f6d1e6afd7843c2bdda2c70d62e6f4bb20a2fadd8414b03928676a14a6df"
+    },
+    "symbol_metrics": {
+      "path": "Reports\\Exia\\four_hour_sparse_event_screen_v1_authoritative\\symbol_metrics.parquet",
+      "sha256": "951f82e17092219500d1cf7e1ec8dd01585c4b682df3a897ba30538bc3c3e78a"
+    },
+    "regime_metrics": {
+      "path": "Reports\\Exia\\four_hour_sparse_event_screen_v1_authoritative\\regime_metrics.parquet",
+      "sha256": "a70380cf18872ae748d8141a52516276963e8e0dee66ed4e7907eaa6d17ff842"
+    }
+  }
+}

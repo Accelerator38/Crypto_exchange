@@ -1,0 +1,130 @@
+{
+  "schema_version": "exia.4h_candidate_screen_report.v1",
+  "generated_at": "2026-08-20T07:03:46.968426+00:00",
+  "family_id": "exia_4h_market_quorum_v1",
+  "family_sha256": "3042e2834ff0d70cd0d3b7e29a418d7fd47f1ca49286e0ab0b825e6435c54f70",
+  "source_dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "verdict": "NO_4H_CANDIDATE_PASSED_STAGED_GATE",
+  "candidate_count": 8,
+  "stage_progression": {
+    "validation": [],
+    "oos": [],
+    "sanity": []
+  },
+  "final_passed": [],
+  "evaluated_configurations": 8,
+  "closed_trades": 10458,
+  "distribution_diagnostics": [
+    {
+      "candidate_id": "MQ_DONCHIAN20_EMA48",
+      "trades": 1300,
+      "median_stress_net_bps": -76.30744101308827,
+      "std_stress_net_bps": 531.5779841863948,
+      "p01_stress_net_bps": -996.8668667901846,
+      "worst_stress_net_bps": -1497.9052719991232,
+      "best_stress_net_bps": 4265.956864807994,
+      "mean_holding_bars": 8.325384615384616
+    },
+    {
+      "candidate_id": "MQ_DONCHIAN55_EMA96",
+      "trades": 794,
+      "median_stress_net_bps": -97.85698708953082,
+      "std_stress_net_bps": 780.0650471360149,
+      "p01_stress_net_bps": -944.8724265137711,
+      "worst_stress_net_bps": -1497.9052719991232,
+      "best_stress_net_bps": 11720.649001222993,
+      "mean_holding_bars": 13.43198992443325
+    },
+    {
+      "candidate_id": "MQ_EMA12_48_BOTH",
+      "trades": 1875,
+      "median_stress_net_bps": -54.02157275501372,
+      "std_stress_net_bps": 497.16477844022467,
+      "p01_stress_net_bps": -822.8671560328121,
+      "worst_stress_net_bps": -2308.571445925835,
+      "best_stress_net_bps": 4265.956864807994,
+      "mean_holding_bars": 7.607466666666666
+    },
+    {
+      "candidate_id": "MQ_EMA12_48_LONG",
+      "trades": 875,
+      "median_stress_net_bps": -52.01333638746817,
+      "std_stress_net_bps": 475.2803789221537,
+      "p01_stress_net_bps": -708.9699398862938,
+      "worst_stress_net_bps": -1221.6832353465174,
+      "best_stress_net_bps": 4265.956864807994,
+      "mean_holding_bars": 7.206857142857143
+    },
+    {
+      "candidate_id": "MQ_EMA12_48_SHORT",
+      "trades": 1000,
+      "median_stress_net_bps": -56.767143527270505,
+      "std_stress_net_bps": 515.4181884441285,
+      "p01_stress_net_bps": -1013.9808123860196,
+      "worst_stress_net_bps": -2308.571445925835,
+      "best_stress_net_bps": 3879.891800507184,
+      "mean_holding_bars": 7.958
+    },
+    {
+      "candidate_id": "MQ_EMA24_96_BOTH",
+      "trades": 1245,
+      "median_stress_net_bps": -77.53023006955638,
+      "std_stress_net_bps": 682.730435907029,
+      "p01_stress_net_bps": -991.4883471928243,
+      "worst_stress_net_bps": -1612.4184800557791,
+      "best_stress_net_bps": 11998.164575856703,
+      "mean_holding_bars": 12.000803212851405
+    },
+    {
+      "candidate_id": "MQ_REL_MOM12",
+      "trades": 1885,
+      "median_stress_net_bps": -39.62874515610791,
+      "std_stress_net_bps": 387.27734052953366,
+      "p01_stress_net_bps": -787.8085149900461,
+      "worst_stress_net_bps": -1564.4541439334887,
+      "best_stress_net_bps": 4417.031336536267,
+      "mean_holding_bars": 3.413793103448276
+    },
+    {
+      "candidate_id": "MQ_REL_MOM24",
+      "trades": 1484,
+      "median_stress_net_bps": -46.1311526850706,
+      "std_stress_net_bps": 499.89102681050707,
+      "p01_stress_net_bps": -797.1736951624154,
+      "worst_stress_net_bps": -1330.091000200439,
+      "best_stress_net_bps": 10506.264329701562,
+      "mean_holding_bars": 4.69743935309973
+    }
+  ],
+  "root_cause": "NEGATIVE_MEDIAN_AND_CLUSTERED_TAIL_RISK",
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "artifacts": {
+    "metrics": {
+      "path": "Reports\\Exia\\four_hour_candidate_screen_v1_final\\metrics.parquet",
+      "sha256": "ac4f269530aa4e4f59cfff4e2060bfe91a03172d30322b08b571af0a44221d40"
+    },
+    "trades": {
+      "path": "Reports\\Exia\\four_hour_candidate_screen_v1_final\\trades.parquet",
+      "sha256": "b404c668d4499e4649c7f462043a1e760e4a38beeebb5baa49536b27537ddac7"
+    },
+    "regime_metrics": {
+      "path": "Reports\\Exia\\four_hour_candidate_screen_v1_final\\regime_metrics.parquet",
+      "sha256": "38834631e850d9d8c77a7d737e6f30780850e19ab773730af207168e7a968473"
+    },
+    "symbol_metrics": {
+      "path": "Reports\\Exia\\four_hour_candidate_screen_v1_final\\symbol_metrics.parquet",
+      "sha256": "b6ed46ca7a8582410aaf202c1c4e07f6d306715469851d8a57d6179caedd5a0f"
+    }
+  }
+}

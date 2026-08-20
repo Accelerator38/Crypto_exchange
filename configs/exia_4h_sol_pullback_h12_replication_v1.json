@@ -1,0 +1,52 @@
+{
+  "schema_version": "exia.4h_single_slice_replication.v1",
+  "analysis_id": "exia_4h_sol_pullback_h12_replication_v1",
+  "preregistered_at": "2026-08-20T00:00:00Z",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "development_source": {
+    "feasibility_spec": "configs\\exia_4h_forward_feasibility_v1.json",
+    "feasibility_spec_sha256": "799a614422229935469cba484c16c4aed60296a71931c8e6bdcadfa4100209ff",
+    "report": "Reports\\Exia\\four_hour_forward_feasibility_v1_authoritative\\report.json",
+    "report_sha256": "fdb2c4e6ee98bf252e27de0ed5f448c34647b2a6d592a3e6472cd77a1e5e5f72",
+    "symbol_metrics": "Reports\\Exia\\four_hour_forward_feasibility_v1_authoritative\\symbol_metrics.parquet",
+    "symbol_metrics_sha256": "20f56350400a09c86bef273a6e0feb39c8b3225f54a28360a127c6de7c3ed63f"
+  },
+  "candidate": {
+    "candidate_id": "SOL_PULLBACK_H12_REPLICATION",
+    "source_combination_id": "BULL_TREND_FAST_RECLAIM__H12",
+    "event_id": "BULL_TREND_FAST_RECLAIM",
+    "symbol": "SOL/USDT",
+    "direction": "LONG",
+    "horizon_bars": 12
+  },
+  "evaluation_windows": [
+    "validation",
+    "oos",
+    "sanity"
+  ],
+  "bootstrap": {
+    "samples": 5000,
+    "alpha": 0.05,
+    "minimum_observations": 20
+  },
+  "stage_gate": {
+    "minimum_observations": 20,
+    "minimum_label_coverage": 0.95,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_median": true,
+    "require_positive_stress_lcb": true,
+    "require_positive_familywise_lcb": true,
+    "require_positive_mfe_surplus_lcb": true
+  },
+  "terminal_policy": {
+    "failure": "CLOSE_4H_LONG_TREND_BRANCH",
+    "success": "RESEARCH_CANDIDATE_ONLY"
+  },
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

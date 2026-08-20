@@ -1,8 +1,8 @@
 {
   "schema_version": "exia.family_development_decision.v1",
-  "generated_at": "2026-08-05T07:25:57.058720+00:00",
-  "family_id": "exia_ada_donchian48_family_v2",
-  "family_sha256": "097a51533b3a5585434120c600491ad494c3af63f26e023b5699014c3260765c",
+  "generated_at": "2026-08-05T07:26:01.344650+00:00",
+  "family_id": "exia_range_band_reentry_family_v1",
+  "family_sha256": "85695d8fdf1e601c8d8d545cb63f705db2fbe439c394d7290c5a189a6b83892f",
   "status": "NO_CANDIDATE_FOR_VALIDATION",
   "taxonomy_runtime": {
     "status": "PASS_RESTART_STABLE",
@@ -25,50 +25,50 @@
   "lookahead_results_sha256": null,
   "candidates": [
     {
-      "candidate_id": "exia_ada_donchian48_v2",
-      "experiment_id": "exia_ada_donchian48_v2_20260804t181916z_c5cf2b4a",
-      "manifest_sha256": "34c35ff9148621e0a150c4df25f4d8ab50a6ca2795b50cf7415f1737611c7625",
-      "metrics_sha256": "290f10f3e365ad36044007f45617a74acc2b87bf3e60794a77306c76244b9379",
-      "strategy_sha256": "70c617cd2d3d1c730be5bc7f3eb56548e76756bab6112ba7c14e3dd02da20453",
-      "strategy_class": "ExiaAdaDonchian48V2",
+      "candidate_id": "exia_range_band_reentry_v1",
+      "experiment_id": "exia_range_band_reentry_v1_20260805t072308z_65ad35f0",
+      "manifest_sha256": "866b63e1cd5e78536f84c24ce404b27ae1f7235682a9f70d96fa774f92f02c98",
+      "metrics_sha256": "44129bd56aba29ebdacbdaf76fbef7d3cb5c14116843c621e551790b20c56feb",
+      "strategy_sha256": "8d34f9b934224e15bce9440e66ef06672b1f11dad5f518f5a4c5b3455ec64dad",
+      "strategy_class": "ExiaRangeBandReentryV1",
       "lookahead": null,
       "lookahead_status": "NOT_RUN_ALPHA_FAILED",
-      "closed_trades": 180,
-      "fills": 360,
-      "mean_net_bps": -9.193448777880858,
-      "block_lcb_net_bps": -80.01052536351571,
-      "baseline_differential_lcb_bps": -78.3709196530834,
-      "max_drawdown": 0.009267772176523628,
+      "closed_trades": 481,
+      "fills": 962,
+      "mean_net_bps": -18.972577138407747,
+      "block_lcb_net_bps": -31.583757696969847,
+      "baseline_differential_lcb_bps": -32.40914475428064,
+      "max_drawdown": 0.008482982149190688,
       "market_state_results": [
         {
           "cost_scenario": "base",
           "market_state": "TREND_UP",
-          "closed_trades": 85,
-          "fills": 170,
-          "mean_net_bps": -2.964864951505643,
-          "block_lcb_net_bps": -112.09298342077263,
-          "baseline_differential_lcb_bps": -122.91824237054303,
-          "status": "FAIL"
-        },
-        {
-          "cost_scenario": "base",
-          "market_state": "TREND_DOWN",
-          "closed_trades": 95,
-          "fills": 190,
-          "mean_net_bps": 0.3894135426799283,
-          "block_lcb_net_bps": -80.59385356706422,
-          "baseline_differential_lcb_bps": -85.37524340428014,
-          "status": "FAIL"
-        },
-        {
-          "cost_scenario": "base",
-          "market_state": "RANGE",
           "closed_trades": 0,
           "fills": 0,
           "mean_net_bps": null,
           "block_lcb_net_bps": null,
           "baseline_differential_lcb_bps": null,
           "status": "INSUFFICIENT"
+        },
+        {
+          "cost_scenario": "base",
+          "market_state": "TREND_DOWN",
+          "closed_trades": 0,
+          "fills": 0,
+          "mean_net_bps": null,
+          "block_lcb_net_bps": null,
+          "baseline_differential_lcb_bps": null,
+          "status": "INSUFFICIENT"
+        },
+        {
+          "cost_scenario": "base",
+          "market_state": "RANGE",
+          "closed_trades": 481,
+          "fills": 962,
+          "mean_net_bps": -10.972027514946362,
+          "block_lcb_net_bps": -23.616251475469575,
+          "baseline_differential_lcb_bps": -24.107710203698716,
+          "status": "FAIL"
         },
         {
           "cost_scenario": "base",
@@ -83,32 +83,32 @@
         {
           "cost_scenario": "stress",
           "market_state": "TREND_UP",
-          "closed_trades": 85,
-          "fills": 170,
-          "mean_net_bps": -10.959297980698064,
-          "block_lcb_net_bps": -129.45484381868135,
-          "baseline_differential_lcb_bps": -129.1350908176056,
-          "status": "FAIL"
-        },
-        {
-          "cost_scenario": "stress",
-          "market_state": "TREND_DOWN",
-          "closed_trades": 95,
-          "fills": 190,
-          "mean_net_bps": -7.613478438518079,
-          "block_lcb_net_bps": -89.4073588333865,
-          "baseline_differential_lcb_bps": -89.35155271378505,
-          "status": "FAIL"
-        },
-        {
-          "cost_scenario": "stress",
-          "market_state": "RANGE",
           "closed_trades": 0,
           "fills": 0,
           "mean_net_bps": null,
           "block_lcb_net_bps": null,
           "baseline_differential_lcb_bps": null,
           "status": "INSUFFICIENT"
+        },
+        {
+          "cost_scenario": "stress",
+          "market_state": "TREND_DOWN",
+          "closed_trades": 0,
+          "fills": 0,
+          "mean_net_bps": null,
+          "block_lcb_net_bps": null,
+          "baseline_differential_lcb_bps": null,
+          "status": "INSUFFICIENT"
+        },
+        {
+          "cost_scenario": "stress",
+          "market_state": "RANGE",
+          "closed_trades": 481,
+          "fills": 962,
+          "mean_net_bps": -18.972577138407747,
+          "block_lcb_net_bps": -32.85606007041325,
+          "baseline_differential_lcb_bps": -32.10804501347456,
+          "status": "FAIL"
         },
         {
           "cost_scenario": "stress",
@@ -138,7 +138,7 @@
   ],
   "selected_candidate_ids": [],
   "terminally_rejected_candidate_ids": [
-    "exia_ada_donchian48_v2"
+    "exia_range_band_reentry_v1"
   ],
   "exploratory_positive_scopes": [],
   "exploratory_scope_warning": "No positive stress-cost subscopes were observed.",

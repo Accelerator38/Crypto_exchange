@@ -1,0 +1,30 @@
+{
+  "schema_version": "exia.primary_timeframe.v1",
+  "profile_id": "exia_4h_v1",
+  "exchange": "BITGET",
+  "market_type": "USDT_FUTURES",
+  "timeframe_minutes": 240,
+  "decision_timing": "closed_bar_only",
+  "fill_assumption": "next_4h_bar_open",
+  "parameter_unit": "completed_4h_bars",
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "research_gate": {
+    "minimum_closed_trades": 20,
+    "minimum_split_closed_trades": 10,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_lcb": true,
+    "require_validation": true,
+    "require_oos": true,
+    "require_sanity": true,
+    "require_prospective_holdout": true
+  },
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

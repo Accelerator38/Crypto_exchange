@@ -1,0 +1,112 @@
+{
+  "schema_version": "exia.4h_exit_policy_family.v1",
+  "family_id": "exia_4h_mq_ema12_48_long_exit_policy_v1",
+  "preregistered_at": "2026-08-20T00:00:00Z",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "entry_source": {
+    "family": "configs\\exia_4h_candidate_family_v1.json",
+    "family_sha256": "3042e2834ff0d70cd0d3b7e29a418d7fd47f1ca49286e0ab0b825e6435c54f70",
+    "candidate_id": "MQ_EMA12_48_LONG"
+  },
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "alpha": 0.05,
+    "minimum_trades": 20
+  },
+  "stage_gate": {
+    "minimum_closed_trades": 20,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_median": true,
+    "require_positive_stress_lcb": true,
+    "require_positive_familywise_lcb": true,
+    "minimum_p01_improvement_vs_control_bps": 100.0,
+    "development_to_validation_limit": 1,
+    "validation_to_oos_limit": 1,
+    "oos_to_sanity_limit": 1
+  },
+  "policies": [
+    {
+      "policy_id": "CONTROL_SIGNAL_EXIT",
+      "comparison_only": true,
+      "hypothesis": "Unchanged MQ_EMA12_48_LONG signal exit is the tail-risk control.",
+      "params": {
+        "atr_period": 14,
+        "hard_stop_atr": null,
+        "breakeven_trigger_atr": null,
+        "trailing_trigger_atr": null,
+        "trailing_distance_atr": null,
+        "no_progress_bars": null,
+        "no_progress_mfe_atr": null,
+        "max_holding_bars": null,
+        "take_profit_atr": null
+      }
+    },
+    {
+      "policy_id": "ATR_HARD_2_TIME24",
+      "comparison_only": false,
+      "hypothesis": "A two-ATR catastrophe stop and 24-bar cap truncate stale and extreme losses without clipping normal trends.",
+      "params": {
+        "atr_period": 14,
+        "hard_stop_atr": 2.0,
+        "breakeven_trigger_atr": null,
+        "trailing_trigger_atr": null,
+        "trailing_distance_atr": null,
+        "no_progress_bars": null,
+        "no_progress_mfe_atr": null,
+        "max_holding_bars": 24,
+        "take_profit_atr": null
+      }
+    },
+    {
+      "policy_id": "ATR_TRAIL_2_5_TIME24",
+      "comparison_only": false,
+      "hypothesis": "A delayed trailing stop preserves rare winners while returning less open profit and limiting holding time.",
+      "params": {
+        "atr_period": 14,
+        "hard_stop_atr": 2.0,
+        "breakeven_trigger_atr": null,
+        "trailing_trigger_atr": 2.0,
+        "trailing_distance_atr": 2.5,
+        "no_progress_bars": null,
+        "no_progress_mfe_atr": null,
+        "max_holding_bars": 24,
+        "take_profit_atr": null
+      }
+    },
+    {
+      "policy_id": "ATR_BREAKEVEN_PROGRESS24",
+      "comparison_only": false,
+      "hypothesis": "Breakeven after confirmation plus a no-progress exit removes persistent losing holds while retaining established trends.",
+      "params": {
+        "atr_period": 14,
+        "hard_stop_atr": 1.75,
+        "breakeven_trigger_atr": 1.5,
+        "trailing_trigger_atr": 2.0,
+        "trailing_distance_atr": 2.25,
+        "no_progress_bars": 6,
+        "no_progress_mfe_atr": 0.5,
+        "max_holding_bars": 24,
+        "take_profit_atr": null
+      }
+    }
+  ],
+  "execution_model": {
+    "signal_decision": "bar_close",
+    "entry_and_signal_exit": "next_bar_open",
+    "atr_information_set": "completed_bars_only",
+    "gap_stop_fill": "bar_open_when_open_crosses_stop",
+    "same_bar_stop_target_priority": "stop_first",
+    "trailing_information_set": "prior_bar_extrema_only"
+  },
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

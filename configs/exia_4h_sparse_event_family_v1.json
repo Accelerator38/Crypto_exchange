@@ -1,0 +1,82 @@
+{
+  "schema_version": "exia.4h_sparse_event_family.v1",
+  "family_id": "exia_4h_sparse_long_events_v1",
+  "preregistered_at": "2026-08-20T00:00:00Z",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "position_policy_source": {
+    "family": "configs\\exia_4h_exit_policy_family_v1.json",
+    "family_sha256": "272c742c41fb23ff077e19b8ea6c21a94aa644472837064be22c72e382486d8d",
+    "policy_id": "ATR_BREAKEVEN_PROGRESS24",
+    "entry_mode": "event"
+  },
+  "shared_signal_params": {
+    "fast": 12,
+    "slow": 48,
+    "threshold_bps": 20.0,
+    "slope_bars": 3,
+    "slope_threshold_bps": 10.0,
+    "market_lookback": 12,
+    "market_threshold_bps": 100.0,
+    "market_breadth": 0.625,
+    "market_minimum_symbols": 6,
+    "market_confirmation_bars": 2,
+    "direction": "long"
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "alpha": 0.05,
+    "minimum_trades": 20
+  },
+  "stage_gate": {
+    "minimum_closed_trades": 20,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_median": true,
+    "require_positive_stress_lcb": true,
+    "require_positive_familywise_lcb": true,
+    "minimum_p01_improvement_vs_control_bps": 100.0,
+    "development_to_validation_limit": 1,
+    "validation_to_oos_limit": 1,
+    "oos_to_sanity_limit": 1
+  },
+  "events": [
+    {
+      "event_id": "CONTROL_MQ_FRESH_ACTIVATION",
+      "comparison_only": true,
+      "hypothesis": "A fresh activation of the previous continuous MQ state is the event-entry control.",
+      "strategy_kind": "ema_activation_event",
+      "params": {}
+    },
+    {
+      "event_id": "BULLISH_REGIME_TRANSITION",
+      "comparison_only": false,
+      "hypothesis": "The first confirmed broad bullish bar has better entry quality than remaining continuously active in that regime.",
+      "strategy_kind": "market_regime_transition_event",
+      "params": {}
+    },
+    {
+      "event_id": "TOP_QUARTILE_BREAKOUT20",
+      "comparison_only": false,
+      "hypothesis": "A prior-20-bar breakout in the strongest full8 momentum quartile selects sparse leaders after broad bullish confirmation.",
+      "strategy_kind": "cross_sectional_breakout_event",
+      "params": {
+        "breakout_window": 20,
+        "momentum_lookback": 12,
+        "rank_threshold": 0.75
+      }
+    },
+    {
+      "event_id": "BULL_TREND_FAST_RECLAIM",
+      "comparison_only": false,
+      "hypothesis": "A completed-bar fast-EMA reclaim enters continuation after a pullback instead of chasing the initial expansion.",
+      "strategy_kind": "trend_pullback_continuation_event",
+      "params": {}
+    }
+  ],
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

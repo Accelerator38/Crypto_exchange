@@ -1,0 +1,48 @@
+{
+  "schema_version": "exia.4h_exit_policy_screen_report.v1",
+  "generated_at": "2026-08-20T07:29:26.383047+00:00",
+  "family_id": "exia_4h_mq_ema12_48_long_exit_policy_v1",
+  "family_sha256": "272c742c41fb23ff077e19b8ea6c21a94aa644472837064be22c72e382486d8d",
+  "entry_family_sha256": "3042e2834ff0d70cd0d3b7e29a418d7fd47f1ca49286e0ab0b825e6435c54f70",
+  "source_dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "fixed_entry_candidate": "MQ_EMA12_48_LONG",
+  "profile_id": "exia_4h_v1",
+  "timeframe_minutes": 240,
+  "verdict": "NO_EXIT_POLICY_PASSED_STAGED_GATE",
+  "policy_count": 4,
+  "stage_progression": {
+    "validation": [],
+    "oos": [],
+    "sanity": []
+  },
+  "final_passed": [],
+  "evaluated_configurations": 4,
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false,
+  "artifacts": {
+    "metrics": {
+      "path": "Reports\\Exia\\four_hour_exit_policy_screen_v1_final\\metrics.parquet",
+      "sha256": "6ae23f2c3800d3fec3a9f7de9344fdba7942ab84071c21f29ad98f7918959a85"
+    },
+    "trades": {
+      "path": "Reports\\Exia\\four_hour_exit_policy_screen_v1_final\\trades.parquet",
+      "sha256": "77f30752e3ab04c70a79d4433f309578b897a4e42c98ea94e3cfb6edd75d2433"
+    },
+    "exit_reason_metrics": {
+      "path": "Reports\\Exia\\four_hour_exit_policy_screen_v1_final\\exit_reason_metrics.parquet",
+      "sha256": "19b8622e026cb83e2fbd304ce159dc84165a48180182930de8d5e342ec6c8af8"
+    },
+    "symbol_metrics": {
+      "path": "Reports\\Exia\\four_hour_exit_policy_screen_v1_final\\symbol_metrics.parquet",
+      "sha256": "9008cc9a562cef0a5e46e6c5e0f3d62934524a4aedeefdf3086c33afb40e6e78"
+    }
+  }
+}
