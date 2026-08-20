@@ -6,6 +6,8 @@ The tracker records only architecture milestones that changed the tested hypothe
 
 The plotted value is the mean stress-costed result in basis points per closed trade or fixed-horizon observation. A positive mean is not a promotion decision: LCB, median, family-wise correction, coverage and the required evaluation windows remain mandatory gates.
 
+The blue dashed `Overall (all regimes)` series is drawn last with markers so it remains visible when it exactly overlaps a regime series. In M04-M08 it coincides with `Trend Up` because those milestones contain bullish-only candidates; this is a real equality in the source data, not a missing overall result.
+
 ## Regime normalization
 
 | Tracker series | Source regimes |
