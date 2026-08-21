@@ -1,0 +1,332 @@
+[
+  {
+    "agent_id": "MomentumScalper__SLOW200",
+    "regime": "bullish",
+    "source": {
+      "path": "src\\panteon_runtime\\panteon_agents.py",
+      "symbol": "MomentumScalper",
+      "line_start": 376,
+      "line_end": 565,
+      "implementation_sha256": "fac3641746659b6d514aafb57870ab48176585b9ede77430a7984067289ee96e"
+    },
+    "source_spec": {
+      "agent_id": "MomentumScalper__SLOW200",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MomentumScalper",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "EMA_F": 12,
+        "EMA_M": 36,
+        "EMA_S": 84,
+        "VOL_WIN": 36,
+        "CHECK_INT": 2
+      }
+    }
+  },
+  {
+    "agent_id": "NEW_CrossSectionalResidualMomentum",
+    "regime": "bullish",
+    "source": {
+      "path": "src\\simple_research\\strategies.py",
+      "symbol": "_cross_sectional_residual_momentum",
+      "line_start": 315,
+      "line_end": 339,
+      "implementation_sha256": "6c95f9a9c7994df794df232902b32e160f0218b939c314b2c4188b7ea3168c7d"
+    },
+    "source_spec": {
+      "agent_id": "NEW_CrossSectionalResidualMomentum",
+      "strategy_kind": "cross_sectional_residual_momentum",
+      "temporal_fields": [
+        "lookback"
+      ],
+      "params": {
+        "lookback": 12,
+        "rank_threshold": 0.75
+      },
+      "hypothesis": "Market-demeaned full8 momentum retains relative continuation information.",
+      "base_agent_id": "NEW_CrossSectionalResidualMomentum",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  },
+  {
+    "agent_id": "LiveOIBreakoutVolumeFallback",
+    "regime": "bullish",
+    "source": {
+      "path": "src\\panteon_runtime\\panteon_agents.py",
+      "symbol": "LiveOIBreakout",
+      "line_start": 1308,
+      "line_end": 1408,
+      "implementation_sha256": "9429f67f6788dcad8ee02d344f13091524e9baf871e09f0aecc767728be30bf1"
+    },
+    "source_spec": {
+      "agent_id": "LiveOIBreakoutVolumeFallback",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "base_agent_id": "LiveOIBreakoutVolumeFallback",
+      "variant_id": "BASE"
+    }
+  },
+  {
+    "agent_id": "LiveCrashHunter__SLOW150",
+    "regime": "bearish",
+    "source": {
+      "path": "src\\panteon_runtime\\panteon_agents.py",
+      "symbol": "LiveCrashHunter",
+      "line_start": 627,
+      "line_end": 689,
+      "implementation_sha256": "337111cc48a105b339148b3e1495bab5df6c1d8d2040282cc75492a241b91bce"
+    },
+    "source_spec": {
+      "agent_id": "LiveCrashHunter__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveCrashHunter",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "RSI_N": 21,
+        "MOM_LB": 18,
+        "ENTRY_COOLDOWN": 5,
+        "HOLD": 9
+      }
+    }
+  },
+  {
+    "agent_id": "SR_CandleMomentum3__SLOW150",
+    "regime": "bearish",
+    "source": {
+      "path": "src\\simple_research\\strategies.py",
+      "symbol": "_candle_momentum",
+      "line_start": 129,
+      "line_end": 141,
+      "implementation_sha256": "830b99e4bdf273eab2512ae94f56f4d62f014465b313d660d2365256b17d1b83"
+    },
+    "source_spec": {
+      "agent_id": "SR_CandleMomentum3__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 5,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_CandleMomentum3",
+      "variant_id": "SLOW150"
+    }
+  },
+  {
+    "agent_id": "NEW_EfficiencyRatioTrend",
+    "regime": "bearish",
+    "source": {
+      "path": "src\\simple_research\\strategies.py",
+      "symbol": "_efficiency_ratio_trend",
+      "line_start": 221,
+      "line_end": 240,
+      "implementation_sha256": "f9433e28bc859f4765f52834bf6ce464a81a6bc7cca4c230f28c799eeffad600"
+    },
+    "source_spec": {
+      "agent_id": "NEW_EfficiencyRatioTrend",
+      "strategy_kind": "efficiency_ratio_trend",
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 16,
+        "minimum_efficiency": 0.35,
+        "minimum_move_bps": 50.0
+      },
+      "hypothesis": "Kaufman-style path efficiency separates persistent trends from noisy moves.",
+      "base_agent_id": "NEW_EfficiencyRatioTrend",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  },
+  {
+    "agent_id": "MeanRevConfirmedAgent__FAST067",
+    "regime": "neutral",
+    "source": {
+      "path": "src\\panteon_runtime\\agents_v2.py",
+      "symbol": "MeanRevConfirmedAgent",
+      "line_start": 43,
+      "line_end": 154,
+      "implementation_sha256": "5ef916e254af5c1615233f3d2e2d8aeaa8c641176f9038ddd400fff126128016"
+    },
+    "source_spec": {
+      "agent_id": "MeanRevConfirmedAgent__FAST067",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MeanRevConfirmedAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "BB_PERIOD": 17,
+        "CHECK_INT": 1,
+        "HOLD_BARS": 5,
+        "VOL_LOOKBACK": 17,
+        "ENTRY_COOLDOWN": 3
+      }
+    }
+  },
+  {
+    "agent_id": "NEW_VolumePriceDivergence",
+    "regime": "neutral",
+    "source": {
+      "path": "src\\simple_research\\strategies.py",
+      "symbol": "_volume_price_divergence",
+      "line_start": 205,
+      "line_end": 218,
+      "implementation_sha256": "a1b8f61a19733702259309ad212239d240575e18f87645f1aab9114e360ffb85"
+    },
+    "source_spec": {
+      "agent_id": "NEW_VolumePriceDivergence",
+      "strategy_kind": "volume_price_divergence",
+      "temporal_fields": [
+        "lookback"
+      ],
+      "params": {
+        "lookback": 12,
+        "price_threshold_bps": 80.0
+      },
+      "hypothesis": "Price and signed-volume divergence identifies exhausted directional moves.",
+      "base_agent_id": "NEW_VolumePriceDivergence",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  },
+  {
+    "agent_id": "NEW_VolatilityRegimeSwitch",
+    "regime": "neutral",
+    "source": {
+      "path": "src\\simple_research\\strategies.py",
+      "symbol": "_volatility_regime_switch",
+      "line_start": 243,
+      "line_end": 270,
+      "implementation_sha256": "742f9b2dd4a1c8d0df98d2200040ba2bafa0d85373368157af5e3e38eb37d4e9"
+    },
+    "source_spec": {
+      "agent_id": "NEW_VolatilityRegimeSwitch",
+      "strategy_kind": "volatility_regime_switch",
+      "temporal_fields": [
+        "short_window",
+        "long_window",
+        "trend_lookback",
+        "z_window"
+      ],
+      "params": {
+        "short_window": 6,
+        "long_window": 30,
+        "trend_lookback": 6,
+        "z_window": 20,
+        "z_entry": 1.5
+      },
+      "hypothesis": "Momentum in high volatility and reversion in low volatility share one causal policy.",
+      "base_agent_id": "NEW_VolatilityRegimeSwitch",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  },
+  {
+    "agent_id": "LiveVolCompress",
+    "regime": "neutral",
+    "source": {
+      "path": "src\\panteon_runtime\\panteon_agents.py",
+      "symbol": "LiveVolCompress",
+      "line_start": 1036,
+      "line_end": 1211,
+      "implementation_sha256": "9991dc810b6a3e1b5f407a9a31cab92039dbe9638ef2abc27da17696464c66f8"
+    },
+    "source_spec": {
+      "agent_id": "LiveVolCompress",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveVolCompress",
+      "variant_id": "BASE"
+    }
+  }
+]

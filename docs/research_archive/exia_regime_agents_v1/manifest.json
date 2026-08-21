@@ -1,0 +1,49 @@
+{
+  "schema_version": "exia.regime_agent_archive_manifest.v1",
+  "archive_id": "exia_regime_agent_archive_v1",
+  "spec": {
+    "path": "configs\\research_archive\\exia_regime_agent_archive_v1.json",
+    "sha256": "81fbbb0e4f3fe7915a035439714726468cd83f1089c928f7a6ec44cabd65cc20"
+  },
+  "source_experiment": {
+    "config": "configs\\exia_4h_regime_discovery_v1.json",
+    "metrics": "Reports\\Exia\\four_hour_regime_discovery_v1\\agent_regime_metrics.parquet",
+    "split_metrics": "Reports\\Exia\\four_hour_regime_discovery_v1\\agent_regime_split_metrics.parquet",
+    "report": "Reports\\Exia\\four_hour_regime_discovery_v1\\report.json",
+    "timeframe_minutes": 240,
+    "base_round_trip_cost_bps": 8.0,
+    "stress_round_trip_cost_bps": 16.0,
+    "config_sha256": "d7a865b27fd76b89338d96beb556a0a14250075cdd958afa0b209faa6a931642",
+    "metrics_sha256": "4143a173265c49ea4b31cface9ebe4646813effb78258252cb53434da97aa089",
+    "split_metrics_sha256": "35316e8f3a57de68827ed242c4b5d6445b329f5bdd41c6b356b7653d98a3e943",
+    "report_sha256": "6bf93776be89f3078e2ff286f0fce89cf6f62af89ce935c224a6f09e4bfced97"
+  },
+  "artifacts": {
+    "catalog.json": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\catalog.json",
+      "sha256": "7a5601c709915b3edb9f37267aef5313a75184d5a86219d5c35ff153e5225042"
+    },
+    "selected_metrics.tsv": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\selected_metrics.tsv",
+      "sha256": "d7c475bcdc6d78a132b8d6d41336648992138a1f9dc4431c6d8f7a31711b0cad"
+    },
+    "window_metrics.tsv": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\window_metrics.tsv",
+      "sha256": "421407cd9d98aa6ce921966f225b9dbc9bd77c95a9558095449f532a291ca139"
+    },
+    "source_specs.json": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\source_specs.json",
+      "sha256": "5bb2bb2b485a71edd4c6a40ec4042715331d05678440e8c1e2d98cead612cedf"
+    },
+    "README.md": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\README.md",
+      "sha256": "fda3877ddb04fe85090ed7e2f2e7afb0e113c943c376144fb6981a2d7f3e9700"
+    },
+    "agent_catalog.xlsx": {
+      "path": "docs\\research_archive\\exia_regime_agents_v1\\agent_catalog.xlsx",
+      "sha256": "05881a32d48b317684450c807503118d132b73607d07cb39212c3a96e60d715a"
+    }
+  },
+  "orders_enabled": false,
+  "promotion_authority": false
+}

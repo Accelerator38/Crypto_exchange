@@ -1,0 +1,145 @@
+{
+  "schema_version": "exia.regime_agent_archive.v1",
+  "archive_id": "exia_regime_agent_archive_v1",
+  "created_on": "2026-08-21",
+  "purpose": "Preserve the most informative 4h agents for each market regime as non-authoritative research references.",
+  "source_experiment": {
+    "config": "configs\\exia_4h_regime_discovery_v1.json",
+    "metrics": "Reports\\Exia\\four_hour_regime_discovery_v1\\agent_regime_metrics.parquet",
+    "split_metrics": "Reports\\Exia\\four_hour_regime_discovery_v1\\agent_regime_split_metrics.parquet",
+    "report": "Reports\\Exia\\four_hour_regime_discovery_v1\\report.json",
+    "timeframe_minutes": 240,
+    "base_round_trip_cost_bps": 8.0,
+    "stress_round_trip_cost_bps": 16.0
+  },
+  "selection_policy": {
+    "minimum_historical_trades": 20,
+    "criteria": [
+      "target-regime costed historical evidence",
+      "mechanism diversity within each regime",
+      "reproducible source and exact fixed-profile parameters",
+      "diagnostic value even when statistical promotion gates failed"
+    ],
+    "not_a_promotion_shortlist": true,
+    "positive_mean_without_positive_lcb_is_not_an_edge": true,
+    "revealed_holdout_cannot_be_reused_for_promotion": true
+  },
+  "agents": [
+    {
+      "regime": "bullish",
+      "archive_rank": 1,
+      "agent_id": "MomentumScalper__SLOW200",
+      "archive_role": "primary_research_lead",
+      "mechanism": "slow multi-EMA momentum with volume confirmation",
+      "description_ru": "Медленный трендовый профиль: согласование EMA 12/36/84, подтверждение объёмом и ограниченный lifecycle позиции.",
+      "why_preserved_ru": "Самый высокий historical bullish mean и положительный обычный LCB среди протестированных bullish-профилей.",
+      "limitations_ru": "Медиана глубоко отрицательна, familywise LCB отрицателен, sanity и раскрытый holdout провалены.",
+      "source": {"path": "src\\panteon_runtime\\panteon_agents.py", "symbol": "MomentumScalper"}
+    },
+    {
+      "regime": "bullish",
+      "archive_rank": 2,
+      "agent_id": "NEW_CrossSectionalResidualMomentum",
+      "archive_role": "mechanism_reference",
+      "mechanism": "market-demeaned cross-sectional momentum",
+      "description_ru": "Ранжирует full8 по 12-барной доходности после вычитания медианного движения рынка и торгует крайние квартили.",
+      "why_preserved_ru": "Большая выборка и лучший общий recent holdout след среди новых простых агентов; полезен как относительный, а не абсолютный momentum baseline.",
+      "limitations_ru": "Historical и holdout median/LCB отрицательны; sanity ухудшается.",
+      "source": {"path": "src\\simple_research\\strategies.py", "symbol": "_cross_sectional_residual_momentum"}
+    },
+    {
+      "regime": "bullish",
+      "archive_rank": 3,
+      "agent_id": "LiveOIBreakoutVolumeFallback",
+      "archive_role": "breakout_reference",
+      "mechanism": "volume or OI expansion with directional momentum",
+      "description_ru": "Breakout-профиль с momentum, объёмным всплеском и OI expansion; в OHLCV-ретротесте фактически работает как volume fallback.",
+      "why_preserved_ru": "Положительные bullish mean и обычный LCB на большой исторической выборке; удобный контраст для cross-sectional и EMA momentum.",
+      "limitations_ru": "Отрицательная медиана и familywise LCB, сильный drawdown, sanity и holdout collapse; OHLCV fallback не доказывает OI-edge.",
+      "source": {"path": "src\\panteon_runtime\\panteon_agents.py", "symbol": "LiveOIBreakout"}
+    },
+    {
+      "regime": "bearish",
+      "archive_rank": 1,
+      "agent_id": "LiveCrashHunter__SLOW150",
+      "archive_role": "primary_research_lead",
+      "mechanism": "slow crash continuation and RSI-conditioned reversal",
+      "description_ru": "В bear/crash ищет отрицательный momentum и открывает short; вне bear использует ограниченную RSI mean-reversion логику.",
+      "why_preserved_ru": "Единственный сильный bearish след с положительными mean, median и обычным LCB на 430 historical сделках.",
+      "limitations_ru": "Familywise LCB отрицателен, development mean около нуля, раскрытый holdout резко отрицателен.",
+      "source": {"path": "src\\panteon_runtime\\panteon_agents.py", "symbol": "LiveCrashHunter"}
+    },
+    {
+      "regime": "bearish",
+      "archive_rank": 2,
+      "agent_id": "SR_CandleMomentum3__SLOW150",
+      "archive_role": "high_incidence_reference",
+      "mechanism": "five-bar candle momentum threshold",
+      "description_ru": "Минимальный causal baseline: направление пяти 4h баров при абсолютном движении более 100 bps.",
+      "why_preserved_ru": "Высокая частота активации и простая воспроизводимая логика дают полезный bearish контроль для более сложных агентов.",
+      "limitations_ru": "Отрицательные median и LCB, OOS и holdout mean отрицательны, drawdown чрезмерен.",
+      "source": {"path": "src\\simple_research\\strategies.py", "symbol": "_candle_momentum"}
+    },
+    {
+      "regime": "bearish",
+      "archive_rank": 3,
+      "agent_id": "NEW_EfficiencyRatioTrend",
+      "archive_role": "mechanism_reference",
+      "mechanism": "Kaufman-style path efficiency trend",
+      "description_ru": "Отделяет направленное движение от шумного пути через efficiency ratio и минимальный 16-барный move.",
+      "why_preserved_ru": "Независимая от EMA и RSI трендовая механика; подходит как диагностический фильтр качества bearish движения.",
+      "limitations_ru": "Median/LCB отрицательны, OOS и holdout mean отрицательны, standalone promotion запрещён.",
+      "source": {"path": "src\\simple_research\\strategies.py", "symbol": "_efficiency_ratio_trend"}
+    },
+    {
+      "regime": "neutral",
+      "archive_rank": 1,
+      "agent_id": "MeanRevConfirmedAgent__FAST067",
+      "archive_role": "primary_research_lead",
+      "mechanism": "Bollinger z-score mean reversion with volume confirmation",
+      "description_ru": "Ускоренный mean-reversion профиль: BB period 17, подтверждение объёмом, возврат z-score к центру и hard stop.",
+      "why_preserved_ru": "Наиболее содержательный neutral historical профиль с положительными mean и median и тремя положительными окнами из четырёх.",
+      "limitations_ru": "LCB отрицателен, validation mean отрицателен, holdout mean и LCB не подтверждают edge.",
+      "source": {"path": "src\\panteon_runtime\\agents_v2.py", "symbol": "MeanRevConfirmedAgent"}
+    },
+    {
+      "regime": "neutral",
+      "archive_rank": 2,
+      "agent_id": "NEW_VolumePriceDivergence",
+      "archive_role": "distribution_reference",
+      "mechanism": "price and signed-volume divergence",
+      "description_ru": "Сравнивает 12-барное движение цены с направлением накопленного signed volume и закрывается у EMA-центра.",
+      "why_preserved_ru": "Положительная neutral median во всех historical окнах и на recent audit показывает необычную, но сильно асимметричную payoff-структуру.",
+      "limitations_ru": "Mean и LCB отрицательны: частые небольшие выигрыши перекрываются редкими крупными потерями.",
+      "source": {"path": "src\\simple_research\\strategies.py", "symbol": "_volume_price_divergence"}
+    },
+    {
+      "regime": "neutral",
+      "archive_rank": 3,
+      "agent_id": "NEW_VolatilityRegimeSwitch",
+      "archive_role": "hybrid_policy_reference",
+      "mechanism": "high-vol momentum plus low-vol z-score reversion",
+      "description_ru": "Переключает одну causal policy между momentum при высокой относительной волатильности и mean reversion при низкой.",
+      "why_preserved_ru": "Почти нулевой historical mean и слегка положительная median делают его полезным контрольным гибридом для классификации волатильности.",
+      "limitations_ru": "Historical LCB отрицателен; development/OOS и recent audit отрицательны.",
+      "source": {"path": "src\\simple_research\\strategies.py", "symbol": "_volatility_regime_switch"}
+    },
+    {
+      "regime": "neutral",
+      "archive_rank": 4,
+      "agent_id": "LiveVolCompress",
+      "archive_role": "terminal_negative_reference",
+      "mechanism": "Bollinger-band compression breakout",
+      "description_ru": "BB squeeze с momentum-пробоем и фиксированными stop/target/hold ограничениями.",
+      "why_preserved_ru": "Recent neutral holdout был ближайшим к положительному LCB и породил отдельные exit/subregime/direct-state эксперименты.",
+      "limitations_ru": "История, specialist exits и direct compression-transition не прошли; directional neutral compression family закрыта.",
+      "source": {"path": "src\\panteon_runtime\\panteon_agents.py", "symbol": "LiveVolCompress"}
+    }
+  ],
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

@@ -1,0 +1,3423 @@
+{
+  "schema_version": "exia.timebase_audit.v1",
+  "audit_id": "exia_4h_all_agent_regime_discovery_v1",
+  "purpose": "Rank the maximum comparable set of current, varied and new agents on completed 4h Bitget full8 bars, attributing trades to market regimes without an external NoTrade gate.",
+  "action_normalization": "Legacy spot LONG actions 1/2/3 and simple-research targets are evaluated as equivalent linear Bitget futures positions under one disclosed cost model; source lane remains in trade evidence.",
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "runtime_profile_id": "exia_4h_v1",
+  "selection_policy": {
+    "experiment_kind": "diagnostic_regime_discovery",
+    "primary_timeframe_minutes": 240,
+    "external_regime_gate": false,
+    "no_trade_by_market_regime": false,
+    "ranking_is_promotion_authority": false,
+    "l2_history_available": false
+  },
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "bootstrap": {
+    "samples": 2000,
+    "alpha": 0.05,
+    "minimum_trades": 10
+  },
+  "stability_gate": {
+    "minimum_trades_per_timeframe": 20,
+    "minimum_adjacent_passing_timeframes": 1,
+    "require_positive_stress_mean": true,
+    "require_positive_stress_lcb": true,
+    "require_no_negative_supported_split": true,
+    "supported_split_minimum_trades": 10
+  },
+  "panels": [
+    {
+      "panel_id": "full8_4h_20220101_20260714",
+      "manifest": "Retrodate\\bitget_full8_1m_panel_v1_20220101_20260714\\integrity_manifest.json",
+      "dataset_sha256": "2e488fb6cbe8cd05b63a9822c8603b0aa9ed4321fdcf2e8bebb64c2c0d8737ca",
+      "source_timeframe_minutes": 1,
+      "timeframes_minutes": [
+        240
+      ],
+      "windows": [
+        {
+          "name": "development",
+          "start": "2022-01-01T00:00:00Z",
+          "end": "2024-01-01T00:00:00Z"
+        },
+        {
+          "name": "validation",
+          "start": "2024-01-01T00:00:00Z",
+          "end": "2025-01-01T00:00:00Z"
+        },
+        {
+          "name": "oos",
+          "start": "2025-01-01T00:00:00Z",
+          "end": "2026-01-01T00:00:00Z"
+        },
+        {
+          "name": "sanity",
+          "start": "2026-01-01T00:00:00Z",
+          "end": "2026-07-15T00:00:00Z"
+        }
+      ],
+      "derived_timeframe_manifests": {
+        "240": {
+          "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+          "manifest": "Retrodate\\exia_full8_timeframes_v1_20220101_20260714\\parts\\full8_240m.manifest.json",
+          "source_timeframe_minutes": 1
+        }
+      }
+    },
+    {
+      "panel_id": "untouched_4h_20260715_20260817",
+      "manifest": "Retrodate\\bitget_full8_1m_holdout_panel_v1_20260715_20260817\\integrity_manifest.json",
+      "dataset_sha256": "520ce5f60e6a6a51b5b2d31773263dd999e2a4e69077dcb5a8e86c3a69bd92bd",
+      "source_timeframe_minutes": 1,
+      "timeframes_minutes": [
+        240
+      ],
+      "windows": [
+        {
+          "name": "prospective_holdout",
+          "start": "2026-07-15T00:00:00+00:00",
+          "end": "2026-08-18T00:00:00+00:00"
+        }
+      ],
+      "derived_timeframe_manifests": {
+        "240": {
+          "dataset_sha256": "c60fbac74acffed4d6f66ef59a62cf7b699bf7892fb29dc5dfc5f25d28927cb7",
+          "manifest": "Retrodate\\exia_full8_holdout_timeframes_v1_20260715_20260817\\parts\\full8_240m.manifest.json",
+          "source_timeframe_minutes": 1
+        }
+      }
+    }
+  ],
+  "modes": [
+    "fixed_profile"
+  ],
+  "agents": [
+    {
+      "agent_id": "Bomberman",
+      "component_type": "agent",
+      "class_name": "Bomberman",
+      "temporal_fields": [
+        "BOP_PERIOD",
+        "MRC_PERIOD",
+        "DONCHIAN_PERIOD",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "Bomberman",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "Bomberman__FAST067",
+      "component_type": "agent",
+      "class_name": "Bomberman",
+      "temporal_fields": [
+        "BOP_PERIOD",
+        "MRC_PERIOD",
+        "DONCHIAN_PERIOD",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "Bomberman",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "BOP_PERIOD": 9,
+        "MRC_PERIOD": 25,
+        "DONCHIAN_PERIOD": 14,
+        "CHECK_INT": 1
+      }
+    },
+    {
+      "agent_id": "Bomberman__SLOW150",
+      "component_type": "agent",
+      "class_name": "Bomberman",
+      "temporal_fields": [
+        "BOP_PERIOD",
+        "MRC_PERIOD",
+        "DONCHIAN_PERIOD",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "Bomberman",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "BOP_PERIOD": 18,
+        "MRC_PERIOD": 54,
+        "DONCHIAN_PERIOD": 30,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "Bomberman__SLOW200",
+      "component_type": "agent",
+      "class_name": "Bomberman",
+      "temporal_fields": [
+        "BOP_PERIOD",
+        "MRC_PERIOD",
+        "DONCHIAN_PERIOD",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "Bomberman",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "BOP_PERIOD": 24,
+        "MRC_PERIOD": 72,
+        "DONCHIAN_PERIOD": 40,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "MomentumScalper",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MomentumScalper",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "MomentumScalper__FAST067",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MomentumScalper",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "EMA_F": 5,
+        "EMA_M": 13,
+        "EMA_S": 29,
+        "VOL_WIN": 13,
+        "CHECK_INT": 1
+      }
+    },
+    {
+      "agent_id": "MomentumScalper__SLOW150",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MomentumScalper",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "EMA_F": 9,
+        "EMA_M": 27,
+        "EMA_S": 63,
+        "VOL_WIN": 27,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "MomentumScalper__SLOW200",
+      "component_type": "agent",
+      "class_name": "MomentumScalper",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "VOL_WIN",
+        "CHECK_INT"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MomentumScalper",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "EMA_F": 12,
+        "EMA_M": 36,
+        "EMA_S": 84,
+        "VOL_WIN": 36,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "LiveAfterShock",
+      "component_type": "agent",
+      "class_name": "LiveAfterShock",
+      "temporal_fields": [
+        "LOOKBACK",
+        "RSI_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveAfterShock",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveAfterShock__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveAfterShock",
+      "temporal_fields": [
+        "LOOKBACK",
+        "RSI_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveAfterShock",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "LOOKBACK": 9,
+        "RSI_N": 10,
+        "HOLD": 5,
+        "CHECK_INT": 1,
+        "ENTRY_COOLDOWN": 3
+      }
+    },
+    {
+      "agent_id": "LiveAfterShock__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveAfterShock",
+      "temporal_fields": [
+        "LOOKBACK",
+        "RSI_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveAfterShock",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "LOOKBACK": 18,
+        "RSI_N": 21,
+        "HOLD": 9,
+        "CHECK_INT": 2,
+        "ENTRY_COOLDOWN": 5
+      }
+    },
+    {
+      "agent_id": "LiveAfterShock__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveAfterShock",
+      "temporal_fields": [
+        "LOOKBACK",
+        "RSI_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveAfterShock",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "LOOKBACK": 24,
+        "RSI_N": 28,
+        "HOLD": 12,
+        "CHECK_INT": 2,
+        "ENTRY_COOLDOWN": 6
+      }
+    },
+    {
+      "agent_id": "LiveCrashHunter",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveCrashHunter",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveCrashHunter__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveCrashHunter",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "RSI_N": 10,
+        "MOM_LB": 9,
+        "ENTRY_COOLDOWN": 3,
+        "HOLD": 5
+      }
+    },
+    {
+      "agent_id": "LiveCrashHunter__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveCrashHunter",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "RSI_N": 21,
+        "MOM_LB": 18,
+        "ENTRY_COOLDOWN": 5,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "LiveCrashHunter__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveCrashHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RSI_N",
+        "MOM_LB",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveCrashHunter",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "RSI_N": 28,
+        "MOM_LB": 24,
+        "ENTRY_COOLDOWN": 6,
+        "HOLD": 12
+      }
+    },
+    {
+      "agent_id": "LiveTrendFollow",
+      "component_type": "agent",
+      "class_name": "LiveTrendFollow",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveTrendFollow",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveTrendFollow__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveTrendFollow",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveTrendFollow",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "EMA_F": 5,
+        "EMA_M": 13,
+        "EMA_S": 29,
+        "CHECK_INT": 1
+      }
+    },
+    {
+      "agent_id": "LiveTrendFollow__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveTrendFollow",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveTrendFollow",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "EMA_F": 9,
+        "EMA_M": 27,
+        "EMA_S": 63,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "LiveTrendFollow__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveTrendFollow",
+      "temporal_fields": [
+        "EMA_F",
+        "EMA_M",
+        "EMA_S",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveTrendFollow",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "EMA_F": 12,
+        "EMA_M": 36,
+        "EMA_S": 84,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "RichardDennis",
+      "component_type": "agent",
+      "class_name": "RichardDennisTurtle",
+      "temporal_fields": [
+        "FAST_ENTRY",
+        "SLOW_ENTRY",
+        "FAST_EXIT",
+        "SLOW_EXIT",
+        "ATR_LB",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "RichardDennis",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "RichardDennis__FAST067",
+      "component_type": "agent",
+      "class_name": "RichardDennisTurtle",
+      "temporal_fields": [
+        "FAST_ENTRY",
+        "SLOW_ENTRY",
+        "FAST_EXIT",
+        "SLOW_EXIT",
+        "ATR_LB",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "RichardDennis",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "FAST_ENTRY": 14,
+        "SLOW_ENTRY": 37,
+        "FAST_EXIT": 7,
+        "SLOW_EXIT": 14,
+        "ATR_LB": 10,
+        "CHECK_INT": 1
+      }
+    },
+    {
+      "agent_id": "RichardDennis__SLOW150",
+      "component_type": "agent",
+      "class_name": "RichardDennisTurtle",
+      "temporal_fields": [
+        "FAST_ENTRY",
+        "SLOW_ENTRY",
+        "FAST_EXIT",
+        "SLOW_EXIT",
+        "ATR_LB",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "RichardDennis",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "FAST_ENTRY": 30,
+        "SLOW_ENTRY": 83,
+        "FAST_EXIT": 15,
+        "SLOW_EXIT": 30,
+        "ATR_LB": 21,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "RichardDennis__SLOW200",
+      "component_type": "agent",
+      "class_name": "RichardDennisTurtle",
+      "temporal_fields": [
+        "FAST_ENTRY",
+        "SLOW_ENTRY",
+        "FAST_EXIT",
+        "SLOW_EXIT",
+        "ATR_LB",
+        "CHECK_INT"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "RichardDennis",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "FAST_ENTRY": 40,
+        "SLOW_ENTRY": 110,
+        "FAST_EXIT": 20,
+        "SLOW_EXIT": 40,
+        "ATR_LB": 28,
+        "CHECK_INT": 2
+      }
+    },
+    {
+      "agent_id": "LiveRegimePullback",
+      "component_type": "agent",
+      "class_name": "LiveRegimePullback",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "CHECK_INT",
+        "PULLBACK_LB",
+        "TURN_LB",
+        "TREND_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveRegimePullback",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveRegimePullback__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveRegimePullback",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "CHECK_INT",
+        "PULLBACK_LB",
+        "TURN_LB",
+        "TREND_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveRegimePullback",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "EMA_FAST": 5,
+        "EMA_MID": 13,
+        "EMA_SLOW": 29,
+        "CHECK_INT": 1,
+        "PULLBACK_LB": 9,
+        "TURN_LB": 3,
+        "TREND_LB": 9,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "LiveRegimePullback__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveRegimePullback",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "CHECK_INT",
+        "PULLBACK_LB",
+        "TURN_LB",
+        "TREND_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveRegimePullback",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "EMA_FAST": 9,
+        "EMA_MID": 27,
+        "EMA_SLOW": 63,
+        "CHECK_INT": 2,
+        "PULLBACK_LB": 18,
+        "TURN_LB": 5,
+        "TREND_LB": 18,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "LiveRegimePullback__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveRegimePullback",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "CHECK_INT",
+        "PULLBACK_LB",
+        "TURN_LB",
+        "TREND_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveRegimePullback",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "EMA_FAST": 12,
+        "EMA_MID": 36,
+        "EMA_SLOW": 84,
+        "CHECK_INT": 2,
+        "PULLBACK_LB": 24,
+        "TURN_LB": 6,
+        "TREND_LB": 24,
+        "HOLD": 24
+      }
+    },
+    {
+      "agent_id": "LiveMeanRev",
+      "component_type": "agent",
+      "class_name": "LiveMeanRev",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "RSI_N",
+        "CHECK_INT",
+        "HOLD",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveMeanRev",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveMeanRev__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveMeanRev",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "RSI_N",
+        "CHECK_INT",
+        "HOLD",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveMeanRev",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "BB_PERIOD": 14,
+        "RSI_N": 10,
+        "CHECK_INT": 1,
+        "HOLD": 5,
+        "ENTRY_COOLDOWN": 3
+      }
+    },
+    {
+      "agent_id": "LiveMeanRev__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveMeanRev",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "RSI_N",
+        "CHECK_INT",
+        "HOLD",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveMeanRev",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "BB_PERIOD": 30,
+        "RSI_N": 21,
+        "CHECK_INT": 2,
+        "HOLD": 9,
+        "ENTRY_COOLDOWN": 5
+      }
+    },
+    {
+      "agent_id": "LiveMeanRev__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveMeanRev",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "RSI_N",
+        "CHECK_INT",
+        "HOLD",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveMeanRev",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "BB_PERIOD": 40,
+        "RSI_N": 28,
+        "CHECK_INT": 2,
+        "HOLD": 12,
+        "ENTRY_COOLDOWN": 6
+      }
+    },
+    {
+      "agent_id": "LiveVolCompress",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveVolCompress",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveVolCompress__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveVolCompress",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "BB_PERIOD": 14,
+        "MOM_N": 3,
+        "HOLD": 9,
+        "CHECK_INT": 1,
+        "ENTRY_COOLDOWN": 3
+      }
+    },
+    {
+      "agent_id": "LiveVolCompress__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveVolCompress",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "BB_PERIOD": 30,
+        "MOM_N": 5,
+        "HOLD": 18,
+        "CHECK_INT": 2,
+        "ENTRY_COOLDOWN": 5
+      }
+    },
+    {
+      "agent_id": "LiveVolCompress__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveVolCompress",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "MOM_N",
+        "HOLD",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {
+        "FUTURES_REPLAY_MODE": true
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "LiveVolCompress",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "BB_PERIOD": 40,
+        "MOM_N": 6,
+        "HOLD": 24,
+        "CHECK_INT": 2,
+        "ENTRY_COOLDOWN": 6
+      }
+    },
+    {
+      "agent_id": "FundingArbOHLCVFallback",
+      "component_type": "agent",
+      "class_name": "FundingArb",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_F",
+        "EMA_S",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "FundingArbOHLCVFallback",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "FundingArbOHLCVFallback__FAST067",
+      "component_type": "agent",
+      "class_name": "FundingArb",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_F",
+        "EMA_S",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "FundingArbOHLCVFallback",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "EMA_F": 9,
+        "EMA_S": 29,
+        "ENTRY_COOLDOWN": 3
+      }
+    },
+    {
+      "agent_id": "FundingArbOHLCVFallback__SLOW150",
+      "component_type": "agent",
+      "class_name": "FundingArb",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_F",
+        "EMA_S",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "FundingArbOHLCVFallback",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "EMA_F": 18,
+        "EMA_S": 63,
+        "ENTRY_COOLDOWN": 5
+      }
+    },
+    {
+      "agent_id": "FundingArbOHLCVFallback__SLOW200",
+      "component_type": "agent",
+      "class_name": "FundingArb",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_F",
+        "EMA_S",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "FundingArbOHLCVFallback",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "EMA_F": 24,
+        "EMA_S": 84,
+        "ENTRY_COOLDOWN": 6
+      }
+    },
+    {
+      "agent_id": "LiveOIBreakoutVolumeFallback",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "base_agent_id": "LiveOIBreakoutVolumeFallback",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "LiveOIBreakoutVolumeFallback__FAST067",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "base_agent_id": "LiveOIBreakoutVolumeFallback",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "MOM_N": 9,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "LiveOIBreakoutVolumeFallback__SLOW150",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "base_agent_id": "LiveOIBreakoutVolumeFallback",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MOM_N": 18,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "LiveOIBreakoutVolumeFallback__SLOW200",
+      "component_type": "agent",
+      "class_name": "LiveOIBreakout",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [
+        "CHECK_INT",
+        "MOM_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "base_agent_id": "LiveOIBreakoutVolumeFallback",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MOM_N": 24,
+        "HOLD": 24
+      }
+    },
+    {
+      "agent_id": "VolBreakoutHunter",
+      "component_type": "agent",
+      "class_name": "VolBreakoutHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "ATR_WINDOW",
+        "VOL_WINDOW",
+        "HOLD",
+        "COOLDOWN_AFTER_STOP"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "VolBreakoutHunter",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "VolBreakoutHunter__FAST067",
+      "component_type": "agent",
+      "class_name": "VolBreakoutHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "ATR_WINDOW",
+        "VOL_WINDOW",
+        "HOLD",
+        "COOLDOWN_AFTER_STOP"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "VolBreakoutHunter",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "LOOKBACK": 14,
+        "ATR_WINDOW": 10,
+        "VOL_WINDOW": 17,
+        "HOLD": 9,
+        "COOLDOWN_AFTER_STOP": 5
+      }
+    },
+    {
+      "agent_id": "VolBreakoutHunter__SLOW150",
+      "component_type": "agent",
+      "class_name": "VolBreakoutHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "ATR_WINDOW",
+        "VOL_WINDOW",
+        "HOLD",
+        "COOLDOWN_AFTER_STOP"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "VolBreakoutHunter",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "LOOKBACK": 30,
+        "ATR_WINDOW": 21,
+        "VOL_WINDOW": 36,
+        "HOLD": 18,
+        "COOLDOWN_AFTER_STOP": 9
+      }
+    },
+    {
+      "agent_id": "VolBreakoutHunter__SLOW200",
+      "component_type": "agent",
+      "class_name": "VolBreakoutHunter",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "ATR_WINDOW",
+        "VOL_WINDOW",
+        "HOLD",
+        "COOLDOWN_AFTER_STOP"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "VolBreakoutHunter",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "LOOKBACK": 40,
+        "ATR_WINDOW": 28,
+        "VOL_WINDOW": 48,
+        "HOLD": 24,
+        "COOLDOWN_AFTER_STOP": 12
+      }
+    },
+    {
+      "agent_id": "BullRotationAgent",
+      "component_type": "agent",
+      "class_name": "BullRotationAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "REL_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "TURN_LB",
+        "PULLBACK_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BullRotationAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "BullRotationAgent__FAST067",
+      "component_type": "agent",
+      "class_name": "BullRotationAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "REL_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "TURN_LB",
+        "PULLBACK_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BullRotationAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "MARKET_LB": 29,
+        "REL_LB": 29,
+        "FAST_EMA": 5,
+        "SLOW_EMA": 17,
+        "TURN_LB": 3,
+        "PULLBACK_LB": 9,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "BullRotationAgent__SLOW150",
+      "component_type": "agent",
+      "class_name": "BullRotationAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "REL_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "TURN_LB",
+        "PULLBACK_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BullRotationAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MARKET_LB": 63,
+        "REL_LB": 63,
+        "FAST_EMA": 9,
+        "SLOW_EMA": 36,
+        "TURN_LB": 5,
+        "PULLBACK_LB": 18,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "BullRotationAgent__SLOW200",
+      "component_type": "agent",
+      "class_name": "BullRotationAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "REL_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "TURN_LB",
+        "PULLBACK_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BullRotationAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MARKET_LB": 84,
+        "REL_LB": 84,
+        "FAST_EMA": 12,
+        "SLOW_EMA": 48,
+        "TURN_LB": 6,
+        "PULLBACK_LB": 24,
+        "HOLD": 24
+      }
+    },
+    {
+      "agent_id": "BearReliefFadeAgent",
+      "component_type": "agent",
+      "class_name": "BearReliefFadeAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "BOUNCE_LB",
+        "TURN_LB",
+        "RSI_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BearReliefFadeAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "BearReliefFadeAgent__FAST067",
+      "component_type": "agent",
+      "class_name": "BearReliefFadeAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "BOUNCE_LB",
+        "TURN_LB",
+        "RSI_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BearReliefFadeAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "MARKET_LB": 29,
+        "FAST_EMA": 5,
+        "SLOW_EMA": 17,
+        "BOUNCE_LB": 9,
+        "TURN_LB": 3,
+        "RSI_N": 10,
+        "HOLD": 7
+      }
+    },
+    {
+      "agent_id": "BearReliefFadeAgent__SLOW150",
+      "component_type": "agent",
+      "class_name": "BearReliefFadeAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "BOUNCE_LB",
+        "TURN_LB",
+        "RSI_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BearReliefFadeAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MARKET_LB": 63,
+        "FAST_EMA": 9,
+        "SLOW_EMA": 36,
+        "BOUNCE_LB": 18,
+        "TURN_LB": 5,
+        "RSI_N": 21,
+        "HOLD": 14
+      }
+    },
+    {
+      "agent_id": "BearReliefFadeAgent__SLOW200",
+      "component_type": "agent",
+      "class_name": "BearReliefFadeAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "MARKET_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "BOUNCE_LB",
+        "TURN_LB",
+        "RSI_N",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "BearReliefFadeAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "MARKET_LB": 84,
+        "FAST_EMA": 12,
+        "SLOW_EMA": 48,
+        "BOUNCE_LB": 24,
+        "TURN_LB": 6,
+        "RSI_N": 28,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "NeutralRangeScalper",
+      "component_type": "agent",
+      "class_name": "NeutralRangeScalper",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RANGE_LB",
+        "MARKET_LB",
+        "TURN_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralRangeScalper",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "NeutralRangeScalper__FAST067",
+      "component_type": "agent",
+      "class_name": "NeutralRangeScalper",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RANGE_LB",
+        "MARKET_LB",
+        "TURN_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralRangeScalper",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "RANGE_LB": 17,
+        "MARKET_LB": 29,
+        "TURN_LB": 3,
+        "HOLD": 5
+      }
+    },
+    {
+      "agent_id": "NeutralRangeScalper__SLOW150",
+      "component_type": "agent",
+      "class_name": "NeutralRangeScalper",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RANGE_LB",
+        "MARKET_LB",
+        "TURN_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralRangeScalper",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "RANGE_LB": 36,
+        "MARKET_LB": 63,
+        "TURN_LB": 5,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "NeutralRangeScalper__SLOW200",
+      "component_type": "agent",
+      "class_name": "NeutralRangeScalper",
+      "temporal_fields": [
+        "CHECK_INT",
+        "RANGE_LB",
+        "MARKET_LB",
+        "TURN_LB",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralRangeScalper",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "RANGE_LB": 48,
+        "MARKET_LB": 84,
+        "TURN_LB": 6,
+        "HOLD": 12
+      }
+    },
+    {
+      "agent_id": "NeutralLiquiditySweep",
+      "component_type": "agent",
+      "class_name": "NeutralLiquiditySweepAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralLiquiditySweep",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "NeutralLiquiditySweep__FAST067",
+      "component_type": "agent",
+      "class_name": "NeutralLiquiditySweepAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralLiquiditySweep",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "LOOKBACK": 17,
+        "MARKET_LB": 29,
+        "VOL_WINDOW": 17,
+        "HOLD": 5
+      }
+    },
+    {
+      "agent_id": "NeutralLiquiditySweep__SLOW150",
+      "component_type": "agent",
+      "class_name": "NeutralLiquiditySweepAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralLiquiditySweep",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "LOOKBACK": 36,
+        "MARKET_LB": 63,
+        "VOL_WINDOW": 36,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "NeutralLiquiditySweep__SLOW200",
+      "component_type": "agent",
+      "class_name": "NeutralLiquiditySweepAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "LOOKBACK",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "NeutralLiquiditySweep",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "LOOKBACK": 48,
+        "MARKET_LB": 84,
+        "VOL_WINDOW": 48,
+        "HOLD": 12
+      }
+    },
+    {
+      "agent_id": "AnchorFlowMomentum",
+      "component_type": "agent",
+      "class_name": "AnchorFlowMomentumAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "FAST_LB",
+        "SLOW_LB",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AnchorFlowMomentum",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "AnchorFlowMomentum__FAST067",
+      "component_type": "agent",
+      "class_name": "AnchorFlowMomentumAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "FAST_LB",
+        "SLOW_LB",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AnchorFlowMomentum",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "FAST_LB": 5,
+        "SLOW_LB": 17,
+        "MARKET_LB": 29,
+        "VOL_WINDOW": 17,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "AnchorFlowMomentum__SLOW150",
+      "component_type": "agent",
+      "class_name": "AnchorFlowMomentumAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "FAST_LB",
+        "SLOW_LB",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AnchorFlowMomentum",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "FAST_LB": 9,
+        "SLOW_LB": 36,
+        "MARKET_LB": 63,
+        "VOL_WINDOW": 36,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "AnchorFlowMomentum__SLOW200",
+      "component_type": "agent",
+      "class_name": "AnchorFlowMomentumAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "FAST_LB",
+        "SLOW_LB",
+        "MARKET_LB",
+        "VOL_WINDOW",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AnchorFlowMomentum",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "FAST_LB": 12,
+        "SLOW_LB": 48,
+        "MARKET_LB": 84,
+        "VOL_WINDOW": 48,
+        "HOLD": 24
+      }
+    },
+    {
+      "agent_id": "CrashPanicShortAgent",
+      "component_type": "agent",
+      "class_name": "CrashPanicShortAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "SHORT_LB",
+        "MID_LB",
+        "BREAKDOWN_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CrashPanicShortAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "CrashPanicShortAgent__FAST067",
+      "component_type": "agent",
+      "class_name": "CrashPanicShortAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "SHORT_LB",
+        "MID_LB",
+        "BREAKDOWN_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CrashPanicShortAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "SHORT_LB": 9,
+        "MID_LB": 29,
+        "BREAKDOWN_LB": 9,
+        "FAST_EMA": 5,
+        "SLOW_EMA": 17,
+        "HOLD": 5
+      }
+    },
+    {
+      "agent_id": "CrashPanicShortAgent__SLOW150",
+      "component_type": "agent",
+      "class_name": "CrashPanicShortAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "SHORT_LB",
+        "MID_LB",
+        "BREAKDOWN_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CrashPanicShortAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "SHORT_LB": 18,
+        "MID_LB": 63,
+        "BREAKDOWN_LB": 18,
+        "FAST_EMA": 9,
+        "SLOW_EMA": 36,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "CrashPanicShortAgent__SLOW200",
+      "component_type": "agent",
+      "class_name": "CrashPanicShortAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "SHORT_LB",
+        "MID_LB",
+        "BREAKDOWN_LB",
+        "FAST_EMA",
+        "SLOW_EMA",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CrashPanicShortAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "SHORT_LB": 24,
+        "MID_LB": 84,
+        "BREAKDOWN_LB": 24,
+        "FAST_EMA": 12,
+        "SLOW_EMA": 48,
+        "HOLD": 12
+      }
+    },
+    {
+      "agent_id": "ResearchValidatorAgent",
+      "component_type": "agent",
+      "class_name": "ResearchValidatorAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "BREAKOUT",
+        "VOL_WIN",
+        "NOISE_WIN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "ResearchValidatorAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "ResearchValidatorAgent__FAST067",
+      "component_type": "agent",
+      "class_name": "ResearchValidatorAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "BREAKOUT",
+        "VOL_WIN",
+        "NOISE_WIN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "ResearchValidatorAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "CHECK_INT": 1,
+        "EMA_FAST": 5,
+        "EMA_MID": 13,
+        "EMA_SLOW": 29,
+        "BREAKOUT": 14,
+        "VOL_WIN": 17,
+        "NOISE_WIN": 29,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "ResearchValidatorAgent__SLOW150",
+      "component_type": "agent",
+      "class_name": "ResearchValidatorAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "BREAKOUT",
+        "VOL_WIN",
+        "NOISE_WIN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "ResearchValidatorAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "EMA_FAST": 9,
+        "EMA_MID": 27,
+        "EMA_SLOW": 63,
+        "BREAKOUT": 30,
+        "VOL_WIN": 36,
+        "NOISE_WIN": 63,
+        "HOLD": 18
+      }
+    },
+    {
+      "agent_id": "ResearchValidatorAgent__SLOW200",
+      "component_type": "agent",
+      "class_name": "ResearchValidatorAgent",
+      "temporal_fields": [
+        "CHECK_INT",
+        "EMA_FAST",
+        "EMA_MID",
+        "EMA_SLOW",
+        "BREAKOUT",
+        "VOL_WIN",
+        "NOISE_WIN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "ResearchValidatorAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "CHECK_INT": 2,
+        "EMA_FAST": 12,
+        "EMA_MID": 36,
+        "EMA_SLOW": 84,
+        "BREAKOUT": 40,
+        "VOL_WIN": 48,
+        "NOISE_WIN": 84,
+        "HOLD": 24
+      }
+    },
+    {
+      "agent_id": "CandlePatternAgent",
+      "component_type": "agent",
+      "class_name": "CandlePatternAgent",
+      "temporal_fields": [
+        "AGG_BARS",
+        "HISTORY_MAX",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CandlePatternAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "CandlePatternAgent__FAST067",
+      "component_type": "agent",
+      "class_name": "CandlePatternAgent",
+      "temporal_fields": [
+        "AGG_BARS",
+        "HISTORY_MAX",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CandlePatternAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "AGG_BARS": 3,
+        "HISTORY_MAX": 81,
+        "CHECK_INT": 3,
+        "ENTRY_COOLDOWN": 3,
+        "HOLD": 5
+      }
+    },
+    {
+      "agent_id": "CandlePatternAgent__SLOW150",
+      "component_type": "agent",
+      "class_name": "CandlePatternAgent",
+      "temporal_fields": [
+        "AGG_BARS",
+        "HISTORY_MAX",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CandlePatternAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "AGG_BARS": 5,
+        "HISTORY_MAX": 180,
+        "CHECK_INT": 5,
+        "ENTRY_COOLDOWN": 5,
+        "HOLD": 9
+      }
+    },
+    {
+      "agent_id": "CandlePatternAgent__SLOW200",
+      "component_type": "agent",
+      "class_name": "CandlePatternAgent",
+      "temporal_fields": [
+        "AGG_BARS",
+        "HISTORY_MAX",
+        "CHECK_INT",
+        "ENTRY_COOLDOWN",
+        "HOLD"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "CandlePatternAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "AGG_BARS": 6,
+        "HISTORY_MAX": 240,
+        "CHECK_INT": 6,
+        "ENTRY_COOLDOWN": 6,
+        "HOLD": 12
+      }
+    },
+    {
+      "agent_id": "MeanRevConfirmedAgent",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MeanRevConfirmedAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "MeanRevConfirmedAgent__FAST067",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MeanRevConfirmedAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "BB_PERIOD": 17,
+        "CHECK_INT": 1,
+        "HOLD_BARS": 5,
+        "VOL_LOOKBACK": 17,
+        "ENTRY_COOLDOWN": 3
+      }
+    },
+    {
+      "agent_id": "MeanRevConfirmedAgent__SLOW150",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MeanRevConfirmedAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "BB_PERIOD": 36,
+        "CHECK_INT": 2,
+        "HOLD_BARS": 9,
+        "VOL_LOOKBACK": 36,
+        "ENTRY_COOLDOWN": 5
+      }
+    },
+    {
+      "agent_id": "MeanRevConfirmedAgent__SLOW200",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "MeanRevConfirmedAgent",
+      "temporal_fields": [
+        "BB_PERIOD",
+        "CHECK_INT",
+        "HOLD_BARS",
+        "VOL_LOOKBACK",
+        "ENTRY_COOLDOWN"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "MeanRevConfirmedAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "BB_PERIOD": 48,
+        "CHECK_INT": 2,
+        "HOLD_BARS": 12,
+        "VOL_LOOKBACK": 48,
+        "ENTRY_COOLDOWN": 6
+      }
+    },
+    {
+      "agent_id": "AdaptiveVolTrendAgent",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "AdaptiveVolTrendAgent",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_SLOW",
+        "ATR_N",
+        "CHECK_INT",
+        "HOLD_MAX"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AdaptiveVolTrendAgent",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "AdaptiveVolTrendAgent__FAST067",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "AdaptiveVolTrendAgent",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_SLOW",
+        "ATR_N",
+        "CHECK_INT",
+        "HOLD_MAX"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AdaptiveVolTrendAgent",
+      "variant_id": "FAST067",
+      "post_profile_overrides": {
+        "EMA_FAST": 5,
+        "EMA_SLOW": 17,
+        "ATR_N": 10,
+        "CHECK_INT": 1,
+        "HOLD_MAX": 13
+      }
+    },
+    {
+      "agent_id": "AdaptiveVolTrendAgent__SLOW150",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "AdaptiveVolTrendAgent",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_SLOW",
+        "ATR_N",
+        "CHECK_INT",
+        "HOLD_MAX"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AdaptiveVolTrendAgent",
+      "variant_id": "SLOW150",
+      "post_profile_overrides": {
+        "EMA_FAST": 9,
+        "EMA_SLOW": 36,
+        "ATR_N": 21,
+        "CHECK_INT": 2,
+        "HOLD_MAX": 27
+      }
+    },
+    {
+      "agent_id": "AdaptiveVolTrendAgent__SLOW200",
+      "component_type": "agent",
+      "module": "agents_v2",
+      "class_name": "AdaptiveVolTrendAgent",
+      "temporal_fields": [
+        "EMA_FAST",
+        "EMA_SLOW",
+        "ATR_N",
+        "CHECK_INT",
+        "HOLD_MAX"
+      ],
+      "overrides": {},
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "AdaptiveVolTrendAgent",
+      "variant_id": "SLOW200",
+      "post_profile_overrides": {
+        "EMA_FAST": 12,
+        "EMA_SLOW": 48,
+        "ATR_N": 28,
+        "CHECK_INT": 2,
+        "HOLD_MAX": 36
+      }
+    },
+    {
+      "agent_id": "PlayerBomberman",
+      "component_type": "player",
+      "class_name": "PlayerBomberman",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {},
+      "base_agent_id": "PlayerBomberman",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PlayerFundingOHLCVFallback",
+      "component_type": "player",
+      "class_name": "PlayerFunding",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {},
+      "base_agent_id": "PlayerFundingOHLCVFallback",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonCore",
+      "component_type": "player",
+      "class_name": "Panteon",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "constructor_kwargs": {
+        "enable_meta_players": false
+      },
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonCore",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonResearch",
+      "component_type": "player",
+      "class_name": "PanteonResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonTrendResearch",
+      "component_type": "player",
+      "class_name": "PanteonTrendResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonTrendResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonMeanRevResearch",
+      "component_type": "player",
+      "class_name": "PanteonMeanRevResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonMeanRevResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonDefensiveResearch",
+      "component_type": "player",
+      "class_name": "PanteonDefensiveResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonDefensiveResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonConsensusResearch",
+      "component_type": "player",
+      "class_name": "PanteonConsensusResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonConsensusResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonResilient",
+      "component_type": "player",
+      "class_name": "PanteonResilient",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonResilient",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "PanteonNextResearch",
+      "component_type": "player",
+      "module": "panteon",
+      "class_name": "PanteonNextResearch",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "shadow_bootstrap_mode": true,
+      "overrides": {},
+      "base_agent_id": "PanteonNextResearch",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "NeuroPlayerStub",
+      "component_type": "player_control",
+      "class_name": "NeuroPlayer",
+      "modes": [
+        "fixed_profile"
+      ],
+      "temporal_fields": [],
+      "overrides": {},
+      "base_agent_id": "NeuroPlayerStub",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_Flat",
+      "component_type": "strategy_baseline",
+      "engine": "simple_research",
+      "strategy_kind": "flat",
+      "modes": [
+        "fixed_profile"
+      ],
+      "parameter_base_minutes": 240,
+      "temporal_fields": [],
+      "params": {},
+      "base_agent_id": "SR_Flat",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_LongOnly",
+      "component_type": "strategy_baseline",
+      "engine": "simple_research",
+      "strategy_kind": "long_only",
+      "modes": [
+        "fixed_profile"
+      ],
+      "parameter_base_minutes": 240,
+      "temporal_fields": [],
+      "params": {},
+      "base_agent_id": "SR_LongOnly",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_EMATrend12_48",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "threshold_bps": 12.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend12_48",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_EMATrend12_48__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 9,
+        "slow": 33,
+        "threshold_bps": 12.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend12_48",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_EMATrend12_48__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 18,
+        "slow": 72,
+        "threshold_bps": 12.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend12_48",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_EMATrend12_48__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 12.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend12_48",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_EMATrend24_96",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "threshold_bps": 16.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend24_96",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_EMATrend24_96__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 17,
+        "slow": 65,
+        "threshold_bps": 16.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend24_96",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_EMATrend24_96__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 36,
+        "slow": 144,
+        "threshold_bps": 16.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend24_96",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_EMATrend24_96__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "ema_trend",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 48,
+        "slow": 192,
+        "threshold_bps": 16.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_EMATrend24_96",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_Donchian20",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 20
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian20",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_Donchian20__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 14
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian20",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_Donchian20__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 30
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian20",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_Donchian20__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 40
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian20",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_Donchian55",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 55
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian55",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_Donchian55__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 37
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian55",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_Donchian55__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 83
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian55",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_Donchian55__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "donchian",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 110
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_Donchian55",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_MeanReversion24",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "mean_reversion",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 24,
+        "entry_z": 2.5,
+        "exit_z": 0.5
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_MeanReversion24",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_MeanReversion24__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "mean_reversion",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 17,
+        "entry_z": 2.5,
+        "exit_z": 0.5
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_MeanReversion24",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_MeanReversion24__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "mean_reversion",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 36,
+        "entry_z": 2.5,
+        "exit_z": 0.5
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_MeanReversion24",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_MeanReversion24__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "mean_reversion",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 48,
+        "entry_z": 2.5,
+        "exit_z": 0.5
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_MeanReversion24",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_VolCompressionBreakout",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "vol_compression",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast_span",
+        "slow_span",
+        "short_vol_window",
+        "long_vol_window",
+        "short_vol_min_periods",
+        "long_vol_min_periods",
+        "breakout_window"
+      ],
+      "params": {
+        "compression_threshold": 0.65,
+        "fast_span": 12,
+        "slow_span": 48,
+        "short_vol_window": 24,
+        "long_vol_window": 96,
+        "short_vol_min_periods": 12,
+        "long_vol_min_periods": 48,
+        "breakout_window": 20
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_VolCompressionBreakout",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_VolCompressionBreakout__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "vol_compression",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast_span",
+        "slow_span",
+        "short_vol_window",
+        "long_vol_window",
+        "short_vol_min_periods",
+        "long_vol_min_periods",
+        "breakout_window"
+      ],
+      "params": {
+        "compression_threshold": 0.65,
+        "fast_span": 9,
+        "slow_span": 33,
+        "short_vol_window": 17,
+        "long_vol_window": 65,
+        "short_vol_min_periods": 9,
+        "long_vol_min_periods": 33,
+        "breakout_window": 14
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_VolCompressionBreakout",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_VolCompressionBreakout__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "vol_compression",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast_span",
+        "slow_span",
+        "short_vol_window",
+        "long_vol_window",
+        "short_vol_min_periods",
+        "long_vol_min_periods",
+        "breakout_window"
+      ],
+      "params": {
+        "compression_threshold": 0.65,
+        "fast_span": 18,
+        "slow_span": 72,
+        "short_vol_window": 36,
+        "long_vol_window": 144,
+        "short_vol_min_periods": 18,
+        "long_vol_min_periods": 72,
+        "breakout_window": 30
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_VolCompressionBreakout",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_VolCompressionBreakout__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "vol_compression",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast_span",
+        "slow_span",
+        "short_vol_window",
+        "long_vol_window",
+        "short_vol_min_periods",
+        "long_vol_min_periods",
+        "breakout_window"
+      ],
+      "params": {
+        "compression_threshold": 0.65,
+        "fast_span": 24,
+        "slow_span": 96,
+        "short_vol_window": 48,
+        "long_vol_window": 192,
+        "short_vol_min_periods": 24,
+        "long_vol_min_periods": 96,
+        "breakout_window": 40
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_VolCompressionBreakout",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_RegimePullback12_48",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "regime_pullback",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 12,
+        "slow": 48,
+        "pullback_bps": 80.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_RegimePullback12_48",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_RegimePullback12_48__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "regime_pullback",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 9,
+        "slow": 33,
+        "pullback_bps": 80.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_RegimePullback12_48",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_RegimePullback12_48__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "regime_pullback",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 18,
+        "slow": 72,
+        "pullback_bps": 80.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_RegimePullback12_48",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_RegimePullback12_48__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "regime_pullback",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "fast",
+        "slow"
+      ],
+      "params": {
+        "fast": 24,
+        "slow": 96,
+        "pullback_bps": 80.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_RegimePullback12_48",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "SR_CandleMomentum3",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 3,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_CandleMomentum3",
+      "variant_id": "BASE"
+    },
+    {
+      "agent_id": "SR_CandleMomentum3__FAST067",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 3,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_CandleMomentum3",
+      "variant_id": "FAST067"
+    },
+    {
+      "agent_id": "SR_CandleMomentum3__SLOW150",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 5,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_CandleMomentum3",
+      "variant_id": "SLOW150"
+    },
+    {
+      "agent_id": "SR_CandleMomentum3__SLOW200",
+      "component_type": "strategy",
+      "engine": "simple_research",
+      "strategy_kind": "candle_momentum",
+      "parameter_base_minutes": 240,
+      "temporal_fields": [
+        "bars"
+      ],
+      "params": {
+        "bars": 6,
+        "threshold_bps": 100.0
+      },
+      "modes": [
+        "fixed_profile"
+      ],
+      "base_agent_id": "SR_CandleMomentum3",
+      "variant_id": "SLOW200"
+    },
+    {
+      "agent_id": "NEW_KeltnerBreakout",
+      "strategy_kind": "keltner_breakout",
+      "temporal_fields": [
+        "ema_span",
+        "atr_window"
+      ],
+      "params": {
+        "ema_span": 20,
+        "atr_window": 14,
+        "atr_multiplier": 1.8
+      },
+      "hypothesis": "ATR-scaled channel breakouts adapt the entry distance to 4h volatility.",
+      "base_agent_id": "NEW_KeltnerBreakout",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_DualThrust",
+      "strategy_kind": "dual_thrust",
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 12,
+        "coefficient": 0.55
+      },
+      "hypothesis": "Prior-range expansion from the current open captures directional impulse.",
+      "base_agent_id": "NEW_DualThrust",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_RSIFailureSwing",
+      "strategy_kind": "rsi_failure_swing",
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 14,
+        "lower": 30.0,
+        "upper": 70.0
+      },
+      "hypothesis": "Re-entry from an RSI extreme is more robust than trading the extreme itself.",
+      "base_agent_id": "NEW_RSIFailureSwing",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_VolumePriceDivergence",
+      "strategy_kind": "volume_price_divergence",
+      "temporal_fields": [
+        "lookback"
+      ],
+      "params": {
+        "lookback": 12,
+        "price_threshold_bps": 80.0
+      },
+      "hypothesis": "Price and signed-volume divergence identifies exhausted directional moves.",
+      "base_agent_id": "NEW_VolumePriceDivergence",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_EfficiencyRatioTrend",
+      "strategy_kind": "efficiency_ratio_trend",
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 16,
+        "minimum_efficiency": 0.35,
+        "minimum_move_bps": 50.0
+      },
+      "hypothesis": "Kaufman-style path efficiency separates persistent trends from noisy moves.",
+      "base_agent_id": "NEW_EfficiencyRatioTrend",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_VolatilityRegimeSwitch",
+      "strategy_kind": "volatility_regime_switch",
+      "temporal_fields": [
+        "short_window",
+        "long_window",
+        "trend_lookback",
+        "z_window"
+      ],
+      "params": {
+        "short_window": 6,
+        "long_window": 30,
+        "trend_lookback": 6,
+        "z_window": 20,
+        "z_entry": 1.5
+      },
+      "hypothesis": "Momentum in high volatility and reversion in low volatility share one causal policy.",
+      "base_agent_id": "NEW_VolatilityRegimeSwitch",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_RollingVWAPReversion",
+      "strategy_kind": "rolling_vwap_reversion",
+      "temporal_fields": [
+        "window"
+      ],
+      "params": {
+        "window": 24,
+        "entry_z": 1.8
+      },
+      "hypothesis": "Volume-weighted fair-value deviations revert on liquid 4h bars.",
+      "base_agent_id": "NEW_RollingVWAPReversion",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_CandleStructureBreakout",
+      "strategy_kind": "candle_structure_breakout",
+      "temporal_fields": [
+        "volume_window"
+      ],
+      "params": {
+        "volume_window": 20,
+        "volume_multiplier": 1.25,
+        "body_fraction": 0.65,
+        "close_location": 0.8
+      },
+      "hypothesis": "Large directional bodies closing near an extreme with volume confirm continuation.",
+      "base_agent_id": "NEW_CandleStructureBreakout",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_CrossSectionalResidualMomentum",
+      "strategy_kind": "cross_sectional_residual_momentum",
+      "temporal_fields": [
+        "lookback"
+      ],
+      "params": {
+        "lookback": 12,
+        "rank_threshold": 0.75
+      },
+      "hypothesis": "Market-demeaned full8 momentum retains relative continuation information.",
+      "base_agent_id": "NEW_CrossSectionalResidualMomentum",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    },
+    {
+      "agent_id": "NEW_CrossSectionalShortReversal",
+      "strategy_kind": "cross_sectional_short_term_reversal",
+      "temporal_fields": [
+        "lookback"
+      ],
+      "params": {
+        "lookback": 2,
+        "rank_threshold": 0.75
+      },
+      "hypothesis": "Extreme short-horizon full8 relative moves partially reverse.",
+      "base_agent_id": "NEW_CrossSectionalShortReversal",
+      "variant_id": "NEW_BASE",
+      "component_type": "new_strategy",
+      "engine": "simple_research",
+      "parameter_base_minutes": 240,
+      "modes": [
+        "fixed_profile"
+      ]
+    }
+  ],
+  "equivalent_components": [
+    {
+      "component": "SoloFundingArb",
+      "equivalent_to": "FundingArbOHLCVFallback",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveVolCompress",
+      "equivalent_to": "LiveVolCompress",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveRegimePullback",
+      "equivalent_to": "LiveRegimePullback",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveTrendFollow",
+      "equivalent_to": "LiveTrendFollow",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloLiveCrashHunter",
+      "equivalent_to": "LiveCrashHunter",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "SoloCandlePattern",
+      "equivalent_to": "CandlePatternAgent",
+      "reason": "thin 1:1 delegating wrapper"
+    },
+    {
+      "component": "PanteonPlayer",
+      "equivalent_to": "PanteonCore",
+      "reason": "source-level alias"
+    }
+  ],
+  "excluded_components": [
+    {
+      "component": "CarryFlowAgentV2",
+      "reason": "requires point-in-time funding, OI, crowding and basis; absent from the common OHLCV contract"
+    },
+    {
+      "component": "ExternalSignalAgent",
+      "reason": "requires an external timestamped signal file and is not an autonomous market strategy"
+    },
+    {
+      "component": "CrossExchangeSkewAgent",
+      "reason": "requires synchronized cross-exchange quotes"
+    },
+    {
+      "component": "FundingWindowAgent",
+      "reason": "requires point-in-time funding rates and sub-bar funding-cutoff timing"
+    },
+    {
+      "component": "GenomeEnsemble/Genetics",
+      "reason": "trained checkpoints have a fixed feature cadence and missing runtime dependency crypto_exchange"
+    },
+    {
+      "component": "DefensiveStopOverlayAgent",
+      "reason": "exit-only overlay requires externally synchronized positions and cannot be scored standalone"
+    },
+    {
+      "component": "MasterPlayer Alpha/Beta/Gamma/P7Ways/Ultima/Neuro",
+      "reason": "source dependencies crypto_agents.py and crypto_players.py are absent; current factory builds empty or invalid sub-agent pools"
+    },
+    {
+      "component": "Freqtrade Exia IStrategy classes",
+      "reason": "they require the separate Freqtrade portfolio/ROI/stoploss execution contract and cannot be mixed into the component ledger without changing semantics"
+    },
+    {
+      "component": "pair/portfolio/funding/basis StrategyLab families",
+      "reason": "their multi-leg or derivatives-context contract is not representable by a single-symbol OHLCV timebase audit"
+    },
+    {
+      "component": "NEW_L2OrderBookAgent",
+      "reason": "No continuous point-in-time L2 snapshots exist for the common 2022-2026 full8 window; using OHLCV proxies would mislabel the experiment."
+    }
+  ],
+  "stability_panel_id": "full8_4h_20220101_20260714",
+  "holdout_panel_id": "untouched_4h_20260715_20260817",
+  "regime_attribution": {
+    "label_only": true,
+    "labels": [
+      "bullish",
+      "bearish",
+      "neutral"
+    ],
+    "market_lookback": 12,
+    "market_threshold_bps": 100.0,
+    "market_breadth": 0.625,
+    "market_minimum_symbols": 6,
+    "market_confirmation_bars": 2,
+    "trade_regime_timestamp": "entry_timestamp"
+  },
+  "experiment_counts": {
+    "current_components": 43,
+    "current_runtime_agents": 22,
+    "current_simple_strategies": 8,
+    "additional_variants": 90,
+    "new_agents": 10,
+    "total_components": 143
+  }
+}
