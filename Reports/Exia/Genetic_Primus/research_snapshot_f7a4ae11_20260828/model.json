@@ -1,0 +1,103 @@
+{
+  "schema": "genetic_primus_research_snapshot/1",
+  "publication_date": "2026-08-28",
+  "status": "HISTORICAL_RESEARCH_CANDIDATE_REJECTED_FOR_PROMOTION",
+  "selection": {
+    "method": "genetic_search",
+    "seed": 20260829,
+    "origin_index": 2,
+    "criterion": "Highest observed validation net return among the frozen measurement_lab_v2 selected genetic candidates; post-hoc archival selection only",
+    "validation_is_unseen_holdout": false,
+    "trained_or_refitted_for_publication": false,
+    "incumbent_replaced": false
+  },
+  "model_sha256": "f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e",
+  "model": {
+    "entry_rule": "logit_strictly_positive",
+    "features": ["ema_gap_12_48", "ema_slope_12_3", "return_12", "efficiency_12"],
+    "genome": [0, 0, 1, 1, -1],
+    "missing_features": "abstain",
+    "proposal": "V7_EMA_TrendConsensus",
+    "scaler": {
+      "fit_values_sha256": "8d3fc6e983330a94b36c377edeac79cb042fc61d040afd41dc17aaab78488441",
+      "fitted_rows": 7200,
+      "median": [0.0040429417272414, 0.0011902407558666006, 0.004306489149553228, 0.262559295203845],
+      "scale": [0.04568055026581688, 0.013131327221021255, 0.06055017775656632, 0.31358623309226347]
+    },
+    "schema": "binary_sparse_lab/2"
+  },
+  "bounds": {
+    "development_end": 1738627200000,
+    "development_start": 1738368000000,
+    "train_end": 1735747200000,
+    "train_start": 1722787200000,
+    "validation_end": 1738353600000,
+    "validation_start": 1735761600000
+  },
+  "validation": {
+    "normal": {
+      "net_return": 0.08506270654781845,
+      "max_drawdown": 0.042805015605971275,
+      "trades": 47,
+      "decision_count": 1440,
+      "fills": 94
+    },
+    "normal_hac": {
+      "daily_count": 30,
+      "mean_difference": 0.002834911226991621,
+      "standard_error": 0.002970202990913487,
+      "lcb": -0.009944840779772311,
+      "block_length": 6,
+      "degrees_of_freedom": 2,
+      "critical_value": 4.302652729749462
+    },
+    "stress_hac": {
+      "daily_count": 30,
+      "mean_difference": 0.0026795848724451474,
+      "standard_error": 0.0029386761348738017,
+      "lcb": -0.009964518021119213,
+      "block_length": 6,
+      "degrees_of_freedom": 2,
+      "critical_value": 4.302652729749462
+    },
+    "new_diagnostic_gate": {
+      "diagnostic_only": true,
+      "drawdown_limit": 0.1,
+      "passed": false,
+      "promotion_authority": false,
+      "reasons": ["normal_lcb_not_positive", "stress_lcb_not_positive"],
+      "runtime_authority": false
+    }
+  },
+  "provenance": {
+    "source_origin": "Reports/Exia/Genetic_Primus/measurement_lab_v2_20260828/origin_2.json",
+    "source_origin_sha256": "213bff72e93338f67e833dbcc5e1c98fe723aedf74332b43877b0b11ee761287",
+    "review_artifact": "Reports/Exia/Genetic_Primus/frozen_hac_review_v1_20260828/origin_2_model_f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e.json",
+    "review_artifact_sha256": "6ea72c0447d76a7e390804ef94a2c2e35115b0c3d9b57fe3d9764a0b1e181a99",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "bounds_sha256": "6e0fde67f18006e7fce5f419e7653d8686f3f58736b11ce7700ba91fedd391f1",
+    "train_bank_sha256": "3c59b9b6011f8569e78f54c65b2dc57c9d0ace3d05194ec3ed2975cff41ae55b",
+    "validation_bank_sha256": "23a803018cdc060a951c2512fa544cf58c234a599ea4a84f31fb58192530961a",
+    "validation_values_sha256": "2d4479b6ca804c0562d0da1207af1135a6a7751e9aa97c125a42b4145ec34213",
+    "file_sha256": {
+      "configs/genetic_primus_measurement_lab_v2.json": "7a76b0117bd86150939a7ec97c75301440391d252e140c61fe3e90b774c3e407",
+      "configs/genetic_primus_frozen_hac_review_v1.json": "41cd3c25ca52790b61fd8db0da448c58a38e6489b633df21a962c59246fc7391",
+      "configs/genetic_primus_validation_ci_v1.json": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+      "src/exia/genetic_primus/measurement_lab_v2.py": "c09835cd20c7dbb07473fc537f25bb8d7d3ecd887a2e8a4b742c2bf9ec7a3755",
+      "src/exia/genetic_primus/accounting_v2.py": "f9294a2e4b2220aa7552ebed7d2480e7e7647744fe5a62330888acba569af5bb",
+      "src/exia/genetic_primus_statistics/hac_adapter_v1.py": "6e15c57fd26ac4072fde9c3eff4367659fa0be9c55f23a9579c9ccc749a1a86c"
+    }
+  },
+  "safety": {
+    "research_only": true,
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "market_readiness": false
+  }
+}
