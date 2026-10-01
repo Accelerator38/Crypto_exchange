@@ -1,0 +1,47 @@
+{
+  "global_dsr_pbo_calibrated": false,
+  "market_data_manifest_sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9",
+  "new_attempts": [
+    {
+      "candidate_selected": false,
+      "config_path": "configs/genetic_primus_episode_attribution_v1.json",
+      "config_sha256": "18b1c75b1e7ae331fcaaa42918a55b539abc084ff11d7fc96119b69194b3579b",
+      "evidence_class": "revealed_historical_development_only",
+      "fixed_seed_count": 8,
+      "objective_id": "disclosed_september_episode_matched_ga_attribution_v1",
+      "result_path": "Reports/Exia/Genetic_Primus/episode_attribution_v1_20261001/result.json",
+      "result_sha256": "3e6546632557a40b3395957b741e96da00dd9292e292c7da725187e03a6673f5"
+    },
+    {
+      "candidate_evaluations": 2,
+      "candidate_selected": false,
+      "config_path": "configs/genetic_primus_rolling_linear_development_v1.json",
+      "config_sha256": "020c7732026a23cfd97e2e19f1167a11e8d74552477bb2e62713359f6810379b",
+      "evidence_class": "revealed_historical_development_only",
+      "objective_id": "rolling_3d_ridge_uniform_vs_90d_jun_aug_2026_v1",
+      "result_path": "Reports/Exia/Genetic_Primus/rolling_linear_development_v1_20261001/result.json",
+      "result_sha256": "1c93d182c8d6c3b13ed76cfa17ea52710db1e31a3156435ad8ab120476c90e16"
+    }
+  ],
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v1_20261001/ledger.json",
+  "previous_ledger_sha256": "b83eeaeec48a31e5dda1f57f148b00f4bab3872012196e500ad02a26a34852e3",
+  "prior_later_attempt_count": 4,
+  "prior_objective_entry_count": 33,
+  "promotion_authority": false,
+  "schema_version": "exia.genetic_primus.research_ledger/2",
+  "stage_gates": {
+    "episode_attribution_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "linear_candidate_can_be_considered_for_future_contract": false,
+    "linear_inner_validation_passed": false,
+    "promotion_authority": false,
+    "prospective_contract_registered": false
+  },
+  "unknown_historical_adaptive_decisions": true,
+  "verified_recomputations": {
+    "episode_paired_lcb": true,
+    "episode_resample_bank": true,
+    "rolling_linear_model_sha_and_purge": true,
+    "rolling_linear_train_scores": true
+  }
+}
