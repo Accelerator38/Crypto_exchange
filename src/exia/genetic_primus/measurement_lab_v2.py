@@ -137,6 +137,16 @@ class PreparedWindow:
 
     def simulate(self, genome: Genome, scaler: LabScaler, cost_bps: float, *,
                  details: bool = False, force_flat_timestamps: tuple[int, ...] = ()) -> CashSimulation:
+        schedule = self.schedule(genome, scaler)
+        return simulate_cash_targets(
+            self.bars, schedule, symbols=self.symbols, start_timestamp=self.start,
+            end_timestamp=self.end, timeframe_ms=self.timeframe_ms,
+            round_trip_cost_bps=cost_bps, record_details=details,
+            force_flat_timestamps=force_flat_timestamps,
+        )
+
+    def schedule(self, genome: Genome, scaler: LabScaler) -> pd.DataFrame:
+        """Return decisions without resetting cash at the deployment boundary."""
         if genome not in CATALOG:
             raise ValueError("unregistered model complexity")
         normalized = scaler.transform(self.values)
@@ -145,12 +155,7 @@ class PreparedWindow:
         schedule = self.base_schedule.copy()
         schedule["target"] = np.where(allow, self.proposal, 0)
         schedule["model_sha256"] = object_sha(self.model(genome, scaler))
-        return simulate_cash_targets(
-            self.bars, schedule, symbols=self.symbols, start_timestamp=self.start,
-            end_timestamp=self.end, timeframe_ms=self.timeframe_ms,
-            round_trip_cost_bps=cost_bps, record_details=details,
-            force_flat_timestamps=force_flat_timestamps,
-        )
+        return schedule
 
 
 def candidate_catalog() -> tuple[Genome, ...]:
