@@ -15,8 +15,13 @@ research state is tracked in
 `promotion_authority=false`. Validate it with:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\check_strategy_experiment_registry.py
+.\.venv\Scripts\python.exe tools\check_strategy_experiment_registry.py --metadata-only
 ```
+
+The public checkout omits some registered evidence artifacts. `--metadata-only`
+validates the schema and restrictive flags, but **does not** verify evidence
+SHA-256 hashes. The full check without this flag requires every registered file
+and fails when one is missing. Only the full check confirms artifact integrity.
 
 The old `configs/bitget_hypotheses_20260706.json` manifest is archived
 research-only. Its legacy sweep and canary entry points fail closed and must not

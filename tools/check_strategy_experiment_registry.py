@@ -91,10 +91,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--registry", default=str(DEFAULT_REGISTRY))
     parser.add_argument("--experiment-id", default="")
+    parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="Validate registry schema and terminal flags without checking unpublished evidence files.",
+    )
     args = parser.parse_args(argv)
 
     registry = StrategyExperimentRegistry.from_json(args.registry)
-    artifact_integrity = verify_registered_artifacts(registry)
+    artifact_integrity = (
+        {"checked": 0, "passed": False, "reason": "metadata-only; evidence not verified"}
+        if args.metadata_only
+        else verify_registered_artifacts(registry)
+    )
     print(
         json.dumps(
             build_summary(

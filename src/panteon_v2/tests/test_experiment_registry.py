@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 
@@ -70,11 +71,27 @@ def test_terminal_experiment_cannot_allow_continuation():
         validate_experiment_registry(payload)
 
 
-def test_registry_tool_reports_terminal_state():
-    tool = _load_tool()
-    registry = StrategyExperimentRegistry.from_json(REGISTRY_PATH)
+def _registry_with_test_artifacts(tmp_path):
+    payload = _payload()
+    for experiment_index, experiment in enumerate(payload["experiments"]):
+        for artifact_index, artifact in enumerate(experiment["artifacts"]):
+            relative = f"evidence/{experiment_index}_{artifact_index}.json"
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            content = f"test evidence {experiment_index} {artifact_index}".encode()
+            path.write_bytes(content)
+            artifact["path"] = relative
+            artifact["sha256"] = hashlib.sha256(content).hexdigest()
+    registry_path = tmp_path / "registry.json"
+    registry_path.write_text(json.dumps(payload), encoding="utf-8")
+    return registry_path
 
-    artifact_integrity = tool.verify_registered_artifacts(registry, root=ROOT)
+
+def test_registry_tool_reports_terminal_state(tmp_path):
+    tool = _load_tool()
+    registry = StrategyExperimentRegistry.from_json(_registry_with_test_artifacts(tmp_path))
+
+    artifact_integrity = tool.verify_registered_artifacts(registry, root=tmp_path)
     summary = tool.build_summary(
         registry,
         experiment_id="divergence_short_systemic_guard_v1_prospective",
@@ -90,11 +107,20 @@ def test_registry_tool_reports_terminal_state():
 
 def test_registry_tool_rejects_artifact_hash_mismatch(tmp_path):
     tool = _load_tool()
-    payload = _payload()
+    test_registry_path = _registry_with_test_artifacts(tmp_path)
+    payload = json.loads(test_registry_path.read_text(encoding="utf-8"))
     payload["experiments"][0]["artifacts"][0]["sha256"] = "0" * 64
     registry_path = tmp_path / "registry.json"
     registry_path.write_text(json.dumps(payload), encoding="utf-8")
     registry = StrategyExperimentRegistry.from_json(registry_path)
 
     with pytest.raises(ExperimentRegistryError, match="SHA-256 mismatch"):
-        tool.verify_registered_artifacts(registry, root=ROOT)
+        tool.verify_registered_artifacts(registry, root=tmp_path)
+
+
+def test_public_metadata_check_does_not_claim_evidence_integrity(capsys):
+    tool = _load_tool()
+    assert tool.main(["--metadata-only"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["artifact_integrity"]["passed"] is False
+    assert summary["orders_enabled"] is False
