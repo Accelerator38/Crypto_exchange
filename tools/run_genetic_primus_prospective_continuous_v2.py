@@ -93,8 +93,19 @@ def _verified_prefix(args: argparse.Namespace, config_path: Path,
             manifest_path, root=ROOT, contract_path=config_path,
             contract=contract, origin_index=index,
             previous_manifest_path=previous)
-        if index < args.origin and (not started_path.is_file() or not result_path.is_file()):
-            raise ValueError("previous origin lacks a completed evaluation")
+        if index < args.origin:
+            if not started_path.is_file() or not result_path.is_file():
+                raise ValueError("previous origin lacks a completed evaluation")
+            previous_result = json.loads(result_path.read_text(encoding="utf-8"))
+            if (previous_result.get("schema_version")
+                    != "exia.genetic_primus.prospective_continuous/2"
+                    or previous_result.get("origin_count") != index + 1
+                    or previous_result.get("contract_sha256") != file_sha256(config_path)
+                    or previous_result.get("manifest_sha256_by_origin", [])[-1:]
+                    != [file_sha256(manifest_path)]
+                    or previous_result.get("previous_result_sha256")
+                    != (file_sha256(_paths(args, index - 1)[2]) if index else None)):
+                raise ValueError("previous evaluation lineage changed")
         manifests.append(manifest)
         latest_panel = panel
     return [(manifest, latest_panel) for manifest in manifests]
