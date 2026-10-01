@@ -13,10 +13,9 @@
 
 ## Быстрая проверка без ключей и сети
 
-Нужен Python 3.11+ с зависимостями из `requirements.txt`:
+Нужен Python 3.11+ с зависимостями из `requirements.txt`. В активированном виртуальном окружении:
 
 ```bash
-python -m venv .venv
 python -m pip install -r requirements.txt
 python tools/check_strategy_candidates.py
 python tools/check_strategy_experiment_registry.py --metadata-only
