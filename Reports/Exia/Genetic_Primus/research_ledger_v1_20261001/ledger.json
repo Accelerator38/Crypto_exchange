@@ -1,0 +1,416 @@
+{
+  "global_dsr_pbo_calibrated": false,
+  "known_later_attempts": [
+    {
+      "evidence_class": "retrospective_disclosed_engineering_attribution_only",
+      "name": "disclosed_six_policy_ablation",
+      "policies": [
+        "EMA_TrendConsensus",
+        "EMA_long_only",
+        "EMA_long_random_matched",
+        "GA_entry_only",
+        "GA_target_gate",
+        "NoTrade"
+      ],
+      "recorded_policy_evaluations": 13,
+      "result_path": "Reports/Exia/Genetic_Primus/ablation_continuous_v1_20261001/result.json",
+      "result_sha256": "752f4e57048e5f264f2b4eee66d3c0ba68b79ffe0c120d9dc43c841bac2531e8",
+      "selection_on_results": false
+    },
+    {
+      "evidence_class": "retrospective_disclosed_engineering_hypothesis_only",
+      "name": "strength_efficiency_entry",
+      "result_path": "Reports/Exia/Genetic_Primus/entry_hypothesis_v1_20261001/result.json",
+      "result_sha256": "c217062b4f95a210bf6ea2a08f48cdd4c859592adc423bf2ff03a6bfb50ce336",
+      "selection_on_results": false
+    },
+    {
+      "evidence_class": "revealed_historical_development_only",
+      "name": "sparse_catalog_24",
+      "recorded_candidate_evaluations": 24,
+      "result_path": "Reports/Exia/Genetic_Primus/selection_development_v1_20261001/result.json",
+      "result_sha256": "b159550c28ade51ae9b272d6a803a7a85e1d6683588162cc9fc54ce966e35ec7",
+      "selection_on_results": false
+    },
+    {
+      "evidence_class": "revealed_historical_development_only",
+      "name": "relative_momentum_top2",
+      "recorded_candidate_evaluations": 1,
+      "result_path": "Reports/Exia/Genetic_Primus/relative_momentum_development_v1_20261001/result.json",
+      "result_sha256": "88a3b53a9c41cfe27b182d2f8ed782271496626b9f259241845181b057082a0b",
+      "selection_on_results": false
+    }
+  ],
+  "market_data": {
+    "manifest_path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/data_manifest_origin_09.json",
+    "manifest_sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9",
+    "metadata": {
+      "columns": [
+        "timestamp",
+        "symbol",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "coverage_end_exclusive": 1790553600000,
+      "coverage_start": 1640995200000,
+      "row_count": 83088,
+      "symbols": [
+        "ADA/USDT",
+        "BNB/USDT",
+        "BTC/USDT",
+        "DOGE/USDT",
+        "ETH/USDT",
+        "LINK/USDT",
+        "SOL/USDT",
+        "XRP/USDT"
+      ],
+      "timeframe_ms": 14400000,
+      "timestamp_count": 10386
+    },
+    "snapshot_sha256": "f548b6af6034b3d59e0c3c64aad287ca2a9b762bca5051331db2e72406861bda",
+    "venue_product_provenance_verified": false
+  },
+  "metric_definitions": {
+    "ablation_gross_return_pct": "100 * sum(realized_trade_gross_pnl) / starting_equity; realized quantities follow the cost-bearing cash simulation",
+    "daily_return": "portfolio end-of-day equity / previous end-of-day equity - 1; geometrically compounded for the interval",
+    "entry_notional_turnover": "sum(abs(quantity * entry_price)) / starting_equity over completed trades; one-way entry notional",
+    "max_drawdown_pct": "100 * maximum peak-to-trough loss on recorded open/close equity events; intrabar extremes absent",
+    "net_return_pct": "100 * (terminal_equity / starting_equity - 1), after configured round-trip fees",
+    "train_rank_score": "min(normal, stress) of the 5th percentile of 512 common 5-day block resamples of mean daily return vs zero NoTrade",
+    "validation_gate": "positive normal/stress net, absolute and EMA-paired LCB, plus recorded 10% drawdown ceiling; only reached after positive train score",
+    "zero_cost_counterfactual_gross": "return from a separate simulation with round_trip_cost_bps=0; not identical to ablation_gross_return_pct"
+  },
+  "promotion_authority": false,
+  "registry_chain": [
+    {
+      "entries": 19,
+      "path": "configs/genetic_primus_objective_registry_v1.json",
+      "sha256": "2058de6d65d9f5ad80709c478291c7adb5051e0ae228b86619e31725ea91df78",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v2.json",
+      "sha256": "766aed82b8c26b76ebe9a565a53fe565bcceda4a32f7360b76ff77d847de1273",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v3.json",
+      "sha256": "cedcb11b736951be18a618a3d6473b6345e50c54ce2c5e938f4935aa1c2a9a92",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 7,
+      "path": "configs/genetic_primus_objective_registry_v4.json",
+      "sha256": "a9a86f1ad7e10af715d56069c31fc94d600823cd8ffd00eb3a4315abb88da5b2",
+      "tracked_in_git": true
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v5.json",
+      "sha256": "f5c7afa236aa2052d9c80a9707581aa6280ab7d17f43bdd2bdf3dc17697cc198",
+      "tracked_in_git": true
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v6.json",
+      "sha256": "8ff59dab0eb1b238ad5e95d5ff11c24d91f120090d9987725a8e06921c36ee9b",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v7.json",
+      "sha256": "e407585d37ba51d4cdc33c8cf8408f68b5b8264708661568b3f82a94869489ed",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v8.json",
+      "sha256": "79f2cce22b88549cda0137823443ede3522f7d6e5bb4daf794326bc1396677a1",
+      "tracked_in_git": false
+    },
+    {
+      "entries": 1,
+      "path": "configs/genetic_primus_objective_registry_v9.json",
+      "sha256": "c4f926938f1ff5244c49f7920b4d8aaef504a9aefec3a6706ad52b1cfc543235",
+      "tracked_in_git": false
+    }
+  ],
+  "registry_objectives": [
+    {
+      "config_path": "configs/genetic_primus_experiment_matrix_v1.json",
+      "config_sha256": "0e9022c9aa13bde5e093181266aa9bf16b432193fa8be1b30c31311be3d7a3f8",
+      "config_tracked_in_git": false,
+      "family": "measurement",
+      "objective_id": "experiment_matrix_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_measurement_3d_v1.json",
+      "config_sha256": "86e37547980e2313730f3d42ec6a3db99eb655a7cabd424b567180872a82c075",
+      "config_tracked_in_git": false,
+      "family": "measurement",
+      "objective_id": "measurement_3d_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_pilot6_v1.json",
+      "config_sha256": "077d65493a1a4ddd5011265571ed055b4d5c2b25b890618ebfe6d24de88a6208",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_pilot6_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v1.json",
+      "config_sha256": "683af7a465c3630d70317c57c201f06b96eb6b82c6fe6a6f6f49886be3826484",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_3d_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v2.json",
+      "config_sha256": "f2f794e15c48a80495018d23818e0baab1623ace4f9d0b54d2421eb223d9685f",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_3d_v2",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v3.json",
+      "config_sha256": "a5203c99e7aa4b6b5ee7634c8bf4821d1235849704d97651f1deeaf47a55e06d",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_3d_v3",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v4.json",
+      "config_sha256": "5477b2a03eb60089799a91dc26fb8d2e1800ced3ad5ba132958b4d05e6e857c1",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_3d_v4",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_promotion_gate_v1.json",
+      "config_sha256": "461b27a7bda03aafadf44cb5aaa3a7106aa744081fbf7f35c258fe33a66c2bad",
+      "config_tracked_in_git": false,
+      "family": "measurement",
+      "objective_id": "promotion_gate_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_rolling_3d_v1.json",
+      "config_sha256": "84d817c356f64ff5530c42c2e281828ed8dbbc501ba76f6bb6d83f9c1a8b5fbc",
+      "config_tracked_in_git": false,
+      "family": "rolling_directional",
+      "objective_id": "rolling_3d_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v1.json",
+      "config_sha256": "f3eb563509fcbaa16b177f80c9ebf5bb4a40fcb9a4032f66783229a924af8608",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v1",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v2.json",
+      "config_sha256": "6694b862f895988f0228129b4b5167cd5affdacee9992c497340e7fe43eaca3e",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v2",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v3.json",
+      "config_sha256": "c46330bdaa7d87a227f6378469fe67072be54bc7de049226074811ab2e6146ef",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v3",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v4.json",
+      "config_sha256": "9d4d6b8e1d33f1a824717563a440b554463de51fac1fd0561d49c115257afab7",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v4",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v5_contract.json",
+      "config_sha256": "6c897d9e03fc0c1d4c8d74433ddccc81060a7409c4d13d8cb94496daf4d6cd67",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v5_contract",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v6_contract.json",
+      "config_sha256": "2746fb1e3ab0119e8076e856415964f651149123e059b1a8a518f7db78d15b92",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v6_contract",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_contract.json",
+      "config_sha256": "bd2cefb2f5234a42cd364c4d338cd1e26487f07057e8a06d842b7b281b816cd8",
+      "config_tracked_in_git": false,
+      "family": "directional",
+      "objective_id": "genetic_v7_contract",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_posthoc_hypotheses.json",
+      "config_sha256": "2d43651d63d2b5f096ee28f5c2ff8b40b652b45480581e94c8618d74e93b962f",
+      "config_tracked_in_git": false,
+      "family": "posthoc",
+      "objective_id": "genetic_v7_posthoc",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v8_clean.json",
+      "config_sha256": "7e0e9eb3cfa7b8da4f4c571722ee6bca533e5f6d40991d0a4f04657e2c916fdb",
+      "config_tracked_in_git": false,
+      "family": "v8_clean",
+      "objective_id": "genetic_v8_clean",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v8_prospective_link_contract.json",
+      "config_sha256": "10aba9b708b50d36314acd137e9cccd514820494761cdb4f5de35e2584f493f0",
+      "config_tracked_in_git": false,
+      "family": "v8_clean",
+      "objective_id": "genetic_v8_link_prospective",
+      "registry": "genetic_primus_objective_registry_v1.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v5_sealed.json",
+      "config_sha256": "41a90b03f7c166d07331dc51a45972173f9a0c03cbb2b1888c9ab62a80932d70",
+      "config_tracked_in_git": false,
+      "family": "overlay",
+      "objective_id": "overlay_3d_v5_sealed",
+      "registry": "genetic_primus_objective_registry_v2.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_overlay_3d_v6_relative_opportunity_sealed.json",
+      "config_sha256": "aea9dbb1b3acd926afc1b0509742f870f4fbdf844036e63f25d3375a91b07d93",
+      "config_tracked_in_git": false,
+      "family": "relative_momentum_opportunity_overlay",
+      "objective_id": "overlay_3d_v6_relative_opportunity_sealed",
+      "registry": "genetic_primus_objective_registry_v3.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_proposal_matrix.json",
+      "config_sha256": "0fa1d7832aef39134586e9c90ef9ea3f45ad2ada923eac4931198d20764e76e5",
+      "config_tracked_in_git": false,
+      "family": "retrospective_disclosure_v7_matrix",
+      "objective_id": "v7_revealed_ema_trend_consensus",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_proposal_matrix.json",
+      "config_sha256": "0fa1d7832aef39134586e9c90ef9ea3f45ad2ada923eac4931198d20764e76e5",
+      "config_tracked_in_git": false,
+      "family": "retrospective_disclosure_v7_matrix",
+      "objective_id": "v7_revealed_residual_rank_consensus",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_proposal_matrix.json",
+      "config_sha256": "0fa1d7832aef39134586e9c90ef9ea3f45ad2ada923eac4931198d20764e76e5",
+      "config_tracked_in_git": false,
+      "family": "retrospective_disclosure_v7_matrix",
+      "objective_id": "v7_revealed_donchian_breakout",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_v7_proposal_matrix.json",
+      "config_sha256": "0fa1d7832aef39134586e9c90ef9ea3f45ad2ada923eac4931198d20764e76e5",
+      "config_tracked_in_git": false,
+      "family": "retrospective_disclosure_v7_matrix",
+      "objective_id": "v7_revealed_market_aligned_trend",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_measurement_lab_v2.json",
+      "config_sha256": "7a76b0117bd86150939a7ec97c75301440391d252e140c61fe3e90b774c3e407",
+      "config_tracked_in_git": false,
+      "family": "prospective_method_registration_on_revealed_data",
+      "objective_id": "measurement_v2_sparse_grid_24",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_measurement_lab_v2.json",
+      "config_sha256": "7a76b0117bd86150939a7ec97c75301440391d252e140c61fe3e90b774c3e407",
+      "config_tracked_in_git": false,
+      "family": "prospective_method_registration_on_revealed_data",
+      "objective_id": "measurement_v2_random_search_24",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_measurement_lab_v2.json",
+      "config_sha256": "7a76b0117bd86150939a7ec97c75301440391d252e140c61fe3e90b774c3e407",
+      "config_tracked_in_git": false,
+      "family": "prospective_method_registration_on_revealed_data",
+      "objective_id": "measurement_v2_genetic_search_24",
+      "registry": "genetic_primus_objective_registry_v4.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_prospective_3d_v1.json",
+      "config_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f",
+      "config_tracked_in_git": true,
+      "family": "prospective_fixed_challenger_on_future_outer_data",
+      "objective_id": "prospective_3d_fixed_overlay_vs_ema_v1",
+      "registry": "genetic_primus_objective_registry_v5.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_revealed_august_diagnostic_v1.json",
+      "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33",
+      "config_tracked_in_git": false,
+      "family": "retrospective_engineering_diagnostic_on_revealed_data",
+      "objective_id": "revealed_august_fixed_overlay_vs_ema_v1",
+      "registry": "genetic_primus_objective_registry_v6.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_retrained_august_v1.json",
+      "config_sha256": "da6657382eaf8732c72654895678341f5f8629f44f956804683691c4377bbc2c",
+      "config_tracked_in_git": false,
+      "family": "retrospective_retraining_diagnostic_on_revealed_data",
+      "objective_id": "retrained_august_365d_30d_3d_hac_v1",
+      "registry": "genetic_primus_objective_registry_v7.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_warmstart_august_v1.json",
+      "config_sha256": "035f8365afa7b66b24cbd08e9c60bf7e5d73bfdf0dd1793d37bb43ca6ca2286c",
+      "config_tracked_in_git": false,
+      "family": "retrospective_warmstart_ablation_on_revealed_data",
+      "objective_id": "warmstart_august_same_budget_24_v1",
+      "registry": "genetic_primus_objective_registry_v8.json"
+    },
+    {
+      "config_path": "configs/genetic_primus_entry_only_ablation_v1.json",
+      "config_sha256": "a8cc1ae418d336cc0498266687298fb11800cd1b0f3a89e10b1ce54ae4279660",
+      "config_tracked_in_git": false,
+      "family": "revealed_single_factor_policy_ablation",
+      "fixed_policy_simulations": 180,
+      "genetic_search_evaluations": 0,
+      "hypotheses_added": 1,
+      "objective_id": "entry_only_vs_continuous_fixed_genome_august_v1",
+      "registry": "genetic_primus_objective_registry_v9.json",
+      "selection_on_results": false
+    }
+  ],
+  "schema_version": "exia.genetic_primus.research_ledger/1",
+  "status": "known_trials_snapshot_not_complete_global_trial_count",
+  "unknown_historical_adaptive_decisions": true
+}
