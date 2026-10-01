@@ -14,7 +14,8 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from .prospective_contract_v1 import derive_origins, file_sha256, validate_contract
+from .prospective_contract_v1 import derive_origins, file_sha256
+from .prospective_contract_v2 import validate_contract
 from .prospective_manifest_v1 import _canonical_sha, _inside, _read_parquet, _validate_panel
 
 
