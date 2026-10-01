@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from exia.genetic_primus.prospective_contract_v1 import file_sha256
+from exia.genetic_primus.prospective_admission_v1 import admission_reasons
 from exia.genetic_primus.prospective_continuous_v2 import (
     evaluate_committed_chain, validate_continuous_contract,
 )
@@ -61,6 +62,9 @@ def _contract(args: argparse.Namespace) -> tuple[Path, dict]:
     if file_sha256(selection_report) != selection["report_sha256"]:
         raise ValueError("registered model selection report changed")
     report = json.loads(selection_report.read_text(encoding="utf-8"))
+    rejection = admission_reasons(report, contract["candidates"][2]["genome"])
+    if rejection:
+        raise ValueError("selection is not eligible for future audit: " + ",".join(rejection))
     if (report.get("selected_genome") != contract["candidates"][2]["genome"]
             or report.get("window") != selection["window"]
             or report.get("scaler") != selection["scaler"]):
