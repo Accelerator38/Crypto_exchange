@@ -75,6 +75,8 @@ class ContinuousOriginTests(unittest.TestCase):
         ema = result["evaluations"]["normal"]["candidates"]["EMA_TrendConsensus"]
         self.assertEqual(ema["ledger_sha256"], shared_result["evaluations"]["normal"]
                          ["candidates"]["EMA_TrendConsensus"]["ledger_sha256"])
+        self.assertEqual(ema["daily_returns"], shared_result["evaluations"]["normal"]
+                         ["candidates"]["EMA_TrendConsensus"]["daily_returns"])
         first_ms = int(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp() * 1000)
         self.assertEqual(ema["metrics"]["fills"], 2)
         self.assertEqual(ema["metrics"]["trades"], 1)
