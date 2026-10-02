@@ -141,9 +141,12 @@ def _source_lineage(manifest: dict) -> dict:
                 verified_raw_pages += 1
     if (any(row["exchange"] != "BITGET" or row["market_type"] != "futures"
             or row["source_timeframe"] != "1m" for row in early)
-            or endpoint_categories != {(
-                "https://api.bitget.com/api/v3/market/candles",
-                "USDT-FUTURES", "market", "1m")}):
+            or endpoint_categories != {
+                ("https://api.bitget.com/api/v3/market/candles",
+                 "USDT-FUTURES", "market", "1m"),
+                ("https://api.bitget.com/api/v3/market/history-candles",
+                 "USDT-FUTURES", "market", "1m"),
+            }):
         raise ValueError("mixed or unknown price source/product metadata")
     return {
         "early_1m_source_manifests": early,
