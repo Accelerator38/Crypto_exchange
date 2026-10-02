@@ -1,0 +1,33 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/11",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v10_20261002/ledger.json",
+  "previous_ledger_sha256": "275676ba4dfc43627870cc741ef86ffda21588c9eb041f85caf85cca9d100a98",
+  "new_attempts": [],
+  "new_registrations": [
+    {
+      "objective_id": "future_ema_base_viability_60x3d_from_2026_10_05_v1",
+      "config_path": "configs/genetic_primus_future_ema_viability_v1.json",
+      "config_sha256": "11b83d2e3ecbdda572307dd902b73c9c2d8ae108499be85e22b988f193b227b6",
+      "status": "REGISTERED_AWAITING_NEW_OFFLINE_DATA",
+      "future_start_utc": "2026-10-05T00:00:00Z",
+      "future_end_exclusive_utc": "2027-04-03T00:00:00Z",
+      "candidate_count": 1,
+      "new_model_fits": 0,
+      "outcome_metrics_computed": false,
+      "automatic_evaluation": false,
+      "promotion_authority": false
+    }
+  ],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "promotion_authority": false
+}
