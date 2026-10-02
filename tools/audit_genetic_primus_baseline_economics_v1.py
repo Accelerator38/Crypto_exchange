@@ -121,7 +121,13 @@ def _source_lineage(manifest: dict) -> dict:
                 raise ValueError("chunk plan changed")
             verified_chunks += 1
             for page_item in chunk["raw_pages"]:
-                page_path = _path(page_item["path"])
+                page_reference = page_item["path"].replace("\\", "/")
+                if page_reference.startswith("raw/"):
+                    page_path = (chunk_path.parent.parent / page_reference).resolve()
+                    if not page_path.is_relative_to(ROOT.resolve()):
+                        raise ValueError("raw page path leaves project")
+                else:
+                    page_path = _path(page_reference)
                 if file_sha256(page_path) != page_item["sha256"]:
                     raise ValueError("raw page changed")
                 page = _json(page_path)
