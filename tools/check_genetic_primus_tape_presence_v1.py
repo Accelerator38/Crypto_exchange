@@ -7,7 +7,7 @@ import gzip
 import json
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +33,22 @@ def _day(timestamp_ms: int) -> str:
 
 def _tape_name(stream: str, day: str, symbol: str) -> str:
     return f"bitget-futures_{stream}_{day}_{symbol.replace('/', '')}.csv.gz"
+
+
+def _required_names(events: list[dict]) -> list[str]:
+    days_and_symbols = set()
+    for event in events:
+        timestamp = datetime.fromisoformat(event["timestamp_utc"])
+        if timestamp.utcoffset() != timezone.utc.utcoffset(None):
+            raise ValueError("UTC execution event required")
+        day = timestamp.date()
+        if event["day_utc"] != day.isoformat():
+            raise ValueError("execution day mismatch")
+        days_and_symbols.add((day.isoformat(), event["symbol"]))
+        if timestamp.hour == 0 and timestamp.minute == 0:
+            days_and_symbols.add(((day - timedelta(days=1)).isoformat(), event["symbol"]))
+    return sorted({_tape_name(stream, day, symbol)
+                   for day, symbol in days_and_symbols for stream in STREAMS})
 
 
 def _events(source: dict, policy: str, delay_bars: int) -> list[dict]:
@@ -114,10 +130,8 @@ def _evaluate() -> dict:
                   for policy in ("EMA_TrendConsensus", "linear_four_uniform")
                   for delay in (0, 1)]
     flat_events = [event for group in all_events for event in group]
-    required_names = sorted({
-        _tape_name(stream, event["day_utc"], event["symbol"])
-        for event in flat_events for stream in STREAMS})
-    if not required_names or any("2026-06" not in n and "2026-07" not in n
+    required_names = _required_names(flat_events)
+    if not required_names or any("2026-05-31" not in n and "2026-06" not in n and "2026-07" not in n
                                  for n in required_names):
         raise AssertionError("required tape request escaped disclosed train interval")
     available = []
@@ -137,6 +151,7 @@ def _evaluate() -> dict:
                     for policy in ("EMA_TrendConsensus", "linear_four_uniform")
                     for delay in (0, 1)},
                 "required_streams": STREAMS,
+                "midnight_boundary_rule": "require_previous_UTC_day_and_event_day_for_asof_before_00_00",
                 "required_unique_daily_files": len(required_names),
                 "required_names": required_names,
                 "matching_local_files": matches,

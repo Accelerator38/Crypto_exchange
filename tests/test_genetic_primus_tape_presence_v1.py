@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from exia.genetic_primus.rolling_linear_retrain_v1 import DT, HORIZON_MS
-from tools.check_genetic_primus_tape_presence_v1 import _events, _tape_name
+from tools.check_genetic_primus_tape_presence_v1 import _events, _required_names, _tape_name
 
 
 class TapePresenceTests(unittest.TestCase):
@@ -31,6 +31,9 @@ class TapePresenceTests(unittest.TestCase):
         self.assertNotEqual(zero[0]["timestamp_utc"], late[0]["timestamp_utc"])
         self.assertEqual(_tape_name("book_ticker", zero[0]["day_utc"], "BTC/USDT"),
                          f"bitget-futures_book_ticker_{zero[0]['day_utc']}_BTCUSDT.csv.gz")
+        names = _required_names(zero + late)
+        self.assertIn("bitget-futures_book_ticker_2026-06-03_BTCUSDT.csv.gz", names)
+        self.assertIn("bitget-futures_book_ticker_2026-06-04_BTCUSDT.csv.gz", names)
         self.assertEqual(DT, 14_400_000)
 
     def test_open_terminal_position_fails_closed(self):
