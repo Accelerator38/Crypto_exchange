@@ -84,9 +84,12 @@ def _data_integrity(panel: pd.DataFrame, manifest: dict, symbols: tuple[str, ...
 def _source_lineage(manifest: dict) -> dict:
     """Verify local derivative manifests and recorded request metadata."""
     early = []
+    later = []
     endpoint_categories = set()
     verified_chunks = 0
     verified_raw_pages = 0
+    chunk_hashes = []
+    page_hashes = []
     for index, item in enumerate(manifest["snapshot_files"]):
         part = _path(item["path"])
         if file_sha256(part) != item["sha256"]:
@@ -112,10 +115,14 @@ def _source_lineage(manifest: dict) -> dict:
         if not any(_path(row["path"]) == part and row["sha256"] == item["sha256"]
                    for row in derived["files"]):
             raise ValueError("September derived part lineage changed")
+        later.append({"snapshot_part": item["path"],
+                      "derived_manifest_sha256": file_sha256(derived_path),
+                      "plan_sha256": derived["plan_sha256"]})
         for chunk_item in derived["chunks"]:
             chunk_path = _path(chunk_item["path"])
             if file_sha256(chunk_path) != chunk_item["sha256"]:
                 raise ValueError("recorded chunk changed")
+            chunk_hashes.append(chunk_item["sha256"])
             chunk = _json(chunk_path)
             if chunk["plan_sha256"] != derived["plan_sha256"]:
                 raise ValueError("chunk plan changed")
@@ -130,6 +137,7 @@ def _source_lineage(manifest: dict) -> dict:
                     page_path = _path(page_reference)
                 if file_sha256(page_path) != page_item["sha256"]:
                     raise ValueError("raw page changed")
+                page_hashes.append(page_item["sha256"])
                 page = _json(page_path)
                 if (page["plan_sha256"] != derived["plan_sha256"]
                         or hashlib.sha256(page["response_utf8"].encode("utf-8")).hexdigest()
@@ -150,9 +158,14 @@ def _source_lineage(manifest: dict) -> dict:
         raise ValueError("mixed or unknown price source/product metadata")
     return {
         "early_1m_source_manifests": early,
+        "september_derived_manifests": later,
         "verified_derived_parts": len(manifest["snapshot_files"]),
         "verified_recorded_chunks": verified_chunks,
         "verified_recorded_raw_pages": verified_raw_pages,
+        "ordered_chunk_sha_bank_sha256": hashlib.sha256(
+            "".join(chunk_hashes).encode("ascii")).hexdigest(),
+        "ordered_raw_page_sha_bank_sha256": hashlib.sha256(
+            "".join(page_hashes).encode("ascii")).hexdigest(),
         "recorded_raw_endpoint_categories": [list(row) for row in sorted(endpoint_categories)],
         "top_manifest_declares_exchange_product": False,
         "funding_book_trades_or_fill_data_in_snapshot": False,
