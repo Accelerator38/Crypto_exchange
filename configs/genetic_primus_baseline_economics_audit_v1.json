@@ -1,0 +1,18 @@
+{
+  "schema_version": "exia.genetic_primus.baseline_economics_audit/1",
+  "objective_id": "disclosed_september_fixed_policy_economics_and_data_audit_v1",
+  "evidence_class": "revealed_historical_descriptive_audit_only",
+  "source_ablation_result_path": "Reports/Exia/Genetic_Primus/ablation_continuous_v1_20261001/result.json",
+  "source_ablation_result_sha256": "752f4e57048e5f264f2b4eee66d3c0ba68b79ffe0c120d9dc43c841bac2531e8",
+  "source_manifest_path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/data_manifest_origin_09.json",
+  "source_manifest_sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9",
+  "period_start_utc": "2026-09-01T00:00:00Z",
+  "period_end_exclusive_utc": "2026-09-28T00:00:00Z",
+  "fixed_universe": ["ADA/USDT", "BNB/USDT", "BTC/USDT", "DOGE/USDT", "ETH/USDT", "LINK/USDT", "SOL/USDT", "XRP/USDT"],
+  "policies": ["NoTrade", "EMA_TrendConsensus", "EMA_long_only", "GA_entry_only", "GA_target_gate"],
+  "costs_round_trip_bps": {"normal": 16.0, "stress": 24.0},
+  "fixed_metrics": ["cash_pnl_reconciliation", "symbol_gross_net_fees", "origin_net", "entry_notional_turnover", "position_duration_bars", "capital_exposure_by_symbol", "source_lineage_and_ohlcv_integrity"],
+  "selection_rule": "none; report_every_fixed_policy_and_cost",
+  "interpretation": "descriptive_replay_only_no_model_promotion",
+  "safety": {"credentials_allowed": false, "orders_enabled": false, "paper_allowed": false, "live_allowed": false, "promotion_authority": false, "runtime_authority": false, "network_allowed": false}
+}
