@@ -1,0 +1,41 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/6",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v5_20261002/ledger.json",
+  "previous_ledger_sha256": "bee6ff32b822557534a9bd1730bc2f92e7680831893e49bf822bda1d64267908",
+  "new_attempts": [
+    {
+      "objective_id": "bounded_linear_2x2_3d_jun_aug_2026_v1",
+      "evidence_class": "revealed_historical_development_only",
+      "config_path": "configs/genetic_primus_rolling_linear_matrix_v1.json",
+      "config_sha256": "a75d48f73fea2f2f81daba128b7bac75aab78e9dd369b071284875152952a361",
+      "result_path": "Reports/Exia/Genetic_Primus/rolling_linear_matrix_v1_20261002/result.json",
+      "result_sha256": "99418ebacb37ebc66ed139746543215809464612b169af8af6a33514b46a44ad",
+      "candidate_count": 4,
+      "train_gate_passed": false,
+      "inner_validation_opened": false,
+      "candidate_selected": false,
+      "outcome": "NoTrade_all_four_candidates_failed_strict_training_gate"
+    }
+  ],
+  "verified_recomputations": {
+    "matrix_four_candidate_budget": true,
+    "shared_train_bootstrap": true,
+    "bonferroni_training_alpha": true,
+    "gross_labels_with_loss_weight": true,
+    "causal_closed_bar_features": true,
+    "purged_completed_labels": true,
+    "per_origin_scaler_and_model_sha": true,
+    "position_carry_across_retrains": true,
+    "inner_validation_not_opened_on_gate_failure": true
+  },
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "prospective_contract_registered": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "promotion_authority": false
+}
