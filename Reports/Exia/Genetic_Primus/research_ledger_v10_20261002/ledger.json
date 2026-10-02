@@ -1,0 +1,32 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/10",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v9_20261002/ledger.json",
+  "previous_ledger_sha256": "9c346ebf1cee1b60fc4b4823464939621eb8f153f05504bd78fd6a5aa4c4442d",
+  "new_attempts": [],
+  "new_diagnostics": [
+    {
+      "diagnostic_id": "frozen_linear_train_execution_tape_presence_v1",
+      "evidence_class": "read_only_local_data_availability_not_execution_validation",
+      "source_result_sha256": "99418ebacb37ebc66ed139746543215809464612b169af8af6a33514b46a44ad",
+      "result_path": "Reports/Exia/Genetic_Primus/tape_presence_v1_20261002/result.json",
+      "result_sha256": "449e5742a419b717415449a79b1807b976140134204e02dd13bdc4881d205765",
+      "required_unique_daily_files": 318,
+      "matching_local_files": 0,
+      "new_model_fits": 0,
+      "validation_labels_used": false,
+      "candidate_count_added": 0,
+      "outcome": "matching_2026_tape_absent_execution_readiness_false"
+    }
+  ],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "prospective_contract_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "promotion_authority": false
+}
