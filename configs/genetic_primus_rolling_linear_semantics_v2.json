@@ -1,0 +1,29 @@
+{
+  "schema_version": "exia.genetic_primus.rolling_linear_semantics/2",
+  "purpose": "engineering_alignment_before_new_candidate_selection",
+  "evidence_class": "no_pnl_selection_authority",
+  "origin_days": 3,
+  "bar_hours": 4,
+  "purge_bars": 7,
+  "features": ["return_12", "efficiency_12"],
+  "model_target": "gross_open_at_origin_start_to_close_of_last_origin_bar",
+  "label_available_at": "origin_end_exclusive",
+  "fit_rule": "completed_labels_only_before_deploy_start_minus_purge_with_scaler_and_ridge_refit_every_origin",
+  "outcomes": "all_eligible_positive_zero_and_negative_forward_returns_receive_positive_weights",
+  "decision_rule": "EMA_long_opportunity_and_predicted_gross_exceeds_position_dependent_threshold",
+  "flat_entry_threshold": "(1+fee_rate)/(1-fee_rate)-1_where_fee_rate=round_trip_cost_bps/20000",
+  "held_continue_threshold": 0.0,
+  "execution": "same_target_is_carried_without_refill;actual_entry_and_exit_costs_recorded_by_cash_accounting_v2",
+  "accounting_normal_round_trip_bps": 16.0,
+  "accounting_stress_round_trip_bps": 24.0,
+  "scope": "offline_semantics_and_deterministic_regressions_only",
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  }
+}
