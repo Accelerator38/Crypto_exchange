@@ -1,0 +1,392 @@
+{
+  "candidate_count_added": 0,
+  "config_sha256": "6f4f9d312aaf3e2c94ebc614abf5fdb31757454180ccb66e77c672f849ed7acf",
+  "evidence_class": "revealed_train_only_engineering_sensitivity",
+  "final_policy": "NoTrade",
+  "interpretation": "one_bar_delay_is_conservative_OHLCV_sensitivity_not_a_measurement_of_real_exchange_latency",
+  "network_allowed": false,
+  "new_model_fits": 0,
+  "policies": [
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 26,
+              "max_drawdown": 0.08505877712298171,
+              "net_return": -0.08505877712298171,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.004926616238084206
+            },
+            "24": {
+              "closed_trades": 26,
+              "max_drawdown": 0.08740845683368925,
+              "net_return": -0.08740845683368925,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.007379872928203551
+            },
+            "40": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09208850512118849,
+              "net_return": -0.09208850512118849,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.012266383284077368
+            }
+          },
+          "schedule_sha256": "6fcb4da6f7cdceab169cc50817ed548d3b1dce37688412b61339550d9b1fd203"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09608977252292816,
+              "net_return": -0.09608977252292816,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.0048843707096263254
+            },
+            "24": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09840908653661051,
+              "net_return": -0.09840908653661051,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.007316626950960371
+            },
+            "40": {
+              "closed_trades": 26,
+              "max_drawdown": 0.10302866665478572,
+              "net_return": -0.10302866665478572,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.012161379652517996
+            }
+          },
+          "schedule_sha256": "6cbb4479e129830246bfb09140d662c9e808c29c03d9c23b513109f18f5fae0d"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": -0.011030995399946453,
+        "24": -0.01100062970292126,
+        "40": -0.010940161533597226
+      },
+      "policy": "EMA_TrendConsensus"
+    },
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 26,
+              "max_drawdown": 0.08505877712298171,
+              "net_return": -0.08505877712298171,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.004926616238084206
+            },
+            "24": {
+              "closed_trades": 26,
+              "max_drawdown": 0.08740845683368925,
+              "net_return": -0.08740845683368925,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.007379872928203551
+            },
+            "40": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09208850512118849,
+              "net_return": -0.09208850512118849,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.012266383284077368
+            }
+          },
+          "schedule_sha256": "2f796fff792c35a9ec6c1b30cb47296b5a169393b3e5af8cf72412488b98eff8"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09608977252292816,
+              "net_return": -0.09608977252292816,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.0048843707096263254
+            },
+            "24": {
+              "closed_trades": 26,
+              "max_drawdown": 0.09840908653661051,
+              "net_return": -0.09840908653661051,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.007316626950960371
+            },
+            "40": {
+              "closed_trades": 26,
+              "max_drawdown": 0.10302866665478572,
+              "net_return": -0.10302866665478572,
+              "target_exposure_fraction": 0.16875,
+              "total_fees": 0.012161379652517996
+            }
+          },
+          "schedule_sha256": "90a2266fb9afdaf61cae418c0e52d3d5504857a2b9ba0a5000c2982dfd9ab3b7"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": -0.011030995399946453,
+        "24": -0.01100062970292126,
+        "40": -0.010940161533597226
+      },
+      "policy": "linear_two_uniform"
+    },
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "53510ee223b74d3bf8d3e863208ef9e0e5fffec967d331874aa99d558f5efba9"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "a261c27ed2e4d96762ec325969138361d2b6bb495b66d240fef8566ffbe14ff9"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": 0.0,
+        "24": 0.0,
+        "40": 0.0
+      },
+      "policy": "linear_two_half_life_90d_anchor_20pct"
+    },
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 18,
+              "max_drawdown": 0.07970643288073553,
+              "net_return": -0.07970643288073553,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.00343617049643111
+            },
+            "24": {
+              "closed_trades": 18,
+              "max_drawdown": 0.08134210035447409,
+              "net_return": -0.08134210035447409,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.005148382819311221
+            },
+            "40": {
+              "closed_trades": 18,
+              "max_drawdown": 0.08460213501672142,
+              "net_return": -0.08460213501672142,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.008561112664888354
+            }
+          },
+          "schedule_sha256": "5bae46c874ad4ec39fd366ea3c0402d01a46fbf706b49d40b663dafda71a130e"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 18,
+              "max_drawdown": 0.08666141429704743,
+              "net_return": -0.08666141429704743,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.003414708877013346
+            },
+            "24": {
+              "closed_trades": 18,
+              "max_drawdown": 0.08827784668501759,
+              "net_return": -0.08827784668501759,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.005116247311123991
+            },
+            "40": {
+              "closed_trades": 18,
+              "max_drawdown": 0.09149956320851238,
+              "net_return": -0.09149956320851238,
+              "target_exposure_fraction": 0.1125,
+              "total_fees": 0.008507742647450764
+            }
+          },
+          "schedule_sha256": "63ec65014d326d7556145850bf42ff1b08a0d3b4a344ae42ed7110a6a37d671b"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": -0.006954981416311901,
+        "24": -0.006935746330543502,
+        "40": -0.006897428191790955
+      },
+      "policy": "linear_four_uniform"
+    },
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "decb3632ef2eb0942d1b12eeed9a867968e9b6cbc4e8d31e3b3f2145050f9aa7"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "bd0c7cda743bf770fcb2dc7ed26ab7de62ae896d3849e4784f10a602de88892e"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": 0.0,
+        "24": 0.0,
+        "40": 0.0
+      },
+      "policy": "linear_four_half_life_90d_anchor_20pct"
+    },
+    {
+      "delays": {
+        "0": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "9044d76fcbdb5f558001cb068fadb40eff8a985e6562c11c0705453fd2279aaa"
+        },
+        "1": {
+          "cost_results": {
+            "16": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "24": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            },
+            "40": {
+              "closed_trades": 0,
+              "max_drawdown": 0.0,
+              "net_return": 0.0,
+              "target_exposure_fraction": 0.0,
+              "total_fees": 0.0
+            }
+          },
+          "schedule_sha256": "991d2ce75514d11c396ce291158cdf57430dce1a6a7d0e19690884bc5599c94d"
+        }
+      },
+      "one_bar_minus_zero_bar_net_return": {
+        "16": 0.0,
+        "24": 0.0,
+        "40": 0.0
+      },
+      "policy": "NoTrade"
+    }
+  ],
+  "promotion_authority": false,
+  "schema_version": "exia.genetic_primus.linear_latency_sensitivity_result/1",
+  "script_sha256": "4c63a1a7b0f644ff410c19aec3cb32721d65c052a48eeb832d49970be4a879be",
+  "source_result_sha256": "99418ebacb37ebc66ed139746543215809464612b169af8af6a33514b46a44ad",
+  "source_snapshot_sha256": "f548b6af6034b3d59e0c3c64aad287ca2a9b762bca5051331db2e72406861bda",
+  "train_end_exclusive_utc": "2026-07-31T00:00:00Z",
+  "train_start_utc": "2026-06-01T00:00:00Z",
+  "validation_labels_used": false,
+  "zero_delay_reconciled": true
+}
