@@ -1,0 +1,56 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/16",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v15_20261003/ledger.json",
+  "previous_ledger_sha256": "d529bda8b77e430ec6c0dff2afd52b5aa8754097ceb5c740c390af95a207b7bc",
+  "new_attempts": [],
+  "new_registrations": [],
+  "engineering_updates": [{
+    "objective_id": "future_ema_base_viability_60x3d_from_2026_10_05_v1",
+    "implementation_commit": "c46e8c0f682a1d2d1b6cf6ee65b9e2ef7576db97",
+    "source_sha256": {
+      "tools/package_genetic_primus_future_ema_handoff_v1.py": "23b307c86108bfaabb7995fd9b8c7a48f1fa68aa865201e9a707c886557c4341",
+      "tests/test_genetic_primus_future_ema_handoff_v1.py": "6703925a9360864c007b36ba24a8beb7dddcd6c84568bf024e0685e91426adb1"
+    },
+    "report_path": "Reports/Exia/Genetic_Primus/future_ema_handoff_v1_20261004/REPORT.md",
+    "artifact_directory": "Reports/Exia/Genetic_Primus/future_ema_handoff_v1_20261004",
+    "artifact_sha256": {
+      "handoff.json": "2985dfc15b2d85c57e4b51e6c12a9cbb4a7b2ab9fb90a5fd60dbc71cf5c92c3c",
+      "extraction_check.json": "c526fd92b597612d08f0a3ee465acc963a0b69dd3d524a57c9547e0d6b337e03",
+      "post_extraction_check.json": "f1c8f391cfd290d9caefd1437400f86b62c981d27a00b5ecdebee006f5a868b6"
+    },
+    "archive_sha256": "58561bc839529cba381bb23a8a40b274238e37ced49df7b42d6e944ac3359759",
+    "archive_size_bytes": 50616905,
+    "payload_members_verified": 19,
+    "synthetic_tests_passed": 8,
+    "test_duration_seconds": 0.040,
+    "post_write_disk_readback_verified": true,
+    "archive_contents_executed": false,
+    "independent_machine_verified": false,
+    "independent_backup_storage_verified": false,
+    "independent_python_runtime_restored": false,
+    "power_loss_durability_verified": false,
+    "binary_archive_in_git": false,
+    "next_external_step_requires_destination": true,
+    "frozen_runner_changed": false,
+    "new_model_fits": 0,
+    "real_market_data_opened": false,
+    "real_outcome_metrics_computed": false,
+    "network_used": false
+  }],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}
