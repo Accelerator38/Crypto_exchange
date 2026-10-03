@@ -1,0 +1,48 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/14",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v13_20261003/ledger.json",
+  "previous_ledger_sha256": "ad622f9e8d81a50d310b9aa64401cce408f21897562634078feef6780fd3e22d",
+  "new_attempts": [],
+  "new_registrations": [],
+  "engineering_updates": [{
+    "objective_id": "future_ema_base_viability_60x3d_from_2026_10_05_v1",
+    "implementation_commit": "19f883e",
+    "environment_path": "configs/genetic_primus_future_ema_environment_v1.json",
+    "environment_sha256": "8f82114b946f09afcd4aa8b6e5dcd721fb7c2f303a09f1c2dac3a0fc51137360",
+    "source_sha256": {
+      "src/exia/genetic_primus/future_ema_operations_v1.py": "cc5e5563a0611bcb329346f47070e47568ac9ba3ad4f1f6b6f3a7612d1379802",
+      "tools/check_genetic_primus_future_ema_operations_v1.py": "e50ffd4c8f44d396299caeb90fe65f6bb38c3fd110f4570fcaa5882a31c69f34",
+      "tests/test_genetic_primus_future_ema_operations_v1.py": "6a4f1870102795df60010dba2ce00effca641e3ed16ceb7c6d64e10dd712d3d6"
+    },
+    "report_path": "Reports/Exia/Genetic_Primus/future_ema_operations_v1_20261003/REPORT.md",
+    "operator_procedure_path": "docs/GENETIC_PRIMUS_FUTURE_EMA_OPERATIONS_V1.md",
+    "synthetic_tests_passed": 15,
+    "test_duration_seconds": 0.056,
+    "observed_environment_status": "ENVIRONMENT_MATCH",
+    "observed_artifact_status": "AWAITING_INPUT_COMMIT",
+    "frozen_runner_changed": false,
+    "operator_preflight_integrated_into_runner": false,
+    "package_payload_integrity_fully_verified": false,
+    "offline_reinstallation_verified": false,
+    "power_loss_durability_verified": false,
+    "new_model_fits": 0,
+    "real_market_data_opened": false,
+    "real_outcome_metrics_computed": false
+  }],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}
