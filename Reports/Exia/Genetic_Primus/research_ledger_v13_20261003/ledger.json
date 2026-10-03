@@ -1,0 +1,39 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/13",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v12_20261003/ledger.json",
+  "previous_ledger_sha256": "a25d4c0597dbc96baac01ea68807d7c4379e16165f213d4a521c74495b69c7ff",
+  "new_attempts": [],
+  "new_registrations": [],
+  "engineering_checks": [{
+    "objective_id": "future_ema_base_viability_60x3d_from_2026_10_05_v1",
+    "test_commit": "e6d18aa",
+    "test_path": "tests/test_genetic_primus_future_ema_runner_v1.py",
+    "test_sha256": "8813a2de25f3fb98a72c25c9ec6e072dc7da4080a298c12f0d0943d25c79f392",
+    "report_path": "Reports/Exia/Genetic_Primus/future_ema_runner_faults_v1_20261003/REPORT.md",
+    "tests_passed": 10,
+    "test_duration_seconds": 0.067,
+    "six_locked_implementation_hashes_unchanged": true,
+    "environment_observed": {"python": "3.12.4", "numpy": "2.4.2", "pandas": "3.0.0", "pyarrow": "25.0.0"},
+    "environment_gate_added": false,
+    "power_loss_durability_verified": false,
+    "new_model_fits": 0,
+    "real_market_data_opened": false,
+    "real_outcome_metrics_computed": false
+  }],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}
