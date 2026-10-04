@@ -1,0 +1,111 @@
+{
+  "schema_version": "exia.genetic_primus.research_design_draft/1",
+  "draft_id": "market_relative_reversal_linear_1feature_3d_v1",
+  "status": "DRAFT_NOT_REGISTERED",
+  "hypothesis": "A coin's negative return relative to the eight-coin median predicts positive subsequent three-day gross return. This is an unconfirmed alternative mechanism, not an EMA overlay or a market-neutral portfolio.",
+  "candidate_budget": 1,
+  "selection_rule": "one_fixed_candidate_or_NoTrade_no_parameter_grid",
+  "baseline": "NoTrade",
+  "universe": ["ADA/USDT", "BNB/USDT", "BTC/USDT", "DOGE/USDT", "ETH/USDT", "LINK/USDT", "SOL/USDT", "XRP/USDT"],
+  "timeframe_minutes": 240,
+  "features": {
+    "count": 1,
+    "lookback_bars": 12,
+    "definition": "asset_close_return_12_minus_median_close_return_12_of_all_eight_assets",
+    "availability": "last_fully_closed_bar_before_origin",
+    "missing_asset_rule": "fail_closed_for_whole_origin_no_changing_universe"
+  },
+  "model": {
+    "kind": "one_feature_sign_constrained_ridge",
+    "learned_parameters": 2,
+    "slope_constraint": "nonpositive",
+    "ridge_alpha": 0.5,
+    "objective": "uniform_mean_squared_gross_3d_error_plus_0.5_slope_squared",
+    "solution": "slope=min(0,covariance_scaled_feature_target/(variance_scaled_feature+0.5)); intercept=mean_target-slope*mean_scaled_feature",
+    "target": "next_complete_3d_gross_return",
+    "outcomes": "all_assets_all_eligible_origins_including_losses_no_EMA_proposal_filter_exclude_reserved_EMA_labels",
+    "weights": "uniform_only",
+    "scaler": "origin_train_only_median_IQR_clip_minus8_plus8",
+    "constant_feature_rule": "NoTrade_no_alternative_feature",
+    "ga_allowed": false
+  },
+  "rolling": {
+    "train_window_days": 730,
+    "purge_bars": 7,
+    "deployment_horizon_days": 3,
+    "retrain_cadence_days": 3,
+    "training_label_grid_days": 3,
+    "excluded_label_intervals_utc": [{"start": "2026-10-05T00:00:00Z", "end_exclusive": "2027-04-03T00:00:00Z"}],
+    "label_exclusion_rule": "exclude_any_training_label_overlapping_reserved_EMA_interval_no_reuse_for_fit_or_selection",
+    "train_end_rule": "label_end_exclusive_le_origin_minus_7_bars",
+    "minimum_distinct_training_origins": 60,
+    "minimum_origin_weight_ess": 40,
+    "support_note": "Operational support floors are not a statistical power calculation. Row ESS is not independent temporal information."
+  },
+  "decisions": {
+    "kind": "long_or_cash",
+    "allocation": "eight_equal_cash_sleeves_no_leverage_no_redistribution",
+    "entry": "predicted_gross_gt_normal_full_round_trip_break_even",
+    "continuation": "predicted_gross_gt_zero_when_already_long",
+    "abstention": "NoTrade_when_forecast_missing_or_threshold_not_met",
+    "threshold_search": false,
+    "ledger_required": ["origin", "decision_time", "symbol", "model_sha256", "train_cutoff", "data_sha256", "folds_sha256", "weights_sha256", "scaler_sha256", "previous_target", "forecast", "target"]
+  },
+  "execution_assumptions": {
+    "normal": {"delay_bars": 0, "round_trip_cost_bps": 16},
+    "stress": {"delay_bars": 1, "round_trip_cost_bps": 40},
+    "cost_application": "charge_each_actual_position_transition_not_every_origin",
+    "delay_accounting": "old_target_remains_active_until_delayed_transition",
+    "funding_and_full_tape_verified": false,
+    "scope": "OHLCV_research_not_production_execution_certification"
+  },
+  "evaluation": {
+    "unit": "daily_equal_sleeve_portfolio_returns",
+    "primary_difference": "candidate_minus_NoTrade",
+    "support_unit": "distinct_signal_origins_not_assets_or_trades",
+    "support_weight_ess": "aggregate_row_weights_by_label_origin_before_ESS",
+    "paired_bootstrap": true,
+    "bootstrap_unit": "contiguous_calendar_day_blocks_shared_between_policies",
+    "block_days": 5,
+    "alpha": 0.05,
+    "primary_and_audit_banks": "freeze_separate_seed_banks_before_outer_data_access",
+    "audit_seed_is_independent_market_data": false,
+    "normal_and_stress_lcb_must_be_positive": true,
+    "training_MSE_is_promotion_evidence": false,
+    "diagnostics_not_selection": ["exposure", "turnover", "drawdown", "origin_concentration", "action_drift", "matched_schedule_controls"],
+    "global_adaptive_testing_calibrated": false
+  },
+  "temporal_validation": {
+    "revealed_historical_use": "engineering_smoke_only_not_threshold_selection_or_promotion",
+    "reserved_EMA_interval_forbidden": true,
+    "outer_not_before_utc": "2027-04-03T00:00:00Z",
+    "outer_start_utc": null,
+    "outer_end_exclusive_utc": null,
+    "outer_length_rule": "determine_before_freeze_using_temporal_clusters_and_minimum_economic_effect",
+    "power_design_complete": false,
+    "minimum_economic_effect_daily": null,
+    "no_interim_pnl_analysis": true,
+    "single_final_analysis": true,
+    "no_extension_for_insufficient_support": true
+  },
+  "provenance": {
+    "contract_frozen": false,
+    "immutable_registry_entry_sha256": null,
+    "training_data_sha256": null,
+    "folds_sha256": null,
+    "primary_bank_sha256": null,
+    "audit_bank_sha256": null,
+    "cutoff_utc": null
+  },
+  "stop_rule": "NoTrade_if_no_independent_support_or_nonpositive_net_LCB_do_not_increase_budget_or_add_GA",
+  "permissions": {
+    "training_allowed": false,
+    "evaluation_allowed": false,
+    "network_allowed": false,
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false
+  }
+}

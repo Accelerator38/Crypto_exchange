@@ -1,0 +1,70 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/18",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v17_20261004/ledger.json",
+  "previous_ledger_sha256": "94194a4d782ffb2f1de51fd590875834761c2eed754bcf07bc887e92e9ad520f",
+  "new_attempts": [],
+  "new_registrations": [],
+  "research_drafts": [{
+    "draft_id": "market_relative_reversal_linear_1feature_3d_v1",
+    "status": "DRAFT_NOT_REGISTERED",
+    "path": "configs/genetic_primus_market_relative_reversal_draft_v1.json",
+    "sha256": "4779b762c65c814d25278e7774a3288d87ce9aaa183932bc735a2f27981a1224",
+    "hypothesis_origin": "planning_after_revealed_result_review_not_independent_confirmation",
+    "candidate_budget_proposed": 1,
+    "learned_parameters_proposed": 2,
+    "new_model_fits": 0,
+    "new_search_evaluations": 0,
+    "new_pnl_simulations": 0,
+    "minimum_economic_effect_defined": false,
+    "power_design_complete": false,
+    "new_outer_interval_assigned": false,
+    "immutable_registry_entry_created": false,
+    "reserved_EMA_interval_excluded_from_training_labels_and_selection": true,
+    "training_or_evaluation_authorized": false
+  }],
+  "engineering_updates": [{
+    "kind": "pure_unregistered_draft_consistency_guard",
+    "path": "src/exia/genetic_primus/research_design_guard_v1.py",
+    "sha256": "9a26236f8c773b8f06e04699328924b45fb605126bebb324d0cc69329e1f2d65",
+    "single_file_py_compile_passed": true,
+    "direct_baseline_check_passed": true,
+    "unsafe_mutations_rejected": ["training_permission", "string_false_network_permission", "reserved_outer_interval_overlap", "asset_rows_as_support", "NaN_stress_cost", "expanded_candidate_budget"],
+    "execution_permission_returned": false,
+    "pytest_used": false,
+    "collector_imported_or_executed": false,
+    "network_used": false,
+    "future_market_data_opened": false,
+    "full_training_pipeline_implemented_or_verified": false
+  }],
+  "frozen_future_EMA_contract": {
+    "path": "configs/genetic_primus_future_ema_viability_v1.json",
+    "sha256": "11b83d2e3ecbdda572307dd902b73c9c2d8ae108499be85e22b988f193b227b6",
+    "changed": false,
+    "period_start_utc": "2026-10-05T00:00:00Z",
+    "period_start_moscow": "2026-10-05T03:00:00+03:00",
+    "automatic_evaluation": false,
+    "interim_results_opened": false
+  },
+  "deferred_checks": [{
+    "check": "independent_machine_verification",
+    "reason": "user_has_no_second_pc",
+    "passed": false,
+    "blocks_local_offline_research": false
+  }],
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}
