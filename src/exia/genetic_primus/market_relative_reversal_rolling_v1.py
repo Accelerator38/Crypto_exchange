@@ -1,4 +1,4 @@
-"""One-origin synthetic research evaluator; no I/O, clocks or trading runtime."""
+"""One-origin research evaluator; no I/O, clocks or trading runtime."""
 
 from copy import deepcopy
 from dataclasses import dataclass
@@ -119,13 +119,40 @@ def evaluate_origin(
     candles: Iterable, *, origin_ms: int, train_start_origin_ms: int,
     previous_state: dict | None, primitives: Primitives,
     evaluator_sha256: str, draft_sha256: str, data_kind: str,
+    calibration_registration: dict | None = None,
 ) -> dict:
-    """Explicit three-day step, allowed only as synthetic engineering work.
+    """Synthetic step or the single hash-bound, revealed calibration pilot.
 
     Source hashes are caller-declared lineage, not signed authentication.
     No bootstrap, outer analysis, funding or real-execution certification.
     """
-    if data_kind != "synthetic":
+    evidence_class = "synthetic_engineering_only"
+    registration_sha = None
+    if data_kind == "revealed_calibration":
+        r = calibration_registration
+        if not isinstance(r, dict):
+            raise ValueError("calibration registration required")
+        payload = {k: v for k, v in r.items() if k != "registration_sha256"}
+        if (_digest(payload) != r.get("registration_sha256")
+                or r.get("schema") != "exia.genetic_primus.reversal_calibration_registration/1"
+                or r.get("user_authorized_one_offline_pilot") is not True
+                or r.get("candidate_budget") != 1
+                or r.get("origin_count") != 20
+                or r.get("start_ms") != 1780272000000
+                or r.get("end_ms") != 1785456000000
+                or train_start_origin_ms != 1780272000000-243*HORIZON_MS
+                or not 1780272000000 <= origin_ms < 1785456000000
+                or (origin_ms-1780272000000) % HORIZON_MS
+                or r.get("model_draft_sha256") != draft_sha256
+                or r.get("sources_sha256", {}).get("builder") != primitives.builder_sha256
+                or r.get("sources_sha256", {}).get("fitter") != primitives.fitter_sha256
+                or r.get("sources_sha256", {}).get("evaluator") != evaluator_sha256
+                or any(r.get(k) is not False for k in
+                       ("credentials_allowed", "orders_enabled", "paper", "live", "promotion_authority"))):
+            raise ValueError("calibration registration/scope/hash mismatch")
+        evidence_class = "revealed_development_calibration_not_independent_validation"
+        registration_sha = r["registration_sha256"]
+    elif data_kind != "synthetic" or calibration_registration is not None:
         raise ValueError("unregistered design: market-data evaluation forbidden")
     if (type(origin_ms) is not int or origin_ms % DAY_MS
             or type(train_start_origin_ms) is not int or train_start_origin_ms % DAY_MS
@@ -136,6 +163,8 @@ def evaluate_origin(
         raise ValueError("reserved EMA evaluation interval forbidden")
     sources = {"builder": primitives.builder_sha256, "fitter": primitives.fitter_sha256,
                "evaluator": evaluator_sha256, "draft": draft_sha256}
+    if registration_sha is not None:
+        sources["calibration_registration"] = registration_sha
     for h in sources.values():
         _sha(h)
     cache = _cache(candles)
@@ -146,7 +175,7 @@ def evaluate_origin(
                  "sources_sha256": sources, "train_start_origin_ms": train_start_origin_ms,
                  "next_origin_ms": origin_ms, "policy_targets": {s: 0 for s in UNIVERSE},
                  "scenarios": {name: _flat_scenario() for name in SCENARIOS},
-                 "evidence_class": "synthetic_engineering_only", "execution_allowed": False}
+                 "evidence_class": evidence_class, "execution_allowed": False}
     else:
         payload = {k: v for k, v in previous_state.items() if k != "state_sha256"}
         if _digest(payload) != previous_state.get("state_sha256"):
@@ -206,7 +235,7 @@ def evaluate_origin(
                  scenarios={name: result["state"] for name, result in scenarios.items()})
     state["state_sha256"] = _digest(state)
     return {"schema": "exia.genetic_primus.reversal_rolling_step/1", "origin_ms": origin_ms,
-            "evidence_class": "synthetic_engineering_only", "execution_allowed": False,
+            "evidence_class": evidence_class, "execution_allowed": False,
             "sources_sha256": sources, "model": model, "decisions": decisions,
             "scenarios": scenarios, "state": state,
             "valuation_source_sha256": path["input_ohlcv_sha256"],

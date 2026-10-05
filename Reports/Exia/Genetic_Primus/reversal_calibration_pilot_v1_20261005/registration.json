@@ -1,0 +1,274 @@
+{
+  "schema": "exia.genetic_primus.reversal_calibration_registration/1",
+  "objective_id": "revealed_June_reversal_variance_activity_calibration_v1",
+  "registration_date_utc": "2026-10-05",
+  "status": "REGISTERED_REVEALED_CALIBRATION_ONLY",
+  "evidence_class": "revealed_development_calibration_not_independent_validation",
+  "candidate_budget": 1,
+  "origin_count": 20,
+  "user_authorized_one_offline_pilot": true,
+  "authorization": "Current human user confirmed one local offline pilot; no trading/network authority",
+  "start_ms": 1780272000000,
+  "end_ms": 1785456000000,
+  "train_anchor_ms": 1717286400000,
+  "input_lower_ms": 1717099200000,
+  "pilot_draft_path": "configs/genetic_primus_reversal_calibration_pilot_v1.json",
+  "pilot_draft_sha256": "beb3327263492ea13da28f77c8ff53ef665f6a43da1d5369323497b23528fb02",
+  "model_draft_path": "configs/genetic_primus_market_relative_reversal_draft_v1.json",
+  "model_draft_sha256": "4779b762c65c814d25278e7774a3288d87ce9aaa183932bc735a2f27981a1224",
+  "data_use_override": "Only this fixed revealed calibration, despite engineering-only model draft; no outer access",
+  "source_manifest_path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/data_manifest_origin_09.json",
+  "source_manifest_sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9",
+  "snapshot_sha256": "f548b6af6034b3d59e0c3c64aad287ca2a9b762bca5051331db2e72406861bda",
+  "snapshot_files": [
+    {
+      "path": "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet",
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375",
+      "size_bytes": 55079
+    },
+    {
+      "path": "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet",
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0",
+      "size_bytes": 32889
+    },
+    {
+      "path": "Retrodate/exia_full8_prospective_timeframes_v1_20260904_20260906/parts/full8_240m.parquet",
+      "sha256": "a9753c95035f08209fa488aad6a064259caf579fe2a1ec9915aa6b8d53184c04",
+      "size_bytes": 11149
+    },
+    {
+      "path": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet",
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36",
+      "size_bytes": 3003142
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_03_240m.parquet",
+      "sha256": "78cebf7dd3f4f7470934ceb7a5498ee5aae48ecda0f6bd8be4d0a50ce6b227be",
+      "size_bytes": 11234
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_04_240m.parquet",
+      "sha256": "e50ae6282ba30e7cc125133f71d3b45f8f41ab48c80cebe4a2bd13aeda81ed47",
+      "size_bytes": 11070
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_05_240m.parquet",
+      "sha256": "bc79193956b19172368d975d3a6f3c761a778826353de6eec6666e0f3d5b5131",
+      "size_bytes": 11128
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_06_240m.parquet",
+      "sha256": "8737e3af8b784461be8b01497e8623630d5ecbe33be5b0008bd8d10eb368df5e",
+      "size_bytes": 11195
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_07_240m.parquet",
+      "sha256": "4af42c81dd017700f40cc7a44c907e33100f6b2da2abe15891c424a9c5aacd98",
+      "size_bytes": 11303
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_08_240m.parquet",
+      "sha256": "d580e33f8961209153ea1e0e31e5e3f9926154aa95fff19b253d0c778b77b769",
+      "size_bytes": 11360
+    },
+    {
+      "path": "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_09_240m.parquet",
+      "sha256": "22d05504944cb044a9c6db4572c1e5bdc76835aa5e5980ebb6dd9ee44e07db5a",
+      "size_bytes": 11257
+    }
+  ],
+  "implementation_paths": {
+    "builder": "src/exia/genetic_primus/market_relative_reversal_builder_v1.py",
+    "fitter": "src/exia/genetic_primus/market_relative_reversal_linear_v1.py",
+    "evaluator": "src/exia/genetic_primus/market_relative_reversal_rolling_v1.py",
+    "reader": "src/exia/genetic_primus/reversal_calibration_reader_v1.py",
+    "statistics": "src/exia/genetic_primus/reversal_calibration_v1.py",
+    "runner": "tools/run_genetic_primus_reversal_calibration_v1.py",
+    "safety_checker": "tools/check_genetic_primus_reversal_pilot_synthetic_v1.py"
+  },
+  "sources_sha256": {
+    "builder": "102952b47e21808da952c4647f64f32326b1b252389f2b7f05afdf85883e2a2a",
+    "fitter": "121b670a2fc270b792974e26ce288199f45a1fb3c578bd6bb2ad8efc4dd97695",
+    "evaluator": "866f07c4253b9579b409f5dac53f3a77ba3b6c42aea418229fad102527175cd4",
+    "reader": "1c39291fee470ea159b272f6f4449d624eb7c06c6e15071bcce186ad1fc09c96",
+    "statistics": "9aa2ca64b499e8e1804c3dfc68b797af19f76c91537f9fe80068f41469b1c6f9",
+    "runner": "98c3d8b2e7d9ea6c79557f2c451872c4ac634da09f512c892e042632d85ade5e",
+    "safety_checker": "9d93cd581fa17005a8924420af1a51e5d434c30c7690b989216591e1cf11b699"
+  },
+  "folds": [
+    {
+      "origin_ms": 1780272000000,
+      "deployment_end_exclusive_ms": 1780531200000,
+      "train_cutoff_ms": 1780171200000,
+      "first_train_origin_ms": 1717286400000,
+      "last_train_origin_ms": 1779753600000
+    },
+    {
+      "origin_ms": 1780531200000,
+      "deployment_end_exclusive_ms": 1780790400000,
+      "train_cutoff_ms": 1780430400000,
+      "first_train_origin_ms": 1717545600000,
+      "last_train_origin_ms": 1780012800000
+    },
+    {
+      "origin_ms": 1780790400000,
+      "deployment_end_exclusive_ms": 1781049600000,
+      "train_cutoff_ms": 1780689600000,
+      "first_train_origin_ms": 1717804800000,
+      "last_train_origin_ms": 1780272000000
+    },
+    {
+      "origin_ms": 1781049600000,
+      "deployment_end_exclusive_ms": 1781308800000,
+      "train_cutoff_ms": 1780948800000,
+      "first_train_origin_ms": 1718064000000,
+      "last_train_origin_ms": 1780531200000
+    },
+    {
+      "origin_ms": 1781308800000,
+      "deployment_end_exclusive_ms": 1781568000000,
+      "train_cutoff_ms": 1781208000000,
+      "first_train_origin_ms": 1718323200000,
+      "last_train_origin_ms": 1780790400000
+    },
+    {
+      "origin_ms": 1781568000000,
+      "deployment_end_exclusive_ms": 1781827200000,
+      "train_cutoff_ms": 1781467200000,
+      "first_train_origin_ms": 1718582400000,
+      "last_train_origin_ms": 1781049600000
+    },
+    {
+      "origin_ms": 1781827200000,
+      "deployment_end_exclusive_ms": 1782086400000,
+      "train_cutoff_ms": 1781726400000,
+      "first_train_origin_ms": 1718841600000,
+      "last_train_origin_ms": 1781308800000
+    },
+    {
+      "origin_ms": 1782086400000,
+      "deployment_end_exclusive_ms": 1782345600000,
+      "train_cutoff_ms": 1781985600000,
+      "first_train_origin_ms": 1719100800000,
+      "last_train_origin_ms": 1781568000000
+    },
+    {
+      "origin_ms": 1782345600000,
+      "deployment_end_exclusive_ms": 1782604800000,
+      "train_cutoff_ms": 1782244800000,
+      "first_train_origin_ms": 1719360000000,
+      "last_train_origin_ms": 1781827200000
+    },
+    {
+      "origin_ms": 1782604800000,
+      "deployment_end_exclusive_ms": 1782864000000,
+      "train_cutoff_ms": 1782504000000,
+      "first_train_origin_ms": 1719619200000,
+      "last_train_origin_ms": 1782086400000
+    },
+    {
+      "origin_ms": 1782864000000,
+      "deployment_end_exclusive_ms": 1783123200000,
+      "train_cutoff_ms": 1782763200000,
+      "first_train_origin_ms": 1719878400000,
+      "last_train_origin_ms": 1782345600000
+    },
+    {
+      "origin_ms": 1783123200000,
+      "deployment_end_exclusive_ms": 1783382400000,
+      "train_cutoff_ms": 1783022400000,
+      "first_train_origin_ms": 1720137600000,
+      "last_train_origin_ms": 1782604800000
+    },
+    {
+      "origin_ms": 1783382400000,
+      "deployment_end_exclusive_ms": 1783641600000,
+      "train_cutoff_ms": 1783281600000,
+      "first_train_origin_ms": 1720396800000,
+      "last_train_origin_ms": 1782864000000
+    },
+    {
+      "origin_ms": 1783641600000,
+      "deployment_end_exclusive_ms": 1783900800000,
+      "train_cutoff_ms": 1783540800000,
+      "first_train_origin_ms": 1720656000000,
+      "last_train_origin_ms": 1783123200000
+    },
+    {
+      "origin_ms": 1783900800000,
+      "deployment_end_exclusive_ms": 1784160000000,
+      "train_cutoff_ms": 1783800000000,
+      "first_train_origin_ms": 1720915200000,
+      "last_train_origin_ms": 1783382400000
+    },
+    {
+      "origin_ms": 1784160000000,
+      "deployment_end_exclusive_ms": 1784419200000,
+      "train_cutoff_ms": 1784059200000,
+      "first_train_origin_ms": 1721174400000,
+      "last_train_origin_ms": 1783641600000
+    },
+    {
+      "origin_ms": 1784419200000,
+      "deployment_end_exclusive_ms": 1784678400000,
+      "train_cutoff_ms": 1784318400000,
+      "first_train_origin_ms": 1721433600000,
+      "last_train_origin_ms": 1783900800000
+    },
+    {
+      "origin_ms": 1784678400000,
+      "deployment_end_exclusive_ms": 1784937600000,
+      "train_cutoff_ms": 1784577600000,
+      "first_train_origin_ms": 1721692800000,
+      "last_train_origin_ms": 1784160000000
+    },
+    {
+      "origin_ms": 1784937600000,
+      "deployment_end_exclusive_ms": 1785196800000,
+      "train_cutoff_ms": 1784836800000,
+      "first_train_origin_ms": 1721952000000,
+      "last_train_origin_ms": 1784419200000
+    },
+    {
+      "origin_ms": 1785196800000,
+      "deployment_end_exclusive_ms": 1785456000000,
+      "train_cutoff_ms": 1785096000000,
+      "first_train_origin_ms": 1722211200000,
+      "last_train_origin_ms": 1784678400000
+    }
+  ],
+  "folds_sha256": "cd99e3c0e2adfddb9225bcd78588b97633c0c74d73591cc5064b8db7ae93dacd",
+  "previous_registry_path": "configs/genetic_primus_objective_registry_v9.json",
+  "previous_registry_sha256": "c4f926938f1ff5244c49f7920b4d8aaef504a9aefec3a6706ad52b1cfc543235",
+  "registry_coverage": "Hash-linked local registration; historical adaptive trials still incomplete",
+  "analysis": {
+    "unit": "sixty_complete_calendar_day_portfolio_returns_including_inactive_days_and_losses",
+    "HAC_lags": [
+      0,
+      4,
+      9,
+      14
+    ],
+    "autocovariance_denominator": "N_not_N_minus_lag",
+    "kernel": "Bartlett_weight_1_minus_lag_over_L_plus_1",
+    "planning_sigma_rule": "maximum_sigma_over_all_predeclared_lags_including_lag_zero",
+    "sigma_envelope_is_confidence_bound": false,
+    "signal_fraction_is_IID_probability": false,
+    "promotion_LCB_or_PBO_DSR_claims_allowed": false,
+    "if_no_activity": "keep_NoTrade_no_forced_trades",
+    "if_nonpositive_net": "keep_NoTrade_no_retuning_no_new_candidate_under_this_objective",
+    "if_zero_variance": "no_power_duration_from_zero_sigma",
+    "if_positive_net": "descriptive_planning_only_not_evidence_of_independent_edge"
+  },
+  "no_retuning": true,
+  "no_network": true,
+  "funding_verified": false,
+  "real_execution_verified": false,
+  "global_dsr_pbo_calibrated": false,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false,
+  "registration_sha256": "8556d9cf91fadf69c98653ba2a7f3a90267293034f828c9f32b0f919ba20f0ae"
+}

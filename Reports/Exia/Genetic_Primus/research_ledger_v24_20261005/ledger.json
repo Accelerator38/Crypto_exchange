@@ -1,0 +1,76 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/24",
+  "record_date_utc": "2026-10-05",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v23_20261005/ledger.json",
+  "previous_ledger_sha256": "fd71d4a4adf5a5fad3bf28c3c3e1ac749b0af86c147d1b28ce9b8354bf07b67d",
+  "status": "ONE_REVEALED_CALIBRATION_COMPLETED_FAILED_KEEP_NOTRADE",
+  "new_registrations": [
+    {
+      "objective_id": "revealed_June_reversal_variance_activity_calibration_v1",
+      "path": "Reports/Exia/Genetic_Primus/reversal_calibration_pilot_v1_20261005/registration.json",
+      "file_sha256": "5e0cc5eceece2b2863a95fcc9c38e0fa1303cbd56301ba64b2004255237b6072",
+      "registration_sha256": "8556d9cf91fadf69c98653ba2a7f3a90267293034f828c9f32b0f919ba20f0ae",
+      "scope": "one user-authorized offline retrospective calibration; no new outer interval or trading"
+    }
+  ],
+  "new_attempts": [
+    {
+      "objective_id": "revealed_June_reversal_variance_activity_calibration_v1",
+      "candidate_count": 1,
+      "origins": 20,
+      "calendar_days": 60,
+      "decision_count": 160,
+      "result_path": "Reports/Exia/Genetic_Primus/reversal_calibration_pilot_v1_20261005/result.json",
+      "result_file_sha256": "eb52126047705a00fc87e6caf703d5182b0ae2799c4fcc4e54d7e88b237817e1",
+      "result_sha256": "b382797c965f08dc22eeade4cac25cb3cab03edf9b2ca9968336888522bd07c4",
+      "last_step_sha256": "436e05c75b461248493549622bc7bb732288493abd182714a8dd0c6985bad993",
+      "evidence_class": "revealed_development_calibration_not_independent_validation",
+      "normal_marked_net_return": -0.02083042034229443,
+      "stress_marked_net_return": -0.007570364834224352,
+      "normal_net_after_terminal_liquidation": -0.021613756006020557,
+      "stress_net_after_terminal_liquidation": -0.009555224104555893,
+      "normal_max_drawdown_close": 0.059155552866388295,
+      "stress_max_drawdown_close": 0.05508295067022784,
+      "distinct_signal_origins_including_continuations": 8,
+      "active_calendar_days": 24,
+      "separate_temporal_entry_events": 1,
+      "slope_zero_origins": 20,
+      "status": "NONPOSITIVE_DEVELOPMENT_NET_KEEP_NOTRADE_NO_RETUNING"
+    }
+  ],
+  "verification": {
+    "snapshot_file_byte_hashes_verified": 11,
+    "snapshot_total_bytes": 3180806,
+    "bounded_input_rows_per_origin": 35240,
+    "all_20_model_and_state_hashes_verified": true,
+    "decision_lineage_verified": true,
+    "daily_returns_nav_reconciled": true,
+    "synthetic_pilot_safety_regressions_passed": true,
+    "rolling_synthetic_regression_groups_passed": 5,
+    "pytest_or_collector_run": false,
+    "future_ema_contract_sha256": "11b83d2e3ecbdda572307dd902b73c9c2d8ae108499be85e22b988f193b227b6",
+    "future_ema_interval_read_or_evaluated": false
+  },
+  "incumbent": "NoTrade",
+  "next_action": "Close this fixed reversal candidate; no retuning or GA. Any new hypothesis requires separate design and registration.",
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "all_costs_nonnegative_final_net_proven": false,
+  "funding_and_real_execution_verified": false,
+  "new_outer_interval_opened": false,
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "independent_machine_verification": "deferred_not_passed_user_has_no_second_PC",
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}

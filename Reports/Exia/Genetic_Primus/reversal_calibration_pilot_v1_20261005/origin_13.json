@@ -1,0 +1,807 @@
+{
+  "index": 13,
+  "registration_sha256": "8556d9cf91fadf69c98653ba2a7f3a90267293034f828c9f32b0f919ba20f0ae",
+  "input_start_ms": 1720209600000,
+  "input_end_ms": 1783641600000,
+  "input_rows": 35240,
+  "previous_step_sha256": "efd2dc4901ba0ad82c7d5d796ada642c0b3a3b7f049b0b69e5a3af4a8dd7bcd9",
+  "previous_state_sha256": "cbb4f478930cc2124d257b0bbac81027f2e33f4fb5c571d4abe7f77bd97a1fdc",
+  "result": {
+    "schema": "exia.genetic_primus.reversal_rolling_step/1",
+    "origin_ms": 1783382400000,
+    "evidence_class": "revealed_development_calibration_not_independent_validation",
+    "execution_allowed": false,
+    "sources_sha256": {
+      "builder": "102952b47e21808da952c4647f64f32326b1b252389f2b7f05afdf85883e2a2a",
+      "fitter": "121b670a2fc270b792974e26ce288199f45a1fb3c578bd6bb2ad8efc4dd97695",
+      "evaluator": "866f07c4253b9579b409f5dac53f3a77ba3b6c42aea418229fad102527175cd4",
+      "draft": "4779b762c65c814d25278e7774a3288d87ce9aaa183932bc735a2f27981a1224",
+      "calibration_registration": "8556d9cf91fadf69c98653ba2a7f3a90267293034f828c9f32b0f919ba20f0ae"
+    },
+    "model": {
+      "schema": "exia.genetic_primus.market_relative_reversal_linear/1",
+      "research_only": true,
+      "execution_allowed": false,
+      "implementation_sha256": "121b670a2fc270b792974e26ce288199f45a1fb3c578bd6bb2ad8efc4dd97695",
+      "deploy_origin_ms": 1783382400000,
+      "train_cutoff_exclusive_ms": 1783281600000,
+      "train_window_start_ms": 1720310400000,
+      "purge_bars": 7,
+      "eligible_rows": 1936,
+      "distinct_training_origins": 242,
+      "origin_weight_ess": 242.0,
+      "row_weight_ess": 1936.0,
+      "train_rows_sha256": "05d668a71cb90e44245b72b4b3b2cc39d4d4b2f50edf150b048d01e49bb92d78",
+      "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+      "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+      "target": "next_complete_3d_gross_return",
+      "ridge_alpha": 0.5,
+      "negative_outcomes": 957,
+      "scaler": {
+        "median": 0.0,
+        "iqr": 0.022455025244806928,
+        "clip": [
+          -8.0,
+          8.0
+        ]
+      },
+      "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+      "intercept": 0.0018489353071736566,
+      "slope": 0.0,
+      "fallback": null,
+      "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+    },
+    "decisions": [
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "ADA/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "BNB/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "BTC/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "DOGE/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "ETH/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "LINK/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "SOL/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      },
+      {
+        "origin": 1783382400000,
+        "decision_time": 1783382400000,
+        "symbol": "XRP/USDT",
+        "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18",
+        "train_cutoff": 1783281600000,
+        "data_sha256": "87e2f07016eb0717c1d9a1fdba26555f0f90336fa93e2fda2554a92ad8413350",
+        "folds_sha256": "fdb11d7156077dba87a948d8a4779fc42db363ddb8136fd4c827e2afe3f847a8",
+        "weights_sha256": "60bb10f4873ebaa1cb0a5ac373fc3b3653b7ec548f473d9f62eeb1077d734c20",
+        "scaler_sha256": "d232545b5d5524380fe78213641a28ec2a04d1aec5b275771b17d6c004e6bb98",
+        "previous_target": 0,
+        "forecast": 0.0018489353071736566,
+        "threshold": 0.0016012810248198228,
+        "target": 1,
+        "fallback": null
+      }
+    ],
+    "scenarios": {
+      "normal": {
+        "state": {
+          "positions": {
+            "ADA/USDT": {
+              "cash": 0.0,
+              "quantity": 5.430438258089182,
+              "target": 1,
+              "last_mark_price": 0.1664
+            },
+            "BNB/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0017068681918148436,
+              "target": 1,
+              "last_mark_price": 568.36
+            },
+            "BTC/USDT": {
+              "cash": 0.0,
+              "quantity": 1.560816897001161e-05,
+              "target": 1,
+              "last_mark_price": 63194.5
+            },
+            "DOGE/USDT": {
+              "cash": 0.0,
+              "quantity": 13.044394771389156,
+              "target": 1,
+              "last_mark_price": 0.07285
+            },
+            "ETH/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0005554663476601214,
+              "target": 1,
+              "last_mark_price": 1744.32
+            },
+            "LINK/USDT": {
+              "cash": 0.0,
+              "quantity": 0.12465077837929257,
+              "target": 1,
+              "last_mark_price": 7.73
+            },
+            "SOL/USDT": {
+              "cash": 0.0,
+              "quantity": 0.012198315767807423,
+              "target": 1,
+              "last_mark_price": 77.997
+            },
+            "XRP/USDT": {
+              "cash": 0.0,
+              "quantity": 0.8730455565647962,
+              "target": 1,
+              "last_mark_price": 1.093
+            }
+          },
+          "last_nav": 0.9560634411758069,
+          "peak_nav": 1.0,
+          "max_drawdown_close": 0.059155552866388295,
+          "cumulative_fees": 0.0007993605115907277
+        },
+        "events": [
+          {
+            "symbol": "ADA/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 0.184,
+            "fee": 0.0007993605115907276,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884094,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "BNB/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 585.4,
+            "fee": 0.0007993605115907276,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884094,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "BTC/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 64017.8,
+            "fee": 0.0007993605115907275,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884093,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "DOGE/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 0.0766,
+            "fee": 0.0007993605115907275,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884093,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "ETH/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 1798.85,
+            "fee": 0.0007993605115907275,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884093,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "LINK/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 8.016,
+            "fee": 0.0007993605115907275,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884093,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "SOL/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 81.913,
+            "fee": 0.0007993605115907276,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884094,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "XRP/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783382400000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 1.1445,
+            "fee": 0.0007993605115907275,
+            "equity_before": 1.0,
+            "equity_after": 0.9992006394884093,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          }
+        ],
+        "bar_close_nav": [
+          {
+            "close_ms": 1783396800000,
+            "nav": 0.9846822961661644
+          },
+          {
+            "close_ms": 1783411200000,
+            "nav": 0.9834889788640647
+          },
+          {
+            "close_ms": 1783425600000,
+            "nav": 0.9833711511317169
+          },
+          {
+            "close_ms": 1783440000000,
+            "nav": 0.9898790762420548
+          },
+          {
+            "close_ms": 1783454400000,
+            "nav": 0.9846400475818204
+          },
+          {
+            "close_ms": 1783468800000,
+            "nav": 0.9751465173669145
+          },
+          {
+            "close_ms": 1783483200000,
+            "nav": 0.9586408692314381
+          },
+          {
+            "close_ms": 1783497600000,
+            "nav": 0.957188639611088
+          },
+          {
+            "close_ms": 1783512000000,
+            "nav": 0.949879741917474
+          },
+          {
+            "close_ms": 1783526400000,
+            "nav": 0.9408444471336117
+          },
+          {
+            "close_ms": 1783540800000,
+            "nav": 0.9506213156311667
+          },
+          {
+            "close_ms": 1783555200000,
+            "nav": 0.951554347217007
+          },
+          {
+            "close_ms": 1783569600000,
+            "nav": 0.9481022265974112
+          },
+          {
+            "close_ms": 1783584000000,
+            "nav": 0.9586791718319069
+          },
+          {
+            "close_ms": 1783598400000,
+            "nav": 0.9561747557949927
+          },
+          {
+            "close_ms": 1783612800000,
+            "nav": 0.9535265141965855
+          },
+          {
+            "close_ms": 1783627200000,
+            "nav": 0.9575065638026518
+          },
+          {
+            "close_ms": 1783641600000,
+            "nav": 0.9560634411758069
+          }
+        ],
+        "daily_returns": [
+          -0.02485348263308551,
+          -0.024193461935967275,
+          0.004738661508916886
+        ],
+        "origin_net_return": -0.04393655882419312,
+        "fees": 0.0007993605115907277,
+        "delay_bars": 0,
+        "round_trip_cost_bps": 16.0
+      },
+      "stress": {
+        "state": {
+          "positions": {
+            "ADA/USDT": {
+              "cash": 0.0,
+              "quantity": 5.507748300308874,
+              "target": 1,
+              "last_mark_price": 0.1664
+            },
+            "BNB/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0017244129451679793,
+              "target": 1,
+              "last_mark_price": 568.36
+            },
+            "BTC/USDT": {
+              "cash": 0.0,
+              "quantity": 1.5799302047504862e-05,
+              "target": 1,
+              "last_mark_price": 63194.5
+            },
+            "DOGE/USDT": {
+              "cash": 0.0,
+              "quantity": 13.289001225245912,
+              "target": 1,
+              "last_mark_price": 0.07285
+            },
+            "ETH/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0005636147962500949,
+              "target": 1,
+              "last_mark_price": 1744.32
+            },
+            "LINK/USDT": {
+              "cash": 0.0,
+              "quantity": 0.126585995943172,
+              "target": 1,
+              "last_mark_price": 7.73
+            },
+            "SOL/USDT": {
+              "cash": 0.0,
+              "quantity": 0.01231784342350709,
+              "target": 1,
+              "last_mark_price": 77.997
+            },
+            "XRP/USDT": {
+              "cash": 0.0,
+              "quantity": 0.8842066022999628,
+              "target": 1,
+              "last_mark_price": 1.093
+            }
+          },
+          "last_nav": 0.9689920438800134,
+          "peak_nav": 1.003263331947547,
+          "max_drawdown_close": 0.04953387481795091,
+          "cumulative_fees": 0.0019960079840319364
+        },
+        "events": [
+          {
+            "symbol": "ADA/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 0.1812,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "BNB/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 578.75,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "BTC/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 63167.6,
+            "fee": 0.0019960079840319364,
+            "equity_before": 1.0,
+            "equity_after": 0.9980039920159681,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "DOGE/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 0.0751,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "ETH/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 1770.72,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "LINK/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 7.884,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "SOL/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 81.021,
+            "fee": 0.001996007984031936,
+            "equity_before": 1.0,
+            "equity_after": 0.998003992015968,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          },
+          {
+            "symbol": "XRP/USDT",
+            "decision_time_ms": 1783382400000,
+            "execution_time_ms": 1783396800000,
+            "previous_target": 0,
+            "target": 1,
+            "price": 1.1287,
+            "fee": 0.0019960079840319364,
+            "equity_before": 1.0,
+            "equity_after": 0.9980039920159681,
+            "model_sha256": "124615f1fd2c3fec555bb7afac76ec6c3f4f07e5c84bd4e795dd7439a94dae18"
+          }
+        ],
+        "bar_close_nav": [
+          {
+            "close_ms": 1783396800000,
+            "nav": 1.0
+          },
+          {
+            "close_ms": 1783411200000,
+            "nav": 0.9967913785847043
+          },
+          {
+            "close_ms": 1783425600000,
+            "nav": 0.9966697887161571
+          },
+          {
+            "close_ms": 1783440000000,
+            "nav": 1.003263331947547
+          },
+          {
+            "close_ms": 1783454400000,
+            "nav": 0.9979524768149083
+          },
+          {
+            "close_ms": 1783468800000,
+            "nav": 0.9883325560867381
+          },
+          {
+            "close_ms": 1783483200000,
+            "nav": 0.971599879721401
+          },
+          {
+            "close_ms": 1783497600000,
+            "nav": 0.9701298498235447
+          },
+          {
+            "close_ms": 1783512000000,
+            "nav": 0.9627223460678056
+          },
+          {
+            "close_ms": 1783526400000,
+            "nav": 0.9535678116534169
+          },
+          {
+            "close_ms": 1783540800000,
+            "nav": 0.9634785041619666
+          },
+          {
+            "close_ms": 1783555200000,
+            "nav": 0.9644188329857961
+          },
+          {
+            "close_ms": 1783569600000,
+            "nav": 0.9609210616191435
+          },
+          {
+            "close_ms": 1783584000000,
+            "nav": 0.971640203054716
+          },
+          {
+            "close_ms": 1783598400000,
+            "nav": 0.9691059748660028
+          },
+          {
+            "close_ms": 1783612800000,
+            "nav": 0.9664191142318108
+          },
+          {
+            "close_ms": 1783627200000,
+            "nav": 0.9704549203756706
+          },
+          {
+            "close_ms": 1783641600000,
+            "nav": 0.9689920438800134
+          }
+        ],
+        "daily_returns": [
+          -0.01166744391326191,
+          -0.024196028911186884,
+          0.004741934456069075
+        ],
+        "origin_net_return": -0.031007956119986635,
+        "fees": 0.0019960079840319364,
+        "delay_bars": 1,
+        "round_trip_cost_bps": 40.0
+      }
+    },
+    "state": {
+      "schema": "exia.genetic_primus.reversal_rolling_state/1",
+      "sources_sha256": {
+        "builder": "102952b47e21808da952c4647f64f32326b1b252389f2b7f05afdf85883e2a2a",
+        "fitter": "121b670a2fc270b792974e26ce288199f45a1fb3c578bd6bb2ad8efc4dd97695",
+        "evaluator": "866f07c4253b9579b409f5dac53f3a77ba3b6c42aea418229fad102527175cd4",
+        "draft": "4779b762c65c814d25278e7774a3288d87ce9aaa183932bc735a2f27981a1224",
+        "calibration_registration": "8556d9cf91fadf69c98653ba2a7f3a90267293034f828c9f32b0f919ba20f0ae"
+      },
+      "train_start_origin_ms": 1717286400000,
+      "next_origin_ms": 1783641600000,
+      "policy_targets": {
+        "ADA/USDT": 1,
+        "BNB/USDT": 1,
+        "BTC/USDT": 1,
+        "DOGE/USDT": 1,
+        "ETH/USDT": 1,
+        "LINK/USDT": 1,
+        "SOL/USDT": 1,
+        "XRP/USDT": 1
+      },
+      "scenarios": {
+        "normal": {
+          "positions": {
+            "ADA/USDT": {
+              "cash": 0.0,
+              "quantity": 5.430438258089182,
+              "target": 1,
+              "last_mark_price": 0.1664
+            },
+            "BNB/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0017068681918148436,
+              "target": 1,
+              "last_mark_price": 568.36
+            },
+            "BTC/USDT": {
+              "cash": 0.0,
+              "quantity": 1.560816897001161e-05,
+              "target": 1,
+              "last_mark_price": 63194.5
+            },
+            "DOGE/USDT": {
+              "cash": 0.0,
+              "quantity": 13.044394771389156,
+              "target": 1,
+              "last_mark_price": 0.07285
+            },
+            "ETH/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0005554663476601214,
+              "target": 1,
+              "last_mark_price": 1744.32
+            },
+            "LINK/USDT": {
+              "cash": 0.0,
+              "quantity": 0.12465077837929257,
+              "target": 1,
+              "last_mark_price": 7.73
+            },
+            "SOL/USDT": {
+              "cash": 0.0,
+              "quantity": 0.012198315767807423,
+              "target": 1,
+              "last_mark_price": 77.997
+            },
+            "XRP/USDT": {
+              "cash": 0.0,
+              "quantity": 0.8730455565647962,
+              "target": 1,
+              "last_mark_price": 1.093
+            }
+          },
+          "last_nav": 0.9560634411758069,
+          "peak_nav": 1.0,
+          "max_drawdown_close": 0.059155552866388295,
+          "cumulative_fees": 0.0007993605115907277
+        },
+        "stress": {
+          "positions": {
+            "ADA/USDT": {
+              "cash": 0.0,
+              "quantity": 5.507748300308874,
+              "target": 1,
+              "last_mark_price": 0.1664
+            },
+            "BNB/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0017244129451679793,
+              "target": 1,
+              "last_mark_price": 568.36
+            },
+            "BTC/USDT": {
+              "cash": 0.0,
+              "quantity": 1.5799302047504862e-05,
+              "target": 1,
+              "last_mark_price": 63194.5
+            },
+            "DOGE/USDT": {
+              "cash": 0.0,
+              "quantity": 13.289001225245912,
+              "target": 1,
+              "last_mark_price": 0.07285
+            },
+            "ETH/USDT": {
+              "cash": 0.0,
+              "quantity": 0.0005636147962500949,
+              "target": 1,
+              "last_mark_price": 1744.32
+            },
+            "LINK/USDT": {
+              "cash": 0.0,
+              "quantity": 0.126585995943172,
+              "target": 1,
+              "last_mark_price": 7.73
+            },
+            "SOL/USDT": {
+              "cash": 0.0,
+              "quantity": 0.01231784342350709,
+              "target": 1,
+              "last_mark_price": 77.997
+            },
+            "XRP/USDT": {
+              "cash": 0.0,
+              "quantity": 0.8842066022999628,
+              "target": 1,
+              "last_mark_price": 1.093
+            }
+          },
+          "last_nav": 0.9689920438800134,
+          "peak_nav": 1.003263331947547,
+          "max_drawdown_close": 0.04953387481795091,
+          "cumulative_fees": 0.0019960079840319364
+        }
+      },
+      "evidence_class": "revealed_development_calibration_not_independent_validation",
+      "execution_allowed": false,
+      "state_sha256": "66b0e9ed966953ee58a57a592df6b75483fd970793acc5377b95ac9931ccfb91"
+    },
+    "valuation_source_sha256": "0373d4e22d21ecedb617398f0640a870fbdc5394d385e8a4707670014a2835ec",
+    "risk_scope": "close_only_drawdown_not_intrabar_funding_or_fill_certification"
+  },
+  "step_sha256": "1b20e1e0a87af2d558b640f08eb8feb07ee8780adf69e6c5da5d0003ecf29531"
+}
