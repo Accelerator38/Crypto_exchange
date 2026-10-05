@@ -1,0 +1,89 @@
+{
+  "schema_version": "exia.genetic_primus.research_ledger/22",
+  "previous_ledger_path": "Reports/Exia/Genetic_Primus/research_ledger_v21_20261005/ledger.json",
+  "previous_ledger_sha256": "280031ef375a4d99e1e238dc9c2538c3318bac32fc0febb62a0f40ab1e5eb41d",
+  "new_attempts": [],
+  "new_registrations": [],
+  "user_goal_clarification": {
+    "confirmed_scope": "nonnegative_final_net_after_all_costs",
+    "temporary_drawdowns_allowed": true,
+    "positive_daily_profit_target_requested": false,
+    "numeric_drawdown_budget_confirmed": false,
+    "guaranteed_nonnegative_future_PnL_claimed": false
+  },
+  "engineering_updates": [{
+    "kind": "conditional_power_and_temporal_support_planning",
+    "evidence_class": "hypothetical_statistics_checks_not_market_evidence",
+    "source_sha256": {
+      "src/exia/genetic_primus/reversal_power_design_v1.py": "6da578f0753b14d396cbd4db27394035f571615e799b4bdf9b5d0df792b965c0",
+      "tools/check_genetic_primus_reversal_power_synthetic_v1.py": "ca1457c7240cc4c39766aaddc78cf3fa8d4da100fb6e36321005985586cf0c42",
+      "configs/genetic_primus_reversal_power_design_draft_v1.json": "acd4b0c8f2f24a6c763559ce50e2ec477d4fe591591e9f2e8c1cb1e5e6eaa504"
+    },
+    "single_file_py_compile_passed": true,
+    "initial_single_pure_function_check_passed": true,
+    "verification_method": "direct_venv_python_hypothetical_script_not_pytest",
+    "synthetic_check_groups_passed": 7,
+    "synthetic_check_groups": [
+      "zero_effect_has_null_power_and_no_finite_design",
+      "analytic_binomial_tail_and_support_floor",
+      "three_gate_failure_budget_grid_and_minimum_duration",
+      "effect_and_activity_sensitivity_no_forced_trades",
+      "positive_autocorrelation_increases_required_calendar_time",
+      "invalid_nonfinite_and_nonstationary_assumptions_rejected",
+      "determinism_and_no_automatic_registration_or_power_claim"
+    ],
+    "illustrative_calendar_days": 249,
+    "illustrative_calendar_days_are_selected_duration": false,
+    "illustrative_assumptions": {
+      "design_effect_daily": 0.0003,
+      "normal_long_run_daily_sigma": 0.0005,
+      "stress_long_run_daily_sigma": 0.0015,
+      "IID_signal_probability": 0.35,
+      "minimum_signal_origins": 20,
+      "one_sided_alpha": 0.05,
+      "conditional_joint_power_target": 0.8
+    },
+    "illustrative_assumptions_are_market_estimates_or_user_targets": false,
+    "zero_design_effect_has_finite_power_duration": false,
+    "bootstrap_banks_counted_as_independent_market_samples": false,
+    "risk_gates_included_in_conditional_power": false,
+    "bootstrap_gate_power_verified": false,
+    "long_run_market_variance_calibrated": false,
+    "signal_activity_and_dependence_calibrated": false,
+    "power_design_complete": false,
+    "outer_interval_assigned": false,
+    "real_market_files_read": 0,
+    "real_data_model_fits": 0,
+    "new_search_evaluations": 0,
+    "new_market_pnl_simulations": 0,
+    "network_used": false,
+    "collector_imported_or_executed": false,
+    "future_market_data_opened": false,
+    "registration_allowed": false,
+    "execution_allowed": false
+  }],
+  "unchanged_model_draft": {
+    "path": "configs/genetic_primus_market_relative_reversal_draft_v1.json",
+    "sha256": "4779b762c65c814d25278e7774a3288d87ce9aaa183932bc735a2f27981a1224",
+    "status": "DRAFT_NOT_REGISTERED"
+  },
+  "stage_gates": {
+    "linear_train_gate_passed": false,
+    "linear_inner_validation_passed": false,
+    "ga_search_allowed_under_current_plan": false,
+    "future_ema_viability_evaluated": false,
+    "prospective_data_manifest_registered": false,
+    "execution_ready": false,
+    "promotion_authority": false
+  },
+  "frozen_EMA_contract_sha256": "11b83d2e3ecbdda572307dd902b73c9c2d8ae108499be85e22b988f193b227b6",
+  "frozen_EMA_contract_changed": false,
+  "independent_machine_verification_deferred": true,
+  "global_dsr_pbo_calibrated": false,
+  "unknown_historical_adaptive_decisions": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "promotion_authority": false
+}
