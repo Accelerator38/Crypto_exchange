@@ -1,0 +1,95 @@
+{
+  "schema_version": "exia.genetic_primus.rolling_origin/1",
+  "status": "OFFLINE_ROLLING_ORIGIN_COMPLETE",
+  "model_sha256": "e521630528f2a772068a3afa114808a5ca9585c2f9a0e54c08b8cc23da711400",
+  "genome_sha256": "c92f8f26eed243c6e72dcfb69ff87c9d381b4deff86399f51c4a4faba719c134",
+  "scaler_sha256": "3fdfc3f700d0bb6c457d7749fbc3e7b065e86dffec78a8967d1b1befe6e4afd0",
+  "rolling_protocol_sha256": "2075499d1ea1609a490996c11e41135f65e7d46a4554fb7c071cf6d6172cf5b7",
+  "trainer_id": "bounded_v4_genetic_origin_trainer/1",
+  "trainer_metadata": {
+    "seed": 303000,
+    "selection_bank_sha256": "f18758df11cd571986f67cc0c71084d6330e62885593482cc1609230c74d24d4",
+    "audit_bank_sha256": "eb2098ae361704e928111b494bd0e8f8b2ef648e7169de63bb29728028088d94",
+    "folds": [
+      {
+        "name": "rolling_01",
+        "start": "2022-01-01T00:00:00Z",
+        "end": "2022-07-02T16:00:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2022-07-02T16:00:00Z",
+        "end": "2023-01-01T08:00:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2023-01-01T08:00:00Z",
+        "end": "2023-07-03T00:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2023-07-03T00:00:00Z",
+        "end": "2024-01-01T16:00:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2024-01-01T16:00:00Z",
+        "end": "2024-07-02T08:00:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2024-07-02T08:00:00Z",
+        "end": "2025-01-01T00:00:00Z"
+      }
+    ],
+    "selected_generation": 0,
+    "selection_metrics": {
+      "trades": 223,
+      "turnover_fills": 446,
+      "fills_per_day": 0.40693430656934304,
+      "days": 1096,
+      "mean_daily_bps": 13.791930236756412,
+      "median_daily_bps": 12.704779259271604,
+      "lcb_daily_bps": 0.0761785894762505,
+      "max_drawdown": 0.6728671084029767,
+      "positive_fold_means": 4,
+      "fold_count": 6,
+      "worst_fold_mean_bps": -39.67504113190545,
+      "median_fold_lcb_bps": -5.3195278115330265,
+      "worst_fold_lcb_bps": -94.0808676251873,
+      "max_direction_share": 0.5919282511210763,
+      "max_state_share": 0.42152466367713004,
+      "max_symbol_share": 0.336322869955157,
+      "temporal_gate_passed": false,
+      "fitness": -39.77677470854779,
+      "failed_gates": [
+        "max_drawdown",
+        "insufficient_positive_folds",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    "audit_selection_champion": {
+      "selection_rank": 1,
+      "is_selection_champion": true,
+      "genome_sha256": "c92f8f26eed243c6e72dcfb69ff87c9d381b4deff86399f51c4a4faba719c134",
+      "audit_fitness": -39.77677470854779,
+      "audit_lcb_daily_bps": -1.0245176024921785,
+      "audit_worst_fold_mean_bps": -39.67504113190545,
+      "audit_median_fold_lcb_bps": -5.531846242557509,
+      "audit_failed_gates": "max_drawdown;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb"
+    },
+    "audit_used_for_selection": false
+  },
+  "origin_index": 0,
+  "train_start": 1640995200000,
+  "train_end": 1735689600000,
+  "purge_cutoff": 1735588800000,
+  "deployment_start": 1735689600000,
+  "deployment_end": 1735948800000,
+  "credentials_allowed": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

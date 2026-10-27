@@ -1,0 +1,67 @@
+{
+  "schema_version": "exia.genetic_primus.v4",
+  "agent_id": "Genetic_Primus_V4",
+  "description": "Research-only compact architecture screen with portfolio-level temporal robustness.",
+  "dataset": {
+    "manifest": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.manifest.json",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "timeframe_minutes": 240,
+    "symbols": ["ADA/USDT", "BNB/USDT", "BTC/USDT", "DOGE/USDT", "ETH/USDT", "LINK/USDT", "SOL/USDT", "XRP/USDT"]
+  },
+  "windows": {
+    "research": {"start": "2022-01-01T00:00:00Z", "end": "2025-01-01T00:00:00Z"},
+    "validation": {"start": "2025-01-01T00:00:00Z", "end": "2026-01-01T00:00:00Z"},
+    "oos": {"start": "2026-01-01T00:00:00Z", "end": "2026-07-15T00:00:00Z"}
+  },
+  "folds": [
+    {"name": "2022_H1", "start": "2022-01-01T00:00:00Z", "end": "2022-07-01T00:00:00Z"},
+    {"name": "2022_H2", "start": "2022-07-01T00:00:00Z", "end": "2023-01-01T00:00:00Z"},
+    {"name": "2023_H1", "start": "2023-01-01T00:00:00Z", "end": "2023-07-01T00:00:00Z"},
+    {"name": "2023_H2", "start": "2023-07-01T00:00:00Z", "end": "2024-01-01T00:00:00Z"},
+    {"name": "2024_H1", "start": "2024-01-01T00:00:00Z", "end": "2024-07-01T00:00:00Z"},
+    {"name": "2024_H2", "start": "2024-07-01T00:00:00Z", "end": "2025-01-01T00:00:00Z"}
+  ],
+  "architectures": [
+    {"id": "linear", "inputs": 30, "hidden": [], "outputs": 3},
+    {"id": "compact_8", "inputs": 30, "hidden": [8], "outputs": 3}
+  ],
+  "labels": {"horizons_bars": [1, 3, 6], "minimum_edge_bps": 16.0, "minimum_votes": 2},
+  "costs_bps": {"base_round_trip": 16.0, "stress_round_trip": 24.0},
+  "fitness": {
+    "bootstrap_samples": 400,
+    "strict_bootstrap_samples": 5000,
+    "bootstrap_alpha": 0.05,
+    "bootstrap_block_days": 7,
+    "minimum_trades": 100,
+    "minimum_positive_fold_means": 5,
+    "max_drawdown": 0.2,
+    "max_turnover_fills_per_day": 12.0,
+    "turnover_penalty_bps_per_fill_per_day": 0.25,
+    "max_direction_share": 0.9,
+    "max_state_share": 0.8,
+    "max_symbol_share": 0.5
+  },
+  "screen": {
+    "seeds": [141, 242, 343],
+    "workers": 8,
+    "population_size": 12,
+    "generations": 8,
+    "elite_count": 3,
+    "tournament_size": 3,
+    "crossover_rate": 0.7,
+    "mutation_rate": 0.15,
+    "mutation_sigma": 0.08
+  },
+  "final": {
+    "seed": 444,
+    "workers": 8,
+    "population_size": 24,
+    "generations": 20,
+    "elite_count": 6,
+    "tournament_size": 3,
+    "crossover_rate": 0.7,
+    "mutation_rate": 0.15,
+    "mutation_sigma": 0.08
+  },
+  "safety": {"paper_allowed": false, "live_allowed": false, "orders_enabled": false, "promotion_authority": false}
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "exia.genetic_primus.synthetic_net_accounting_contract/1",
+  "status": "engineering_only_not_registered_market_objective",
+  "instrument": "SYN_LINEAR_USDT",
+  "reference_prices": "synthetic_mid_not_ohlcv_open_or_observed_fill",
+  "sizing": "allocated_quote / (entry_fill * (1 + entry_fee_rate))",
+  "price_adjustment": "entry_mid_plus_half_spread_and_slippage_exit_mid_minus_half_spread_and_slippage",
+  "fees": "each_side_rate_times_that_side_fill_notional",
+  "funding": "fixed_quantity_times_explicit_settlement_mark_times_signed_rate",
+  "funding_boundaries": "strictly_inside_period_equal_boundaries_require_unsupported_sequence_evidence",
+  "borrow": "explicit_quote_debit_no_default",
+  "normalization": "same_explicit_quote_capital_for_paired_agents",
+  "no_trade": "zero_allocation_no_prices_no_costs",
+  "arithmetic": "decimal_precision_50_no_exchange_rounding_claim",
+  "market_calibration": null,
+  "market_fit_allowed": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

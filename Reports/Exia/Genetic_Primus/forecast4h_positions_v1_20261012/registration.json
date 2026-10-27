@@ -1,0 +1,217 @@
+{
+  "schema": "forecast4h_position_diagnostics/1",
+  "registered_at_utc": "2026-10-12T10:53:01.402706+00:00",
+  "parent_registration_sha256": "569f9678af18bbda59d01d86c8314e0883c7e9595e38bfc71fe0ea11726f18d9",
+  "trigger": "original forecast-entry filter opened zero positions; identify exit and sizing independently on EMA positions",
+  "already_seen": "original 4h forecast quality and original 14 replay results; this extension is adaptive research",
+  "base_contract": {
+    "schema": "genetic_primus_forecast4h_contract/1",
+    "experiment_id": "forecast4h_v1_20261012",
+    "period": {
+      "start": "2026-08-01T00:00:00Z",
+      "end_exclusive": "2026-10-01T00:00:00Z",
+      "status": "previously_revealed_research"
+    },
+    "clocks": {
+      "forecast_horizon_hours": 4,
+      "sample_stride_hours": 4,
+      "decision_cadence_hours": 4,
+      "retrain_cadence_days": 3
+    },
+    "model": {
+      "architecture": "linear6",
+      "parameters": 7,
+      "l2": 0.01,
+      "weighting": "uniform",
+      "training_window": "expanding",
+      "hyperparameter_trials": 1
+    },
+    "purge_bars": 7,
+    "additional_availability_bar": 1,
+    "model_ready_delay_us": 1000000,
+    "signal_delay_us": 2000000,
+    "fill_delay_us": 2250000,
+    "uncertainty": {
+      "kind": "past_out_of_origin_residual_rmse",
+      "minimum_rows_per_asset": 30,
+      "maximum_rows_per_asset": 540,
+      "probabilities_or_quantiles_implemented": false
+    },
+    "forecast_controls": [
+      "zero",
+      "pooled_train_mean",
+      "asset_train_mean",
+      "last_bar_return"
+    ],
+    "policies": [
+      "NoTrade",
+      "Passive_V",
+      "R0_EMA_daily",
+      "R1_EMA_4h",
+      "R2_entry",
+      "R3_exit",
+      "R4_size"
+    ],
+    "entry_strictly_above_bps": 30,
+    "entry_threshold_rule": "2 * (stress_fee_6 + stress_drag_8) + fixed_carry_cushion_2_bps",
+    "exit_at_or_below_bps": -14,
+    "exit_rule": "EMA exit OR forecast <= minus one stress sell cost; an existing entry cost is sunk",
+    "sizing_rule": "R3 risk targets multiplied by clip(forecast / entry_threshold, 0.25, 1); exposure may recover but never exceed current EMA risk targets",
+    "sizing_minimum_fraction": 0.25,
+    "filter_redistributes_rejected_weights": false,
+    "rebalance_rule": "target market units at each registered decision; costs only on actual unit deltas, sells first; no forced liquidation at retrain",
+    "risk": {
+      "daily_volatility_target": 0.005,
+      "lookback_daily_returns": 60,
+      "shrinkage": 0.2,
+      "individual_vol_floor": 0.002,
+      "asset_cap": 0.1,
+      "gross_cap": 0.8,
+      "covariance_update": "daily; last data strictly before UTC decision day"
+    },
+    "costs": {
+      "normal": {
+        "fee_bps": 6,
+        "drag_bps": 2
+      },
+      "stress": {
+        "fee_bps": 6,
+        "drag_bps": 8
+      },
+      "funding": "frozen historical rates times position quantity times reference close; observed marks unavailable"
+    },
+    "execution": "assumed completed close held constant until modeled fill; no observed fill claim",
+    "initial_capital": 10000,
+    "bootstrap": {
+      "repetitions": 5000,
+      "primary_block_days": 3,
+      "sensitivity_block_days": 7,
+      "primary_seed": 2026101201,
+      "audit_seed": 2026101202,
+      "family_alpha": 0.05,
+      "trade_contrasts": [
+        [
+          "R1_EMA_4h",
+          "R0_EMA_daily"
+        ],
+        [
+          "R2_entry",
+          "R1_EMA_4h"
+        ],
+        [
+          "R3_exit",
+          "R2_entry"
+        ],
+        [
+          "R4_size",
+          "R3_exit"
+        ],
+        [
+          "R2_entry",
+          "NoTrade"
+        ]
+      ]
+    },
+    "diagnostic_replays_even_if_forecast_gate_fails": true,
+    "next_model_search_requires": "credible forecast improvement and incremental stress return; current interval is not independent validation",
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "runtime_authority": false,
+      "network_allowed": false
+    }
+  },
+  "policies": [
+    "D_exit",
+    "D_size",
+    "D_quarter"
+  ],
+  "new_training_fits": 0,
+  "new_threshold_trials": 0,
+  "additional_policy_replays": 6,
+  "additional_trade_contrasts": 3,
+  "within_current_chain_alpha": 0.004166666666666667,
+  "exit_semantics": "held EMA position exits at forecast <= -14bps; EMA entries are unfiltered and may reenter at a later decision",
+  "sizing_semantics": "EMA targets times clip(forecast/30bps,0.25,1); no forecast entry/exit filter",
+  "floor_control_semantics": "EMA targets times constant 0.25, fixed by original sizing floor, not estimated from observed exposure",
+  "code_pins": {
+    "tools/run_genetic_primus_forecast4h_positions_v1.py": {
+      "bytes": 19120,
+      "sha256": "104bd17700852516226ba6f9441dc44d1f3a2772a556309bc52c7e5be2ba6a67"
+    },
+    "tools/run_genetic_primus_forecast4h_v1.py": {
+      "bytes": 40212,
+      "sha256": "23a39341c1a95370b64b57e391cfccaa11586ba00d9d14b296c0733d51182296"
+    },
+    "src/exia/genetic_primus/forecast4h_v1.py": {
+      "bytes": 18387,
+      "sha256": "9592d3043bc8052d5ffb29dbd16073ca6e8dada4deaeab08968bf44f15d392fb"
+    }
+  },
+  "input_pins": {
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/receipt.json": {
+      "bytes": 7834,
+      "sha256": "345d62206a41392b4642fe5b787a5beef04238a726fd054201563a46c66404e0"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/registration.json": {
+      "bytes": 8188,
+      "sha256": "d40f18845a6d54c2b0b352c80fe6c77358dd2437fa66dfd2da87d0da2997ea88"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/vectors.json": {
+      "bytes": 907638,
+      "sha256": "05cc7f46ceaf9d4828caadbd21d22a4a5bdafce9d6dd7b345ffb1bf231199bcb"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/analysis.json": {
+      "bytes": 48168,
+      "sha256": "6c292882990305d595fad22ae76a38918eed795db9b0b97f11a156d128e9ceec"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/forecast_quality.json": {
+      "bytes": 14998,
+      "sha256": "0a2156824ad40222c471079d2222d16bbabc1cc8e724877427304d5210bd3d7e"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/resample_bank.npz": {
+      "bytes": 459769,
+      "sha256": "2837afcd5a20f097dd74acc78716bb39da1a76fcb709b80876e994a563994ab5"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/modeled_rates.json": {
+      "bytes": 564262,
+      "sha256": "f22f60e694a9d6dd628b3c4fe08839d2b0ef5b0f916c05d19422a40b9d21729e"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_01.json": {
+      "bytes": 981,
+      "sha256": "755e94a2b9bf1f184548a7bd7139683d6499301aacd001f2acb6746af2705e79"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_02.json": {
+      "bytes": 1281,
+      "sha256": "eeac79807a16fb9f76568643965990fb29e9c5a60fe5b6d33502779e55fd592e"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_03.json": {
+      "bytes": 1418,
+      "sha256": "5c11b004bde3002efd773d0ae22a46b09987c372a3e166632249a5816a6de666"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R1_EMA_4h_normal.json": {
+      "bytes": 4166870,
+      "sha256": "2dc0584a51fde279bb7644f39420ea612be77cbb621c585aae09c361758fa0da"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R1_EMA_4h_stress.json": {
+      "bytes": 4167532,
+      "sha256": "c56e253d1189210569c44d05f4f82bee5f4e572c0ca0e3553bba82c62098ac2f"
+    }
+  },
+  "direct_checks_passed": 22,
+  "default_parent_path_exact_parity": true,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "independent_validation": false,
+  "sha256": "14da34f300eed0ce18ab0c82c65fe6427e5967a99b602d5ba81dd98647dd93be"
+}

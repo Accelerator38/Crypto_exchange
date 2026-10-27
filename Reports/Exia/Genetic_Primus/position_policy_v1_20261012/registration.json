@@ -1,0 +1,337 @@
+{
+  "bank_pins": {
+    "banks_q2024_1.npz": {
+      "bytes": 8947202,
+      "sha256": "c6e94e5ddcbe3e2f39782b2587606eb8f004185f7c88cbc7a7300466ef0e139e"
+    },
+    "banks_q2024_3.npz": {
+      "bytes": 9045506,
+      "sha256": "0a80dbaab172920a82888a172a9371b25031817820a827bdf24bf0accbfb6fb8"
+    },
+    "banks_q2025_1.npz": {
+      "bytes": 8848898,
+      "sha256": "47b8c27290779df8d7b9fd3a66203fce68f18eac317fedc84f5e6d5f2b844d5c"
+    },
+    "banks_q2025_3.npz": {
+      "bytes": 9045506,
+      "sha256": "dd56f97a7793d31ad0dd36d31d5b1791f2aea26edcd7786e703ff8c798a2d476"
+    }
+  },
+  "before_new_fits_policy_replays_and_threshold_changes": true,
+  "code_pins": {
+    "configs/genetic_primus_position_policy_v1.json": {
+      "bytes": 4011,
+      "sha256": "a2f89477ab46a561c99726bc35e32f128fd7bff6c25b324d7d270af5bd310bfb"
+    },
+    "docs/GENETIC_PRIMUS_POSITION_POLICY_V1.md": {
+      "bytes": 4779,
+      "sha256": "20f2f5a4108382a66f872bc0dfe7f48e15ab3e087fe6445fe618fb452e0d00e0"
+    },
+    "src/exia/genetic_primus/position_policy_v1.py": {
+      "bytes": 20191,
+      "sha256": "d211213c1de530221308f5bc89cb52573f9978ebf563ba78fa134714a086e429"
+    },
+    "tools/run_genetic_primus_position_policy_v1.py": {
+      "bytes": 27725,
+      "sha256": "88b6e1d383e1c370390eec56463acd3df2a8963baf1b6c5165feb66483ac71f5"
+    }
+  },
+  "contract": {
+    "additional_availability_bar": 1,
+    "baseline_threshold_bps": 20,
+    "capital_continuous_within_each_period": true,
+    "clocks": {
+      "decision_cadence_days": 1,
+      "label_horizon_days": 3,
+      "label_stride_days": 1,
+      "retrain_cadence_days": 3
+    },
+    "conditional_next_weighting_experiment": {
+      "MLP_GA_random_search": "deferred",
+      "alternatives": [
+        "uniform",
+        "half_life_90d"
+      ],
+      "architecture": "linear6_7_parameters",
+      "execute_only_if_step5_gate_passes": true,
+      "same_positive_and_negative_outcome_weighting": true,
+      "search_evaluations_each": 1
+    },
+    "costs": {
+      "execution": "research close-based fractional fills after assumed 350ms; no observed execution qualification",
+      "fee_bps": 6,
+      "normal_drag_bps": 2,
+      "regime_funding_normal_bps_per_8h": 1,
+      "regime_funding_stress_bps_per_8h": 3,
+      "revealed_period_funding": "frozen reported rates, not verified settlements",
+      "stress_drag_bps": 8
+    },
+    "experiment_id": "position_policy_v1_20261012",
+    "family_adjusted_alpha": 0.00625,
+    "fit_budget_regimes": 123,
+    "gaps_are_not_stitched_into_traded_CAGR": true,
+    "hysteresis": {
+      "entry_strictly_above_bps": 48,
+      "exit_at_or_below_bps": 0,
+      "planning_drag_bps_each_side": 8,
+      "planning_fee_bps_each_side": 6,
+      "planning_roundtrip_bps": 28
+    },
+    "independent_validation_claim_allowed": false,
+    "initial_capital_each_period": 10000,
+    "l2": 0.01,
+    "linear_parameters": 7,
+    "matched_diagnostics": "EMA_M/Passive_M inherit contemporaneously known C_V requested gross, then same risk/asset caps; not model-free deployable controls",
+    "policies": [
+      "C",
+      "C_H",
+      "C_V",
+      "EMA_V",
+      "Passive_V",
+      "EMA_M",
+      "Passive_M"
+    ],
+    "policy_replay_budget": 84,
+    "primary_contrasts": [
+      [
+        "C_H",
+        "C"
+      ],
+      [
+        "C_V",
+        "C"
+      ],
+      [
+        "C_V",
+        "EMA_V"
+      ],
+      [
+        "C_V",
+        "Passive_V"
+      ]
+    ],
+    "primary_families": [
+      "report_stress",
+      "pooled_regimes_stress"
+    ],
+    "prospective": {
+      "dependent_variance_lags": [
+        3,
+        7,
+        14
+      ],
+      "fixed_comparator": "EMA_V",
+      "minimum_calendar_days": 90,
+      "one_sided_alpha_each": 0.025,
+      "planning_effect_sensitivity_bps_day": [
+        1,
+        2,
+        5,
+        10
+      ],
+      "power": 0.8,
+      "primary_hypotheses": [
+        "absolute_vs_NoTrade",
+        "incremental_vs_EMA_V"
+      ],
+      "single_final_analysis_no_interim_tuning": true,
+      "state": "not_activated",
+      "zero_effect_has_no_finite_power_duration": true
+    },
+    "purge_bars": 7,
+    "regime_choice": "Q1 and Q3 of each completed 2024/2025 calendar year, not strategy outcome selection; historical research, not independent holdout",
+    "regimes": {
+      "q2024_1": {
+        "end": "2024-04-01",
+        "start": "2024-01-01"
+      },
+      "q2024_3": {
+        "end": "2024-10-01",
+        "start": "2024-07-01"
+      },
+      "q2025_1": {
+        "end": "2025-04-01",
+        "start": "2025-01-01"
+      },
+      "q2025_3": {
+        "end": "2025-10-01",
+        "start": "2025-07-01"
+      }
+    },
+    "resamples": {
+      "blocks": [
+        3,
+        7,
+        14
+      ],
+      "draws": 4096,
+      "primary_block": 7,
+      "primary_role": "audit",
+      "seed_base": 26101220
+    },
+    "revealed_periods": [
+      "development",
+      "report"
+    ],
+    "risk": {
+      "daily_log_volatility_budget": 0.005,
+      "diagonal_shrinkage": 0.2,
+      "gross_target_cap": 0.8,
+      "latest_price_day_lag": 1,
+      "leverage": false,
+      "lookback_days": 60,
+      "per_asset_daily_volatility_floor": 0.002,
+      "per_asset_target_cap": 0.1,
+      "rebalance": "every daily decision; all delta-unit costs charged"
+    },
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "saved_forecast_control": "C",
+    "schema": "position_policy_contract/1",
+    "step5_gate": {
+      "maximum_best_regime_share_of_positive_log_sums": 0.6,
+      "minimum_positive_regime_incremental_points": 3,
+      "require_C_V_minus_EMA_V_and_Passive_V_adjusted_LCB_positive_report_and_pooled": true,
+      "require_absolute_C_V_adjusted_LCB_positive": true,
+      "require_positive_pooled_leave_one_regime_out_absolute_and_incremental": true,
+      "require_report_exposure_and_volatility_comparable_to_primary_controls": true,
+      "risk_match_diagnostic_ratio_band": [
+        0.8,
+        1.25
+      ]
+    },
+    "threshold_search_budget": 0,
+    "training_window": "expanding, mature labels only, no inner tuning",
+    "weighting": "uniform"
+  },
+  "folds_pin": {
+    "bytes": 60399,
+    "sha256": "6d624d81eb19ba20d0af03c66d884d0cfc5a0d9a076b7c7ff245ed8094de2c2d"
+  },
+  "input_pins": {
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/receipt.json": {
+      "bytes": 38795,
+      "sha256": "65c25806ff5a3a4b5c83f63371c148533fafcc53c6dd1407724ade09452fb9b0"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/registration.json": {
+      "bytes": 16644,
+      "sha256": "1792152e10ee07ff77a8b085af2fdad775cb451e721b1891f2099cac96613a81"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_C_normal.json": {
+      "bytes": 1073133,
+      "sha256": "6dfdd88accd19c5434886621e29740f4c4b19382ecb53615ab3f2614422b6035"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_C_stress.json": {
+      "bytes": 1073640,
+      "sha256": "a61922fd93ffa6eb0f3c418112f617a50d0a8c12a14f48324099240dff41502e"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_C_normal.json": {
+      "bytes": 841344,
+      "sha256": "86757875816589a45f3b88ba195cb7cb2bc906ed6cae6c950638c9d1cf34fa9c"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_C_stress.json": {
+      "bytes": 840935,
+      "sha256": "d1b3f7df7f6ec6ce13e1956358a5af06e7cd87909a4101454c1e5ff8d5976d41"
+    },
+    "Reports/Exia/Genetic_Primus/causal_capital_controls_v1_20261012/receipt.json": {
+      "bytes": 3828,
+      "sha256": "7b78c5fbba4f3bd290cd8ee4bd80f2d83ed91f0fc9c622bc86929d62e01ba37b"
+    },
+    "Reports/Exia/Genetic_Primus/causal_capital_controls_v1_20261012/registration.json": {
+      "bytes": 7762,
+      "sha256": "13c416fb5c10472bf94849f07892ba9fae59257a83c0cdbfe1a46e9bba0e33da"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/receipt.json": {
+      "bytes": 10759,
+      "sha256": "4126d46eaad9ffd591897b98e64519567d62f256b74045970442b28c3d6d45a9"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/registration.json": {
+      "bytes": 4011,
+      "sha256": "3d45d461e1a23a83c36bba24ec74ffb03075f26c4a8a8753980cc3d3beb6c04d"
+    }
+  },
+  "old_regime_funding_rows": {
+    "q2024_1": 0,
+    "q2024_3": 0,
+    "q2025_1": 0,
+    "q2025_3": 0
+  },
+  "parent_bank_hashes": {
+    "development_b14_audit": "e5800525fb0a2db79f389aec90a23d64b2b46b759a7275858f2ee41cdbe99c58",
+    "development_b14_selection": "09c438f82db19268665ef57b5a5ae85ecbbfbdc760bce75e7a46e5a7a3f25430",
+    "development_b3_audit": "19b4814ec9c5608162734ea8610c2dfa674829ea94e3c0a8584f3510a34c2a1e",
+    "development_b3_selection": "663ae6c9d24cb63750e2b9ee1239a4a763e79a85a8f4479272f25117a459719c",
+    "development_b7_audit": "14a2effda609d6d0b2c1977ba66b13f3def4b0a6d3be15b6578140f5c91ec5a5",
+    "development_b7_selection": "e93e35c55858a67b3cdac52d5b3672f29ae6e101330501350b171900abee3fb8",
+    "report_b14_audit": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+    "report_b14_selection": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+    "report_b3_audit": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+    "report_b3_selection": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+    "report_b7_audit": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+    "report_b7_selection": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd"
+  },
+  "periods": {
+    "development": {
+      "days": 86,
+      "end_ms": 1785024000000,
+      "start_ms": 1777593600000
+    },
+    "q2024_1": {
+      "days": 91,
+      "end_ms": 1711929600000,
+      "start_ms": 1704067200000
+    },
+    "q2024_3": {
+      "days": 92,
+      "end_ms": 1727740800000,
+      "start_ms": 1719792000000
+    },
+    "q2025_1": {
+      "days": 90,
+      "end_ms": 1743465600000,
+      "start_ms": 1735689600000
+    },
+    "q2025_3": {
+      "days": 92,
+      "end_ms": 1759276800000,
+      "start_ms": 1751328000000
+    },
+    "report": {
+      "days": 61,
+      "end_ms": 1790812800000,
+      "start_ms": 1785542400000
+    }
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "position_policy_registration/1",
+  "sha256": "cd97b32d368cec128f534f7f6e907c45bb6bb5eb2fc39ef4a81ae0fbb86a1ace",
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

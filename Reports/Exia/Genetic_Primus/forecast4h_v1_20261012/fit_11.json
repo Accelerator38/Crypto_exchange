@@ -1,0 +1,95 @@
+{
+  "fit_ms": 1788393600000,
+  "cutoff_ms": 1788278400000,
+  "model_ready_us": 1788393601000000,
+  "model": {
+    "schema": "compact_forecast_model/1",
+    "architecture": "linear6",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48"
+    ],
+    "parameter_count": 7,
+    "parameters": [
+      -0.013860116766799688,
+      -0.0064493547325303775,
+      0.002636665286194284,
+      0.02009685095592252,
+      0.00972606351654615,
+      0.019375338366749977,
+      5.703588599013411e-05
+    ],
+    "scaler": {
+      "schema": "compact_forecast_scaler/1",
+      "mean": [
+        -0.0007986625207012059,
+        0.002018718330751219,
+        0.2465246290637039,
+        1.2952056604208404e-20,
+        0.014727509848796791,
+        0.46354013164357993
+      ],
+      "scale": [
+        0.056944196819694565,
+        0.07167477406971938,
+        0.17678361588741973,
+        0.04155410464488836,
+        0.007456444769792038,
+        0.3903748134493098
+      ],
+      "target_mean": 0.00011276816001545719,
+      "target_scale": 0.016691187363845256,
+      "clip": 8.0,
+      "training_sha256": "2dad3a73c5e105f36420f3d4f0f5938f44a58e444e8367ef596b2c491fb007e4",
+      "fitting_rule": "unweighted_train_only_ddof0"
+    },
+    "scaler_sha256": "12ea9b5d4d40fe8236d8c22649348bacdb4c0506af86e155e2c8922df0f6c9ea",
+    "weighting": "uniform",
+    "seed": null,
+    "epochs": null,
+    "training_identity": {
+      "fit_ms": 1788393600000,
+      "cutoff_ms": 1788278400000,
+      "horizon_bars": 1,
+      "stride_bars": 1,
+      "purge_bars": 7,
+      "additional_availability_bar": 1,
+      "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+      "train_samples_sha256": "7ef970273b2e823573f08885cbcce21ad545fda34ed78e98c2338d592048cb37",
+      "weighting": "uniform",
+      "l2": 0.01,
+      "fold_rule": "all mature expanding rows; no tuning/inner-fold selection"
+    },
+    "target_kind": "gross_completed_close_to_next_completed_close_4h",
+    "runtime_authority": false,
+    "promotion_authority": false,
+    "sha256": "3b5470c2029f71ab2171a451b25b07b729d30c6347c6e092e64fbd15b3458629"
+  },
+  "train_origins": 10179,
+  "train_asset_rows": 81432,
+  "latest_label_available_ms": 1788278400000,
+  "train_start_ms": 1641700800000,
+  "pooled_train_mean": 0.00011276816001545719,
+  "asset_train_mean": [
+    -3.3132675753579217e-06,
+    0.00012032880331488014,
+    0.0001167962305204599,
+    0.00012681204478927547,
+    7.739714188851594e-05,
+    8.705479739241785e-05,
+    0.0001748142487667755,
+    0.0002022552810266907
+  ],
+  "positive_target_rows": 40977,
+  "negative_target_rows": 40286,
+  "scaler_fits": 1,
+  "training_fits": 1,
+  "parameter_count": 7,
+  "measured_local_fit_us": 27590,
+  "model_ready_is_assumed_not_observed_exchange_time": true,
+  "sha256": "4bba6fc461d1d6eb3bc7c14213e061d5ae3ad36c4c35855f1ca479531827be51"
+}

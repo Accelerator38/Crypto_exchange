@@ -1,0 +1,42 @@
+{
+  "schema_version": "genetic_primus_direction_specialization/1",
+  "objective_id": "direction_specialization_v1_20261012",
+  "parent_registration": "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/registration.json",
+  "timeframe_minutes": 10,
+  "models": ["logistic12", "forest12"],
+  "symbols": ["ADA/USDT", "BNB/USDT", "BTC/USDT", "DOGE/USDT", "ETH/USDT", "LINK/USDT", "SOL/USDT", "XRP/USDT"],
+  "test_start_utc": "2026-08-01T00:00:00Z",
+  "test_end_exclusive_utc": "2026-10-01T00:00:00Z",
+  "origins": 21,
+  "train_window_days": 30,
+  "retrain_days": 3,
+  "purge_native_bars": 7,
+  "training_dates": "exact_parent_fold_time_indices; no resampling or new seed selection",
+  "flat_training_labels": "excluded identically to parent",
+  "threshold": 0.5,
+  "primary_metric": "correct_binary_direction / all_intervals; flat counts as incorrect",
+  "secondary_metrics": ["nonflat_accuracy", "balanced_accuracy", "recall", "confusion", "monthly_accuracy"],
+  "paired_comparator": "same_method_saved_parent_pooled_model",
+  "controls": ["random_coin", "asset_train_majority", "reverse_last_bar"],
+  "hyperparameters": "exact_parent_parameters; seed 20261012; no search",
+  "new_fit_budget": 336,
+  "reused_pooled_fit_count": 42,
+  "bootstrap": {
+    "bank": "exact_parent_resample_bank.npz",
+    "block_days": 3,
+    "repetitions": 5000,
+    "family_size": 16,
+    "family_method": "one_sided_centered_max_t; approximate_FWER_0.05",
+    "primary_metric_for_family": "accuracy_all"
+  },
+  "disclosure": "Adaptive exploratory follow-up on already revealed data. Per-asset training has fewer rows and separate scalers; fixed absolute tree leaf size has different relative regularization. This is not an equal-total-compute comparison or independent validation. Horizon chosen for bounded follow-up, not confirmed optimality.",
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  }
+}

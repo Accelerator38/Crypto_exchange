@@ -1,0 +1,81 @@
+{
+  "checks_passed": 32,
+  "fits": 0,
+  "market_evaluations": 0,
+  "measurement_semantic_sha256": "5b4aeca0a457ab23c293ed95f8c9f0389a87c4ef6220372ae3652501a8b9fbe4",
+  "network_calls": 0,
+  "outputs": {
+    "REPORT.md": {
+      "bytes": 3249,
+      "sha256": "da5972a8558a0d7ea374e1981b7c3f62f360741dcfcef1e1a8cd2a5711c1891a"
+    },
+    "daily.json": {
+      "bytes": 7339,
+      "sha256": "806c8e5dc467d8c886e2d4c7938410235a17a3cdee3070027849ce5cca983e77"
+    },
+    "equity.png": {
+      "bytes": 180047,
+      "sha256": "b8baf8b944fef63fc010036c353c3d67804199c71cd015ad5868c7e10496d57a"
+    },
+    "equity.svg": {
+      "bytes": 153469,
+      "sha256": "cf2e0456a44146d38866e80cfa870eb37ab41f8b8e9603c0fda915ed54df0f03"
+    },
+    "fixture.json": {
+      "bytes": 13720,
+      "sha256": "6073c0e6e65b0c55b72dad9f9c6ca02a2a5b2fd9a296ad64e90a888f195334f2"
+    },
+    "result.json": {
+      "bytes": 258978,
+      "sha256": "1e334251936bb82b64f2b27b6127a66705b2d0ca769e786d94447a87934c6005"
+    }
+  },
+  "price_inputs_sha256": "574c46b1077705b7244a77c44dbd427ac245795816b3dd766cd0b2e1dcdac88f",
+  "schema": "exia.genetic_primus.unified_measurement_receipt/1",
+  "semantics": {
+    "bar_ms": 14400000,
+    "capital": "one_shared_cash_account_no_borrow_no_leverage",
+    "changed_positive_target": "close_then_reopen_not_implicit_mark_rebalancing",
+    "deployment_horizon_ms": 259200000,
+    "drawdown": "mark_to_reference_open_including_costs_with_initial_capital_peak",
+    "execution": "first_open_strictly_after_decision_plus_delay",
+    "funding_cash": "signed_positive_debits_long_require_available_cash",
+    "funding_ownership": "entry_time_lt_settlement_time_le_exit_time",
+    "label": "entry_open_to_open_exactly_18_bars_later",
+    "purge_bars": 7,
+    "retrain_cadence_ms": 259200000,
+    "return_bucket": "increment_over_previous_mark_to_current_mark_timestamp_current_minus_1ms",
+    "same_timestamp_order": "funding_then_sells_then_buys_then_mark",
+    "scope": "long_cash_reference_open_offline_sensitivity",
+    "sizing": "new_weights_times_post_sell_nav_fee_inclusive_scaled_to_available_cash",
+    "terminal": "one_explicit_global_liquidation_then_cash_to_reporting_end",
+    "unchanged_target": "carry_fixed_quantity_no_refill"
+  },
+  "sources": {
+    "docs/GENETIC_PRIMUS_UNIFIED_MEASUREMENTS_V1.md": {
+      "bytes": 12865,
+      "sha256": "096a0c7d86159a7c59f47eb68464882ee3cbbc52d0d23f94a62d35b6a15dbb73"
+    },
+    "src/exia/genetic_primus/fitness_v4.py": {
+      "bytes": 21003,
+      "sha256": "ae45f967aff51cd700336d1fbb69fd27d37a0939c43ff909908be1d987a3f535"
+    },
+    "src/exia/genetic_primus/research_execution_contract_v1.py": {
+      "bytes": 11824,
+      "sha256": "0191087f9953c80fb59c584aa4fd836a449f3c5a091da65ee690aad6186bfe60"
+    },
+    "src/exia/genetic_primus/unified_measurement_v1.py": {
+      "bytes": 28795,
+      "sha256": "41a0d86d1459670d6395ab57dd7dca31cc5d89c8367025660e2b03c87cf6f479"
+    },
+    "tests/test_genetic_primus_unified_measurement_v1.py": {
+      "bytes": 20553,
+      "sha256": "daeaf135cbd130db1bd7dcc4fe0c9d5fd1c68c42cf5fcc1c9a19cbcc4b895cc2"
+    },
+    "tools/check_genetic_primus_unified_measurement_v1.py": {
+      "bytes": 11989,
+      "sha256": "961d48c871ce41224d2a4c45ca3994d34e4fd37cd3dd80e9e8dc52ee70a642ad"
+    }
+  },
+  "synthetic_ledger_replays": 6
+}

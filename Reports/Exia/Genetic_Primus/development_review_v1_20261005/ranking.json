@@ -1,0 +1,27 @@
+{
+  "schema": "exia.genetic_primus.static_comparable_ranking/1",
+  "review_date_utc": "2026-10-05",
+  "interval_start_utc": "2026-09-01T00:00:00Z",
+  "interval_end_exclusive_utc": "2026-09-28T00:00:00Z",
+  "days": 27,
+  "ranking_rule": "normal_net_return_pct_descending; archive descriptive ranking, not production selection",
+  "source_path": "Reports/Exia/Genetic_Primus/baseline_economics_audit_v1_20261002/result.json",
+  "source_sha256": "4ec6c77c8d533dd4db970da5ffa7769706ccf202225e0cb4ed7e7506154daee7",
+  "normal_round_trip_bps": 16,
+  "stress_round_trip_bps": 24,
+  "same_accounting_and_period": true,
+  "same_exposure_duration_or_search_budget": false,
+  "independent_outer_ranking": false,
+  "production_winner": null,
+  "incumbent": "NoTrade",
+  "ranked": [
+    {"rank": 1, "policy": "NoTrade", "normal_net_return_pct": 0.0, "stress_net_return_pct": 0.0, "normal_max_drawdown_pct": 0.0, "trades": 0},
+    {"rank": 2, "policy": "GA_target_gate", "normal_net_return_pct": -1.4300826873511752, "stress_net_return_pct": -1.8719027114283415, "normal_max_drawdown_pct": 4.046739446514036, "trades": 45},
+    {"rank": 3, "policy": "GA_entry_only", "normal_net_return_pct": -1.4800958337477743, "stress_net_return_pct": -1.881100287026194, "normal_max_drawdown_pct": 3.7228433774573744, "trades": 41},
+    {"rank": 4, "policy": "EMA_long_only", "normal_net_return_pct": -2.1518536013644285, "stress_net_return_pct": -2.616266166087322, "normal_max_drawdown_pct": 4.234909274019771, "trades": 48},
+    {"rank": 5, "policy": "EMA_TrendConsensus", "normal_net_return_pct": -6.957617560944607, "stress_net_return_pct": -7.763107816611581, "normal_max_drawdown_pct": 8.867899841214388, "trades": 87}
+  ],
+  "network_used": false,
+  "new_model_fits": 0,
+  "promotion_authority": false
+}

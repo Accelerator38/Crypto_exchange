@@ -1,0 +1,219 @@
+{
+  "schema_version": "exia.genetic_primus.execution_bundle/1",
+  "settings": {
+    "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+    "dataset_sha256": "e3a94a2f13cb8e7a5a7195ba5922606e89b8ec363b8036fae756c3018f6bc0b8",
+    "fee_schedule_sha256": "40375001cc03c4d3b773bc71f0f437322adae018cc25cb8428965ed98ffc7a7b",
+    "evidence_kind": "synthetic",
+    "initial_cash": "1000",
+    "taker_fee": "0.001",
+    "latency_ms": 10,
+    "max_quote_age_ms": 20,
+    "max_mark_age_ms": 1000,
+    "order_ttl_ms": 100,
+    "participation": "1",
+    "max_order_notional": "900",
+    "max_gross_ratio": "1",
+    "max_loss": "200",
+    "max_drawdown": "0.2",
+    "max_events": 128,
+    "max_levels": 8,
+    "fee_valid_from_ms": 1788220800000,
+    "fee_valid_until_exclusive_ms": 1788480000000
+  },
+  "rules": {
+    "LINKUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "e48572b35f11e00d429bb30b4175241efa52d587ea67fe8bfd2db8bcb66df4ca",
+      "valid_from_ms": 1788220800000,
+      "valid_until_exclusive_ms": 1788480000000
+    }
+  },
+  "models": [
+    {
+      "model": {
+        "schema_version": "exia.genetic_primus.release_model/1",
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "origin_start_ms": 1788220800000,
+        "origin_end_exclusive_ms": 1788480000000,
+        "train_end_exclusive_ms": 1788120000000,
+        "scaler": {
+          "median": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "scale": [
+            "1",
+            "1",
+            "1",
+            "1"
+          ],
+          "fitted_rows": 12,
+          "fit_values_sha256": "c2911643874d33b12ae2a9868b674e6302938c81ef46408b3d234997199c2cd2",
+          "train_start_ms": 1640995200000,
+          "train_end_exclusive_ms": 1788120000000
+        },
+        "policy": {
+          "kind": "continuous_binary_sparse_ema_overlay",
+          "genome": [
+            0,
+            0,
+            1,
+            1,
+            -1
+          ],
+          "features": [
+            "ema_gap_12_48",
+            "ema_slope_12_3",
+            "return_12",
+            "efficiency_12"
+          ],
+          "allow_rule": "finite_features_and_logit_strictly_positive",
+          "missing_features": "abstain",
+          "same_direction": "hold_filled_quantity",
+          "zero_target": "reduce_only_exit",
+          "reverse_target": "single_ioc_net_delta",
+          "partial_fill": "keep_actual_position_no_synthetic_completion"
+        },
+        "provenance": {
+          "data_sha256": "ae0e0c792dd611febc4bb906a021f8c2c4a851ad4ead4c4088858437f0c3e4ab",
+          "train_rows_sha256": "84e1d7c65e472a9a1d4301b1286ccb980191c19dc3756474e49fe715b870814a",
+          "folds_sha256": "1db3dd192f2b861d4377d8b10665e7d3491a215bc5e16d906ef2ae87a33d9544",
+          "resample_bank_sha256": "ef1587a7c72a00ce93aac97a71f0cca9ce96d11ee6734be2ea1c43ea6dcbebdc",
+          "audit_bank_sha256": "a4faffaac5c4114241e948e82a0c1e1db63fbbed74fd5dc273b7e153b7674ad2",
+          "implementation_sha256": "777da5e728f5676fb95353444fbfb517122a1035dba40f08f142849be8a002da",
+          "scaler_fit_values_sha256": "c2911643874d33b12ae2a9868b674e6302938c81ef46408b3d234997199c2cd2"
+        }
+      },
+      "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b"
+    }
+  ],
+  "events": [
+    {
+      "id": "m0",
+      "kind": "mark",
+      "ts": 1788220800000,
+      "exchange_ms": 1788220800000,
+      "symbol": "LINKUSDT",
+      "price": "100"
+    },
+    {
+      "id": "d0",
+      "kind": "decision",
+      "ts": 1788220800000,
+      "symbol": "LINKUSDT",
+      "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+      "feature_cutoff_ms": 1788220800000,
+      "features": [
+        "0",
+        "0",
+        "2",
+        "0"
+      ],
+      "proposal": 1
+    },
+    {
+      "id": "io1",
+      "kind": "intent",
+      "ts": 1788220800000,
+      "symbol": "LINKUSDT",
+      "client_oid": "o1",
+      "decision_id": "d0",
+      "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+      "side": "buy",
+      "quantity": "2",
+      "limit_price": "100.2",
+      "reduce_only": false
+    },
+    {
+      "id": "b10",
+      "kind": "book",
+      "ts": 1788220800010,
+      "exchange_ms": 1788220800010,
+      "snapshot_id": "s10",
+      "symbol": "LINKUSDT",
+      "asks": [
+        [
+          "100.1",
+          "0.3"
+        ],
+        [
+          "100.2",
+          "0.4"
+        ],
+        [
+          "100.3",
+          "10"
+        ]
+      ],
+      "bids": [
+        [
+          "99.9",
+          "10"
+        ]
+      ]
+    },
+    {
+      "id": "demo_funding",
+      "kind": "funding",
+      "ts": 1788220800020,
+      "settlement_ms": 1788220800020,
+      "symbol": "LINKUSDT",
+      "rate": "0.001",
+      "settlement_mark": "102"
+    },
+    {
+      "id": "d20",
+      "kind": "decision",
+      "ts": 1788220800020,
+      "symbol": "LINKUSDT",
+      "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+      "feature_cutoff_ms": 1788220800000,
+      "features": [
+        "0",
+        "0",
+        "2",
+        "0"
+      ],
+      "proposal": 0
+    },
+    {
+      "id": "iclose",
+      "kind": "intent",
+      "ts": 1788220800020,
+      "symbol": "LINKUSDT",
+      "client_oid": "close",
+      "decision_id": "d20",
+      "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+      "side": "sell",
+      "quantity": "0.7",
+      "limit_price": "101",
+      "reduce_only": true
+    },
+    {
+      "id": "b30",
+      "kind": "book",
+      "ts": 1788220800030,
+      "exchange_ms": 1788220800030,
+      "snapshot_id": "s30",
+      "symbol": "LINKUSDT",
+      "asks": [
+        [
+          "102.1",
+          "10"
+        ]
+      ],
+      "bids": [
+        [
+          "101.9",
+          "10"
+        ]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": "exia.genetic_primus.shadow_readiness/1",
+  "protocol_id": "genetic_primus_v5_post_sealed_readiness",
+  "status": "BLOCKED_UNTIL_SEALED_OUTER_AND_GLOBAL_MULTIPLE_TESTING_PASS",
+  "source_contract_sha256": "41a90b03f7c166d07331dc51a45972173f9a0c03cbb2b1888c9ab62a80932d70",
+  "objective_registry_sha256": "766aed82b8c26b76ebe9a565a53fe565bcceda4a32f7360b76ff77d847de1273",
+  "stage_order": ["offline_fault_injection", "shadow", "paper", "canary"],
+  "offline_fault_injection": {
+    "network_allowed": false,
+    "cases": [
+      "missing_bar", "duplicate_bar", "out_of_order_bar", "stale_timestamp",
+      "nan_feature", "corrupt_model_sha", "registry_sha_mismatch",
+      "partial_ledger_write", "restart_during_cooldown"
+    ],
+    "required_result": "fail_closed_with_deterministic_recovery"
+  },
+  "shadow": {
+    "requires_separate_user_authorization": true,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "paper": {
+    "requires_separate_user_authorization": true,
+    "orders_enabled": false,
+    "minimum_days": 30
+  },
+  "canary": {
+    "requires_separate_user_authorization": true,
+    "enabled": false,
+    "leverage": 1.0,
+    "single_position_only": true,
+    "automatic_scale_up": false,
+    "kill_switch_required": true
+  },
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "promotion_authority": false
+}

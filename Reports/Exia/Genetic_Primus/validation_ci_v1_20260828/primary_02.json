@@ -1,0 +1,96 @@
+{
+  "arrays_sha256": {
+    "candidate_bank": "c0b4813a49fd0da2016758f3abf8f59e7dbe9b842cb3f84316d2bb98c7159614",
+    "hac_small_sample_t_lcb": "17f398d2e451ff8336fc9d78f4641909f2f21708213ed7004082a1f7d6fa496f",
+    "legacy_bank": "2a2f06712ab8d70e8d56738074f814e5aa5de9f35ddc93b7fb87766d6a9782aa",
+    "legacy_lcb": "b560b3fd842b74aea6212aadf990b0073ca3bb9a85bf7923b3753de6ae730580",
+    "paths": "b474a5f1238db08d9cb16e0b6a2930f7722d603365170f13dbad025b0cbd597f",
+    "studentized_block_bootstrap_lcb": "68155ac868e58b930c73ea3d2d13906e58605b73530504079c7899e319d7920b"
+  },
+  "case": 2,
+  "config_sha256": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+  "days": 365,
+  "details": {
+    "block_length": 20,
+    "hac_critical": 2.306004135204166,
+    "hac_df": 8,
+    "hac_lags": 19,
+    "studentized_supported_count": 1024,
+    "uninformative_original_count": 0
+  },
+  "elapsed_seconds": 4.9851041000001715,
+  "generator": "iid_gaussian",
+  "legacy_null": {
+    "confidence": 0.95,
+    "lower": 0.05098089969838075,
+    "rate": 0.064453125,
+    "replications": 1024,
+    "successes": 66,
+    "upper": 0.08118097960210342
+  },
+  "methods": {
+    "hac_small_sample_t": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.013507792621372874,
+        "rate": 0.0244140625,
+        "replications": 1024,
+        "successes": 25,
+        "upper": 0.04373571696052272
+      },
+      "positive_control": {
+        "confidence": 0.95,
+        "lower": 0.9220568336770284,
+        "rate": 0.9384765625,
+        "replications": 1024,
+        "successes": 961,
+        "upper": 0.9516187631706906
+      },
+      "power10": {
+        "confidence": 0.95,
+        "lower": 0.3592852196355948,
+        "rate": 0.388671875,
+        "replications": 1024,
+        "successes": 398,
+        "upper": 0.4188906867326905
+      },
+      "uninformative_count": 0
+    },
+    "studentized_block_bootstrap": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.01924613498471675,
+        "rate": 0.0322265625,
+        "replications": 1024,
+        "successes": 33,
+        "upper": 0.05348413419336946
+      },
+      "positive_control": {
+        "confidence": 0.95,
+        "lower": 0.9394990577429059,
+        "rate": 0.9541015625,
+        "replications": 1024,
+        "successes": 977,
+        "upper": 0.9653097452285626
+      },
+      "power10": {
+        "confidence": 0.95,
+        "lower": 0.41803206827136846,
+        "rate": 0.4482421875,
+        "replications": 1024,
+        "successes": 459,
+        "upper": 0.47883918644371154
+      },
+      "uninformative_count": 0
+    }
+  },
+  "npz_sha256": "9cf49aada5ff891a9f2da68c0fa87989fa3e703208f77d1299588d4474e675c8",
+  "phase": "primary",
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  }
+}

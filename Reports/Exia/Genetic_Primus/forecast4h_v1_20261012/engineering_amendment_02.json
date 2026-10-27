@@ -1,0 +1,20 @@
+{
+  "schema": "forecast4h_engineering_amendment/1",
+  "sha256": "50aa013ed1b8041293899ef4e9cce3a5b53c7438374ab8cf7724d27a08a3d8f0",
+  "registration_sha256": "569f9678af18bbda59d01d86c8314e0883c7e9595e38bfc71fe0ea11726f18d9",
+  "reason": "Daily EMA parity found 0.16252 USDT funding difference. The early observed_rate_bank lacks eight terminal-settlement rows present in the frozen parent modeled_rates bank. Use the exact existing parent bank, pinned by parent registration, for all policies and scenarios.",
+  "model_or_policy_parameter_changes": false,
+  "additional_hyperparameter_trials": 0,
+  "additional_financial_fits": 0,
+  "successful_saved_financial_replays_before_amendment": 0,
+  "code_changes": {
+    "tools/run_genetic_primus_forecast4h_v1.py": {
+      "original_pin": {"bytes": 39212, "sha256": "0337f73269f9a2042595252ba87f5fb81fd0bac401dc20ede947f55324ff3e56"},
+      "archived_original": "runner_after_amendment_01.py.txt",
+      "replacement_pin": {"bytes": 40132, "sha256": "223d58a5f00c63fd0b5ad7982c4736e2fec40a48ff74a057377c2744ccb6f9c6"}
+    }
+  },
+  "added_input_pins": {
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/modeled_rates.json": {"bytes": 564262, "sha256": "f22f60e694a9d6dd628b3c4fe08839d2b0ef5b0f916c05d19422a40b9d21729e"}
+  }
+}

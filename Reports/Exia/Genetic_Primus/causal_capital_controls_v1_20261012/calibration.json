@@ -1,0 +1,171 @@
+{
+  "controls": {
+    "B_E": {
+      "achieved": 0.12290716523277645,
+      "all_calibration_metrics": {
+        "daily_log_volatility": 0.005099515341238712,
+        "decisions": 29,
+        "fees": 27.77951456599614,
+        "fills": 88,
+        "final_capital": 9491.28411395732,
+        "funding": -8.951319495491527,
+        "gross_pnl": -434.9459775919581,
+        "initial_capital": 10000.0,
+        "max_drawdown": 0.0652936943926915,
+        "maximum_exposure": 0.44414885312188795,
+        "mean_exposure": 0.12290716523277645,
+        "net_return": -0.0508715886042681,
+        "reconciliation_error": -8.36664071357518e-13,
+        "slippage": 37.039074389234095,
+        "turnover_initial_capital": 4.629884298654479
+      },
+      "calibration_end_ms": 1785024000000,
+      "capped_unreachable": false,
+      "evaluation_start_ms": 1785542400000,
+      "fraction": 0.553482848897328,
+      "full_capital_value": 0.2262159113740206,
+      "iterations": 64,
+      "metric": "mean_exposure",
+      "residual": -4.163336342344337e-17,
+      "source": "B",
+      "source_pin": {
+        "bytes": 959571,
+        "sha256": "20b79b33620f270820c59f337b8248b682e4178fbd19966a56a6e2d9b36522db"
+      },
+      "target": 0.12290716523277649
+    },
+    "B_R": {
+      "achieved": 0.008852259578011902,
+      "all_calibration_metrics": {
+        "daily_log_volatility": 0.008852259578011902,
+        "decisions": 29,
+        "fees": 47.296323896593236,
+        "fills": 88,
+        "final_capital": 9133.88006617407,
+        "funding": -15.240169339707663,
+        "gross_pnl": -740.5221493283487,
+        "initial_capital": 10000.0,
+        "max_drawdown": 0.1100067865873875,
+        "maximum_exposure": 0.7669805722153636,
+        "mean_exposure": 0.21265133331921593,
+        "net_return": -0.08661199338259307,
+        "reconciliation_error": -1.5560885913146194e-12,
+        "slippage": 63.061291261279074,
+        "turnover_initial_capital": 7.882661407660253
+      },
+      "calibration_end_ms": 1785024000000,
+      "capped_unreachable": false,
+      "evaluation_start_ms": 1785542400000,
+      "fraction": 0.9423384282135852,
+      "full_capital_value": 0.009421636359682985,
+      "iterations": 64,
+      "metric": "daily_log_volatility",
+      "residual": 8.673617379884035e-17,
+      "source": "B",
+      "source_pin": {
+        "bytes": 959571,
+        "sha256": "20b79b33620f270820c59f337b8248b682e4178fbd19966a56a6e2d9b36522db"
+      },
+      "target": 0.008852259578011815
+    },
+    "EMA_E": {
+      "achieved": 0.12290716523277648,
+      "all_calibration_metrics": {
+        "daily_log_volatility": 0.0033706650436678668,
+        "decisions": 86,
+        "fees": 27.632281422272747,
+        "fills": 116,
+        "final_capital": 9847.237074778403,
+        "funding": -12.534352486693129,
+        "gross_pnl": -75.75329789837895,
+        "initial_capital": 10000.0,
+        "max_drawdown": 0.03891959558721303,
+        "maximum_exposure": 0.3426837403573382,
+        "mean_exposure": 0.12290716523277648,
+        "net_return": -0.015276292522159785,
+        "reconciliation_error": -1.1954881529163686e-12,
+        "slippage": 36.84299341425145,
+        "turnover_initial_capital": 4.60537417678163
+      },
+      "calibration_end_ms": 1785024000000,
+      "capped_unreachable": false,
+      "evaluation_start_ms": 1785542400000,
+      "fraction": 0.40155887062717377,
+      "full_capital_value": 0.3063197024011976,
+      "iterations": 64,
+      "metric": "mean_exposure",
+      "residual": -1.3877787807814457e-17,
+      "source": "EMA1",
+      "source_pin": {
+        "bytes": 1075546,
+        "sha256": "bcbb29ff3944b93bd18f4a70cd7878f17866420716df97657778a6cdc4a5d778"
+      },
+      "target": 0.12290716523277649
+    },
+    "EMA_R": {
+      "achieved": 0.008388564035381463,
+      "all_calibration_metrics": {
+        "daily_log_volatility": 0.008388564035381463,
+        "decisions": 86,
+        "fees": 68.81252898016008,
+        "fills": 116,
+        "final_capital": 9619.575269292382,
+        "funding": -31.214233836040975,
+        "gross_pnl": -188.6480499859556,
+        "initial_capital": 10000.0,
+        "max_drawdown": 0.09391120527988939,
+        "maximum_exposure": 0.8294961221420787,
+        "mean_exposure": 0.3063197024011976,
+        "net_return": -0.038042473070761806,
+        "reconciliation_error": -4.206412995699793e-12,
+        "slippage": 91.74991790545758,
+        "turnover_initial_capital": 11.46873973818269
+      },
+      "calibration_end_ms": 1785024000000,
+      "capped_unreachable": true,
+      "evaluation_start_ms": 1785542400000,
+      "fraction": 1.0,
+      "full_capital_value": 0.008388564035381463,
+      "iterations": 0,
+      "metric": "daily_log_volatility",
+      "residual": -0.0004636955426303522,
+      "source": "EMA1",
+      "source_pin": {
+        "bytes": 1075546,
+        "sha256": "bcbb29ff3944b93bd18f4a70cd7878f17866420716df97657778a6cdc4a5d778"
+      },
+      "target": 0.008852259578011815
+    }
+  },
+  "no_report_values_used": true,
+  "reference_calibration_metrics": {
+    "daily_log_volatility": 0.008852259578011815,
+    "decisions": 29,
+    "fees": 31.553993708203237,
+    "fills": 54,
+    "final_capital": 9435.212264697417,
+    "funding": -4.404818021579575,
+    "gross_pnl": -486.7572434865017,
+    "initial_capital": 10000.0,
+    "max_drawdown": 0.11534220383972094,
+    "maximum_exposure": 0.778663406667434,
+    "mean_exposure": 0.12290716523277649,
+    "net_return": -0.05647877353025832,
+    "reconciliation_error": 1.2887468869848817e-12,
+    "slippage": 42.0716800863001,
+    "turnover_initial_capital": 5.258960010787731
+  },
+  "registration_sha256": "8a0dafb13ed166fe46e7affea3599d8b3503a43a64d9ed3150a6e63fefceb49b",
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "sha256": "6616a4413ab62e20f32d6fdd645f5f98070ea9a107669d0a72e4598f6527072c"
+}

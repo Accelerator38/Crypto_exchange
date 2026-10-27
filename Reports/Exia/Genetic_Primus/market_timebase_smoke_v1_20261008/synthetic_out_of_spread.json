@@ -1,0 +1,113 @@
+{
+  "book_prefix_span_us": 1000,
+  "books": 2,
+  "complete_ticker_events": 1,
+  "complete_trade_events": 1,
+  "cross_stream_order_verified": false,
+  "financial_replay_ready": false,
+  "funding_settlements_verified": false,
+  "joins": [
+    {
+      "book_sha256": "988a646c5205f71aedf8f0f1774a345976ffc2a0b72d86a57caceef6bc82d179",
+      "provider_cutoff_us": 1733011200001000,
+      "ticker": {
+        "candidate_event_count": 0,
+        "candidate_received_ts_us": null,
+        "events": [],
+        "status": "missing",
+        "strategy_availability_verified": false,
+        "within_batch_order_verified": false
+      },
+      "trades": {
+        "candidate_event_count": 0,
+        "candidate_received_ts_us": null,
+        "events": [],
+        "status": "missing",
+        "strategy_availability_verified": false,
+        "within_batch_order_verified": false
+      }
+    },
+    {
+      "book_sha256": "8305d9ddfeaf1aebf8b3169537b34142d8455e0fe62bae7aa579796e653e1002",
+      "provider_cutoff_us": 1733011200002000,
+      "ticker": {
+        "candidate_event_count": 1,
+        "candidate_received_ts_us": 1733011200001400,
+        "events": [
+          {
+            "exchange_ts_us": 1733011200001390,
+            "funding_cashflow_verified": false,
+            "funding_time_relation_to_receipt": "future",
+            "index_price": "100.0",
+            "is_funding_settlement": false,
+            "kind": "ticker",
+            "last_price": "100.10",
+            "mark_price": "100.20",
+            "open_interest": "123.00",
+            "predicted_funding_rate": null,
+            "received_ts_us": 1733011200001400,
+            "reported_funding_rate": "0.000195",
+            "reported_funding_timestamp_us": 1733040000000000,
+            "sha256": "c2cad2ff618fd9b8f28e335f9222cbc2f7300b840b740f2a33d9d67cc7b40643",
+            "source_prefix_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_row_ordinal": 0,
+            "source_row_sha256": "df82d9a6ac0e3a7231972387f039f80aab802eafc6a63ebd153a03f1d33367dc",
+            "strategy_availability_verified": false,
+            "symbol": "BTCUSDT"
+          }
+        ],
+        "status": "fresh",
+        "strategy_availability_verified": false,
+        "within_batch_order_verified": false
+      },
+      "trades": {
+        "candidate_event_count": 1,
+        "candidate_received_ts_us": 1733011200001500,
+        "events": [
+          {
+            "amount": "0.010",
+            "exchange_ts_us": 1733011200001490,
+            "kind": "trade",
+            "price": "101",
+            "received_ts_us": 1733011200001500,
+            "sha256": "8a7e668559d9a2a0fbba2497d7901a35d8ca8d5a26153dba999c6c6807c52cb5",
+            "side": "buy",
+            "source_prefix_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_row_ordinal": 0,
+            "source_row_sha256": "3613fce9d85a3390acdf6a55af2f0a565346f08a4d0c6c88729f8901932d7d15",
+            "strategy_availability_verified": false,
+            "symbol": "BTCUSDT",
+            "trade_id": "1",
+            "within_batch_order_verified": false
+          }
+        ],
+        "status": "fresh",
+        "strategy_availability_verified": false,
+        "within_batch_order_verified": false
+      }
+    }
+  ],
+  "provider_delay_is_order_latency": false,
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "market_timebase_diagnostic/1",
+  "sha256": "936fa4bbe5b8736ef70d317bd244074efc91830e0bda798d79eb358b6b0283b4",
+  "trade_quote_comparisons": [
+    {
+      "book_sha256": "988a646c5205f71aedf8f0f1774a345976ffc2a0b72d86a57caceef6bc82d179",
+      "outside_observed_spread": true,
+      "quote_status": "fresh",
+      "trade_received_ts_us": 1733011200001500,
+      "trade_sha256": "8a7e668559d9a2a0fbba2497d7901a35d8ca8d5a26153dba999c6c6807c52cb5"
+    }
+  ]
+}

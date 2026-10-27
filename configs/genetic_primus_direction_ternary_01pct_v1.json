@@ -1,0 +1,21 @@
+{
+  "schema": "exia.direction_ternary_01pct_supplement/1",
+  "objective_id": "direction_ternary_01pct_v1_20261013",
+  "inherits_contract": "configs/genetic_primus_direction_ternary_v2.json",
+  "previous_registry": "configs/genetic_primus_objective_registry_v20.json",
+  "supplement_reason": "User explicitly requested +/-0.1 percent after the original grid had begun. Register separately before supplemental fits; do not mutate or refit v2.",
+  "schemes": ["fixed_0.1pct"],
+  "fixed_bands_pct": {"fixed_0.1pct": 0.1},
+  "primary_scheme": "fixed_0.1pct",
+  "primary_bootstrap": {"enabled": false, "reason": "descriptive fixed-band sensitivity only; main train_q50 inference remains frozen in v2"},
+  "maximum_fit_attempts": 84,
+  "fixed_band_reporting": "descriptive, user-requested supplement; no selection of best threshold on test",
+  "independent_validation": false,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false
+}

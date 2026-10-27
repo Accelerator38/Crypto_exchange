@@ -1,0 +1,41 @@
+{
+  "schema_version": "exia.genetic_primus.stage1_summary/1",
+  "matrix_sha256": "0e9022c9aa13bde5e093181266aa9bf16b432193fa8be1b30c31311be3d7a3f8",
+  "rolling_protocol_sha256": "84d817c356f64ff5530c42c2e281828ed8dbbc501ba76f6bb6d83f9c1a8b5fbc",
+  "completed_origins_by_cell": {
+    "weekly__expanding_uniform__cadence_7d": 6,
+    "weekly__rolling_730_uniform__cadence_7d": 6,
+    "weekly__rolling_730_hl180__cadence_7d": 6,
+    "weekly__rolling_365_hl90__cadence_7d": 6,
+    "weekly__rolling_180_hl30__cadence_7d": 6
+  },
+  "expected_full_origins_by_cell": {
+    "weekly__expanding_uniform__cadence_7d": 52,
+    "weekly__rolling_730_uniform__cadence_7d": 52,
+    "weekly__rolling_730_hl180__cadence_7d": 52,
+    "weekly__rolling_365_hl90__cadence_7d": 52,
+    "weekly__rolling_180_hl30__cadence_7d": 52
+  },
+  "outer6_pilot_completed": true,
+  "full_stage1_completed": false,
+  "eligible_for_stage2": false,
+  "provisional_top_two": [
+    "rolling_730_uniform",
+    "rolling_730_hl180"
+  ],
+  "all_promotion_pass_fraction_zero": true,
+  "all_audit_lcb_nonpositive": true,
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "artifact_sha256": {
+    "weekly_results.parquet": "4d8ef0bfd082e8c2857bdccba088ecb6210bd8f393a8c25da80a6b52a60980d8",
+    "baseline_results.parquet": "be65c0d42c79b9271be0cfd58929ad8decfc8e74d342de16f194c3e11bf6573b",
+    "ensemble_results.parquet": "18760fb3a19877ef8231c2e104e79f9ebc71dbde002a7f37f86d33e8169c5b3b",
+    "promotion_gates.parquet": "c7c4b81d1158db46ccf5b9557eb43c244bda849fd819ee7b6e151a0f294241f3"
+  }
+}

@@ -1,0 +1,211 @@
+{
+  "schema": "ema_units_registration/1",
+  "registered_at_utc": "2026-10-12T11:14:06.224816+00:00",
+  "contract": {
+    "schema": "genetic_primus_ema_units_contract/1",
+    "experiment_id": "ema_units_v1_20261012",
+    "period": {
+      "start": "2026-08-01T00:00:00Z",
+      "end_exclusive": "2026-10-01T00:00:00Z",
+      "status": "previously_revealed_adaptive_research"
+    },
+    "decision_cadence_hours": 4,
+    "signal": "completed-close distance_ema48 > 0, frozen parent six-feature bank",
+    "policies": [
+      "U1_hold_units"
+    ],
+    "control": "saved R1_EMA_4h target-weight rebalance",
+    "daily_reference": "saved R0_EMA_daily, descriptive only",
+    "entry_rule": "on flat-to-positive EMA, initialize units using the same contemporaneous EMA risk target and cost-inclusive budget as R1",
+    "hold_rule": "keep market units exactly while EMA stays positive and projected post-cost position meets risk constraints; no top-up to a NAV fraction or after a risk trim",
+    "exit_rule": "close when EMA is nonpositive; terminal liquidation at the shared endpoint",
+    "risk_trim_rule": "only reduce tentative units if exact projected post-cost asset/gross/volatility constraints fail; use a conservative NAV lower bound for a single bounded downscale",
+    "post_cost_nav_lower_bound": "NAV - max_per_reference_notional_cost * (old_market_value + tentative_market_value)",
+    "risk": {
+      "daily_volatility_target": 0.005,
+      "lookback_daily_returns": 60,
+      "shrinkage": 0.2,
+      "individual_vol_floor": 0.002,
+      "asset_cap": 0.1,
+      "gross_cap": 0.8,
+      "covariance_update": "daily; last data strictly before UTC decision day",
+      "numerical_tolerance": 1e-10
+    },
+    "costs": {
+      "normal": {
+        "fee_bps": 6,
+        "drag_bps": 2
+      },
+      "stress": {
+        "fee_bps": 6,
+        "drag_bps": 8
+      }
+    },
+    "funding": "same frozen modeled_rates.json as parent including eight terminal-settlement rows; rate times current units times reference close",
+    "initial_capital": 10000,
+    "signal_delay_us": 2000000,
+    "fill_delay_us": 2250000,
+    "execution": "same assumed completed close held constant until modeled fill; fractional units, no observed fills/marks qualification",
+    "new_training_fits": 0,
+    "new_hyperparameter_trials": 0,
+    "successful_new_policy_replay_budget": 2,
+    "engineering_parity_replays": 2,
+    "bootstrap": {
+      "bank": "reuse pinned common primary/audit/sensitivity banks from forecast4h_v1",
+      "nominal_current_chain_contrasts": 14,
+      "family_alpha": 0.05,
+      "primary_contrast": "U1_hold_units - R1_EMA_4h",
+      "absolute_contrast": "U1_hold_units - NoTrade"
+    },
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "runtime_authority": false,
+      "network_allowed": false
+    }
+  },
+  "contract_sha256": "51145c753cd67fdb1274ad4c670351cec3cfc2b9999460beec49a84b7b41cd44",
+  "parent_registration_sha256": "569f9678af18bbda59d01d86c8314e0883c7e9595e38bfc71fe0ea11726f18d9",
+  "previous_registration_sha256": "14da34f300eed0ce18ab0c82c65fe6427e5967a99b602d5ba81dd98647dd93be",
+  "start_ms": 1785542400000,
+  "end_ms": 1790812800000,
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ],
+  "code_pins": {
+    "tools/run_genetic_primus_ema_units_v1.py": {
+      "bytes": 28749,
+      "sha256": "9e2a63f171e1ea664f788998dc755321fc25715f3b242c32cfd5b5a873a23a1a"
+    },
+    "configs/genetic_primus_ema_units_v1.json": {
+      "bytes": 2522,
+      "sha256": "786c849ddc48460ffa7d1d89e671789cdedfeb5e9c736ad819a21858054ace00"
+    },
+    "src/exia/genetic_primus/ema_units_v1.py": {
+      "bytes": 17454,
+      "sha256": "77e53960bc37b70208aac896dc502d3229b29cb534c809310f50820668747ddd"
+    },
+    "tools/run_genetic_primus_forecast4h_v1.py": {
+      "bytes": 40212,
+      "sha256": "23a39341c1a95370b64b57e391cfccaa11586ba00d9d14b296c0733d51182296"
+    },
+    "tools/run_genetic_primus_forecast4h_positions_v1.py": {
+      "bytes": 19120,
+      "sha256": "104bd17700852516226ba6f9441dc44d1f3a2772a556309bc52c7e5be2ba6a67"
+    },
+    "src/exia/genetic_primus/forecast4h_v1.py": {
+      "bytes": 18387,
+      "sha256": "9592d3043bc8052d5ffb29dbd16073ca6e8dada4deaeab08968bf44f15d392fb"
+    },
+    "src/exia/genetic_primus/position_policy_v1.py": {
+      "bytes": 20191,
+      "sha256": "d211213c1de530221308f5bc89cb52573f9978ebf563ba78fa134714a086e429"
+    },
+    "src/exia/genetic_primus/compact_forecast_v1.py": {
+      "bytes": 10556,
+      "sha256": "bf839c41c403a37fa8f009f9c1a86502a3b695149e801e9076557a1b3f385b4b"
+    },
+    "src/exia/genetic_primus/compact_forecast_data_v1.py": {
+      "bytes": 11697,
+      "sha256": "1b03b1c2e81a36543b2004c691d352a0baa36167b9a6bf1c86d0bd758eb6efb3"
+    }
+  },
+  "input_pins": {
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/receipt.json": {
+      "bytes": 7834,
+      "sha256": "345d62206a41392b4642fe5b787a5beef04238a726fd054201563a46c66404e0"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_positions_v1_20261012/receipt.json": {
+      "bytes": 2098,
+      "sha256": "7dea4e45842824034be6f2cb2a30be732e144e418f7bed84d91b06f1d3696890"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/data_bank.npz": {
+      "bytes": 3831285,
+      "sha256": "e12c2c2efcd9967ebbad90f5c11eaaf64af5e446b73a3d81de581b4c780f3389"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/modeled_rates.json": {
+      "bytes": 564262,
+      "sha256": "f22f60e694a9d6dd628b3c4fe08839d2b0ef5b0f916c05d19422a40b9d21729e"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/registration.json": {
+      "bytes": 8188,
+      "sha256": "d40f18845a6d54c2b0b352c80fe6c77358dd2437fa66dfd2da87d0da2997ea88"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/vectors.json": {
+      "bytes": 907638,
+      "sha256": "05cc7f46ceaf9d4828caadbd21d22a4a5bdafce9d6dd7b345ffb1bf231199bcb"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/resample_bank.npz": {
+      "bytes": 459769,
+      "sha256": "2837afcd5a20f097dd74acc78716bb39da1a76fcb709b80876e994a563994ab5"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_positions_v1_20261012/registration.json": {
+      "bytes": 8213,
+      "sha256": "342304e570c07c835501d3592843e2ed2a6555fbe613e9a9ac2e5ce8f76db0e6"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_positions_v1_20261012/final_verification.json": {
+      "bytes": 1048,
+      "sha256": "a459be70e985a20bbc2808c9ee960c07165eb834136c5cf01eaf828af49d482d"
+    },
+    "Reports/Exia/Genetic_Primus/ema_units_v1_20261012/direct_checks.json": {
+      "bytes": 180,
+      "sha256": "be1f78f6ab8edd937c1efaf2011c1d62eda14df3d956342aef412c17a277b650"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_01.json": {
+      "bytes": 981,
+      "sha256": "755e94a2b9bf1f184548a7bd7139683d6499301aacd001f2acb6746af2705e79"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_02.json": {
+      "bytes": 1281,
+      "sha256": "eeac79807a16fb9f76568643965990fb29e9c5a60fe5b6d33502779e55fd592e"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/engineering_amendment_03.json": {
+      "bytes": 1418,
+      "sha256": "5c11b004bde3002efd773d0ae22a46b09987c372a3e166632249a5816a6de666"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R1_EMA_4h_normal.json": {
+      "bytes": 4166870,
+      "sha256": "2dc0584a51fde279bb7644f39420ea612be77cbb621c585aae09c361758fa0da"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R1_EMA_4h_stress.json": {
+      "bytes": 4167532,
+      "sha256": "c56e253d1189210569c44d05f4f82bee5f4e572c0ca0e3553bba82c62098ac2f"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R0_EMA_daily_normal.json": {
+      "bytes": 1885191,
+      "sha256": "b3bbc5ccdcb57372a5558ac9f226a3196f3bb486574ebd563c67b0defc479459"
+    },
+    "Reports/Exia/Genetic_Primus/forecast4h_v1_20261012/replay_R0_EMA_daily_stress.json": {
+      "bytes": 1885356,
+      "sha256": "0e81e333839e461b243c39bd486d3a9922749099cddd01992b503be097fc7bab"
+    }
+  },
+  "parent_artifact_pins_verified": 64,
+  "new_fits": 0,
+  "new_policy_arms": 1,
+  "new_threshold_trials": 0,
+  "successful_policy_replay_budget": 2,
+  "parity_replay_budget": 2,
+  "already_seen": "all original forecast/EMA/position diagnostic results on this interval; adaptive research, no independent validation",
+  "direct_checks_passed": 14,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "sha256": "bd492c685bcbcec656b2df7e3eb9aac48d4618d897db042747096fa4877ecb7e"
+}

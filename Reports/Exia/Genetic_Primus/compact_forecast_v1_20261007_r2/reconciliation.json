@@ -1,0 +1,49 @@
+{
+  "identities_verified": 50,
+  "serialized_models_reconciled": 160,
+  "origins_reconciled": 20,
+  "uniform_controls_unchanged_from_superseded_attempt": true,
+  "sample_content_unchanged": true,
+  "pairs": [
+    {
+      "first": "linear6_uniform",
+      "second": "mlp8_uniform",
+      "positive_means_first_lower_mse": true,
+      "mean_mse_benefit_bps_squared": 11214.513931142952,
+      "audit_lcb_mse_benefit": -4543.732016344392
+    },
+    {
+      "first": "linear6_half_life_90_anchor20",
+      "second": "mlp8_half_life_90_anchor20",
+      "positive_means_first_lower_mse": true,
+      "mean_mse_benefit_bps_squared": 10122.374429667758,
+      "audit_lcb_mse_benefit": -1077.3323474857439
+    },
+    {
+      "first": "linear6_uniform",
+      "second": "linear6_half_life_90_anchor20",
+      "positive_means_first_lower_mse": true,
+      "mean_mse_benefit_bps_squared": 5569.389017459195,
+      "audit_lcb_mse_benefit": -13534.294910373133
+    },
+    {
+      "first": "mlp8_uniform",
+      "second": "mlp8_half_life_90_anchor20",
+      "positive_means_first_lower_mse": true,
+      "mean_mse_benefit_bps_squared": 4477.249515983999,
+      "audit_lcb_mse_benefit": -1334.9822380593273
+    }
+  ],
+  "peak_origin_index": 6,
+  "peak_origin_ms": 1787097600000,
+  "peak_origin_share_of_zero_forecast_sse": 0.790833082217611,
+  "peak_origin_gross_outcome_range": [
+    0.19361217740997394,
+    0.5638127625525104
+  ],
+  "additional_model_fits": 0,
+  "financial_evaluations": 0,
+  "network": 0,
+  "profitability_claim": false,
+  "promotion_authority": false
+}

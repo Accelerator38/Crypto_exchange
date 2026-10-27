@@ -1,0 +1,62 @@
+{
+  "schema_version": "exia.genetic_primus.global_multiple_testing/1",
+  "status": "DIAGNOSTIC_ONLY",
+  "promotion_eligible": false,
+  "objective_registry_sha256": "766aed82b8c26b76ebe9a565a53fe565bcceda4a32f7360b76ff77d847de1273",
+  "outcome_catalog_sha256": "8bf3233218c6abd775352a3d577cb203711709f452d85cbab1b60aecde661717",
+  "registered_objective_count": 3.0,
+  "materialized_objective_count": 3,
+  "missing_objective_ids": [
+    "experiment_matrix_v1",
+    "genetic_v1",
+    "genetic_v2",
+    "genetic_v3",
+    "genetic_v4",
+    "genetic_v5_contract",
+    "genetic_v6_contract",
+    "genetic_v7_contract",
+    "genetic_v7_posthoc",
+    "genetic_v8_clean",
+    "genetic_v8_link_prospective",
+    "measurement_3d_v1",
+    "overlay_3d_v2",
+    "overlay_3d_v5_sealed",
+    "overlay_pilot6_v1",
+    "promotion_gate_v1",
+    "rolling_3d_v1"
+  ],
+  "required_pbo_objective_ids": [
+    "overlay_3d_v1",
+    "overlay_3d_v3",
+    "overlay_3d_v4"
+  ],
+  "complete_pbo_comparison_set": true,
+  "observation_count": 6,
+  "minimum_observations": 60,
+  "candidate_objective_id": "overlay_3d_v4",
+  "artifact_sha256": {
+    "overlay_3d_v1": "8b5356b74ea44dd526b9431ce65fd6dcbe730232759b5726e28278a62db7b36c",
+    "overlay_3d_v3": "b9a60a37ec74b3c2c5d3358953c7f3a28687c47fc2950d3eeb0435faa0afcbee",
+    "overlay_3d_v4": "14170bd38e55ed39d6e35ffe1adc62ec116b476d3fe0bf36e4581549e5e7b4a9"
+  },
+  "trial_sharpes": {
+    "overlay_3d_v1": -0.4082482904638631,
+    "overlay_3d_v3": 1.014056618361286,
+    "overlay_3d_v4": 0.336089235139582
+  },
+  "observed_sharpe": 0.336089235139582,
+  "expected_maximum_sharpe": 1.352183589749352,
+  "deflated_sharpe_probability": 0.002040544880874906,
+  "registered_trial_count": 20.0,
+  "pbo": 0.0,
+  "median_oos_rank_logit": 1.0986122886681098,
+  "cscv_combinations": 6.0,
+  "failed_readiness_gates": [
+    "minimum_observations",
+    "sealed_candidate",
+    "sealed_outer_role"
+  ],
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

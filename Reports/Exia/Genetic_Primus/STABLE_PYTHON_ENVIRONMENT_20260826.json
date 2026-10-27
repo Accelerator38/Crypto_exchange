@@ -1,0 +1,41 @@
+{
+  "schema_version": "exia.genetic_primus.stable_python_environment/1",
+  "status": "OFFLINE_ENVIRONMENT_VALIDATED",
+  "environment_path": "E:\\Crypto_exchange\\.venv_gp_v8_stable",
+  "base_runtime": "C:\\Users\\anton\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe",
+  "python": "3.12.13",
+  "packages": {
+    "numpy": {"version": "2.3.5", "source": "bundled base site-packages"},
+    "pandas": {"version": "3.0.1", "source": "bundled base site-packages"},
+    "pyarrow": {"version": "25.0.0", "source": "offline copy from project .venv"}
+  },
+  "execution_environment": {
+    "PYTHONNOUSERSITE": "1",
+    "PYTHONFAULTHANDLER": "1",
+    "workers": 1
+  },
+  "validation": {
+    "checkpoint_resume_smoke": "OFFLINE_CHECKPOINT_RESUME_OK",
+    "checkpoint_sha256": "d185193baf3585ffadccdd430044784dec1c04bde38984a8901fa87f7c884676",
+    "rolling_180_hl30_one_origin": "completed; semantically identical to Python 3.12.4 result",
+    "rolling_180_hl30_outer3": "completed; all seven parquet frames semantically identical to prior result",
+    "rolling_365_hl90_outer3_after_label_fix": "completed; origin 0 identical to prior one-origin result",
+    "rolling_730_hl180_outer3_after_label_fix": "completed; manifest and artifact hashes verified",
+    "rolling_730_uniform_outer3_after_label_fix": "completed; manifest and artifact hashes verified",
+    "expanding_uniform_outer3_after_label_fix": "completed; manifest and artifact hashes verified",
+    "stage1_outer3_five_cells": "completed; provisional ranking only; not eligible for Stage 2",
+    "new_crash_dumps_after_label_fix": 0
+  },
+  "label_crash_mitigation": {
+    "trigger": "pandas.DataFrame.median -> numpy.nanmedian for three forward-label horizons",
+    "replacement": "strict three-value median via pairwise numpy minimum/maximum with NaN propagation",
+    "semantic_change_detected": false
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

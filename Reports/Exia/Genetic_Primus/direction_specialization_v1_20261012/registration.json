@@ -1,0 +1,924 @@
+{
+  "schema_version": "direction_specialization_registration/1",
+  "config": {
+    "schema_version": "genetic_primus_direction_specialization/1",
+    "objective_id": "direction_specialization_v1_20261012",
+    "parent_registration": "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/registration.json",
+    "timeframe_minutes": 10,
+    "models": [
+      "logistic12",
+      "forest12"
+    ],
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "test_start_utc": "2026-08-01T00:00:00Z",
+    "test_end_exclusive_utc": "2026-10-01T00:00:00Z",
+    "origins": 21,
+    "train_window_days": 30,
+    "retrain_days": 3,
+    "purge_native_bars": 7,
+    "training_dates": "exact_parent_fold_time_indices; no resampling or new seed selection",
+    "flat_training_labels": "excluded identically to parent",
+    "threshold": 0.5,
+    "primary_metric": "correct_binary_direction / all_intervals; flat counts as incorrect",
+    "secondary_metrics": [
+      "nonflat_accuracy",
+      "balanced_accuracy",
+      "recall",
+      "confusion",
+      "monthly_accuracy"
+    ],
+    "paired_comparator": "same_method_saved_parent_pooled_model",
+    "controls": [
+      "random_coin",
+      "asset_train_majority",
+      "reverse_last_bar"
+    ],
+    "hyperparameters": "exact_parent_parameters; seed 20261012; no search",
+    "new_fit_budget": 336,
+    "reused_pooled_fit_count": 42,
+    "bootstrap": {
+      "bank": "exact_parent_resample_bank.npz",
+      "block_days": 3,
+      "repetitions": 5000,
+      "family_size": 16,
+      "family_method": "one_sided_centered_max_t; approximate_FWER_0.05",
+      "primary_metric_for_family": "accuracy_all"
+    },
+    "disclosure": "Adaptive exploratory follow-up on already revealed data. Per-asset training has fewer rows and separate scalers; fixed absolute tree leaf size has different relative regularization. This is not an equal-total-compute comparison or independent validation. Horizon chosen for bounded follow-up, not confirmed optimality.",
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "runtime_authority": false,
+      "network_allowed": false
+    }
+  },
+  "parent_registration_sha256": "cc173c6a2d16f6f83a897cd4c0d061b6fec9d4cecc6dca8765c217000c7b8f83",
+  "parent_pins": {
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/registration.json": {
+      "sha256": "f0558f504facd6d91fb609b52edaca8d4316fd67e780f39418427ec9beee003e",
+      "bytes": 66888
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/resample_bank.npz": {
+      "sha256": "e3cde3f88932cf818063e238b49c0073703e1c9fb5008aefab66046f24aabe53",
+      "bytes": 363172
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/preparation.json": {
+      "sha256": "9df576c2fdbe6d1621070d993960c48341b2dcc570b99adc5ff7d3e2c0bc1722",
+      "bytes": 16509
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_00.npz": {
+      "sha256": "0ed83b70c8eecc05a1d0875ca938fe210f29840cb3bd26e1b203cddca7ad2b80",
+      "bytes": 7195
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_receipt.json": {
+      "sha256": "2c389091b4a88cb59c520a6fb33989c13526a698cb83e7b013007031eb2530aa",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_controls.npz": {
+      "sha256": "24d83bd380f38a1843767aa73853285fed602ea675ba5aea244856a91c4e8c79",
+      "bytes": 5976
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_logistic12.json": {
+      "sha256": "97311ad849eb424d7e05b5e4e5c9b94343a3dfec6ea4089c910edb787ca7f3da",
+      "bytes": 2466
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_logistic12.joblib": {
+      "sha256": "2be720385342ad9aea2cbf3e9b668297ab6af3ff3139a7ef850e7e5129b90c18",
+      "bytes": 1226
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_logistic12.npz": {
+      "sha256": "3d4e731d9ff0b6c25812e2f984537eebddd3af3776d5072904251946125fc50c",
+      "bytes": 27184
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_forest12.json": {
+      "sha256": "f0cbd37a0855b16f5edba97e98672e0a6995a8934f8afc83aa4ce1d4beaa8033",
+      "bytes": 2645
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_forest12.joblib": {
+      "sha256": "6df92347955ebf668f32f9aa0f2cf44b0ede57f821a3bbb34bb3f989c01d6e22",
+      "bytes": 25404
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_00_forest12.npz": {
+      "sha256": "aa3890b2302fc94b8132d1c04cf2207ad85976dfa3a96d0d02528caf87d4212c",
+      "bytes": 25814
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_01.npz": {
+      "sha256": "96d29e053b4e73b48403c2ad782f11ac4f24eb128442bf86bbd6bd24bf540edd",
+      "bytes": 7194
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_receipt.json": {
+      "sha256": "782b7ccc57df2de9020f8cfdf1bf04955645fc0cb24dbdc96069a41ca35c3a23",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_controls.npz": {
+      "sha256": "27bc0050ef57c7a3dcc4b66910238db7841181728ba3b83c5bab14101e2835a6",
+      "bytes": 6066
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_logistic12.json": {
+      "sha256": "aea69557d965aeaed86936a115437d6d6b4485afa024474e3c8b7167264f7abb",
+      "bytes": 2468
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_logistic12.joblib": {
+      "sha256": "fee5510e3f353ea32eef6da23fd68788c393cdbf6273446c8920387703c84ab7",
+      "bytes": 1224
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_logistic12.npz": {
+      "sha256": "9b575233cf411f7462fdbcd865d2df60abffac5275e3a98492e1614e3352f74a",
+      "bytes": 27161
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_forest12.json": {
+      "sha256": "cf6f1fadf78662c67357807569b6b9ac7ee25db1c60bb318271aef674ab61ea5",
+      "bytes": 2647
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_forest12.joblib": {
+      "sha256": "ac01d3d5d547ec019b0fef2988e0ec8569fd0f83ea6dd47e6a8f3f4ff46e4b9e",
+      "bytes": 26325
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_01_forest12.npz": {
+      "sha256": "70548cc12ad1332029d71a0e76ff0d6a1341a4eeea1542241a2f746aed71aba1",
+      "bytes": 25712
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_02.npz": {
+      "sha256": "ad3a0c130c4b5319f7d33c3601c9ee297732809b2a8fef2f2fa4139e489d55ce",
+      "bytes": 7186
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_receipt.json": {
+      "sha256": "4e0789f5325dc1437c0207ece1d6543680eb697e4221de7c2798ec86a158da05",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_controls.npz": {
+      "sha256": "44e8b904f7dc755f6d4814fc1d4b532cc1594cdc1413554fcb44957dbe2bc722",
+      "bytes": 6110
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_logistic12.json": {
+      "sha256": "6cc00ed4240f5b2b22a60bf34c407e0ce12f1faaac1ef1d34d1c8957450106db",
+      "bytes": 2473
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_logistic12.joblib": {
+      "sha256": "08063ddef0adbd2fcc2ee083997b545a48ba95f326bdbd92fb2deb4243bb5920",
+      "bytes": 1222
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_logistic12.npz": {
+      "sha256": "6c674778bed7491f384d4dc183a6241cbbed3917efff3640ce5a814c09d4e088",
+      "bytes": 27083
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_forest12.json": {
+      "sha256": "5a041d98aeac1b12475be38c34d63f6fa26a7f1fd862f4fd64257d42dc2ea946",
+      "bytes": 2652
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_forest12.joblib": {
+      "sha256": "36a2089b94a0a5158894a271e8208982f7bd2447e28a0d33b94a7fcc90c1c772",
+      "bytes": 26706
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_02_forest12.npz": {
+      "sha256": "73ae05f373ddf6611248430a5b12a378fb76ce795642233231bbdd1d2af41375",
+      "bytes": 26373
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_03.npz": {
+      "sha256": "18f3a2200706d28d27127ade67c25585041207ae9ef503784017c23c6e4687da",
+      "bytes": 7194
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_receipt.json": {
+      "sha256": "1ff9023702bcacbff844e9e8d5d1a5d1d6f6de5bfcdc0f4117818e53df9372e7",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_controls.npz": {
+      "sha256": "03bf653dbc4de3cb8ef1aa7e604ccee2368e50615253445a7146b2fd1d1ccf23",
+      "bytes": 6045
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_logistic12.json": {
+      "sha256": "6bb0a6f987366c8ff0e20d03f7a34641fc65bc99e9429b8551d26b6ff9336a65",
+      "bytes": 2475
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_logistic12.joblib": {
+      "sha256": "eca66d2df3d6f8d3a7c16b4eb0ad913caa000d9d743f5ea5b2ca91f4444ea5a2",
+      "bytes": 1221
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_logistic12.npz": {
+      "sha256": "fc081245cdf485e470410d5e7a78eb70fe3dd5549712387cef97327ce2388ba8",
+      "bytes": 27129
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_forest12.json": {
+      "sha256": "39f156b9b1d9e0244fef56cdf3d67bd867c38da2e287815249855d1d39e1fb74",
+      "bytes": 2654
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_forest12.joblib": {
+      "sha256": "1f05c5501e1fcfdac40fc2b1788d3a01a1c02be95cab6d9086fa763497510e32",
+      "bytes": 26126
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_03_forest12.npz": {
+      "sha256": "26ad60847561138ec85d97396119046b9f4d90166266ea48027b02dae496fe0a",
+      "bytes": 25816
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_04.npz": {
+      "sha256": "c067e45569a4f0359b52ed65b701b67f2e77f723a9ba8fdee9efb9cbd0141a76",
+      "bytes": 7194
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_receipt.json": {
+      "sha256": "2a228ec4f139a7b085e204de3c5a91dbfa2654bdef15017b85bd43ac170a6a92",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_controls.npz": {
+      "sha256": "45bf14449553297e300b7f96dd47e77d15e9e6efe1ecf9f5291308eba361c312",
+      "bytes": 6161
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_logistic12.json": {
+      "sha256": "1a5d2970f32244f2708036926328d2405200b1671cd8640bce9d6e961222327d",
+      "bytes": 2467
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_logistic12.joblib": {
+      "sha256": "1bfdcecdf0019a1f29e54940472371bc45c7b9a03c60c433240d2c1707569e70",
+      "bytes": 1221
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_logistic12.npz": {
+      "sha256": "3ae2ed5f2900e5944e02ad73a5a204ecde6bec375ef90ba32087cf104f4fd11c",
+      "bytes": 27093
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_forest12.json": {
+      "sha256": "820db6c4d8d9b6568c6f153ac09699eb1b4b4b5d05baa14b9fef0e077d74656b",
+      "bytes": 2646
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_forest12.joblib": {
+      "sha256": "c3944e5d0b0343c61f9591452b393dfb450fd7cccb00f72360e03ef4929688b1",
+      "bytes": 26631
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_04_forest12.npz": {
+      "sha256": "948bf1d167bea2e80353832b9f4098095d489a0c324e45bfdaf8c64ddfff6c85",
+      "bytes": 24333
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_05.npz": {
+      "sha256": "801cf88ff52f26d8018d0d9456fcd995894f0532794b3f63e12facb609161c74",
+      "bytes": 7188
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_receipt.json": {
+      "sha256": "94b8940e986234bad47c1833bad73458cfd537965298077009ccdf9f16609db1",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_controls.npz": {
+      "sha256": "c8b6d1971d922550e0411e149ff75ae20342eace504858fe99a3ac3646a1497e",
+      "bytes": 6171
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_logistic12.json": {
+      "sha256": "c0adf6eb0307cfdc118ab24d1ee112218f5902af3842373a90da8f7a008024a5",
+      "bytes": 2473
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_logistic12.joblib": {
+      "sha256": "7edcecda55d623d4c92c39da6f94586d23ccd5599e62dd35f6e7b9bfd6c350fa",
+      "bytes": 1224
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_logistic12.npz": {
+      "sha256": "00082c03b8376fd8c99d384df320dc3b8b3a1d0d4659ff00fb1ce2dd7447bc68",
+      "bytes": 27113
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_forest12.json": {
+      "sha256": "4be010495ef195bd50897cfce310c4ccef02ed78718ad2798edcec6ad5058c27",
+      "bytes": 2652
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_forest12.joblib": {
+      "sha256": "8821e528aeb14fc6022d301dbdc0a91192baf6115a1a5f8cd434e5ef031f5629",
+      "bytes": 25853
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_05_forest12.npz": {
+      "sha256": "cf184686e1dcc7116b2cc8a1384fdeb47bd290518c004ea05b687b63e744b21c",
+      "bytes": 26077
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_06.npz": {
+      "sha256": "c65a802cc9909fe9d83b4714e9a2194a09f0fdd031e58f295175b081c6bbff72",
+      "bytes": 7193
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_receipt.json": {
+      "sha256": "92e4f507b6306716e72398ab0839f473c1def1dd1a08f33d4eed22691208ba48",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_controls.npz": {
+      "sha256": "9706becd79c4547a8099584fa40d5b213e0ad41ae726e4d57fad00d0c16325ba",
+      "bytes": 5846
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_logistic12.json": {
+      "sha256": "0b60454959f936d0dfd40b02396245cfea324cc29dde8fdb5592379ddee8a086",
+      "bytes": 2468
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_logistic12.joblib": {
+      "sha256": "4a1df91cd62bf4cc2e2c86a11b3981a3bfda5075bdc2091490756962dcec0636",
+      "bytes": 1224
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_logistic12.npz": {
+      "sha256": "7b47d37f0a3fee495c28c2d6a93e8385119dca9295b1e9797bf6bde76ae9b257",
+      "bytes": 27542
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_forest12.json": {
+      "sha256": "b2f876e59d16d72bb3c0823a1c59f3948a2e7d87b9c5be940264c44d6ff955f0",
+      "bytes": 2647
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_forest12.joblib": {
+      "sha256": "4d1143542220d5dda815387601bf859f944d3f20895efbc0b0e00eb520ff2be3",
+      "bytes": 25166
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_06_forest12.npz": {
+      "sha256": "84a10122d8e9aeadcd5af58126d655250b3ae5560d6a2e8d8fcc7a1f66e5c4f2",
+      "bytes": 25775
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_07.npz": {
+      "sha256": "fb7d11388a0686913afbb21e18aaffd08efc82ecf219688f162f553bc262bfb2",
+      "bytes": 7197
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_receipt.json": {
+      "sha256": "86da0f310c1104379bc348e3aa74092cb5d28cb420cb68f54e9fa20ba91629d4",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_controls.npz": {
+      "sha256": "e0968ac7d7c6801ddcc68caa03582e8308d83e6e33d7e95d63a6f475797d6d57",
+      "bytes": 5887
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_logistic12.json": {
+      "sha256": "78918d0f9fc5d4a2ef73e18d06d11ee93193988c31bc7812a0656fba66ce917c",
+      "bytes": 2468
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_logistic12.joblib": {
+      "sha256": "5a333101c3f20944bd4d238106f2255edc0f3d0c8e3cb05f3041cb7b637a47af",
+      "bytes": 1223
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_logistic12.npz": {
+      "sha256": "c4b7b2278cec720182bd8a4942fc2777bbc06decf0fe227a208fa7670f5262be",
+      "bytes": 27417
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_forest12.json": {
+      "sha256": "7f5de6d90d4d10ff5b106501ed4858821f6f9a5d01c316a764c275b26dbc6f3e",
+      "bytes": 2647
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_forest12.joblib": {
+      "sha256": "6beca6f30dec62c15341cc8a054967d65404f6526a6d0de95740872cf6136246",
+      "bytes": 23137
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_07_forest12.npz": {
+      "sha256": "7f3f3b90433cc39ddf1ee415f55e7712456475740376b511dca269cdd6700377",
+      "bytes": 26996
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_08.npz": {
+      "sha256": "c6aae4de5ceab51aa7dcdc222d0d19e3e6e79b2a0e8efb6a8b53a0194b4ff8bf",
+      "bytes": 7188
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_receipt.json": {
+      "sha256": "ad6e49efb8778352a14a20c0792044265551bee3f5d24a3487cf7619d72feb27",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_controls.npz": {
+      "sha256": "ef97ec40e41d6d722163d2fd49ca91b33c5e6f9853eb19f0f57f442f3089b9e8",
+      "bytes": 5822
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_logistic12.json": {
+      "sha256": "48330d4ad07f9edf7b3108491e7aca3bdf470a5b6f72f819e97a554ece13bc4e",
+      "bytes": 2461
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_logistic12.joblib": {
+      "sha256": "564b60b1027164e3b086fe920073be19ee51a083418c9e87ed5b30fd5299b137",
+      "bytes": 1217
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_logistic12.npz": {
+      "sha256": "a421ba0503157cb292dd818283dca988441879536cd178a0445d32746a07cf4b",
+      "bytes": 27056
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_forest12.json": {
+      "sha256": "dae0d1e753de0b543d815f12540ceff299771cee831c3174ff71c1aa148fae33",
+      "bytes": 2640
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_forest12.joblib": {
+      "sha256": "f9b936ee21419a36e15132ccf8fac816fb5e3d20e14948c479bf642fc2a9fac2",
+      "bytes": 24716
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_08_forest12.npz": {
+      "sha256": "ee653bc4f88aea49e2d827c2cfd1a60576ea6c904648e75791545303382b66d6",
+      "bytes": 26844
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_09.npz": {
+      "sha256": "45c46449fa62caf7dc187994d0c30463bfedd29ec4c0fd0b5b26c3e8298bce69",
+      "bytes": 7188
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_receipt.json": {
+      "sha256": "2e08829101ff2ae52e668126346f92c9e4b03db7bcbf3e98bd77b7389e12dfe4",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_controls.npz": {
+      "sha256": "9b73c1ee6ad31b910bbc1db8cf47113d3c476b945478034047671bf8911ff2fb",
+      "bytes": 5827
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_logistic12.json": {
+      "sha256": "594b124e10b4bca46e05a8b94de21edb3e99e43b60e8d9295373cab11405a948",
+      "bytes": 2464
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_logistic12.joblib": {
+      "sha256": "a77afa2a1c9dd3011070b83ffeded6d609c508774589c5f5115112830046eeda",
+      "bytes": 1220
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_logistic12.npz": {
+      "sha256": "9ba72ad9039b325d0e8f3e71d1e45052059339c1a4678c75bcfce233711ec574",
+      "bytes": 27021
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_forest12.json": {
+      "sha256": "2da76d1aac866f77e5b1933052d3408237d8ac4a80b01ed45f38e7104c1df8cd",
+      "bytes": 2643
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_forest12.joblib": {
+      "sha256": "bde57869de6fd7350a6a1eb64c0c3f8d88c6fe998894412082881b2f94c7c7cc",
+      "bytes": 24854
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_09_forest12.npz": {
+      "sha256": "e0e9b945eb14dd8eccbd396bfc3b420cf941e371a7f5aebb177d3d623b4e75ca",
+      "bytes": 25451
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_10.npz": {
+      "sha256": "32f2f00812f86536a3d8f2cf1f5a40ed8214e97ce24206169e3920dad893718c",
+      "bytes": 7197
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_receipt.json": {
+      "sha256": "fea62287ed486536615d8bf28d43461ec9b63b7dae91ef19c3a3725f6d585527",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_controls.npz": {
+      "sha256": "6f15386eb826780f78c340e6133ed9a27a696ffec9644271d8d0600973a22f93",
+      "bytes": 5716
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_logistic12.json": {
+      "sha256": "b47818430023a645c6de76fb7636ec0d5cbd79a8950daf27a4d561176731e121",
+      "bytes": 2468
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_logistic12.joblib": {
+      "sha256": "82ad6299e3c3b300350edfe3163346653640497227c66b05f7a68fe3a1892900",
+      "bytes": 1220
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_logistic12.npz": {
+      "sha256": "7c809203c032b4844a7997d5ad55d36838ba46ffb7c87a3b712242e3d0a78ba5",
+      "bytes": 27075
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_forest12.json": {
+      "sha256": "8dabf0962617138a090af0d2ccf483281a1b93cd3829b67212c79ac117aac71e",
+      "bytes": 2647
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_forest12.joblib": {
+      "sha256": "16c6c57bf99262725c032bfa2f0419fea084922d624e126aec3bde4dbf4b3b67",
+      "bytes": 25729
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_10_forest12.npz": {
+      "sha256": "dd661a02957474af8daa547e3c17b7eedd73a31f6508cd68f4a8251896e69a98",
+      "bytes": 26912
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_11.npz": {
+      "sha256": "396488bca26ec528f3273dcbf85779538128ff94ac3eeefafeeaee66d31b30c3",
+      "bytes": 7190
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_receipt.json": {
+      "sha256": "f048988b3ee0211ad828d57148e1ef0cc00e228a6b4cbcbad688fb2c458503c8",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_controls.npz": {
+      "sha256": "89b7b6926b2b77a1af1183de3e0131f6254bbee4a9258a77727ceb5674e2dc9b",
+      "bytes": 5847
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_logistic12.json": {
+      "sha256": "282597c6a690d3f391bb843d1d2ef006ec70e8790b8e5753808b7c7f9615b0ac",
+      "bytes": 2464
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_logistic12.joblib": {
+      "sha256": "335ed93083023ea8e441255d1a78e696c7b488fa63d16d34cfd735f07eda2bb1",
+      "bytes": 1224
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_logistic12.npz": {
+      "sha256": "06b9d1200b22ccd095ddb837c5b667e63b6a6146c05ba04586fab6101a28cca9",
+      "bytes": 27054
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_forest12.json": {
+      "sha256": "bdba272edecb34f4a72778f854b8a21e7a5c43d507069f0c04679432f72c2416",
+      "bytes": 2643
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_forest12.joblib": {
+      "sha256": "5abd7e396b9ffbc83703b28aed89283f478288f3b2103da35f98a20b8061ee88",
+      "bytes": 25380
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_11_forest12.npz": {
+      "sha256": "45ef61de137b6c3658aaea37b9b95753aa65ceeadbb8235e713cc5c82604526f",
+      "bytes": 24258
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_12.npz": {
+      "sha256": "1106a910b65805b2d3f4613b85c80ecce9825db94cb2b96049e1375b1fef80c5",
+      "bytes": 7188
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_receipt.json": {
+      "sha256": "875f72d4f41d5c6804d6a9b569653f9dd325ca77907eb3b0dc9aaee7e239ce41",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_controls.npz": {
+      "sha256": "f99f7dffa33fcac3099c4717e4bde6003f6ecf56a24de8dac9e6cf47f67590b6",
+      "bytes": 6045
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_logistic12.json": {
+      "sha256": "a2e315d9403cb197c1b77b677f8284e345bda4a73c3d82d2cdaf9e42b06c87e7",
+      "bytes": 2464
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_logistic12.joblib": {
+      "sha256": "d9aebbddb2bfd2060688fe0df8787193125148847a4bb3b4475a7bcc4bb83a2d",
+      "bytes": 1225
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_logistic12.npz": {
+      "sha256": "263ed0ddab5cd406558ee24f8f56259b813fe1d089cc4f000c7de53416233fc4",
+      "bytes": 27015
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_forest12.json": {
+      "sha256": "3ef2f5c9c4670128468de02f0b506f0fa4d3e0fa01296af4bda93270fc538c00",
+      "bytes": 2643
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_forest12.joblib": {
+      "sha256": "9f4ef9047e34cb521dc54aaa1dd722ca1964b9665f7c78651804b17909bd64a3",
+      "bytes": 26257
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_12_forest12.npz": {
+      "sha256": "f4cda0b3dd39d34df2b0278e8e0edfc0ed1cb0c558b732fee0c1205c1425b143",
+      "bytes": 26867
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_13.npz": {
+      "sha256": "45cab72afa89b0d9a40c95642dd70354f950723fbab4f7375ebea34d30ad54d4",
+      "bytes": 7196
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_receipt.json": {
+      "sha256": "053979f3762edde19ecd6564dfb9927c65ca03767ea28a26bf77b7ec3631d7b5",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_controls.npz": {
+      "sha256": "33ecbe96d5a40dbe701891c4771e3a475e45e098246cf96253f54f2d17a41f4c",
+      "bytes": 5706
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_logistic12.json": {
+      "sha256": "b8ee36be65329c313505e1548260c8550eb4545a6fadf0645022186aa4174e06",
+      "bytes": 2460
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_logistic12.joblib": {
+      "sha256": "0c0f9fc95017e45b66c2fedf35e46bb1a9868c3dd9f195a562c49f89e63db11a",
+      "bytes": 1221
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_logistic12.npz": {
+      "sha256": "7317b9e3398a2e81978709b0df6824b891dc0f912687584bfc09dd7ef0e6a5e2",
+      "bytes": 26969
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_forest12.json": {
+      "sha256": "a2d654bcfdde6f2cc04ab3f0bd583bdfb9a274079849d02194e208845769ccf7",
+      "bytes": 2639
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_forest12.joblib": {
+      "sha256": "2cafbf94976f517d1c1801a1e1b47c9504a6dacaa0fb24a198a9f5ff63ff7a16",
+      "bytes": 25307
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_13_forest12.npz": {
+      "sha256": "e03b985adb0de9d091b38f883f06f23c4b7fd0d44a1981f18ca85efb4260326b",
+      "bytes": 26168
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_14.npz": {
+      "sha256": "a2e34126f3f1eba5d525ebb027c2c623da8381e22bebdf46db78db08a6941019",
+      "bytes": 7192
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_receipt.json": {
+      "sha256": "3384186e75502d47c05010b815348f45ef031349fb20ea23c248bbdf639b8984",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_controls.npz": {
+      "sha256": "646d8f20df123efb5a13ffcdcb55020a2d02bc67b21febc04add4b4de8f7557d",
+      "bytes": 5915
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_logistic12.json": {
+      "sha256": "bbb70a14c3e0773601b7bea5cc042181c997643a60ca2a585827d210232247f0",
+      "bytes": 2462
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_logistic12.joblib": {
+      "sha256": "e922ce0bc48ddecccfc75a8991e130fae6012df8c87cdd4782ed5ce9c2da2cfb",
+      "bytes": 1222
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_logistic12.npz": {
+      "sha256": "7b05b5ecde84e49536601bc9bdd358bd0524ed110d0ac10d58fa128377f6e2e4",
+      "bytes": 26920
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_forest12.json": {
+      "sha256": "7e7e9dd3a19265fa19c1c78fbad70fcb95564681b4cf06708767e224f66f9cc5",
+      "bytes": 2641
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_forest12.joblib": {
+      "sha256": "a6a9d4deb9a6cb9583b34230895702d105c829ed92985077df78bc438dee4d65",
+      "bytes": 25726
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_14_forest12.npz": {
+      "sha256": "f52c8014e2e56aa546bc7f170bb3a88aefcf67314ba831248b992af7b9f7094e",
+      "bytes": 25124
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_15.npz": {
+      "sha256": "059e64f8219f0b82764deb42592c745440834c2cada4d907df1c3302b067440c",
+      "bytes": 7186
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_receipt.json": {
+      "sha256": "a146a46d512dbf1daf93da3e1fdf250549341a6cbee30abef746da439746f18d",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_controls.npz": {
+      "sha256": "ec2d2ce258f079474debb2ba7f7886dec0199b58b4dcf53184b228a296a0476c",
+      "bytes": 5712
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_logistic12.json": {
+      "sha256": "f72ab46aa4e4ab2a5936a96cac89260033729948d56376d68c6f629f29d6fcd6",
+      "bytes": 2467
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_logistic12.joblib": {
+      "sha256": "695b3b31fe6e062f290e0a1457d744857fbcdcaea7f2dc1e39447f391597b642",
+      "bytes": 1223
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_logistic12.npz": {
+      "sha256": "7b6220db1fc09662db287789e124a104a769ad4bc1c9b66ff0e19039a51a7955",
+      "bytes": 26782
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_forest12.json": {
+      "sha256": "8d18e497c799ff9d123e2356744f3c5aa16a6ff19571d5e9717cc0bad9155520",
+      "bytes": 2646
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_forest12.joblib": {
+      "sha256": "4ad80deb40120d00a2c4e2c58af859a03f6c4512d9a432ac97994377bb817f6b",
+      "bytes": 24901
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_15_forest12.npz": {
+      "sha256": "5c47a94b58531d41685bb5b6215c9c5e3c56d0853b618d0db4407663d1b39243",
+      "bytes": 26103
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_16.npz": {
+      "sha256": "82fdc1d796f38f8621f8a42071a9db84a61222ec261afd9b84897576c98f5a2f",
+      "bytes": 7196
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_receipt.json": {
+      "sha256": "b9f7add0150ac23f4f8edcf077ba9ff29514bc20892fcc61d80681cccbdd6adc",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_controls.npz": {
+      "sha256": "dcc3abd2d1b612ac1e4ed11f4e20658f123de05e98a639a3900771b9b113cdde",
+      "bytes": 5803
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_logistic12.json": {
+      "sha256": "5f8346d944770c036896c26cbeb4d9b0c18514686033a758b10be653bb8fde81",
+      "bytes": 2469
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_logistic12.joblib": {
+      "sha256": "4c8ee6a161986efc38b65b5bb66bf13c2003b5cb244948f0a85e5831800949a9",
+      "bytes": 1228
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_logistic12.npz": {
+      "sha256": "8a31e50f31b3e982bb6eefaf243005fc11a6a26b9b91eccdafa52a57feab4e26",
+      "bytes": 26855
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_forest12.json": {
+      "sha256": "0c5945daeda61ccafecb1a8b1555492a7e63ad35dd5429b216a94b7a39466e75",
+      "bytes": 2648
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_forest12.joblib": {
+      "sha256": "6ff5bb1924483e0f696bc6cfa5a3c549c53fe2a5583d1c9aa8f2ac13ffb747fc",
+      "bytes": 25508
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_16_forest12.npz": {
+      "sha256": "aee4ccab5e65d702acb5047e9642a6cb42a305edffecf5a3eb94290849e834c7",
+      "bytes": 26092
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_17.npz": {
+      "sha256": "6e0734b05784e9f7cd0cf316b62a12f61cc7d36406203c1a45bd4baf4a846c25",
+      "bytes": 7191
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_receipt.json": {
+      "sha256": "5d6fbf318147c1754c5c9cda3405a654d8a2c0a30b3c19636f4c83054c203e2a",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_controls.npz": {
+      "sha256": "c291826a4e05939689284ae527739077cb5592b1f48170af437787e941fbe9db",
+      "bytes": 5800
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_logistic12.json": {
+      "sha256": "191a33566e0b187080b3f16b5342afe96844efc11cba64e8bd78283f9cc14ffc",
+      "bytes": 2471
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_logistic12.joblib": {
+      "sha256": "023e3e413f8b6ed629d54f3b009db36ccd3bc724e680e072e0fb7ad0e31c25ff",
+      "bytes": 1230
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_logistic12.npz": {
+      "sha256": "0d65e0f8d7a2812970a01da20ad21a58ae85a500ad91eb934cf9c681375d5c9f",
+      "bytes": 26999
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_forest12.json": {
+      "sha256": "bde6eda1228e1018178b4e5aceb865de8d244da8d04ee889ccb5cb402397181f",
+      "bytes": 2650
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_forest12.joblib": {
+      "sha256": "f5dff9cf46147c0bb90e5375ef886d89bd102f021712f82699559b3bee2e1d83",
+      "bytes": 23311
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_17_forest12.npz": {
+      "sha256": "54781418de18d032e67e2e252db6384bb16b50373f82c06e21b2583fc1b9fe87",
+      "bytes": 25791
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_18.npz": {
+      "sha256": "e4a9070471961596cb684f4d58bb551f359a4469ec60ffc2cf1e825f3b0e7bed",
+      "bytes": 7187
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_receipt.json": {
+      "sha256": "11913b4e5cd2e906700497fd078ee9370aa377b1a07501acd6ab62af68cc40cc",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_controls.npz": {
+      "sha256": "9f40874493b56882bf222438d0998e3d896fd2b9e88deb1e1844c8d415650d20",
+      "bytes": 5968
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_logistic12.json": {
+      "sha256": "0e4084604eb93a1a6c5e65009ddfe119ee76768e54a49d5206742f870baa6aa5",
+      "bytes": 2473
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_logistic12.joblib": {
+      "sha256": "99733cc9d2f30dbd9773c71239438639d4c5c9a21f507f6876e59250b4404d5d",
+      "bytes": 1223
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_logistic12.npz": {
+      "sha256": "8bf60f3591318968ff077f9eb117fc733097837c873d76b4a9ba22d849cf67d9",
+      "bytes": 26998
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_forest12.json": {
+      "sha256": "eed8f9f9b40e46a6df1ab57f3bc726f926bfb0e9b7dea6c4140db7dbc77defbd",
+      "bytes": 2652
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_forest12.joblib": {
+      "sha256": "beee50475b56ea7aef4adf7216004961bb2b01bc9b746493263cb4ee427e087b",
+      "bytes": 24513
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_18_forest12.npz": {
+      "sha256": "3c8c6675f5a1bb92225e4e7dca614459a24219d0eb153a5d12397043ab848f6e",
+      "bytes": 26666
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_19.npz": {
+      "sha256": "725d1d2daab5e06c9dbe5e2e798ef233220b2338efd29321c13ea206e3d3247a",
+      "bytes": 7194
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_receipt.json": {
+      "sha256": "ab5b308cfaae2066e0f2a710faed7eec551c19f96202786c98a4e5664e03631d",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_controls.npz": {
+      "sha256": "7d933c1edc7d50a9accce976b36dfdc8763f846d2979be395dea97cb0d06bb20",
+      "bytes": 5797
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_logistic12.json": {
+      "sha256": "94c39073cdfbb2fec78a86060312978ee5a54cb9ab52210fb3ad2905ad70d139",
+      "bytes": 2470
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_logistic12.joblib": {
+      "sha256": "2507c7ce89caa46d4e65e2a91b561fc87b3e3399ed8890c1fa176207024e841b",
+      "bytes": 1223
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_logistic12.npz": {
+      "sha256": "89f5d73ce8e97bf9f75345f1c6e9cc8a9d86a6fb68e4b4e7d1a8b6d337498fd4",
+      "bytes": 27108
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_forest12.json": {
+      "sha256": "f54321cd90fd547963066856a4ab13e25c2625f36d45bf1631b9c9349144c147",
+      "bytes": 2649
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_forest12.joblib": {
+      "sha256": "72c13127737cdb3f36a903fbfbbc23ba4cfef304dd99837fa6efadc16483ee6e",
+      "bytes": 23907
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_19_forest12.npz": {
+      "sha256": "45c2f8c804f3d2761cb73d88f06b94e1317971a6811d92a99b402c1d530f6ebe",
+      "bytes": 25643
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/fold_20.npz": {
+      "sha256": "0aa8072d1138c251a544e004774e845713449634bd336327fdfdb28ac0b49475",
+      "bytes": 6754
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_receipt.json": {
+      "sha256": "a0cf84eb0d36e7903f33f7909a836dd8c74e7d493b94fb71e34abb494c1179fb",
+      "bytes": 2273
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_controls.npz": {
+      "sha256": "320f992c895eae7898dfef0113a3b8055519e44d9f9b6c269144c8f3839a6eb5",
+      "bytes": 3282
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_logistic12.json": {
+      "sha256": "b48aaa133116d8f88428dbbe1e1b0dcb51fe47b43fe9810a1069ca4116f402c0",
+      "bytes": 2467
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_logistic12.joblib": {
+      "sha256": "07a14d869e21872f086a676bf6d443514a8ca4453e7f9fe8a3bb9951370e7f38",
+      "bytes": 1219
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_logistic12.npz": {
+      "sha256": "5a6a8d76c55c972970aefc48680626b6005ff9ee19580d6e0e191e7be370bdbf",
+      "bytes": 9328
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_forest12.json": {
+      "sha256": "c502bedb8b44c3cb54b51e9219e564e866515598f50a0dd534a4eb30bede47a6",
+      "bytes": 2646
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_forest12.joblib": {
+      "sha256": "48fee1e94292f82514b925c6e5acdaf4dc17e30ccb5961242343c3c1286761c1",
+      "bytes": 24245
+    },
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/origin_20_forest12.npz": {
+      "sha256": "1dd38cd7f70997fd1cc68ce0a415c081b954775dee67bc69a87da83a77a8eb6e",
+      "bytes": 8863
+    }
+  },
+  "source_pins": {
+    "tools/run_genetic_primus_direction_specialization_v1.py": {
+      "sha256": "268890962977caf3f98f0af0213d296081813e24b01c451775f2d61029c1cd5a",
+      "bytes": 13693
+    },
+    "configs/genetic_primus_direction_specialization_v1.json": {
+      "sha256": "77add460dcdc3f1b366281d0556c806280507968f50a08fab530e89e18d532b5",
+      "bytes": 2052
+    },
+    "configs/genetic_primus_objective_registry_v12.json": {
+      "sha256": "43e2dcb167389c2cea8b5921f614d9b888742854cccab241f5c617435a243713",
+      "bytes": 4825
+    },
+    "tools/run_genetic_primus_direction_multiscale_v1.py": {
+      "sha256": "8169a3b5915258914e41f4775789e48c6890f2e3a2e62cf10097296e563f3167",
+      "bytes": 26531
+    },
+    "configs/genetic_primus_direction_multiscale_v1.json": {
+      "sha256": "05413c05660a22da09ecbcc7a17c7af411279a7bbd1566263b223308929fa621",
+      "bytes": 2221
+    },
+    "src/exia/genetic_primus/direction_multiscale_v1.py": {
+      "sha256": "2a1db4b7ab0c95216e6b027b8b2df3f055e574aa44c187b06480bd98eb7d1cbf",
+      "bytes": 5261
+    },
+    "src/exia/genetic_primus/direction_benchmark_v1.py": {
+      "sha256": "a8e1c8ca15b9b778e92ae2ebbd8c1ba7e3cd028ff90d04917d614c6d61f65dbb",
+      "bytes": 9480
+    },
+    "src/exia/genetic_primus/compact_forecast_v1.py": {
+      "sha256": "bf839c41c403a37fa8f009f9c1a86502a3b695149e801e9076557a1b3f385b4b",
+      "bytes": 10556
+    }
+  },
+  "hyperparameters": {
+    "logistic12": {
+      "C": 0.1,
+      "class_weight": null,
+      "dual": false,
+      "fit_intercept": true,
+      "intercept_scaling": 1,
+      "l1_ratio": 0.0,
+      "max_iter": 120,
+      "n_jobs": null,
+      "penalty": "deprecated",
+      "random_state": 20261012,
+      "solver": "lbfgs",
+      "tol": 1e-06,
+      "verbose": 0,
+      "warm_start": false
+    },
+    "forest12": {
+      "bootstrap": true,
+      "ccp_alpha": 0.0,
+      "class_weight": null,
+      "criterion": "gini",
+      "max_depth": 4,
+      "max_features": 0.75,
+      "max_leaf_nodes": null,
+      "max_samples": null,
+      "min_impurity_decrease": 0.0,
+      "min_samples_leaf": 128,
+      "min_samples_split": 2,
+      "min_weight_fraction_leaf": 0.0,
+      "monotonic_cst": null,
+      "n_estimators": 24,
+      "n_jobs": 1,
+      "oob_score": false,
+      "random_state": 20261012,
+      "verbose": 0,
+      "warm_start": false
+    }
+  },
+  "time_indices": "unchanged parent folds",
+  "historical_new_fit_budget": 336,
+  "independent_validation": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "sha256": "87ee5c1e62067a2c976db877d00079f09d8dfbea9fbcbefdcc161e9bc20077b1"
+}

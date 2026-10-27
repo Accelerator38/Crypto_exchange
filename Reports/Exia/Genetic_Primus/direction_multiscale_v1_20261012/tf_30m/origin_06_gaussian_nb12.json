@@ -1,0 +1,75 @@
+{
+  "registration_sha256": "cc173c6a2d16f6f83a897cd4c0d061b6fec9d4cecc6dca8765c217000c7b8f83",
+  "timeframe_minutes": 30,
+  "origin_index": 6,
+  "origin_ms": 1787097600000,
+  "cutoff_ms": 1787085000000,
+  "latest_label_ms": 1787085000000,
+  "fold_sha256": "8d7d297e873410a707797df88d1d40221dcd0fd144d748d4e811d56a35d2ac38",
+  "info": {
+    "name": "gaussian_nb12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      0.00032170694173565566,
+      0.000324197138563338,
+      0.22297695156418276,
+      2.9328345575142793e-05,
+      0.0026019807754808577,
+      0.5057958784864096,
+      1.4389506324232415e-05,
+      1.4389506324232415e-05,
+      0.00400051845691914,
+      0.0010439558181409294,
+      0.0010180876393856932,
+      0.008081352732847753
+    ],
+    "scale": [
+      0.00909861176071286,
+      0.011615815431831596,
+      0.16708742746780722,
+      0.007722688753158179,
+      0.001172116761675423,
+      0.3541217431909679,
+      0.0028988715016552615,
+      0.0028988715016552615,
+      0.002981743508528055,
+      0.0012286406072193985,
+      0.0011710719353440976,
+      0.8572128435933991
+    ],
+    "rows": 11258,
+    "up_fraction": 0.49653579676674364,
+    "training_sha256": "fae676e5c34311ea326387efc0ff6fc5dbd133b0e2bff4311f9476993ce6b4d5",
+    "warnings": [],
+    "hyperparameters": {
+      "priors": null,
+      "var_smoothing": 1e-05
+    },
+    "parameterization": "class means/covariances or bounded boosting; not a neural parameter count"
+  },
+  "model_pin": {
+    "sha256": "2bf7c7eeff1a30031aed82b9ae5995188bab9c6b2ec385f26bca571a70096dbb",
+    "bytes": 1445
+  },
+  "prediction_pin": {
+    "sha256": "3ed08c7e12e43438eb0379e0121930f5e709d5425fe2f2b5183f220048813730",
+    "bytes": 9442
+  },
+  "saved_prediction_parity": true,
+  "train_only_scaler": true,
+  "network": false,
+  "sha256": "1330e14007f9fa0d716ae5db609d4184dd9589c17ed28f8057d2c082f404a52f"
+}

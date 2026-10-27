@@ -1,0 +1,315 @@
+{
+  "schema_version": "exia.genetic_primus.v7_proposal_matrix_result/1",
+  "status": "REVEALED_DEVELOPMENT_ONLY",
+  "matrix_sha256": "0fa1d7832aef39134586e9c90ef9ea3f45ad2ada923eac4931198d20764e76e5",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "origins": 233,
+  "policy_count": 7,
+  "summaries": {
+    "NoTrade": {
+      "base": {
+        "compound_return": 0.0,
+        "compound_bps": 0.0,
+        "mean_origin_bps": 0.0,
+        "positive_origins": 0,
+        "zero_origins": 233,
+        "trades": 0,
+        "turnover_fills": 0,
+        "trades_per_day": 0.0,
+        "max_drawdown": -0.0
+      },
+      "stress": {
+        "compound_return": 0.0,
+        "compound_bps": 0.0,
+        "mean_origin_bps": 0.0,
+        "positive_origins": 0,
+        "zero_origins": 233,
+        "trades": 0,
+        "turnover_fills": 0,
+        "trades_per_day": 0.0,
+        "max_drawdown": -0.0
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": 0.0,
+        "selection_lcb_bps": 0.0,
+        "audit_lcb_bps": 0.0,
+        "stress_audit_lcb_bps": 0.0
+      },
+      "calendar_block_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "positive_compound_blocks": 0
+    },
+    "Momentum_return_1": {
+      "base": {
+        "compound_return": -0.9256797517451578,
+        "compound_bps": -9256.797517451578,
+        "mean_origin_bps": -99.9046924422636,
+        "positive_origins": 88,
+        "zero_origins": 0,
+        "trades": 17068,
+        "turnover_fills": 34136,
+        "trades_per_day": 24.417739628040056,
+        "max_drawdown": 0.9263995763499686
+      },
+      "stress": {
+        "compound_return": -0.9866614385940528,
+        "compound_bps": -9866.614385940527,
+        "mean_origin_bps": -172.24954348081695,
+        "positive_origins": 71,
+        "zero_origins": 0,
+        "trades": 17068,
+        "turnover_fills": 34136,
+        "trades_per_day": 24.417739628040056,
+        "max_drawdown": 0.9866907924532976
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": -99.9046924422636,
+        "selection_lcb_bps": -142.07544395695444,
+        "audit_lcb_bps": -145.07827353984254,
+        "stress_audit_lcb_bps": -219.05089083963276
+      },
+      "calendar_block_returns": [
+        -0.7869782285759255,
+        -0.22487698436267434,
+        -0.24038423285585508,
+        -0.4074587946114566
+      ],
+      "positive_compound_blocks": 0
+    },
+    "RelativeMomentumRank_return_12": {
+      "base": {
+        "compound_return": -0.39853700991482943,
+        "compound_bps": -3985.3700991482942,
+        "mean_origin_bps": -20.80099822781135,
+        "positive_origins": 78,
+        "zero_origins": 0,
+        "trades": 3619,
+        "turnover_fills": 7238,
+        "trades_per_day": 5.177396280400572,
+        "max_drawdown": 0.5564613759831055
+      },
+      "stress": {
+        "compound_return": -0.5812748982193607,
+        "compound_bps": -5812.748982193607,
+        "mean_origin_bps": -36.2769406016145,
+        "positive_origins": 63,
+        "zero_origins": 0,
+        "trades": 3619,
+        "turnover_fills": 7238,
+        "trades_per_day": 5.177396280400572,
+        "max_drawdown": 0.6648163301658959
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": -20.80099822781135,
+        "selection_lcb_bps": -38.910548197483536,
+        "audit_lcb_bps": -37.166470429830305,
+        "stress_audit_lcb_bps": -54.529727421442466
+      },
+      "calendar_block_returns": [
+        0.2595534007269713,
+        -0.18009259561108992,
+        -0.20249731477542987,
+        -0.26970998670037083
+      ],
+      "positive_compound_blocks": 1
+    },
+    "V7_EMA_TrendConsensus": {
+      "base": {
+        "compound_return": 0.21594729618237052,
+        "compound_bps": 2159.472961823705,
+        "mean_origin_bps": 13.596217854826769,
+        "positive_origins": 93,
+        "zero_origins": 0,
+        "trades": 2711,
+        "turnover_fills": 5422,
+        "trades_per_day": 3.8783977110157366,
+        "max_drawdown": 0.3541557071138749
+      },
+      "stress": {
+        "compound_return": -0.07314828982199029,
+        "compound_bps": -731.4828982199028,
+        "mean_origin_bps": 1.9358782283635507,
+        "positive_origins": 91,
+        "zero_origins": 0,
+        "trades": 2711,
+        "turnover_fills": 5422,
+        "trades_per_day": 3.8783977110157366,
+        "max_drawdown": 0.4724449439751751
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": 13.596217854826769,
+        "selection_lcb_bps": -17.534663208011132,
+        "audit_lcb_bps": -17.445903311139222,
+        "stress_audit_lcb_bps": -28.815759964668484
+      },
+      "calendar_block_returns": [
+        0.6195702662880413,
+        -0.1462251702057067,
+        -0.14535562720663675,
+        0.028930809893633835
+      ],
+      "positive_compound_blocks": 2,
+      "selection_gates": {
+        "positive_compound_blocks": false,
+        "positive_full_period_return": true,
+        "positive_paired_audit_lcb": false,
+        "positive_stress_return": false,
+        "maximum_drawdown": false,
+        "maximum_trades_per_day": true
+      },
+      "selected_for_v7_overlay": false
+    },
+    "V7_ResidualRankConsensus": {
+      "base": {
+        "compound_return": -0.292156695744048,
+        "compound_bps": -2921.56695744048,
+        "mean_origin_bps": -14.140759131131945,
+        "positive_origins": 82,
+        "zero_origins": 0,
+        "trades": 2735,
+        "turnover_fills": 5470,
+        "trades_per_day": 3.9127324749642347,
+        "max_drawdown": 0.45527332282278943
+      },
+      "stress": {
+        "compound_return": -0.46162229060162185,
+        "compound_bps": -4616.222906016219,
+        "mean_origin_bps": -25.85652181802298,
+        "positive_origins": 72,
+        "zero_origins": 0,
+        "trades": 2735,
+        "turnover_fills": 5470,
+        "trades_per_day": 3.9127324749642347,
+        "max_drawdown": 0.5640484936509822
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": -14.140759131131945,
+        "selection_lcb_bps": -27.90007846102953,
+        "audit_lcb_bps": -27.33643147999521,
+        "stress_audit_lcb_bps": -39.605940693714565
+      },
+      "calendar_block_returns": [
+        0.18948361681241788,
+        -0.17479533384003498,
+        -0.11697289625779683,
+        -0.18333685955698198
+      ],
+      "positive_compound_blocks": 1,
+      "selection_gates": {
+        "positive_compound_blocks": false,
+        "positive_full_period_return": false,
+        "positive_paired_audit_lcb": false,
+        "positive_stress_return": false,
+        "maximum_drawdown": false,
+        "maximum_trades_per_day": true
+      },
+      "selected_for_v7_overlay": false
+    },
+    "V7_DonchianBreakout": {
+      "base": {
+        "compound_return": -0.12059968799582732,
+        "compound_bps": -1205.9968799582732,
+        "mean_origin_bps": -3.7963167689827513,
+        "positive_origins": 83,
+        "zero_origins": 8,
+        "trades": 2265,
+        "turnover_fills": 4530,
+        "trades_per_day": 3.240343347639485,
+        "max_drawdown": 0.2067538888747681
+      },
+      "stress": {
+        "compound_return": -0.29901034959785855,
+        "compound_bps": -2990.1034959785857,
+        "mean_origin_bps": -13.529162757513404,
+        "positive_origins": 74,
+        "zero_origins": 8,
+        "trades": 2265,
+        "turnover_fills": 4530,
+        "trades_per_day": 3.240343347639485,
+        "max_drawdown": 0.3313530762221143
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": -3.7963167689827513,
+        "selection_lcb_bps": -23.218725941734586,
+        "audit_lcb_bps": -23.362367351324618,
+        "stress_audit_lcb_bps": -32.88988591850107
+      },
+      "calendar_block_returns": [
+        -0.06304014402846114,
+        0.03828101463201761,
+        -0.0590539943527989,
+        -0.03930392673476413
+      ],
+      "positive_compound_blocks": 1,
+      "selection_gates": {
+        "positive_compound_blocks": false,
+        "positive_full_period_return": false,
+        "positive_paired_audit_lcb": false,
+        "positive_stress_return": false,
+        "maximum_drawdown": false,
+        "maximum_trades_per_day": true
+      },
+      "selected_for_v7_overlay": false
+    },
+    "V7_MarketAlignedTrend": {
+      "base": {
+        "compound_return": 0.2122069014903638,
+        "compound_bps": 2122.069014903638,
+        "mean_origin_bps": 14.408748985357482,
+        "positive_origins": 91,
+        "zero_origins": 0,
+        "trades": 3769,
+        "turnover_fills": 7538,
+        "trades_per_day": 5.391988555078684,
+        "max_drawdown": 0.34653101514390783
+      },
+      "stress": {
+        "compound_return": -0.16897616814127048,
+        "compound_bps": -1689.7616814127048,
+        "mean_origin_bps": -1.7618781854892878,
+        "positive_origins": 91,
+        "zero_origins": 0,
+        "trades": 3769,
+        "turnover_fills": 7538,
+        "trades_per_day": 5.391988555078684,
+        "max_drawdown": 0.5078044788727483
+      },
+      "paired_vs_no_trade": {
+        "mean_delta_bps": 14.408748985357482,
+        "selection_lcb_bps": -17.703922717788995,
+        "audit_lcb_bps": -17.029676436793977,
+        "stress_audit_lcb_bps": -33.82302117246526
+      },
+      "calendar_block_returns": [
+        0.5358257554716725,
+        -0.07711012147530427,
+        -0.19201025597081034,
+        0.05847127039465372
+      ],
+      "positive_compound_blocks": 2,
+      "selection_gates": {
+        "positive_compound_blocks": false,
+        "positive_full_period_return": true,
+        "positive_paired_audit_lcb": false,
+        "positive_stress_return": false,
+        "maximum_drawdown": false,
+        "maximum_trades_per_day": false
+      },
+      "selected_for_v7_overlay": false
+    }
+  },
+  "selected_policy_ids": [],
+  "artifact_sha256": {
+    "origin_outcomes": "c239e09b0e7f44bc8ab1b13ae62a797761a25dc53bfd9e3c01dfcf4d6eb0ec7a",
+    "portfolio": "9c75a7a3e333cfde46988d4d2128d34a96d32f4eb0a1bffbbef7ec83c687894a"
+  },
+  "credentials_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "paper_allowed": false,
+  "promotion_authority": false
+}

@@ -1,0 +1,64 @@
+{
+  "schema": "exia.genetic_primus.research_execution_contract/1",
+  "status": "draft_unregistered",
+  "proposal_semantic_sha256": "a5abd987351f2ef60ad359fd396f6c2879e4c45ee166e08fde7ec2807b94e637",
+  "policies": {
+    "scope": "research_ohlcv_sensitivity_not_release_execution",
+    "clock": "UTC_integer_epoch_ms",
+    "bar_ms": 14400000,
+    "deployment_horizon_ms": 259200000,
+    "retrain_cadence_ms": 259200000,
+    "purge_bars": 7,
+    "execution": "first_bar_open_strictly_after_decision_plus_registered_delay",
+    "label": "gross_entry_open_to_next_scheduled_rebalance_open_same_delay",
+    "label_availability": "max_entry_and_exit_open_observation_availability",
+    "label_cutoff": "label_available_at_ms <= training_asof_ms - 7 * bar_ms",
+    "decision_features": "closed_available_prefix_only_no_labels",
+    "training_identity": "training_only_prefix_not_full_archive_or_deploy_hash",
+    "cost_accounting": "continuous_cash_quantity_per_fill_costs_observed_funding",
+    "unchanged_target": "carry_no_refill_no_retrain_forced_liquidation",
+    "terminal": "single_registered_global_end_liquidation_with_all_costs",
+    "outcome_weights": "all_completed_outcomes_including_losses",
+    "missing_or_revised_data": "fail_closed_no_forward_fill",
+    "fixed_delay_limitation": "planned_sensitivity_not_actual_latency_or_fill_evidence"
+  },
+  "timing": {
+    "training_budget_ms": null,
+    "execution_delay_ms": null,
+    "budget_evidence_sha256": null
+  },
+  "data": {
+    "manifest_sha256": null,
+    "timestamp_spec_sha256": null,
+    "availability_evidence_sha256": null,
+    "revision_policy_sha256": null,
+    "universe_sha256": null,
+    "feature_definition_sha256": null,
+    "training_prefix_manifest_sha256": null,
+    "snapshot_cutoff_ms": null
+  },
+  "costs": {
+    "adapter_sha256": null,
+    "normal_fee_bps_per_side": null,
+    "normal_slippage_bps_per_side": null,
+    "stress_fee_bps_per_side": null,
+    "stress_slippage_bps_per_side": null,
+    "calibration_evidence_sha256": null,
+    "funding_evidence_sha256": null,
+    "borrow_basis_sha256": null,
+    "terminal_policy_sha256": null,
+    "instrument_spec_sha256": null
+  },
+  "historical_results_requalified": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": "exia.genetic_primus.rolling.3d/1",
+  "protocol_id": "genetic_primus_rolling_3d_v1",
+  "timeframe_minutes": 240,
+  "training_start": "2022-01-01T00:00:00Z",
+  "validation_start": "2025-01-01T00:00:00Z",
+  "validation_end": "2026-01-01T00:00:00Z",
+  "deployment_horizon_days": 3,
+  "retrain_cadence_days": 3,
+  "label_purge_bars": 7,
+  "position_boundary_policy": "force_flat_at_deployment_end",
+  "genetic_training": {
+    "architecture_id": "linear",
+    "seed_base": 303000,
+    "seed_stride": 1009,
+    "workers": 1,
+    "island_count": 5,
+    "population_size": 4,
+    "generations": 5,
+    "elite_count": 1,
+    "tournament_size": 2,
+    "crossover_rate": 0.7,
+    "mutation_rate": 0.15,
+    "mutation_sigma": 0.08,
+    "random_immigrant_fraction": 0.25,
+    "ensemble_sizes": [3, 5]
+  },
+  "recency_fitness": {
+    "half_life_days": [30, 90, 180],
+    "uniform_anchor": 0.2,
+    "rolling_fold_count": 12,
+    "recent_lcb_weight": 0.7,
+    "worst_window_lcb_weight": 0.3,
+    "minimum_ess_days": {
+      "30": 60.0,
+      "90": 120.0,
+      "180": 180.0
+    },
+    "drawdown_penalty_bps_per_pct": 1.0,
+    "turnover_penalty_bps_per_fill_per_day": 0.5,
+    "complexity_penalty_bps_per_100_parameters": 1.0,
+    "active_weight_threshold": 0.05,
+    "active_parameter_penalty_bps_per_100": 0.5,
+    "active_feature_penalty_bps": 0.1,
+    "action_instability_penalty_bps": 20.0
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "schema": "direction_only_multiscale/1",
+  "experiment_id": "direction_multiscale_v1_20261012",
+  "period": {"start": "2026-08-01T00:00:00Z", "end_exclusive": "2026-10-01T00:00:00Z", "status": "revealed_research_not_independent_validation"},
+  "timeframes_minutes": [1, 10, 30, 240],
+  "forecast_horizon": "one next completed bar of the selected timeframe",
+  "sample_and_forecast_stride": "one bar; every asset, every interval; no abstention",
+  "training": {"window_days": 30, "retrain_days": 3, "purge_bars": 7, "max_train_time_origins": 4000, "sampling": "uniform without replacement, independent of labels, all eight assets retained at each selected time", "weighting": "uniform nonflat outcomes of both signs", "seed": 20261012, "hyperparameter_search": false},
+  "feature_lookbacks": "18/48 completed native bars, volume 42 preceding native bars; durations therefore vary with timeframe",
+  "models": ["ridge6", "logistic6", "logistic12", "gaussian_nb12", "lda12", "qda12", "tree12", "forest12", "extra_trees12", "hist_boost12", "sgd_logistic12", "mlp12"],
+  "controls": ["random_coin", "train_majority", "asset_train_majority", "persistence", "reverse_last_bar", "ema_direction"],
+  "random": {"p_up": 0.5, "p_down": 0.5, "seed": 50521, "independent_coins_per_time_and_asset": true, "selection_of_best_random_seed": false},
+  "metric_primary": "per asset: correct up/down predictions divided by all intervals; exact zero movement counts as incorrect for either binary prediction",
+  "metric_secondary": "per asset: correct divided by nonflat intervals; balanced accuracy and directional recalls",
+  "statistics": {"block_days": 3, "repetitions": 5000, "primary_seed": 48101, "audit_seed": 48103, "confidence": 0.95, "simultaneous_method": "one-sided centered bootstrap max-t for 384 model/timeframe/asset paired differences against fixed random coin", "family_alpha": 0.05, "selection_bias_removed": false},
+  "budget": {"historical_fits": 1008, "origins_per_timeframe": 21, "financial_replays": 0, "network_downloads": 0},
+  "safety": {"credentials_allowed": false, "orders_enabled": false, "paper": false, "live": false, "promotion_authority": false, "runtime_authority": false, "network_allowed": false}
+}

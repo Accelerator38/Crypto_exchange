@@ -1,0 +1,59 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v4",
+  "generated_at": "2026-08-24T06:57:45.180375+00:00",
+  "stage": "screen",
+  "status": "V4_ARCHITECTURE_SCREEN_RUN",
+  "architecture": {
+    "id": "linear",
+    "inputs": 30,
+    "hidden": [],
+    "outputs": 3
+  },
+  "parameter_count": 93,
+  "seed": 242,
+  "selected_generation": 5,
+  "metrics": {
+    "trades": 1412,
+    "turnover_fills": 2824,
+    "fills_per_day": 2.576642335766423,
+    "days": 1096,
+    "mean_daily_bps": 13.456704209893738,
+    "median_daily_bps": 1.8757783432921116,
+    "lcb_daily_bps": 0.5815920023864927,
+    "max_drawdown": 0.5508128844454514,
+    "positive_fold_means": 5,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -28.482712533860283,
+    "median_fold_lcb_bps": -10.717392389947264,
+    "worst_fold_lcb_bps": -59.12396790444057,
+    "max_direction_share": 0.6019830028328612,
+    "max_state_share": 0.35127478753541075,
+    "max_symbol_share": 0.25991501416430596,
+    "temporal_gate_passed": false,
+    "fitness": -29.12687311780189,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "failed_gates": [
+    "max_drawdown",
+    "nonpositive_worst_fold_mean",
+    "nonpositive_median_fold_lcb"
+  ],
+  "config_sha256": "74c766204a2eb06f056dc6fb7ffc599882620345122f1b8bcd3ead34cacc2cd1",
+  "code_sha256": "82f1806f6a6a5e7f23fc0e6c2108459c31f52943c7d0bc7ac721549c9e2dd30d",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "run_fingerprint": "7eb9650f7c4c7a28b053f016f07bbf8f3f52679d3e8fa430015619062e8c4b4e",
+  "champion_genome_sha256": "5d84eb6a19854b8b7e0963e23f46c25fdc2a983e5dd75e50231db6d818a515d3",
+  "champion_file_sha256": "bca67526f91e97652846253cec048e24073b5c840dc80bc470ffade358ea53a0",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

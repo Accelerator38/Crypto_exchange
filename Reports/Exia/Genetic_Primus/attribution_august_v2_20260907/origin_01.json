@@ -1,0 +1,2549 @@
+{
+  "bounds": {
+    "test_end": 1785801600000,
+    "test_start": 1785542400000,
+    "train_end": 1782748800000,
+    "train_start": 1751212800000,
+    "validation_end": 1785441600000,
+    "validation_start": 1782849600000
+  },
+  "fixed_policy_simulations": 12,
+  "origin_index": 0,
+  "phases": {
+    "test": {
+      "normal": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              3
+            ],
+            "delta_gross_pnl": 0.004793251822124429,
+            "delta_net_pnl": 0.006203953905449796,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 7,
+                "ema_gross_pnl": -0.009076383354242207,
+                "ema_net_pnl": -0.01047976673224946
+              },
+              "fully_held": {
+                "count": 0,
+                "ema_gross_pnl": 0.0,
+                "ema_net_pnl": 0.0
+              },
+              "partially_held": {
+                "count": 4,
+                "ema_gross_pnl": 0.016152662373473136,
+                "ema_net_pnl": 0.015337162331086647
+              }
+            },
+            "end_exclusive": 1785801600000,
+            "fees_saved": 0.0014107020833253633,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.012346892059720838,
+                "closed_trades": 11,
+                "fees": 0.002218883420393743,
+                "gross_notional_turnover": 2.7736042754921786,
+                "gross_pnl": 0.007076279019230929,
+                "net_pnl": 0.004857395598837185,
+                "period_return": 0.004857395598837133
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.005130005632044465,
+                "closed_trades": 4,
+                "fees": 0.0008081813370683797,
+                "gross_notional_turnover": 1.0102266713354744,
+                "gross_pnl": 0.011869530841355358,
+                "net_pnl": 0.01106134950428698,
+                "period_return": 0.011061349504287055
+              }
+            },
+            "paired_hac": {
+              "daily_count": 3,
+              "lcb": null,
+              "mean_difference": 0.0020575348350968525,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1785542400000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.3412168945230486,
+                "delta_gross_pnl": -0.006674688375701378,
+                "delta_net_pnl": -0.006665992200565071,
+                "ema_opportunities": 16,
+                "fees_saved": 8.696175136305075e-06,
+                "opportunity_normalized_absolute_delta_share": 0.9809985717537647
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.105193396307185,
+                "delta_gross_pnl": 0.001859317837894539,
+                "delta_net_pnl": 0.00205505170051678,
+                "ema_opportunities": 5,
+                "fees_saved": 0.00019573386262224123,
+                "opportunity_normalized_absolute_delta_share": 0.967779246026102
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.06430605880118447,
+                "delta_gross_pnl": 0.0008563694658184421,
+                "delta_net_pnl": 0.0012562791974792416,
+                "ema_opportunities": 5,
+                "fees_saved": 0.0003999097316607994,
+                "opportunity_normalized_absolute_delta_share": 0.5916157409708971
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.06815937871634328,
+                "delta_gross_pnl": 0.0011308126396079319,
+                "delta_net_pnl": 0.0013315574176173,
+                "ema_opportunities": 1,
+                "fees_saved": 0.0002007447780093682,
+                "opportunity_normalized_absolute_delta_share": 3.135331420951791
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.061126466955821385,
+                "delta_gross_pnl": 0.0009935279371007613,
+                "delta_net_pnl": 0.0011941628873481237,
+                "ema_opportunities": 7,
+                "fees_saved": 0.00020063495024736245,
+                "opportunity_normalized_absolute_delta_share": 0.4016882114239691
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.16692643918696312,
+                "delta_gross_pnl": 0.00305877746782164,
+                "delta_net_pnl": 0.003261064617693579,
+                "ema_opportunities": 4,
+                "fees_saved": 0.00020228714987193918,
+                "opportunity_normalized_absolute_delta_share": 1.9196540506500759
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.10100328563638562,
+                "delta_gross_pnl": 0.0019716166636234026,
+                "delta_net_pnl": 0.001973193956954301,
+                "ema_opportunities": 4,
+                "fees_saved": 1.577293330898703e-06,
+                "opportunity_normalized_absolute_delta_share": 1.1615377848184347
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.09206807987306856,
+                "delta_gross_pnl": 0.0015975181859590926,
+                "delta_net_pnl": 0.0017986363284055414,
+                "ema_opportunities": 4,
+                "fees_saved": 0.00020111814244644913,
+                "opportunity_normalized_absolute_delta_share": 1.0587829185402884
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            3
+          ],
+          "delta_gross_pnl": 0.004793251822124429,
+          "delta_net_pnl": 0.006203953905449796,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 7,
+              "ema_gross_pnl": -0.009076383354242207,
+              "ema_net_pnl": -0.01047976673224946
+            },
+            "fully_held": {
+              "count": 0,
+              "ema_gross_pnl": 0.0,
+              "ema_net_pnl": 0.0
+            },
+            "partially_held": {
+              "count": 4,
+              "ema_gross_pnl": 0.016152662373473136,
+              "ema_net_pnl": 0.015337162331086647
+            }
+          },
+          "end_exclusive": 1785801600000,
+          "fees_saved": 0.0014107020833253633,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.012346892059720838,
+              "closed_trades": 11,
+              "fees": 0.002218883420393743,
+              "gross_notional_turnover": 2.7736042754921786,
+              "gross_pnl": 0.007076279019230929,
+              "net_pnl": 0.004857395598837185,
+              "period_return": 0.004857395598837133
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.005130005632044465,
+              "closed_trades": 4,
+              "fees": 0.0008081813370683797,
+              "gross_notional_turnover": 1.0102266713354744,
+              "gross_pnl": 0.011869530841355358,
+              "net_pnl": 0.01106134950428698,
+              "period_return": 0.011061349504287055
+            }
+          },
+          "paired_hac": {
+            "daily_count": 3,
+            "lcb": null,
+            "mean_difference": 0.0020575348350968525,
+            "promotion_authority": false,
+            "status": "descriptive_only_unqualified_horizon"
+          },
+          "start": 1785542400000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.3412168945230486,
+              "delta_gross_pnl": -0.006674688375701378,
+              "delta_net_pnl": -0.006665992200565071,
+              "ema_opportunities": 16,
+              "fees_saved": 8.696175136305075e-06,
+              "opportunity_normalized_absolute_delta_share": 0.9809985717537647
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.105193396307185,
+              "delta_gross_pnl": 0.001859317837894539,
+              "delta_net_pnl": 0.00205505170051678,
+              "ema_opportunities": 5,
+              "fees_saved": 0.00019573386262224123,
+              "opportunity_normalized_absolute_delta_share": 0.967779246026102
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.06430605880118447,
+              "delta_gross_pnl": 0.0008563694658184421,
+              "delta_net_pnl": 0.0012562791974792416,
+              "ema_opportunities": 5,
+              "fees_saved": 0.0003999097316607994,
+              "opportunity_normalized_absolute_delta_share": 0.5916157409708971
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.06815937871634328,
+              "delta_gross_pnl": 0.0011308126396079319,
+              "delta_net_pnl": 0.0013315574176173,
+              "ema_opportunities": 1,
+              "fees_saved": 0.0002007447780093682,
+              "opportunity_normalized_absolute_delta_share": 3.135331420951791
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.061126466955821385,
+              "delta_gross_pnl": 0.0009935279371007613,
+              "delta_net_pnl": 0.0011941628873481237,
+              "ema_opportunities": 7,
+              "fees_saved": 0.00020063495024736245,
+              "opportunity_normalized_absolute_delta_share": 0.4016882114239691
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.16692643918696312,
+              "delta_gross_pnl": 0.00305877746782164,
+              "delta_net_pnl": 0.003261064617693579,
+              "ema_opportunities": 4,
+              "fees_saved": 0.00020228714987193918,
+              "opportunity_normalized_absolute_delta_share": 1.9196540506500759
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.10100328563638562,
+              "delta_gross_pnl": 0.0019716166636234026,
+              "delta_net_pnl": 0.001973193956954301,
+              "ema_opportunities": 4,
+              "fees_saved": 1.577293330898703e-06,
+              "opportunity_normalized_absolute_delta_share": 1.1615377848184347
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.09206807987306856,
+              "delta_gross_pnl": 0.0015975181859590926,
+              "delta_net_pnl": 0.0017986363284055414,
+              "ema_opportunities": 4,
+              "fees_saved": 0.00020111814244644913,
+              "opportunity_normalized_absolute_delta_share": 1.0587829185402884
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "9b70e606f775cd045c439b77cc7323c55b8eb55d37f6c9584f67cf8f1cf8b7ce",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 144,
+              "fills": 22,
+              "final_equity": 1.0048573955988374,
+              "market_readiness": false,
+              "max_drawdown": 0.012847343327528793,
+              "maximum_reconciliation_error": 3.0791341698588326e-17,
+              "net_realized_pnl": 0.004857395598837187,
+              "net_return": 0.004857395598837355,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.002218883420393743,
+              "trades": 11
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "efd55587827b2f22a01369f0f9f2ee26c62cf8c84182cbaa2fc8819386e9b002"
+          },
+          "Fixed": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "b09bd12bb099a866f3a1a0fb9f2b9944ff781289083de555937c59fdded84394",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 144,
+              "fills": 8,
+              "final_equity": 1.011061349504287,
+              "market_readiness": false,
+              "max_drawdown": 0.005130005632044465,
+              "maximum_reconciliation_error": 2.0816681711721685e-17,
+              "net_realized_pnl": 0.011061349504286978,
+              "net_return": 0.011061349504287055,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.0008081813370683795,
+              "trades": 4
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "adc06fcedf2cbdf83592840e82a202296d7f49a50e18e4a50c523df92ded3ba3"
+          }
+        }
+      },
+      "stress": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              3
+            ],
+            "delta_gross_pnl": 0.004793871446981407,
+            "delta_net_pnl": 0.006908594908147919,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 7,
+                "ema_gross_pnl": -0.009072140193911128,
+                "ema_net_pnl": -0.011176134266121823
+              },
+              "fully_held": {
+                "count": 0,
+                "ema_gross_pnl": 0.0,
+                "ema_net_pnl": 0.0
+              },
+              "partially_held": {
+                "count": 4,
+                "ema_gross_pnl": 0.016135562977203772,
+                "ema_net_pnl": 0.014913296517027736
+              }
+            },
+            "end_exclusive": 1785801600000,
+            "fees_saved": 0.0021147234611665136,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.012500689610829618,
+                "closed_trades": 11,
+                "fees": 0.003326260532386728,
+                "gross_notional_turnover": 2.77188377698894,
+                "gross_pnl": 0.007063422783292644,
+                "net_pnl": 0.0037371622509059163,
+                "period_return": 0.0037371622509059232
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.005125171909776793,
+                "closed_trades": 4,
+                "fees": 0.0012115370712202146,
+                "gross_notional_turnover": 1.0096142260168457,
+                "gross_pnl": 0.01185729423027405,
+                "net_pnl": 0.010645757159053835,
+                "period_return": 0.010645757159053915
+              }
+            },
+            "paired_hac": {
+              "daily_count": 3,
+              "lcb": null,
+              "mean_difference": 0.0022925023269354896,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1785542400000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.32915811107438797,
+                "delta_gross_pnl": -0.006668365769817058,
+                "delta_net_pnl": -0.006655335130174829,
+                "ema_opportunities": 16,
+                "fees_saved": 1.303063964222821e-05,
+                "opportunity_normalized_absolute_delta_share": 0.9463295693388655
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.10639942958504284,
+                "delta_gross_pnl": 0.0018580706576320275,
+                "delta_net_pnl": 0.0021513182805568674,
+                "ema_opportunities": 5,
+                "fees_saved": 0.00029324762292484013,
+                "opportunity_normalized_absolute_delta_share": 0.9788747521823942
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.07195094991263619,
+                "delta_gross_pnl": 0.0008554103701651204,
+                "delta_net_pnl": 0.0014547953354088787,
+                "ema_opportunities": 5,
+                "fees_saved": 0.0005993849652437583,
+                "opportunity_normalized_absolute_delta_share": 0.661948739196253
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.07079177750890531,
+                "delta_gross_pnl": 0.001130360856691588,
+                "delta_net_pnl": 0.0014313577212018392,
+                "ema_opportunities": 1,
+                "fees_saved": 0.00030099686451025114,
+                "opportunity_normalized_absolute_delta_share": 3.256421765409644
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.06399654884336299,
+                "delta_gross_pnl": 0.0009931310022477445,
+                "delta_net_pnl": 0.0012939631909326633,
+                "ema_opportunities": 7,
+                "fees_saved": 0.00030083218868491856,
+                "opportunity_normalized_absolute_delta_share": 0.42054874954209964
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.16622092312803138,
+                "delta_gross_pnl": 0.0030575554232879516,
+                "delta_net_pnl": 0.0033608649212781183,
+                "ema_opportunities": 4,
+                "fees_saved": 0.0003033094979901668,
+                "opportunity_normalized_absolute_delta_share": 1.911540615972361
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.09758979569784841,
+                "delta_gross_pnl": 0.0019708289621996615,
+                "delta_net_pnl": 0.001973193956954301,
+                "ema_opportunities": 4,
+                "fees_saved": 2.3649947546396154e-06,
+                "opportunity_normalized_absolute_delta_share": 1.1222826505252568
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.09389246424978495,
+                "delta_gross_pnl": 0.0015968799445743702,
+                "delta_net_pnl": 0.0018984366319900808,
+                "ema_opportunities": 4,
+                "fees_saved": 0.00030155668741571053,
+                "opportunity_normalized_absolute_delta_share": 1.079763338872527
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            3
+          ],
+          "delta_gross_pnl": 0.004793871446981407,
+          "delta_net_pnl": 0.006908594908147919,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 7,
+              "ema_gross_pnl": -0.009072140193911128,
+              "ema_net_pnl": -0.011176134266121823
+            },
+            "fully_held": {
+              "count": 0,
+              "ema_gross_pnl": 0.0,
+              "ema_net_pnl": 0.0
+            },
+            "partially_held": {
+              "count": 4,
+              "ema_gross_pnl": 0.016135562977203772,
+              "ema_net_pnl": 0.014913296517027736
+            }
+          },
+          "end_exclusive": 1785801600000,
+          "fees_saved": 0.0021147234611665136,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.012500689610829618,
+              "closed_trades": 11,
+              "fees": 0.003326260532386728,
+              "gross_notional_turnover": 2.77188377698894,
+              "gross_pnl": 0.007063422783292644,
+              "net_pnl": 0.0037371622509059163,
+              "period_return": 0.0037371622509059232
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.005125171909776793,
+              "closed_trades": 4,
+              "fees": 0.0012115370712202146,
+              "gross_notional_turnover": 1.0096142260168457,
+              "gross_pnl": 0.01185729423027405,
+              "net_pnl": 0.010645757159053835,
+              "period_return": 0.010645757159053915
+            }
+          },
+          "paired_hac": {
+            "daily_count": 3,
+            "lcb": null,
+            "mean_difference": 0.0022925023269354896,
+            "promotion_authority": false,
+            "status": "descriptive_only_unqualified_horizon"
+          },
+          "start": 1785542400000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.32915811107438797,
+              "delta_gross_pnl": -0.006668365769817058,
+              "delta_net_pnl": -0.006655335130174829,
+              "ema_opportunities": 16,
+              "fees_saved": 1.303063964222821e-05,
+              "opportunity_normalized_absolute_delta_share": 0.9463295693388655
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.10639942958504284,
+              "delta_gross_pnl": 0.0018580706576320275,
+              "delta_net_pnl": 0.0021513182805568674,
+              "ema_opportunities": 5,
+              "fees_saved": 0.00029324762292484013,
+              "opportunity_normalized_absolute_delta_share": 0.9788747521823942
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.07195094991263619,
+              "delta_gross_pnl": 0.0008554103701651204,
+              "delta_net_pnl": 0.0014547953354088787,
+              "ema_opportunities": 5,
+              "fees_saved": 0.0005993849652437583,
+              "opportunity_normalized_absolute_delta_share": 0.661948739196253
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.07079177750890531,
+              "delta_gross_pnl": 0.001130360856691588,
+              "delta_net_pnl": 0.0014313577212018392,
+              "ema_opportunities": 1,
+              "fees_saved": 0.00030099686451025114,
+              "opportunity_normalized_absolute_delta_share": 3.256421765409644
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.06399654884336299,
+              "delta_gross_pnl": 0.0009931310022477445,
+              "delta_net_pnl": 0.0012939631909326633,
+              "ema_opportunities": 7,
+              "fees_saved": 0.00030083218868491856,
+              "opportunity_normalized_absolute_delta_share": 0.42054874954209964
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.16622092312803138,
+              "delta_gross_pnl": 0.0030575554232879516,
+              "delta_net_pnl": 0.0033608649212781183,
+              "ema_opportunities": 4,
+              "fees_saved": 0.0003033094979901668,
+              "opportunity_normalized_absolute_delta_share": 1.911540615972361
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.09758979569784841,
+              "delta_gross_pnl": 0.0019708289621996615,
+              "delta_net_pnl": 0.001973193956954301,
+              "ema_opportunities": 4,
+              "fees_saved": 2.3649947546396154e-06,
+              "opportunity_normalized_absolute_delta_share": 1.1222826505252568
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.09389246424978495,
+              "delta_gross_pnl": 0.0015968799445743702,
+              "delta_net_pnl": 0.0018984366319900808,
+              "ema_opportunities": 4,
+              "fees_saved": 0.00030155668741571053,
+              "opportunity_normalized_absolute_delta_share": 1.079763338872527
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "bacfeb78160d368a8a9cdf6d1efd8bae2148e966933a727a415b16bfc658f6c1",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 144,
+              "fills": 22,
+              "final_equity": 1.003737162250906,
+              "market_readiness": false,
+              "max_drawdown": 0.013251359743473468,
+              "maximum_reconciliation_error": 2.780978572425319e-17,
+              "net_realized_pnl": 0.003737162250905916,
+              "net_return": 0.0037371622509059232,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.003326260532386728,
+              "trades": 11
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "bd728c22f2ef0b525a6436d86f88530d25375a660cd092c4622e2436df68fd30"
+          },
+          "Fixed": {
+            "attribution_max_error": 0.0,
+            "decisions_sha256": "720708240bbdbffc3198b46aded2bd8a1bebe827c08ecf255ede7aaeeb8bd7bb",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 144,
+              "fills": 8,
+              "final_equity": 1.010645757159054,
+              "market_readiness": false,
+              "max_drawdown": 0.005125171909776793,
+              "maximum_reconciliation_error": 2.42861286636753e-17,
+              "net_realized_pnl": 0.010645757159053833,
+              "net_return": 0.010645757159053915,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.0012115370712202146,
+              "trades": 4
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "0586828106978769069d2f90b1c98ab5fb556098d8cd1a7bb9f3d14384d02d8e"
+          }
+        }
+      }
+    },
+    "train": {
+      "normal": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              91
+            ],
+            "delta_gross_pnl": 0.0026577978167476868,
+            "delta_net_pnl": 0.027492581633586158,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 145,
+                "ema_gross_pnl": -0.02800730557778375,
+                "ema_net_pnl": -0.05916288118680045
+              },
+              "fully_held": {
+                "count": 90,
+                "ema_gross_pnl": 0.06830682602174058,
+                "ema_net_pnl": 0.049471247945816116
+              },
+              "partially_held": {
+                "count": 59,
+                "ema_gross_pnl": 0.12282635320499716,
+                "ema_net_pnl": 0.11064168681807549
+              }
+            },
+            "end_exclusive": 1759075200000,
+            "fees_saved": 0.024834783816838485,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.13676042791415077,
+                "closed_trades": 294,
+                "fees": 0.06217582007186283,
+                "gross_notional_turnover": 77.71977508982853,
+                "gross_pnl": 0.163125873648954,
+                "net_pnl": 0.10095005357709111,
+                "period_return": 0.10095005357709086
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.07396807023913854,
+                "closed_trades": 175,
+                "fees": 0.03734103625502434,
+                "gross_notional_turnover": 46.676295318780426,
+                "gross_pnl": 0.1657836714657017,
+                "net_pnl": 0.12844263521067736,
+                "period_return": 0.12844263521067734
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": 0.00024080582121396458,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1751212800000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.002053507224584902,
+                "delta_gross_pnl": -0.004561660116723976,
+                "delta_net_pnl": -0.0001307909778689996,
+                "ema_opportunities": 187,
+                "fees_saved": 0.004430869138854972,
+                "opportunity_normalized_absolute_delta_share": 0.017657965867018836
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.04438855887175098,
+                "delta_gross_pnl": 0.001724777317658179,
+                "delta_net_pnl": 0.0028271743831851004,
+                "ema_opportunities": 209,
+                "fees_saved": 0.0011023970655269228,
+                "opportunity_normalized_absolute_delta_share": 0.34151580222859124
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.10300582234691132,
+                "delta_gross_pnl": -0.00986355476162404,
+                "delta_net_pnl": -0.006560596461342508,
+                "ema_opportunities": 175,
+                "fees_saved": 0.003302958300281533,
+                "opportunity_normalized_absolute_delta_share": 0.9464763561933337
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.2819289290120064,
+                "delta_gross_pnl": 0.014214140397303598,
+                "delta_net_pnl": 0.01795647946770374,
+                "ema_opportunities": 206,
+                "fees_saved": 0.003742339070400138,
+                "opportunity_normalized_absolute_delta_share": 2.2006879507344963
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.17991742079194914,
+                "delta_gross_pnl": 0.007648458670525213,
+                "delta_net_pnl": 0.011459212375453904,
+                "ema_opportunities": 219,
+                "fees_saved": 0.003810753704928696,
+                "opportunity_normalized_absolute_delta_share": 1.32103750060938
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.20959119770758688,
+                "delta_gross_pnl": 0.010319354206763809,
+                "delta_net_pnl": 0.013349180062637148,
+                "ema_opportunities": 204,
+                "fees_saved": 0.00302982585587334,
+                "opportunity_normalized_absolute_delta_share": 1.6520717936950966
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.1739563832591901,
+                "delta_gross_pnl": -0.012603779857048717,
+                "delta_net_pnl": -0.01107954488819636,
+                "ema_opportunities": 221,
+                "fees_saved": 0.0015242349688523533,
+                "opportunity_normalized_absolute_delta_share": 1.2657097931256909
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.0051581807860202385,
+                "delta_gross_pnl": -0.004219938040106397,
+                "delta_net_pnl": -0.00032853232798586577,
+                "ema_opportunities": 187,
+                "fees_saved": 0.0038914057121205315,
+                "opportunity_normalized_absolute_delta_share": 0.04435483798887991
+              }
+            }
+          },
+          {
+            "days": [
+              91,
+              182
+            ],
+            "delta_gross_pnl": 0.02419880810635186,
+            "delta_net_pnl": 0.07772253372252136,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 248,
+                "ema_gross_pnl": -0.025895051262251386,
+                "ema_net_pnl": -0.08124411364513326
+              },
+              "fully_held": {
+                "count": 55,
+                "ema_gross_pnl": -0.052094048283359666,
+                "ema_net_pnl": -0.06431143876014318
+              },
+              "partially_held": {
+                "count": 26,
+                "ema_gross_pnl": 0.020909270516762297,
+                "ema_net_pnl": 0.01509215432663048
+              }
+            },
+            "end_exclusive": 1766937600000,
+            "fees_saved": 0.0535237256161695,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.24214003771512205,
+                "closed_trades": 329,
+                "fees": 0.0733835690497972,
+                "gross_notional_turnover": 91.7294613122465,
+                "gross_pnl": -0.05707982902884874,
+                "net_pnl": -0.13046339807864596,
+                "period_return": -0.11850074184088366
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.08257747769719426,
+                "closed_trades": 89,
+                "fees": 0.019859843433627702,
+                "gross_notional_turnover": 24.824804292034628,
+                "gross_pnl": -0.03288102092249688,
+                "net_pnl": -0.05274086435612458,
+                "period_return": -0.04673774519896445
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": 0.0007164717911140966,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1759075200000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.1590438502612357,
+                "delta_gross_pnl": -0.02669700846309235,
+                "delta_net_pnl": -0.018127391197899745,
+                "ema_opportunities": 217,
+                "fees_saved": 0.008569617265192588,
+                "opportunity_normalized_absolute_delta_share": 1.0854559550087097
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.1618551208670176,
+                "delta_gross_pnl": 0.013619538455070725,
+                "delta_net_pnl": 0.018447812276429092,
+                "ema_opportunities": 172,
+                "fees_saved": 0.004828273821358371,
+                "opportunity_normalized_absolute_delta_share": 1.3936478721165875
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.1326967393543147,
+                "delta_gross_pnl": 0.010041953362421887,
+                "delta_net_pnl": 0.015124418209257152,
+                "ema_opportunities": 208,
+                "fees_saved": 0.005082464846835272,
+                "opportunity_normalized_absolute_delta_share": 0.9448263028064426
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.16083007194460397,
+                "delta_gross_pnl": 0.008952881460567233,
+                "delta_net_pnl": 0.018330979951362413,
+                "ema_opportunities": 180,
+                "fees_saved": 0.009378098490795172,
+                "opportunity_normalized_absolute_delta_share": 1.3232740919442136
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.11744368698239382,
+                "delta_gross_pnl": 0.006392687546796706,
+                "delta_net_pnl": 0.013385916237293424,
+                "ema_opportunities": 189,
+                "fees_saved": 0.006993228690496721,
+                "opportunity_normalized_absolute_delta_share": 0.920286245613361
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.10392442219720541,
+                "delta_gross_pnl": 0.0070440671150668425,
+                "delta_net_pnl": 0.011845026721184721,
+                "ema_opportunities": 156,
+                "fees_saved": 0.004800959606117867,
+                "opportunity_normalized_absolute_delta_share": 0.9866158286798795
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.12786453805280978,
+                "delta_gross_pnl": 0.00818414011815248,
+                "delta_net_pnl": 0.014573656873968166,
+                "ema_opportunities": 169,
+                "fees_saved": 0.006389516755815691,
+                "opportunity_normalized_absolute_delta_share": 1.1205170464864573
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.03634157034041915,
+                "delta_gross_pnl": -0.003339451488631677,
+                "delta_net_pnl": 0.004142114650926146,
+                "ema_opportunities": 190,
+                "fees_saved": 0.007481566139557823,
+                "opportunity_normalized_absolute_delta_share": 0.28327297723242506
+              }
+            }
+          },
+          {
+            "days": [
+              182,
+              273
+            ],
+            "delta_gross_pnl": -0.09972116824180831,
+            "delta_net_pnl": -0.06072698560015452,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 206,
+                "ema_gross_pnl": 0.08058275966805728,
+                "ema_net_pnl": 0.03774675295736731
+              },
+              "fully_held": {
+                "count": 73,
+                "ema_gross_pnl": -0.08154992054738867,
+                "ema_net_pnl": -0.09582450635630943
+              },
+              "partially_held": {
+                "count": 43,
+                "ema_gross_pnl": 0.04081971965582071,
+                "ema_net_pnl": 0.03280606150921575
+              }
+            },
+            "end_exclusive": 1774800000000,
+            "fees_saved": 0.03899418264165367,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.26511770808576685,
+                "closed_trades": 322,
+                "fees": 0.0651242506662158,
+                "gross_notional_turnover": 81.40531333276975,
+                "gross_pnl": 0.03985255877648938,
+                "net_pnl": -0.025271691889726472,
+                "period_return": -0.026040226052100435
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.15648466548715878,
+                "closed_trades": 131,
+                "fees": 0.02613006802456213,
+                "gross_notional_turnover": 32.662585030702665,
+                "gross_pnl": -0.059868609465318925,
+                "net_pnl": -0.08599867748988103,
+                "period_return": -0.07994657982347875
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": -0.0007414181626774129,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1766937600000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.052682055908979966,
+                "delta_gross_pnl": -0.0035616446952675337,
+                "delta_net_pnl": 0.004049219297854138,
+                "ema_opportunities": 211,
+                "fees_saved": 0.0076108639931216845,
+                "opportunity_normalized_absolute_delta_share": 0.41421578555923105
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.18565621378403005,
+                "delta_gross_pnl": -0.0173761479543435,
+                "delta_net_pnl": -0.014269806116140685,
+                "ema_opportunities": 226,
+                "fees_saved": 0.0031063418382027857,
+                "opportunity_normalized_absolute_delta_share": 1.3628480472022384
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.10970501914711715,
+                "delta_gross_pnl": -0.011902956551814494,
+                "delta_net_pnl": -0.008432087034899574,
+                "ema_opportunities": 207,
+                "fees_saved": 0.0034708695169149047,
+                "opportunity_normalized_absolute_delta_share": 0.8792300809906636
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.05227605882358435,
+                "delta_gross_pnl": -0.0008952643064878275,
+                "delta_net_pnl": 0.004018013772468097,
+                "ema_opportunities": 198,
+                "fees_saved": 0.004913278078955927,
+                "opportunity_normalized_absolute_delta_share": 0.4380100080218507
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.13925054892227895,
+                "delta_gross_pnl": -0.01758145030827298,
+                "delta_net_pnl": -0.010702999345869511,
+                "ema_opportunities": 206,
+                "fees_saved": 0.006878450962403455,
+                "opportunity_normalized_absolute_delta_share": 1.121440100301266
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.1840567767971824,
+                "delta_gross_pnl": -0.016358376242613014,
+                "delta_net_pnl": -0.014146871067363646,
+                "ema_opportunities": 223,
+                "fees_saved": 0.0022115051752493635,
+                "opportunity_normalized_absolute_delta_share": 1.3692833753655855
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.1688918116489536,
+                "delta_gross_pnl": -0.017543676264104587,
+                "delta_net_pnl": -0.012981269830472158,
+                "ema_opportunities": 200,
+                "fees_saved": 0.004562406433632416,
+                "opportunity_normalized_absolute_delta_share": 1.40095757762807
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.10748151496787361,
+                "delta_gross_pnl": -0.014501651918904311,
+                "delta_net_pnl": -0.008261185275731182,
+                "ema_opportunities": 188,
+                "fees_saved": 0.006240466643173131,
+                "opportunity_normalized_absolute_delta_share": 0.9484671985728846
+              }
+            }
+          },
+          {
+            "days": [
+              273,
+              365
+            ],
+            "delta_gross_pnl": -0.08505762516019577,
+            "delta_net_pnl": -0.054848047025404224,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 200,
+                "ema_gross_pnl": 0.048591169453605185,
+                "ema_net_pnl": 0.013586915193322151
+              },
+              "fully_held": {
+                "count": 43,
+                "ema_gross_pnl": -0.05219005186113104,
+                "ema_net_pnl": -0.0596280959611437
+              },
+              "partially_held": {
+                "count": 55,
+                "ema_gross_pnl": 0.0157019253756508,
+                "ema_net_pnl": 0.006192506452595715
+              }
+            },
+            "end_exclusive": 1782748800000,
+            "fees_saved": 0.03020957813479151,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.13493276001223942,
+                "closed_trades": 298,
+                "fees": 0.05195171728335079,
+                "gross_notional_turnover": 64.93964660418848,
+                "gross_pnl": 0.012103042968124977,
+                "net_pnl": -0.039848674315225846,
+                "period_return": -0.04215831937646053
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.09568194944070729,
+                "closed_trades": 119,
+                "fees": 0.02174213914855928,
+                "gross_notional_turnover": 27.1776739356991,
+                "gross_pnl": -0.0729545821920708,
+                "net_pnl": -0.09469672134063006,
+                "period_return": -0.09568194944070729
+              }
+            },
+            "paired_hac": {
+              "daily_count": 92,
+              "lcb": null,
+              "mean_difference": -0.0006979307772519476,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1774800000000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.33183199287708814,
+                "delta_gross_pnl": -0.031102438470904457,
+                "delta_net_pnl": -0.02617521237571141,
+                "ema_opportunities": 149,
+                "fees_saved": 0.004927226095193051,
+                "opportunity_normalized_absolute_delta_share": 3.0377103240560284
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.11937797692912828,
+                "delta_gross_pnl": -0.012639132789611433,
+                "delta_net_pnl": -0.009416644465201181,
+                "ema_opportunities": 182,
+                "fees_saved": 0.0032224883244102434,
+                "opportunity_normalized_absolute_delta_share": 0.8946789040183022
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.10882224467179834,
+                "delta_gross_pnl": -0.01215789150904242,
+                "delta_net_pnl": -0.0085839986096248,
+                "ema_opportunities": 202,
+                "fees_saved": 0.0035738928994176193,
+                "opportunity_normalized_absolute_delta_share": 0.7348195135264006
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.10178080701451002,
+                "delta_gross_pnl": -0.01139603685197973,
+                "delta_net_pnl": -0.008028563539872127,
+                "ema_opportunities": 145,
+                "fees_saved": 0.003367473312107603,
+                "opportunity_normalized_absolute_delta_share": 0.9574415225364942
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.011167520201313934,
+                "delta_gross_pnl": -0.005839359105913899,
+                "delta_net_pnl": -0.0008809042505064098,
+                "ema_opportunities": 183,
+                "fees_saved": 0.004958454855407482,
+                "opportunity_normalized_absolute_delta_share": 0.08323769155514868
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.09067723818043495,
+                "delta_gross_pnl": 0.005067489857271347,
+                "delta_net_pnl": 0.0071527038319508995,
+                "ema_opportunities": 156,
+                "fees_saved": 0.0020852139746795504,
+                "opportunity_normalized_absolute_delta_share": 0.7928445697314954
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.06165916909271771,
+                "delta_gross_pnl": 0.001720039047761076,
+                "delta_net_pnl": 0.004863731890100173,
+                "ema_opportunities": 171,
+                "fees_saved": 0.0031436928423391017,
+                "opportunity_normalized_absolute_delta_share": 0.4918310329968828
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.1746830510330085,
+                "delta_gross_pnl": -0.018710295337776222,
+                "delta_net_pnl": -0.013779159506539363,
+                "ema_opportunities": 176,
+                "fees_saved": 0.004931135831236859,
+                "opportunity_normalized_absolute_delta_share": 1.353793645505816
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            365
+          ],
+          "delta_gross_pnl": -0.15792218747890444,
+          "delta_net_pnl": -0.01035991726945127,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 799,
+              "ema_gross_pnl": 0.0752715722816274,
+              "ema_net_pnl": -0.08907332668124424
+            },
+            "fully_held": {
+              "count": 261,
+              "ema_gross_pnl": -0.1175271946701388,
+              "ema_net_pnl": -0.17029279313178022
+            },
+            "partially_held": {
+              "count": 183,
+              "ema_gross_pnl": 0.20025726875323097,
+              "ema_net_pnl": 0.1647324091065174
+            }
+          },
+          "end_exclusive": 1782748800000,
+          "fees_saved": 0.14756227020945317,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.36142758143486364,
+              "closed_trades": 1243,
+              "fees": 0.25263535707122664,
+              "gross_notional_turnover": 315.79419633903325,
+              "gross_pnl": 0.15800164636471958,
+              "net_pnl": -0.09463371070650706,
+              "period_return": -0.09463371070650728
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.2580278101292627,
+              "closed_trades": 514,
+              "fees": 0.10507308686177345,
+              "gross_notional_turnover": 131.34135857721682,
+              "gross_pnl": 7.945888581514793e-05,
+              "net_pnl": -0.10499362797595838,
+              "period_return": -0.10499362797595846
+            }
+          },
+          "paired_hac": {
+            "block_length": 20,
+            "critical_value": 2.306004135204166,
+            "daily_count": 365,
+            "degrees_of_freedom": 8,
+            "lcb": -0.0016514777352297897,
+            "mean_difference": -0.00012209978517526074,
+            "observations_sha256": "ac2ea65c8cefcfa0f58c42786221b3020478e083a8954e910fd3318e362b536b",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0006632156147105621,
+            "status": "informative"
+          },
+          "start": 1751212800000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.29298657394591204,
+              "delta_gross_pnl": -0.06592275174598833,
+              "delta_net_pnl": -0.04038417525362599,
+              "ema_opportunities": 764,
+              "fees_saved": 0.025538576492362297,
+              "opportunity_normalized_absolute_delta_share": 2.3438925915672963
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.01749513387815779,
+              "delta_gross_pnl": -0.014670964971226027,
+              "delta_net_pnl": -0.0024114639217277054,
+              "ema_opportunities": 789,
+              "fees_saved": 0.012259501049498323,
+              "opportunity_normalized_absolute_delta_share": 0.1355263095859321
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.06132104532534828,
+              "delta_gross_pnl": -0.023882449460059067,
+              "delta_net_pnl": -0.008452263896609724,
+              "ema_opportunities": 792,
+              "fees_saved": 0.01543018556344933,
+              "opportunity_normalized_absolute_delta_share": 0.47322503665218263
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.23416848597281004,
+              "delta_gross_pnl": 0.010875720699403265,
+              "delta_net_pnl": 0.0322769096516621,
+              "ema_opportunities": 729,
+              "fees_saved": 0.02140118895225884,
+              "opportunity_normalized_absolute_delta_share": 1.9632891443975513
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.09620998471483252,
+              "delta_gross_pnl": -0.009379663196864962,
+              "delta_net_pnl": 0.013261225016371387,
+              "ema_opportunities": 797,
+              "fees_saved": 0.022640888213236357,
+              "opportunity_normalized_absolute_delta_share": 0.7378110747516391
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.13204100862477597,
+              "delta_gross_pnl": 0.006072534936488988,
+              "delta_net_pnl": 0.018200039548409125,
+              "ema_opportunities": 739,
+              "fees_saved": 0.012127504611920121,
+              "opportunity_normalized_absolute_delta_share": 1.0920631186936816
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.033542884603277714,
+              "delta_gross_pnl": -0.02024327695523976,
+              "delta_net_pnl": -0.004623425954600198,
+              "ema_opportunities": 761,
+              "fees_saved": 0.015619851000639562,
+              "opportunity_normalized_absolute_delta_share": 0.26940093389649594
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.13223488293488567,
+              "delta_gross_pnl": -0.0407713367854186,
+              "delta_net_pnl": -0.018226762459330262,
+              "ema_opportunities": 741,
+              "fees_saved": 0.02254457432608835,
+              "opportunity_normalized_absolute_delta_share": 1.090714715921756
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 7.771561172376096e-16,
+            "decisions_sha256": "baca8db5a307b3e5f29a795ee1bbf6e6346d319070e5ed8cc383f666346d4dea",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 17520,
+              "fills": 2486,
+              "final_equity": 0.905366289293493,
+              "market_readiness": false,
+              "max_drawdown": 0.3617435596922359,
+              "maximum_reconciliation_error": 3.929148673087468e-16,
+              "net_realized_pnl": -0.09463371070650711,
+              "net_return": -0.09463371070650695,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.25263535707122664,
+              "trades": 1243
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "2e7ef738e6020124b11ebc7100e2f796e05c7c00fcb3549e67105665d7822c91"
+          },
+          "Fixed": {
+            "attribution_max_error": 4.440892098500626e-16,
+            "decisions_sha256": "aa6f0abc18ff72ed85f4cad2857754e39b7297b836186ff1710a60bd6c9346c6",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 17520,
+              "fills": 1028,
+              "final_equity": 0.8950063720240417,
+              "market_readiness": false,
+              "max_drawdown": 0.25802781012926257,
+              "maximum_reconciliation_error": 1.4224732503009818e-16,
+              "net_realized_pnl": -0.10499362797595835,
+              "net_return": -0.10499362797595835,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.10507308686177348,
+              "trades": 514
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "62628646e91f8e04d0e25a8e9bbc50f74ef04e9115285ad902cb44f61d79b98a"
+          }
+        }
+      },
+      "stress": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              91
+            ],
+            "delta_gross_pnl": 0.0036166531872536267,
+            "delta_net_pnl": 0.039997501550437804,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 145,
+                "ema_gross_pnl": -0.027795421511583263,
+                "ema_net_pnl": -0.07374885579790355
+              },
+              "fully_held": {
+                "count": 90,
+                "ema_gross_pnl": 0.06805304153540626,
+                "ema_net_pnl": 0.04014372920469878
+              },
+              "partially_held": {
+                "count": 59,
+                "ema_gross_pnl": 0.12079920857621207,
+                "ema_net_pnl": 0.10278214703777779
+              }
+            },
+            "end_exclusive": 1759075200000,
+            "fees_saved": 0.03638084836318416,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.1437391155612897,
+                "closed_trades": 294,
+                "fees": 0.09187980815546194,
+                "gross_notional_turnover": 76.56650679621828,
+                "gross_pnl": 0.161056828600035,
+                "net_pnl": 0.06917702044457309,
+                "period_return": 0.06917702044457319
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.07740420137738568,
+                "closed_trades": 175,
+                "fees": 0.055498959792277786,
+                "gross_notional_turnover": 46.249133160231494,
+                "gross_pnl": 0.16467348178728863,
+                "net_pnl": 0.10917452199501088,
+                "period_return": 0.10917452199501088
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": 0.0003729611723620728,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1751212800000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.031699380204867164,
+                "delta_gross_pnl": -0.004274479129380228,
+                "delta_net_pnl": 0.0022116429006504646,
+                "ema_opportunities": 187,
+                "fees_saved": 0.006486122030030688,
+                "opportunity_normalized_absolute_delta_share": 0.2725807666814246
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.048187953873173685,
+                "delta_gross_pnl": 0.00175060415490841,
+                "delta_net_pnl": 0.003362038796711648,
+                "ema_opportunities": 209,
+                "fees_saved": 0.0016114346418032361,
+                "opportunity_normalized_absolute_delta_share": 0.37074751113905874
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.07020898400317839,
+                "delta_gross_pnl": -0.009752772588060706,
+                "delta_net_pnl": -0.004898430191031623,
+                "ema_opportunities": 175,
+                "fees_saved": 0.0048543423970290826,
+                "opportunity_normalized_absolute_delta_share": 0.6451202644406334
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.28194268887235374,
+                "delta_gross_pnl": 0.014179604525105341,
+                "delta_net_pnl": 0.01967093811314021,
+                "ema_opportunities": 206,
+                "fees_saved": 0.005491333588034866,
+                "opportunity_normalized_absolute_delta_share": 2.2007953577997323
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.1932146219071554,
+                "delta_gross_pnl": 0.007887516454162212,
+                "delta_net_pnl": 0.013480444856685635,
+                "ema_opportunities": 219,
+                "fees_saved": 0.005592928402523423,
+                "opportunity_normalized_absolute_delta_share": 1.418671744414182
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.20932236101523052,
+                "delta_gross_pnl": 0.010187463100337761,
+                "delta_net_pnl": 0.014604270200073086,
+                "ema_opportunities": 204,
+                "fees_saved": 0.004416807099735324,
+                "opportunity_normalized_absolute_delta_share": 1.6499527280024053
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.14314980268901506,
+                "delta_gross_pnl": -0.012213144261417168,
+                "delta_net_pnl": -0.009987458518134193,
+                "ema_opportunities": 221,
+                "fees_saved": 0.0022256857432829758,
+                "opportunity_normalized_absolute_delta_share": 1.0415605553119285
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.02227420743502614,
+                "delta_gross_pnl": -0.004148139068401978,
+                "delta_net_pnl": 0.001554055392342577,
+                "ema_opportunities": 187,
+                "fees_saved": 0.005702194460744553,
+                "opportunity_normalized_absolute_delta_share": 0.19153436125947612
+              }
+            }
+          },
+          {
+            "days": [
+              91,
+              182
+            ],
+            "delta_gross_pnl": 0.02017051701087276,
+            "delta_net_pnl": 0.09621827845865774,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 248,
+                "ema_gross_pnl": -0.022791771142852742,
+                "ema_net_pnl": -0.10203390415009574
+              },
+              "fully_held": {
+                "count": 55,
+                "ema_gross_pnl": -0.0497640175749218,
+                "ema_net_pnl": -0.06732044402219152
+              },
+              "partially_held": {
+                "count": 26,
+                "ema_gross_pnl": 0.020449672038378244,
+                "ema_net_pnl": 0.012060941796113283
+              }
+            },
+            "end_exclusive": 1766937600000,
+            "fees_saved": 0.07604776144778497,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.2580938862971326,
+                "closed_trades": 329,
+                "fees": 0.1051872896967776,
+                "gross_notional_turnover": 87.65607474731468,
+                "gross_pnl": -0.052106116679396325,
+                "net_pnl": -0.157293406376174,
+                "period_return": -0.14711633655460543
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.08943865529783601,
+                "closed_trades": 89,
+                "fees": 0.029139528248992637,
+                "gross_notional_turnover": 24.282940207493866,
+                "gross_pnl": -0.031935599668523565,
+                "net_pnl": -0.06107512791751618,
+                "period_return": -0.05506358711491466
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": 0.0009820678611003122,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1759075200000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.11018734546506222,
+                "delta_gross_pnl": -0.02576826496809705,
+                "delta_net_pnl": -0.013598887267046698,
+                "ema_opportunities": 217,
+                "fees_saved": 0.012169377701050362,
+                "opportunity_normalized_absolute_delta_share": 0.7520159384044107
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.16098504555438892,
+                "delta_gross_pnl": 0.012970811065361493,
+                "delta_net_pnl": 0.01986813891318092,
+                "ema_opportunities": 172,
+                "fees_saved": 0.0068973278478194275,
+                "opportunity_normalized_absolute_delta_share": 1.3861561189886629
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.13631145186593563,
+                "delta_gross_pnl": 0.009586322087636243,
+                "delta_net_pnl": 0.01682302136700516,
+                "ema_opportunities": 208,
+                "fees_saved": 0.007236699279368911,
+                "opportunity_normalized_absolute_delta_share": 0.9705637510262052
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.17165422784816392,
+                "delta_gross_pnl": 0.0078214552425965,
+                "delta_net_pnl": 0.02118488728053878,
+                "ema_opportunities": 180,
+                "fees_saved": 0.013363432037942286,
+                "opportunity_normalized_absolute_delta_share": 1.4123328413507263
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.1260053590249617,
+                "delta_gross_pnl": 0.0056635399981316455,
+                "delta_net_pnl": 0.01555108406679531,
+                "ema_opportunities": 189,
+                "fees_saved": 0.00988754406866367,
+                "opportunity_normalized_absolute_delta_share": 0.9873753265395147
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.10454150859597518,
+                "delta_gross_pnl": 0.006155097654813511,
+                "delta_net_pnl": 0.012902100364823024,
+                "ema_opportunities": 156,
+                "fees_saved": 0.006747002710009524,
+                "opportunity_normalized_absolute_delta_share": 0.9924741937861489
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.13352460412341882,
+                "delta_gross_pnl": 0.007375026148259883,
+                "delta_net_pnl": 0.016479079618331977,
+                "ema_opportunities": 169,
+                "fees_saved": 0.009104053470072093,
+                "opportunity_normalized_absolute_delta_share": 1.1701179805135105
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.05679045752209352,
+                "delta_gross_pnl": -0.0036334702178294036,
+                "delta_net_pnl": 0.007008854115029277,
+                "ema_opportunities": 190,
+                "fees_saved": 0.01064232433285869,
+                "opportunity_normalized_absolute_delta_share": 0.4426666715274763
+              }
+            }
+          },
+          {
+            "days": [
+              182,
+              273
+            ],
+            "delta_gross_pnl": -0.096172136314533,
+            "delta_net_pnl": -0.04373685068329465,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 206,
+                "ema_gross_pnl": 0.07536058519516874,
+                "ema_net_pnl": 0.01594894073095505
+              },
+              "fully_held": {
+                "count": 73,
+                "ema_gross_pnl": -0.07520193067996678,
+                "ema_net_pnl": -0.09496837722966352
+              },
+              "partially_held": {
+                "count": 43,
+                "ema_gross_pnl": 0.03843108469737708,
+                "ema_net_pnl": 0.027280564705239582
+              }
+            },
+            "end_exclusive": 1774800000000,
+            "fees_saved": 0.052435285631238296,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.278418061360297,
+                "closed_trades": 322,
+                "fees": 0.09032861100604789,
+                "gross_notional_turnover": 75.27384250503992,
+                "gross_pnl": 0.03858973921257908,
+                "net_pnl": -0.05173887179346884,
+                "period_return": -0.05673845981575898
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.16396831354589614,
+                "closed_trades": 131,
+                "fees": 0.03789332537480959,
+                "gross_notional_turnover": 31.57777114567466,
+                "gross_pnl": -0.05758239710195393,
+                "net_pnl": -0.09547572247676352,
+                "period_return": -0.09109414910100044
+              }
+            },
+            "paired_hac": {
+              "daily_count": 91,
+              "lcb": null,
+              "mean_difference": -0.0005237664780612377,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1766937600000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.09722883986443139,
+                "delta_gross_pnl": -0.0037299204290067445,
+                "delta_net_pnl": 0.006623667782674018,
+                "ema_opportunities": 211,
+                "fees_saved": 0.010353588211680751,
+                "opportunity_normalized_absolute_delta_share": 0.7644675134364534
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.18322085389608164,
+                "delta_gross_pnl": -0.016598374859952997,
+                "delta_net_pnl": -0.012481832229589946,
+                "ema_opportunities": 226,
+                "fees_saved": 0.004116542630363047,
+                "opportunity_normalized_absolute_delta_share": 1.3449707814761038
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.09734482890470895,
+                "delta_gross_pnl": -0.01132388399909949,
+                "delta_net_pnl": -0.006631569480054149,
+                "ema_opportunities": 207,
+                "fees_saved": 0.004692314519045351,
+                "opportunity_normalized_absolute_delta_share": 0.780169425859479
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.0817644769211633,
+                "delta_gross_pnl": -0.0009988562512098969,
+                "delta_net_pnl": 0.00557016552192788,
+                "ema_opportunities": 198,
+                "fees_saved": 0.006569021773137776,
+                "opportunity_normalized_absolute_delta_share": 0.6850872081424744
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.11079929312728895,
+                "delta_gross_pnl": -0.016779996537536007,
+                "delta_net_pnl": -0.007548148360646601,
+                "ema_opportunities": 206,
+                "fees_saved": 0.00923184817688939,
+                "opportunity_normalized_absolute_delta_share": 0.8923108121270503
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.19080381009423864,
+                "delta_gross_pnl": -0.015822627196372358,
+                "delta_net_pnl": -0.012998417460239551,
+                "ema_opportunities": 223,
+                "fees_saved": 0.0028242097361327904,
+                "opportunity_normalized_absolute_delta_share": 1.4194776724051206
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.16498350311364335,
+                "delta_gross_pnl": -0.017376628558616408,
+                "delta_net_pnl": -0.011239421510842368,
+                "ema_opportunities": 200,
+                "fees_saved": 0.006137207047774058,
+                "opportunity_normalized_absolute_delta_share": 1.3685381583276715
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.07385439407844371,
+                "delta_gross_pnl": -0.013541848482739066,
+                "delta_net_pnl": -0.005031294946523934,
+                "ema_opportunities": 188,
+                "fees_saved": 0.008510553536215134,
+                "opportunity_normalized_absolute_delta_share": 0.6517257434900964
+              }
+            }
+          },
+          {
+            "days": [
+              273,
+              365
+            ],
+            "delta_gross_pnl": -0.07989147294028238,
+            "delta_net_pnl": -0.041183393469625296,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 200,
+                "ema_gross_pnl": 0.042916397801263065,
+                "ema_net_pnl": -0.00406932143864905
+              },
+              "fully_held": {
+                "count": 43,
+                "ema_gross_pnl": -0.0469523890709695,
+                "ema_net_pnl": -0.05696808627293134
+              },
+              "partially_held": {
+                "count": 55,
+                "ema_gross_pnl": 0.013907240880718742,
+                "ema_net_pnl": 0.0010296001722676015
+              }
+            },
+            "end_exclusive": 1782748800000,
+            "fees_saved": 0.038708079470657054,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.15256360007203962,
+                "closed_trades": 298,
+                "fees": 0.06987905715032508,
+                "gross_notional_turnover": 58.23254762527091,
+                "gross_pnl": 0.009871249611012309,
+                "net_pnl": -0.060007807539312785,
+                "period_return": -0.06976477863551533
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.10622368940182081,
+                "closed_trades": 119,
+                "fees": 0.031170977679668026,
+                "gross_notional_turnover": 25.975814733056687,
+                "gross_pnl": -0.07002022332927008,
+                "net_pnl": -0.1011912010089381,
+                "period_return": -0.10622368940182081
+              }
+            },
+            "paired_hac": {
+              "daily_count": 92,
+              "lcb": null,
+              "mean_difference": -0.0005075683110411885,
+              "promotion_authority": false,
+              "status": "descriptive_only_unqualified_horizon"
+            },
+            "start": 1774800000000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.3264490779797135,
+                "delta_gross_pnl": -0.02804622245851286,
+                "delta_net_pnl": -0.021655588633800644,
+                "ema_opportunities": 149,
+                "fees_saved": 0.006390633824712208,
+                "opportunity_normalized_absolute_delta_share": 2.9884331702303975
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.11296069118707715,
+                "delta_gross_pnl": -0.011627946742155526,
+                "delta_net_pnl": -0.007493451276615793,
+                "ema_opportunities": 182,
+                "fees_saved": 0.004134495465539732,
+                "opportunity_normalized_absolute_delta_share": 0.8465845207646882
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.10140317167911382,
+                "delta_gross_pnl": -0.011325789229882532,
+                "delta_net_pnl": -0.006726762365620818,
+                "ema_opportunities": 202,
+                "fees_saved": 0.004599026864261717,
+                "opportunity_normalized_absolute_delta_share": 0.684722406783719
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.10010363267280718,
+                "delta_gross_pnl": -0.010863853696591116,
+                "delta_net_pnl": -0.0066405551007441095,
+                "ema_opportunities": 145,
+                "fees_saved": 0.00422329859584701,
+                "opportunity_normalized_absolute_delta_share": 0.9416645170048896
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.005314499431267325,
+                "delta_gross_pnl": -0.006657637010257622,
+                "delta_net_pnl": -0.0003525469092770561,
+                "ema_opportunities": 183,
+                "fees_saved": 0.006305090100980567,
+                "opportunity_normalized_absolute_delta_share": 0.03961189740026575
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.10585514272323389,
+                "delta_gross_pnl": 0.0044637723920418525,
+                "delta_net_pnl": 0.007022091897986805,
+                "ema_opportunities": 156,
+                "fees_saved": 0.0025583195059449494,
+                "opportunity_normalized_absolute_delta_share": 0.9255539402210964
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.08373351142097346,
+                "delta_gross_pnl": 0.0014669023709391023,
+                "delta_net_pnl": 0.0055546135691917405,
+                "ema_opportunities": 171,
+                "fees_saved": 0.004087711198252641,
+                "opportunity_normalized_absolute_delta_share": 0.6679094127380573
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.16418027290581375,
+                "delta_gross_pnl": -0.017300698565863654,
+                "delta_net_pnl": -0.010891194650745414,
+                "ema_opportunities": 176,
+                "fees_saved": 0.006409503915118239,
+                "opportunity_normalized_absolute_delta_share": 1.2723971150200566
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            365
+          ],
+          "delta_gross_pnl": -0.15227643905668892,
+          "delta_net_pnl": 0.05129553585617569,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 799,
+              "ema_gross_pnl": 0.06768979034199563,
+              "ema_net_pnl": -0.16390314065569359
+            },
+            "fully_held": {
+              "count": 261,
+              "ema_gross_pnl": -0.10386529579045173,
+              "ema_net_pnl": -0.17911317832008758
+            },
+            "partially_held": {
+              "count": 183,
+              "ema_gross_pnl": 0.19358720619268624,
+              "ema_net_pnl": 0.14315325371139828
+            }
+          },
+          "end_exclusive": 1782748800000,
+          "fees_saved": 0.2035719749128645,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.40695425885979375,
+              "closed_trades": 1243,
+              "fees": 0.3572747660086125,
+              "gross_notional_turnover": 297.72897167384383,
+              "gross_pnl": 0.15741170074422997,
+              "net_pnl": -0.19986306526438252,
+              "period_return": -0.1998630652643827
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.2868601545548485,
+              "closed_trades": 514,
+              "fees": 0.15370279109574803,
+              "gross_notional_turnover": 128.08565924645671,
+              "gross_pnl": 0.005135261687541054,
+              "net_pnl": -0.14856752940820694,
+              "period_return": -0.14856752940820694
+            }
+          },
+          "paired_hac": {
+            "block_length": 20,
+            "critical_value": 2.306004135204166,
+            "daily_count": 365,
+            "degrees_of_freedom": 8,
+            "lcb": -0.0014545100227112034,
+            "mean_difference": 7.93112545910002e-05,
+            "observations_sha256": "edd4684f4e1ed650e9704bef81e78758ded78a24d5d55ae2519427a50475310c",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0006651424660894653,
+            "status": "informative"
+          },
+          "start": 1751212800000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.2170477735655765,
+              "delta_gross_pnl": -0.06181888698499689,
+              "delta_net_pnl": -0.02641916521752287,
+              "ema_opportunities": 764,
+              "fees_saved": 0.03539972176747401,
+              "opportunity_normalized_absolute_delta_share": 1.736382188524612
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.02674072152867063,
+              "delta_gross_pnl": -0.013504906381838619,
+              "delta_net_pnl": 0.0032548942036868004,
+              "ema_opportunities": 789,
+              "fees_saved": 0.016759800585525442,
+              "opportunity_normalized_absolute_delta_share": 0.2071473890788782
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.011778957346567224,
+              "delta_gross_pnl": -0.02281612372940648,
+              "delta_net_pnl": -0.0014337406697014314,
+              "ema_opportunities": 792,
+              "fees_saved": 0.02138238305970506,
+              "opportunity_normalized_absolute_delta_share": 0.09090023649270058
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.3268589371712858,
+              "delta_gross_pnl": 0.010138349819900822,
+              "delta_net_pnl": 0.03978543581486284,
+              "ema_opportunities": 729,
+              "fees_saved": 0.029647085994961936,
+              "opportunity_normalized_absolute_delta_share": 2.740414024678873
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.17360126106661286,
+              "delta_gross_pnl": -0.009886577095499772,
+              "delta_net_pnl": 0.021130833653557286,
+              "ema_opportunities": 797,
+              "fees_saved": 0.031017410749057048,
+              "opportunity_normalized_absolute_delta_share": 1.331306032169558
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.1768809988549883,
+              "delta_gross_pnl": 0.004983705950820769,
+              "delta_net_pnl": 0.02153004500264337,
+              "ema_opportunities": 739,
+              "fees_saved": 0.016546339051822588,
+              "opportunity_normalized_absolute_delta_share": 1.4629183558886178
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.006628407760209228,
+              "delta_gross_pnl": -0.02074784430083459,
+              "delta_net_pnl": 0.0008068131585471911,
+              "ema_opportunities": 761,
+              "fees_saved": 0.021554657459381767,
+              "opportunity_normalized_absolute_delta_share": 0.05323630516478161
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.060462942706089436,
+              "delta_gross_pnl": -0.03862415633483411,
+              "delta_net_pnl": -0.007359580089897492,
+              "ema_opportunities": 741,
+              "fees_saved": 0.031264576244936615,
+              "opportunity_normalized_absolute_delta_share": 0.4987172818078524
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 4.440892098500626e-16,
+            "decisions_sha256": "284baaa164f69e221d4149f95ce67b3b0777cbedb23eda89c7770bd2a9eb87e1",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 17520,
+              "fills": 2486,
+              "final_equity": 0.8001369347356176,
+              "market_readiness": false,
+              "max_drawdown": 0.4073231503264998,
+              "maximum_reconciliation_error": 3.365363543395006e-16,
+              "net_realized_pnl": -0.19986306526438255,
+              "net_return": -0.19986306526438236,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.3572747660086126,
+              "trades": 1243
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "81be7d62908c5a4f9fa551eab863ce21c7e6bce6194872f7e95e8db16fcd59dc"
+          },
+          "Fixed": {
+            "attribution_max_error": 3.3306690738754696e-16,
+            "decisions_sha256": "eaa0c8664e0c6e33b9c238d098e300855822ba63a02808d17f60a0bbfaead5aa",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 17520,
+              "fills": 1028,
+              "final_equity": 0.8514324705917927,
+              "market_readiness": false,
+              "max_drawdown": 0.2868601545548488,
+              "maximum_reconciliation_error": 1.8474805019152996e-16,
+              "net_realized_pnl": -0.1485675294082069,
+              "net_return": -0.14856752940820728,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.153702791095748,
+              "trades": 514
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "1b1695b97befb7f759930bcc27f902f89d3afbb1a10c283dc6ad88445706304f"
+          }
+        }
+      }
+    },
+    "validation": {
+      "normal": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              30
+            ],
+            "delta_gross_pnl": 0.03307397108451647,
+            "delta_net_pnl": 0.042239121524438435,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 63,
+                "ema_gross_pnl": -0.051026857971999406,
+                "ema_net_pnl": -0.06352351924618531
+              },
+              "fully_held": {
+                "count": 14,
+                "ema_gross_pnl": 0.01949919434656055,
+                "ema_net_pnl": 0.0166490688835413
+              },
+              "partially_held": {
+                "count": 23,
+                "ema_gross_pnl": 0.023507865229025877,
+                "ema_net_pnl": 0.01891392532599144
+              }
+            },
+            "end_exclusive": 1785441600000,
+            "fees_saved": 0.00916515043992197,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.09072168759800081,
+                "closed_trades": 100,
+                "fees": 0.01994072664023957,
+                "gross_notional_turnover": 24.92590830029946,
+                "gross_pnl": -0.008019798396412987,
+                "net_pnl": -0.027960525036652563,
+                "period_return": -0.027960525036652584
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.04366056775064431,
+                "closed_trades": 53,
+                "fees": 0.010775576200317598,
+                "gross_notional_turnover": 13.469470250396995,
+                "gross_pnl": 0.025054172688103483,
+                "net_pnl": 0.014278596487785886,
+                "period_return": 0.014278596487785844
+              }
+            },
+            "paired_hac": {
+              "block_length": 6,
+              "critical_value": 4.302652729749462,
+              "daily_count": 30,
+              "degrees_of_freedom": 2,
+              "lcb": -0.002631530488036513,
+              "mean_difference": 0.001398382164009826,
+              "observations_sha256": "7747d2d224417ff91a729c5e1182e67043fa14ef24f9e32027c5ac85838ba343",
+              "promotion_authority": false,
+              "schema": "exia.genetic_primus.hac_assessment/1",
+              "standard_error": 0.0009366111803963775,
+              "status": "informative"
+            },
+            "start": 1782849600000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.16129921295769128,
+                "delta_gross_pnl": 0.007384397479551052,
+                "delta_net_pnl": 0.008744668892353256,
+                "ema_opportunities": 68,
+                "fees_saved": 0.0013602714128022044,
+                "opportunity_normalized_absolute_delta_share": 1.266673231167752
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.037531732314509694,
+                "delta_gross_pnl": 0.000500627599184662,
+                "delta_net_pnl": 0.0020347437909254387,
+                "ema_opportunities": 57,
+                "fees_saved": 0.0015341161917407774,
+                "opportunity_normalized_absolute_delta_share": 0.3516130711569856
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.14372376917405275,
+                "delta_gross_pnl": 0.006920991679026628,
+                "delta_net_pnl": 0.007791834506457025,
+                "ema_opportunities": 62,
+                "fees_saved": 0.000870842827430397,
+                "opportunity_normalized_absolute_delta_share": 1.2378789151442606
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.17210891343738133,
+                "delta_gross_pnl": 0.007054312491056451,
+                "delta_net_pnl": 0.009330705549241322,
+                "ema_opportunities": 63,
+                "fees_saved": 0.0022763930581848712,
+                "opportunity_normalized_absolute_delta_share": 1.4588279329454228
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.11044053572606279,
+                "delta_gross_pnl": -0.005644432701111975,
+                "delta_net_pnl": -0.005987418658216576,
+                "ema_opportunities": 71,
+                "fees_saved": -0.0003429859571046003,
+                "opportunity_normalized_absolute_delta_share": 0.8306372687002469
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.030311346080756127,
+                "delta_gross_pnl": 0.0010754861610212042,
+                "delta_net_pnl": 0.001643298068833527,
+                "ema_opportunities": 73,
+                "fees_saved": 0.0005678119078123239,
+                "opportunity_normalized_absolute_delta_share": 0.22172957270032564
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.1695384988445622,
+                "delta_gross_pnl": 0.007232121251650134,
+                "delta_net_pnl": 0.00919135319830225,
+                "ema_opportunities": 68,
+                "fees_saved": 0.0019592319466521166,
+                "opportunity_normalized_absolute_delta_share": 1.3313758585734738
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.1750459914649838,
+                "delta_gross_pnl": 0.008550467124138313,
+                "delta_net_pnl": 0.009489936176542191,
+                "ema_opportunities": 72,
+                "fees_saved": 0.0009394690524038818,
+                "opportunity_normalized_absolute_delta_share": 1.2982577700319633
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            30
+          ],
+          "delta_gross_pnl": 0.03307397108451647,
+          "delta_net_pnl": 0.042239121524438435,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 63,
+              "ema_gross_pnl": -0.051026857971999406,
+              "ema_net_pnl": -0.06352351924618531
+            },
+            "fully_held": {
+              "count": 14,
+              "ema_gross_pnl": 0.01949919434656055,
+              "ema_net_pnl": 0.0166490688835413
+            },
+            "partially_held": {
+              "count": 23,
+              "ema_gross_pnl": 0.023507865229025877,
+              "ema_net_pnl": 0.01891392532599144
+            }
+          },
+          "end_exclusive": 1785441600000,
+          "fees_saved": 0.00916515043992197,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.09072168759800081,
+              "closed_trades": 100,
+              "fees": 0.01994072664023957,
+              "gross_notional_turnover": 24.92590830029946,
+              "gross_pnl": -0.008019798396412987,
+              "net_pnl": -0.027960525036652563,
+              "period_return": -0.027960525036652584
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.04366056775064431,
+              "closed_trades": 53,
+              "fees": 0.010775576200317598,
+              "gross_notional_turnover": 13.469470250396995,
+              "gross_pnl": 0.025054172688103483,
+              "net_pnl": 0.014278596487785886,
+              "period_return": 0.014278596487785844
+            }
+          },
+          "paired_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.002631530488036513,
+            "mean_difference": 0.001398382164009826,
+            "observations_sha256": "7747d2d224417ff91a729c5e1182e67043fa14ef24f9e32027c5ac85838ba343",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0009366111803963775,
+            "status": "informative"
+          },
+          "start": 1782849600000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.16129921295769128,
+              "delta_gross_pnl": 0.007384397479551052,
+              "delta_net_pnl": 0.008744668892353256,
+              "ema_opportunities": 68,
+              "fees_saved": 0.0013602714128022044,
+              "opportunity_normalized_absolute_delta_share": 1.266673231167752
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.037531732314509694,
+              "delta_gross_pnl": 0.000500627599184662,
+              "delta_net_pnl": 0.0020347437909254387,
+              "ema_opportunities": 57,
+              "fees_saved": 0.0015341161917407774,
+              "opportunity_normalized_absolute_delta_share": 0.3516130711569856
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.14372376917405275,
+              "delta_gross_pnl": 0.006920991679026628,
+              "delta_net_pnl": 0.007791834506457025,
+              "ema_opportunities": 62,
+              "fees_saved": 0.000870842827430397,
+              "opportunity_normalized_absolute_delta_share": 1.2378789151442606
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.17210891343738133,
+              "delta_gross_pnl": 0.007054312491056451,
+              "delta_net_pnl": 0.009330705549241322,
+              "ema_opportunities": 63,
+              "fees_saved": 0.0022763930581848712,
+              "opportunity_normalized_absolute_delta_share": 1.4588279329454228
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.11044053572606279,
+              "delta_gross_pnl": -0.005644432701111975,
+              "delta_net_pnl": -0.005987418658216576,
+              "ema_opportunities": 71,
+              "fees_saved": -0.0003429859571046003,
+              "opportunity_normalized_absolute_delta_share": 0.8306372687002469
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.030311346080756127,
+              "delta_gross_pnl": 0.0010754861610212042,
+              "delta_net_pnl": 0.001643298068833527,
+              "ema_opportunities": 73,
+              "fees_saved": 0.0005678119078123239,
+              "opportunity_normalized_absolute_delta_share": 0.22172957270032564
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.1695384988445622,
+              "delta_gross_pnl": 0.007232121251650134,
+              "delta_net_pnl": 0.00919135319830225,
+              "ema_opportunities": 68,
+              "fees_saved": 0.0019592319466521166,
+              "opportunity_normalized_absolute_delta_share": 1.3313758585734738
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.1750459914649838,
+              "delta_gross_pnl": 0.008550467124138313,
+              "delta_net_pnl": 0.009489936176542191,
+              "ema_opportunities": 72,
+              "fees_saved": 0.0009394690524038818,
+              "opportunity_normalized_absolute_delta_share": 1.2982577700319633
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "d6e981020979768c4ce489d4e1728275b74d17584d5ff8887f14fb27d9f418ae",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 1440,
+              "fills": 200,
+              "final_equity": 0.9720394749633475,
+              "market_readiness": false,
+              "max_drawdown": 0.09080876579822406,
+              "maximum_reconciliation_error": 1.0278236595162582e-16,
+              "net_realized_pnl": -0.02796052503665256,
+              "net_return": -0.027960525036652473,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.01994072664023957,
+              "trades": 100
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "d57f3d5b33e1d629689e655d841b7ab2cb33b3cfc241fdac206be02c8a49f412"
+          },
+          "Fixed": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "312d98ea9399135da5e7ce35d4e08e4b73291bc2a2011ff68fccbd8f027051e1",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 1440,
+              "fills": 106,
+              "final_equity": 1.0142785964877858,
+              "market_readiness": false,
+              "max_drawdown": 0.04375173561958612,
+              "maximum_reconciliation_error": 8.966351966455122e-17,
+              "net_realized_pnl": 0.014278596487785877,
+              "net_return": 0.014278596487785844,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.010775576200317598,
+              "trades": 53
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "8d353d8760b7b412f0fae9876c2719005535493f006828822f9e22426c0badc2"
+          }
+        }
+      },
+      "stress": {
+        "blocks": [
+          {
+            "days": [
+              0,
+              30
+            ],
+            "delta_gross_pnl": 0.03288412282429426,
+            "delta_net_pnl": 0.046527888119647864,
+            "ema_trade_buckets_by_entry": {
+              "fully_blocked": {
+                "count": 63,
+                "ema_gross_pnl": -0.05077413265779781,
+                "ema_net_pnl": -0.06941130121356108
+              },
+              "fully_held": {
+                "count": 14,
+                "ema_gross_pnl": 0.01954281356477212,
+                "ema_net_pnl": 0.01528351563138474
+              },
+              "partially_held": {
+                "count": 23,
+                "ema_gross_pnl": 0.023424106794854453,
+                "ema_net_pnl": 0.016562795625087216
+              }
+            },
+            "end_exclusive": 1785441600000,
+            "fees_saved": 0.013643765295353612,
+            "models": {
+              "EMA": {
+                "close_4h_drawdown": 0.09890772364836198,
+                "closed_trades": 100,
+                "fees": 0.02975777765891787,
+                "gross_notional_turnover": 24.798148049098227,
+                "gross_pnl": -0.007807212298171249,
+                "net_pnl": -0.03756498995708912,
+                "period_return": -0.03756498995708912
+              },
+              "Fixed": {
+                "close_4h_drawdown": 0.04755584122231393,
+                "closed_trades": 53,
+                "fees": 0.01611401236356426,
+                "gross_notional_turnover": 13.42834363630355,
+                "gross_pnl": 0.025076910526123007,
+                "net_pnl": 0.008962898162558748,
+                "period_return": 0.008962898162558686
+              }
+            },
+            "paired_hac": {
+              "block_length": 6,
+              "critical_value": 4.302652729749462,
+              "daily_count": 30,
+              "degrees_of_freedom": 2,
+              "lcb": -0.0026659854865048833,
+              "mean_difference": 0.001552741574071951,
+              "observations_sha256": "b9255039758f35d9dc63b9cf026324947120355364d73696e07db1b68f1a212b",
+              "promotion_authority": false,
+              "schema": "exia.genetic_primus.hac_assessment/1",
+              "standard_error": 0.0009804944357716004,
+              "status": "informative"
+            },
+            "start": 1782849600000,
+            "symbols": {
+              "ADA/USDT": {
+                "absolute_delta_share": 0.1594582589332991,
+                "delta_gross_pnl": 0.0073508246392743806,
+                "delta_net_pnl": 0.009379815838205853,
+                "ema_opportunities": 68,
+                "fees_saved": 0.0020289911989314745,
+                "opportunity_normalized_absolute_delta_share": 1.2522163275056135
+              },
+              "BNB/USDT": {
+                "absolute_delta_share": 0.047330159814928455,
+                "delta_gross_pnl": 0.0005047943942667115,
+                "delta_net_pnl": 0.0027841027841811715,
+                "ema_opportunities": 57,
+                "fees_saved": 0.002279308389914459,
+                "opportunity_normalized_absolute_delta_share": 0.4434088656345929
+              },
+              "BTC/USDT": {
+                "absolute_delta_share": 0.1391012830161894,
+                "delta_gross_pnl": 0.006889545671511682,
+                "delta_net_pnl": 0.008182357102593093,
+                "ema_opportunities": 62,
+                "fees_saved": 0.0012928114310814098,
+                "opportunity_normalized_absolute_delta_share": 1.1980658892039537
+              },
+              "DOGE/USDT": {
+                "absolute_delta_share": 0.17634924440033758,
+                "delta_gross_pnl": 0.006980233978977698,
+                "delta_net_pnl": 0.010373394559474253,
+                "ema_opportunities": 63,
+                "fees_saved": 0.0033931605804965563,
+                "opportunity_normalized_absolute_delta_share": 1.4947697858695281
+              },
+              "ETH/USDT": {
+                "absolute_delta_share": 0.10450950427074077,
+                "delta_gross_pnl": -0.005637085835075139,
+                "delta_net_pnl": -0.006147564321593306,
+                "ema_opportunities": 71,
+                "fees_saved": -0.0005104784865181642,
+                "opportunity_normalized_absolute_delta_share": 0.7860292293038813
+              },
+              "LINK/USDT": {
+                "absolute_delta_share": 0.03280105828293709,
+                "delta_gross_pnl": 0.0010843269132398362,
+                "delta_net_pnl": 0.0019294572012159195,
+                "ema_opportunities": 73,
+                "fees_saved": 0.0008451302879760834,
+                "opportunity_normalized_absolute_delta_share": 0.23994198798751243
+              },
+              "SOL/USDT": {
+                "absolute_delta_share": 0.1718668259805954,
+                "delta_gross_pnl": 0.007194389444875522,
+                "delta_net_pnl": 0.01010972518563172,
+                "ema_opportunities": 68,
+                "fees_saved": 0.002915335740756198,
+                "opportunity_normalized_absolute_delta_share": 1.3496600746123226
+              },
+              "XRP/USDT": {
+                "absolute_delta_share": 0.16858366530097213,
+                "delta_gross_pnl": 0.00851709361722357,
+                "delta_net_pnl": 0.009916599769939161,
+                "ema_opportunities": 72,
+                "fees_saved": 0.001399506152715591,
+                "opportunity_normalized_absolute_delta_share": 1.25032885098221
+              }
+            }
+          }
+        ],
+        "full": {
+          "days": [
+            0,
+            30
+          ],
+          "delta_gross_pnl": 0.03288412282429426,
+          "delta_net_pnl": 0.046527888119647864,
+          "ema_trade_buckets_by_entry": {
+            "fully_blocked": {
+              "count": 63,
+              "ema_gross_pnl": -0.05077413265779781,
+              "ema_net_pnl": -0.06941130121356108
+            },
+            "fully_held": {
+              "count": 14,
+              "ema_gross_pnl": 0.01954281356477212,
+              "ema_net_pnl": 0.01528351563138474
+            },
+            "partially_held": {
+              "count": 23,
+              "ema_gross_pnl": 0.023424106794854453,
+              "ema_net_pnl": 0.016562795625087216
+            }
+          },
+          "end_exclusive": 1785441600000,
+          "fees_saved": 0.013643765295353612,
+          "models": {
+            "EMA": {
+              "close_4h_drawdown": 0.09890772364836198,
+              "closed_trades": 100,
+              "fees": 0.02975777765891787,
+              "gross_notional_turnover": 24.798148049098227,
+              "gross_pnl": -0.007807212298171249,
+              "net_pnl": -0.03756498995708912,
+              "period_return": -0.03756498995708912
+            },
+            "Fixed": {
+              "close_4h_drawdown": 0.04755584122231393,
+              "closed_trades": 53,
+              "fees": 0.01611401236356426,
+              "gross_notional_turnover": 13.42834363630355,
+              "gross_pnl": 0.025076910526123007,
+              "net_pnl": 0.008962898162558748,
+              "period_return": 0.008962898162558686
+            }
+          },
+          "paired_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.0026659854865048833,
+            "mean_difference": 0.001552741574071951,
+            "observations_sha256": "b9255039758f35d9dc63b9cf026324947120355364d73696e07db1b68f1a212b",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0009804944357716004,
+            "status": "informative"
+          },
+          "start": 1782849600000,
+          "symbols": {
+            "ADA/USDT": {
+              "absolute_delta_share": 0.1594582589332991,
+              "delta_gross_pnl": 0.0073508246392743806,
+              "delta_net_pnl": 0.009379815838205853,
+              "ema_opportunities": 68,
+              "fees_saved": 0.0020289911989314745,
+              "opportunity_normalized_absolute_delta_share": 1.2522163275056135
+            },
+            "BNB/USDT": {
+              "absolute_delta_share": 0.047330159814928455,
+              "delta_gross_pnl": 0.0005047943942667115,
+              "delta_net_pnl": 0.0027841027841811715,
+              "ema_opportunities": 57,
+              "fees_saved": 0.002279308389914459,
+              "opportunity_normalized_absolute_delta_share": 0.4434088656345929
+            },
+            "BTC/USDT": {
+              "absolute_delta_share": 0.1391012830161894,
+              "delta_gross_pnl": 0.006889545671511682,
+              "delta_net_pnl": 0.008182357102593093,
+              "ema_opportunities": 62,
+              "fees_saved": 0.0012928114310814098,
+              "opportunity_normalized_absolute_delta_share": 1.1980658892039537
+            },
+            "DOGE/USDT": {
+              "absolute_delta_share": 0.17634924440033758,
+              "delta_gross_pnl": 0.006980233978977698,
+              "delta_net_pnl": 0.010373394559474253,
+              "ema_opportunities": 63,
+              "fees_saved": 0.0033931605804965563,
+              "opportunity_normalized_absolute_delta_share": 1.4947697858695281
+            },
+            "ETH/USDT": {
+              "absolute_delta_share": 0.10450950427074077,
+              "delta_gross_pnl": -0.005637085835075139,
+              "delta_net_pnl": -0.006147564321593306,
+              "ema_opportunities": 71,
+              "fees_saved": -0.0005104784865181642,
+              "opportunity_normalized_absolute_delta_share": 0.7860292293038813
+            },
+            "LINK/USDT": {
+              "absolute_delta_share": 0.03280105828293709,
+              "delta_gross_pnl": 0.0010843269132398362,
+              "delta_net_pnl": 0.0019294572012159195,
+              "ema_opportunities": 73,
+              "fees_saved": 0.0008451302879760834,
+              "opportunity_normalized_absolute_delta_share": 0.23994198798751243
+            },
+            "SOL/USDT": {
+              "absolute_delta_share": 0.1718668259805954,
+              "delta_gross_pnl": 0.007194389444875522,
+              "delta_net_pnl": 0.01010972518563172,
+              "ema_opportunities": 68,
+              "fees_saved": 0.002915335740756198,
+              "opportunity_normalized_absolute_delta_share": 1.3496600746123226
+            },
+            "XRP/USDT": {
+              "absolute_delta_share": 0.16858366530097213,
+              "delta_gross_pnl": 0.00851709361722357,
+              "delta_net_pnl": 0.009916599769939161,
+              "ema_opportunities": 72,
+              "fees_saved": 0.001399506152715591,
+              "opportunity_normalized_absolute_delta_share": 1.25032885098221
+            }
+          }
+        },
+        "proofs": {
+          "EMA": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "12938b0e234bcd4644e2c0424d967bd289819fb1f00c758d544def79908dcc3b",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 1440,
+              "fills": 200,
+              "final_equity": 0.9624350100429109,
+              "market_readiness": false,
+              "max_drawdown": 0.09903682879841191,
+              "maximum_reconciliation_error": 9.194034422677078e-17,
+              "net_realized_pnl": -0.037564989957089116,
+              "net_return": -0.03756498995708912,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.029757777658917867,
+              "trades": 100
+            },
+            "model_sha256": "8b51e495321e9aecdd678f3f8546f16b8c33ae05f5d438e8d890869e41df84c9",
+            "portfolio_sha256": "cca80e358ace013214c1b2fa3209316774b688aaf860b58e52ba3b130382effe"
+          },
+          "Fixed": {
+            "attribution_max_error": 2.220446049250313e-16,
+            "decisions_sha256": "825ccc859a2aeb448d55630cf6dcbbbc6f4a3f762ef0783173645bc2ad64b73b",
+            "metrics": {
+              "accounting_version": 2,
+              "decision_count": 1440,
+              "fills": 106,
+              "final_equity": 1.0089628981625587,
+              "market_readiness": false,
+              "max_drawdown": 0.047691921471212484,
+              "maximum_reconciliation_error": 1.0928757898653885e-16,
+              "net_realized_pnl": 0.008962898162558757,
+              "net_return": 0.008962898162558686,
+              "orders_enabled": false,
+              "promotion_authority": false,
+              "total_fees": 0.01611401236356426,
+              "trades": 53
+            },
+            "model_sha256": "7a015aee43d85363eae4193257d7cce81fb80ec6c0cd2f29c2c2680c44d64d0a",
+            "portfolio_sha256": "615e44513e26d16a0cae15a43ce8db5fcb703f1c57a33005cf8a5de511528496"
+          }
+        }
+      }
+    }
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false
+  },
+  "scaler": {
+    "fit_values_sha256": "913343c6720f725423d7cd953cde403171195659b995ae7b6abbc85c195bfb89",
+    "fitted_rows": 17520,
+    "median": [
+      -0.004683860971061049,
+      -0.0005995826057161313,
+      -0.002084800098143491,
+      0.27483692607345395
+    ],
+    "scale": [
+      0.03326437220161979,
+      0.011559297873163815,
+      0.053550092266128696,
+      0.3115536750802846
+    ]
+  },
+  "search_evaluations": 0,
+  "snapshot_sha256": "033354efce9aa6a6ceab85e9249fa3b016e7e8dd70765f5d957d43843076e654"
+}

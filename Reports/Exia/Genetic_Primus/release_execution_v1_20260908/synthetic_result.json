@@ -1,0 +1,451 @@
+{
+  "schema_version": "exia.genetic_primus.execution_replay/1",
+  "binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+  "state_sha256": "d0e1e509eb94b43bea30cc45750daedc1e3049a56cf1aacd73fcae354b1f7486",
+  "ledger_sha256": "ce68231c264199072cf30c4296b8b3afb391e08aa1b32d16df7ead7968d605c2",
+  "event_count": 8,
+  "wallet_cash": "1001.0071600000000000000000000000000000000000000000",
+  "marked_equity": "1001.0071600000000000000000000000000000000000000000",
+  "max_drawdown": "0.00018011000000000000000000000000000000000000000",
+  "risk_latched": false,
+  "unresolved_positions": [],
+  "risk_reasons": [],
+  "pending_orders": [],
+  "stale_marks": [],
+  "flat_and_reconciled": true,
+  "evidence_kind": "synthetic",
+  "execution_scope": "intent_level_diagnostic",
+  "strategy_backtest_comparable": false,
+  "limitations": [
+    "snapshot_matching_not_venue_queue_simulation",
+    "latency_fees_rules_and_participation_are_supplied_not_calibrated",
+    "funding_feed_completeness_and_authenticity_not_verified",
+    "no_margin_liquidation_or_live_acknowledgement_adapter",
+    "no_automatic_retry_topup_or_terminal_forced_fill"
+  ],
+  "qualification_eligible": false,
+  "trading_authorized": false,
+  "state": {
+    "cash": "1001.0071600000000000000000000000000000000000000000",
+    "positions": {
+      "LINKUSDT": {
+        "quantity": "0.0",
+        "entry": "0"
+      }
+    },
+    "marks": {
+      "LINKUSDT": {
+        "price": "102",
+        "exchange_ms": 1788220800020
+      }
+    },
+    "orders": {
+      "o1": {
+        "client_oid": "o1",
+        "intent_sha256": "c31988a517226e2a19a3e6b811bdfad9171379a9a90fd69711267d4ee243359f",
+        "symbol": "LINKUSDT",
+        "side": "buy",
+        "quantity": "2",
+        "remaining": "1.3",
+        "filled": "0.7",
+        "fill_notional": "70.11",
+        "limit_price": "100.2",
+        "reduce_only": false,
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "decision_id": "d0",
+        "arrival_ms": 1788220800010,
+        "expiry_ms": 1788220800100,
+        "status": "CANCELLED",
+        "reason": "ioc_residual"
+      },
+      "close": {
+        "client_oid": "close",
+        "intent_sha256": "4fa35e32d9907c23bdf5db10ba17d73bf3a4bf838abf9ec8c48c11344e89ccab",
+        "symbol": "LINKUSDT",
+        "side": "sell",
+        "quantity": "0.7",
+        "remaining": "0.0",
+        "filled": "0.7",
+        "fill_notional": "71.33",
+        "limit_price": "101",
+        "reduce_only": true,
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "decision_id": "d20",
+        "arrival_ms": 1788220800030,
+        "expiry_ms": 1788220800120,
+        "status": "FILLED",
+        "reason": "complete"
+      }
+    },
+    "decisions": {
+      "d0": {
+        "id": "d0",
+        "ts": 1788220800000,
+        "symbol": "LINKUSDT",
+        "target": 1,
+        "proposal": 1,
+        "feature_values_sha256": "7f8ce3fd6c1150f5044e02792b6366d762dab11bd0d12f987b63b41f01b91e38",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "data_sha256": "ae0e0c792dd611febc4bb906a021f8c2c4a851ad4ead4c4088858437f0c3e4ab",
+        "execution_dataset_sha256": "e3a94a2f13cb8e7a5a7195ba5922606e89b8ec363b8036fae756c3018f6bc0b8",
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9"
+      },
+      "d20": {
+        "id": "d20",
+        "ts": 1788220800020,
+        "symbol": "LINKUSDT",
+        "target": 0,
+        "proposal": 0,
+        "feature_values_sha256": "7f8ce3fd6c1150f5044e02792b6366d762dab11bd0d12f987b63b41f01b91e38",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "data_sha256": "ae0e0c792dd611febc4bb906a021f8c2c4a851ad4ead4c4088858437f0c3e4ab",
+        "execution_dataset_sha256": "e3a94a2f13cb8e7a5a7195ba5922606e89b8ec363b8036fae756c3018f6bc0b8",
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9"
+      }
+    },
+    "ledger": [
+      {
+        "kind": "mark",
+        "ts": 1788220800000,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "symbol": "LINKUSDT",
+        "price": "100",
+        "equity": "1000",
+        "gross_notional": "0",
+        "risk_latched": false
+      },
+      {
+        "kind": "decision",
+        "ts": 1788220800000,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "id": "d0",
+        "symbol": "LINKUSDT",
+        "target": 1,
+        "proposal": 1,
+        "feature_values_sha256": "7f8ce3fd6c1150f5044e02792b6366d762dab11bd0d12f987b63b41f01b91e38",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "data_sha256": "ae0e0c792dd611febc4bb906a021f8c2c4a851ad4ead4c4088858437f0c3e4ab",
+        "execution_dataset_sha256": "e3a94a2f13cb8e7a5a7195ba5922606e89b8ec363b8036fae756c3018f6bc0b8"
+      },
+      {
+        "kind": "order_accepted",
+        "ts": 1788220800000,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "o1",
+        "decision_id": "d0",
+        "symbol": "LINKUSDT",
+        "side": "buy",
+        "quantity": "2",
+        "limit_price": "100.2",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b"
+      },
+      {
+        "kind": "fill",
+        "ts": 1788220800010,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "o1",
+        "decision_id": "d0",
+        "symbol": "LINKUSDT",
+        "signed_quantity": "0.3",
+        "price": "100.1",
+        "notional": "30.03",
+        "fee": "0.03003",
+        "realized_pnl": "0",
+        "wallet_cash": "999.96997",
+        "equity": "999.93997",
+        "position_quantity": "0.3",
+        "snapshot_id": "s10",
+        "exchange_ms": 1788220800010,
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83"
+      },
+      {
+        "kind": "fill",
+        "ts": 1788220800010,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "o1",
+        "decision_id": "d0",
+        "symbol": "LINKUSDT",
+        "signed_quantity": "0.4",
+        "price": "100.2",
+        "notional": "40.08",
+        "fee": "0.04008",
+        "realized_pnl": "0",
+        "wallet_cash": "999.92989",
+        "equity": "999.81989000000000000000000000000000000000000000000",
+        "position_quantity": "0.7",
+        "snapshot_id": "s10",
+        "exchange_ms": 1788220800010,
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83"
+      },
+      {
+        "kind": "order_end",
+        "ts": 1788220800010,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "o1",
+        "status": "CANCELLED",
+        "reason": "ioc_residual",
+        "unfilled_quantity": "1.3",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b"
+      },
+      {
+        "kind": "funding",
+        "ts": 1788220800020,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "symbol": "LINKUSDT",
+        "quantity_at_settlement": "0.7",
+        "payment": "-0.0714",
+        "settlement_mark": "102",
+        "rate": "0.001",
+        "wallet_cash": "999.85849"
+      },
+      {
+        "kind": "decision",
+        "ts": 1788220800020,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "id": "d20",
+        "symbol": "LINKUSDT",
+        "target": 0,
+        "proposal": 0,
+        "feature_values_sha256": "7f8ce3fd6c1150f5044e02792b6366d762dab11bd0d12f987b63b41f01b91e38",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "data_sha256": "ae0e0c792dd611febc4bb906a021f8c2c4a851ad4ead4c4088858437f0c3e4ab",
+        "execution_dataset_sha256": "e3a94a2f13cb8e7a5a7195ba5922606e89b8ec363b8036fae756c3018f6bc0b8"
+      },
+      {
+        "kind": "order_accepted",
+        "ts": 1788220800020,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "close",
+        "decision_id": "d20",
+        "symbol": "LINKUSDT",
+        "side": "sell",
+        "quantity": "0.7",
+        "limit_price": "101",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b"
+      },
+      {
+        "kind": "fill",
+        "ts": 1788220800030,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "close",
+        "decision_id": "d20",
+        "symbol": "LINKUSDT",
+        "signed_quantity": "-0.7",
+        "price": "101.9",
+        "notional": "71.33",
+        "fee": "0.07133",
+        "realized_pnl": "1.220000000000000000000000000000000000000000000002",
+        "wallet_cash": "1001.0071600000000000000000000000000000000000000000",
+        "equity": "1001.0071600000000000000000000000000000000000000000",
+        "position_quantity": "0.0",
+        "snapshot_id": "s30",
+        "exchange_ms": 1788220800030,
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83"
+      },
+      {
+        "kind": "order_end",
+        "ts": 1788220800030,
+        "execution_binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+        "client_oid": "close",
+        "status": "FILLED",
+        "reason": "complete",
+        "unfilled_quantity": "0.0",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b"
+      }
+    ],
+    "peak": "1001.1484900000000000000000000000000000000000000000",
+    "max_drawdown": "0.00018011000000000000000000000000000000000000000",
+    "risk_latched": false,
+    "risk_reasons": [],
+    "last_key": [
+      1788220800030,
+      4
+    ],
+    "book_ids": {
+      "LINKUSDT:s10": "90e21eb05b902e5957bccbcf66d49ad8a6cb5c489d20c79ce41294240f3a180f",
+      "LINKUSDT:s30": "6156e50d72aad861333b128889c83dc929152cf89a9d7e68cca0e7214cbdb997"
+    },
+    "last_book_exchange": {
+      "LINKUSDT": 1788220800030
+    },
+    "funding_ids": {
+      "LINKUSDT:1788220800020": "6a731cbc196f27197bdfc36560aee6a23d497bda574f719bc0f64758794e637a"
+    }
+  },
+  "input_bundle_sha256": "81e8f2e4f4c5e411f2eff8b7885d1014165e32a4adb34473613082d514b137f6",
+  "release_check": {
+    "schema_version": "exia.genetic_primus.release_check/1",
+    "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+    "structurally_valid": true,
+    "errors": [],
+    "qualification_blockers": [
+      "risk_budget_missing:capital_usdt",
+      "risk_budget_missing:maximum_order_notional_usdt",
+      "risk_budget_missing:maximum_loss_usdt",
+      "risk_budget_missing:maximum_drawdown_fraction",
+      "evidence_missing:instrument_rules",
+      "evidence_missing:account_fee_schedule",
+      "evidence_missing:book_mark_funding_dataset",
+      "evidence_missing:latency_slippage_calibration",
+      "evidence_missing:independent_statistical_audit",
+      "evidence_missing:global_objective_registry_audit",
+      "evidence_missing:shadow_fault_reconciliation_audit",
+      "evidence_missing:risk_owner_approval",
+      "venue_adapter_margin_liquidation_not_qualified",
+      "separate_deployment_contract_and_explicit_approval_required"
+    ],
+    "status": "OFFLINE_CANDIDATE_UNQUALIFIED",
+    "performance_gate_evaluation": "NOT_RUN",
+    "release_ready": false,
+    "trading_authorized": false
+  },
+  "checkpoint": {
+    "schema_version": "exia.genetic_primus.execution_checkpoint/1",
+    "binding_sha256": "e8953e153c0f0902ca9d54ed63e3bd80a5b327006f671251db4ff2044d9277f9",
+    "events": [
+      {
+        "id": "m0",
+        "kind": "mark",
+        "ts": 1788220800000,
+        "exchange_ms": 1788220800000,
+        "symbol": "LINKUSDT",
+        "price": "100"
+      },
+      {
+        "id": "d0",
+        "kind": "decision",
+        "ts": 1788220800000,
+        "symbol": "LINKUSDT",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "features": [
+          "0",
+          "0",
+          "2",
+          "0"
+        ],
+        "proposal": 1
+      },
+      {
+        "id": "io1",
+        "kind": "intent",
+        "ts": 1788220800000,
+        "symbol": "LINKUSDT",
+        "client_oid": "o1",
+        "decision_id": "d0",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "side": "buy",
+        "quantity": "2",
+        "limit_price": "100.2",
+        "reduce_only": false
+      },
+      {
+        "id": "b10",
+        "kind": "book",
+        "ts": 1788220800010,
+        "exchange_ms": 1788220800010,
+        "snapshot_id": "s10",
+        "symbol": "LINKUSDT",
+        "asks": [
+          [
+            "100.1",
+            "0.3"
+          ],
+          [
+            "100.2",
+            "0.4"
+          ],
+          [
+            "100.3",
+            "10"
+          ]
+        ],
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ]
+      },
+      {
+        "id": "demo_funding",
+        "kind": "funding",
+        "ts": 1788220800020,
+        "settlement_ms": 1788220800020,
+        "symbol": "LINKUSDT",
+        "rate": "0.001",
+        "settlement_mark": "102"
+      },
+      {
+        "id": "d20",
+        "kind": "decision",
+        "ts": 1788220800020,
+        "symbol": "LINKUSDT",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "feature_cutoff_ms": 1788220800000,
+        "features": [
+          "0",
+          "0",
+          "2",
+          "0"
+        ],
+        "proposal": 0
+      },
+      {
+        "id": "iclose",
+        "kind": "intent",
+        "ts": 1788220800020,
+        "symbol": "LINKUSDT",
+        "client_oid": "close",
+        "decision_id": "d20",
+        "model_sha256": "ee96acfa2e67ba93e3642baaf423ab6547061612f33050e6891e7ce78215c77b",
+        "side": "sell",
+        "quantity": "0.7",
+        "limit_price": "101",
+        "reduce_only": true
+      },
+      {
+        "id": "b30",
+        "kind": "book",
+        "ts": 1788220800030,
+        "exchange_ms": 1788220800030,
+        "snapshot_id": "s30",
+        "symbol": "LINKUSDT",
+        "asks": [
+          [
+            "102.1",
+            "10"
+          ]
+        ],
+        "bids": [
+          [
+            "101.9",
+            "10"
+          ]
+        ]
+      }
+    ],
+    "state_sha256": "d0e1e509eb94b43bea30cc45750daedc1e3049a56cf1aacd73fcae354b1f7486",
+    "checkpoint_sha256": "61719bc7d795e9de93679db7450bc16873bf3e3d2dfefd9c81130896e166fd92"
+  },
+  "implementation": {
+    "files": {
+      "src/exia/genetic_primus/release_contract_v1.py": "864de0a7cc4690bc51498ab5f5f0f7ba3da55f64f2cf82fb248eecd9a327a243",
+      "src/exia/genetic_primus/execution_replay_v1.py": "c378f6ef59636d0aa9caa8172c42df006645660b1f5d85b6d0592bfb77d0e44f",
+      "tools/replay_genetic_primus_release_candidate_v1.py": "a03ea1881e7aa5660ba222d3cad686797504e47d68f0bea59b14f3d95c384a26"
+    },
+    "sha256": "777da5e728f5676fb95353444fbfb517122a1035dba40f08f142849be8a002da"
+  },
+  "input_file_sha256": "83ebcfff052f5d5ebc585e9017439e2cde23128bfc73f19d93b3ca16ebcd909a"
+}

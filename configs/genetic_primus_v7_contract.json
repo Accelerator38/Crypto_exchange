@@ -1,0 +1,132 @@
+{
+  "schema_version": "exia.genetic_primus_experiment_contract.v7",
+  "experiment_id": "genetic_primus_v7_coinm_liquidation_cascade",
+  "agent_id": "Genetic_Primus_V7",
+  "immutable_after_freeze": true,
+  "objective": "Test whether cross-venue COIN-M forced-liquidation cascades contain stress-costed predictive capacity on Bitget before any model search.",
+  "liquidation_source": {
+    "source_id": "binance_coinm_liquidation_snapshot_v1",
+    "source_family": "cross_venue_forced_liquidations",
+    "provider": "Binance public data",
+    "s3_listing_url": "https://s3-ap-northeast-1.amazonaws.com/data.binance.vision?list-type=2&prefix=data/futures/cm/daily/liquidationSnapshot/{exchange_symbol}/",
+    "download_url": "https://data.binance.vision/data/futures/cm/daily/liquidationSnapshot/{exchange_symbol}/{exchange_symbol}-liquidationSnapshot-{date}.zip",
+    "start_date": "2023-06-25",
+    "end_date": "2024-10-14",
+    "symbols": {
+      "ADA/USDT": {"exchange_symbol": "ADAUSD_PERP", "contract_size_usd": 10},
+      "BNB/USDT": {"exchange_symbol": "BNBUSD_PERP", "contract_size_usd": 10},
+      "BTC/USDT": {"exchange_symbol": "BTCUSD_PERP", "contract_size_usd": 100},
+      "DOGE/USDT": {"exchange_symbol": "DOGEUSD_PERP", "contract_size_usd": 10},
+      "ETH/USDT": {"exchange_symbol": "ETHUSD_PERP", "contract_size_usd": 10},
+      "LINK/USDT": {"exchange_symbol": "LINKUSD_PERP", "contract_size_usd": 10},
+      "SOL/USDT": {"exchange_symbol": "SOLUSD_PERP", "contract_size_usd": 10},
+      "XRP/USDT": {"exchange_symbol": "XRPUSD_PERP", "contract_size_usd": 10}
+    },
+    "required_columns": [
+      "time",
+      "side",
+      "order_type",
+      "time_in_force",
+      "original_quantity",
+      "price",
+      "average_price",
+      "order_status",
+      "last_fill_quantity",
+      "accumulated_fill_quantity"
+    ],
+    "official_checksum_required": true,
+    "raw_archive_required": true,
+    "exact_duplicate_policy": "drop_and_count",
+    "conflicting_duplicate_policy": "reject",
+    "missing_daily_archive_policy": "missing_not_zero",
+    "minimum_archive_day_coverage_per_symbol": 0.75,
+    "minimum_usable_cross_market_bar_coverage": 0.80,
+    "minimum_available_symbols_per_cross_market_bar": 6,
+    "required_anchor_symbols": ["BTC/USDT", "ETH/USDT"]
+  },
+  "execution_source": {
+    "manifest": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.manifest.json",
+    "manifest_sha256": "5d79526614a41f1b22ca963b9fb6c07584b8b60eb0d49d76c574d6fdcc666dd5",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "decision_at": "bar_close",
+    "entry_at": "next_bar_open",
+    "exit_at": "third_bar_next_open",
+    "holding_bars": 3,
+    "cross_fold_positions_allowed": false,
+    "intrabar_execution_allowed": false
+  },
+  "source_feasibility": {
+    "events": [
+      {
+        "event_id": "cross_market_cascade_reversal",
+        "definition": "usable cross-market bar, total liquidation USD >= causal trailing p90, dominant side share >= 0.65, and equal-weight market return aligned with forced flow with absolute return >= causal trailing p75",
+        "target": "BTC/USDT",
+        "direction": "opposite dominant forced-flow direction"
+      },
+      {
+        "event_id": "cross_market_cascade_continuation",
+        "definition": "same preregistered cascade activation as cross_market_cascade_reversal",
+        "target": "BTC/USDT",
+        "direction": "dominant forced-flow direction"
+      },
+      {
+        "event_id": "isolated_symbol_cascade_reversal",
+        "definition": "published symbol-day, symbol liquidation USD >= causal trailing p95, dominant side share >= 0.75, and symbol return aligned with forced flow with absolute return >= causal trailing p75",
+        "target": "event symbol",
+        "direction": "opposite dominant forced-flow direction"
+      }
+    ],
+    "trailing_window_bars": 180,
+    "minimum_trailing_bars": 90,
+    "cross_total_quantile": 0.90,
+    "cross_return_quantile": 0.75,
+    "cross_side_share_minimum": 0.65,
+    "symbol_total_quantile": 0.95,
+    "symbol_return_quantile": 0.75,
+    "symbol_side_share_minimum": 0.75,
+    "event_cooldown_bars": 3,
+    "stress_round_trip_cost_bps": 24.0,
+    "bootstrap_alpha": 0.016666666666666666,
+    "bootstrap_samples": 5000,
+    "bootstrap_block_days": 7,
+    "minimum_events_per_fold": 30,
+    "minimum_positive_folds": 5,
+    "requires_positive_overall_mean": true,
+    "requires_positive_overall_median": true,
+    "requires_positive_overall_lcb": true,
+    "requires_positive_worst_fold_mean": true,
+    "requires_positive_median_fold_lcb": true
+  },
+  "walk_forward": [
+    {"name": "WF1", "evaluation_start": "2023-08-15T00:00:00Z", "evaluation_end": "2023-11-01T00:00:00Z"},
+    {"name": "WF2", "evaluation_start": "2023-11-01T00:00:00Z", "evaluation_end": "2024-02-01T00:00:00Z"},
+    {"name": "WF3", "evaluation_start": "2024-02-01T00:00:00Z", "evaluation_end": "2024-05-01T00:00:00Z"},
+    {"name": "WF4", "evaluation_start": "2024-05-01T00:00:00Z", "evaluation_end": "2024-08-01T00:00:00Z"},
+    {"name": "WF5", "evaluation_start": "2024-08-01T00:00:00Z", "evaluation_end": "2024-10-15T00:00:00Z"}
+  ],
+  "evolution": {
+    "allowed_only_after_source_status": "V7_DATA_SOURCE_AND_EVENT_CAPACITY_ACCEPTED",
+    "architecture": {"type": "sparse_logistic_or_mlp_ranker", "maximum_hidden_units": 8},
+    "screen_seeds": [1301, 1402, 1503],
+    "required_passing_seeds": 2,
+    "maximum_generations": 40,
+    "extension_allowed": false,
+    "fallback_selection_allowed": false
+  },
+  "terminal_kill_criteria": [
+    "DATA_SOURCE_INTEGRITY_FAILURE",
+    "DATA_SOURCE_INSUFFICIENT_COVERAGE",
+    "NO_PREREGISTERED_EVENT_HAS_POSITIVE_STRESS_COSTED_WALK_FORWARD_CAPACITY",
+    "FEWER_THAN_TWO_OF_THREE_SEEDS_PASS",
+    "ANY_POSITION_EXCEEDS_THREE_BARS",
+    "DEVELOPMENT_OVERALL_OR_TEMPORAL_LCB_NONPOSITIVE"
+  ],
+  "safety": {
+    "validation_opened": false,
+    "oos_opened": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

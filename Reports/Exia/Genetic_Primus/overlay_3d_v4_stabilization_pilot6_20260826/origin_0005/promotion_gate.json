@@ -1,0 +1,20 @@
+{
+  "promotion_approved": false,
+  "promotion_protocol_sha256": "461b27a7bda03aafadf44cb5aaa3a7106aa744081fbf7f35c258fe33a66c2bad",
+  "metrics": {
+    "promotion_gate_status": "TRAINING_DIAGNOSTIC_ONLY",
+    "predeployment_training_gate_passed": false,
+    "temporal_audit_passed": false,
+    "training_fold_count": 12,
+    "training_folds_are_outer_slices": false,
+    "paired_selection_lcb_bps": -9.956514397814026,
+    "paired_audit_lcb_bps": -35.37696293692018,
+    "promotion_gate_passed": false,
+    "failed_gates": [
+      "temporal_validation_lcb",
+      "temporal_audit_lcb",
+      "action_diversity",
+      "insufficient_completed_outer_origins"
+    ]
+  }
+}

@@ -1,0 +1,231 @@
+{
+  "config_sha256": "41cd3c25ca52790b61fd8db0da448c58a38e6489b633df21a962c59246fc7391",
+  "data_proof": {
+    "cutoff_exclusive": 1722456000000,
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "files": [
+      {
+        "path": "Retrodate\\exia_full8_timeframes_v1_20220101_20260714\\parts\\full8_240m.parquet",
+        "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36"
+      }
+    ],
+    "manifest_sha256": "5d79526614a41f1b22ca963b9fb6c07584b8b60eb0d49d76c574d6fdcc666dd5",
+    "maximum_loaded_timestamp": 1722441600000
+  },
+  "elapsed_seconds": 1.2442388999988907,
+  "legacy_bank_sha256": "9fb096fa5e4ba4f9b39be61ec07d92d2ac71e6ffc9c1768e53a7c313d5fdf764",
+  "logical_model_cost_reproductions": 6,
+  "model_artifact_hashes": {
+    "origin_1_model_637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845.json": "883a2b6848e3d7a072f9b8a204b3c05c1eccec6c67233d61996dc7c087205d2b"
+  },
+  "origin": 1,
+  "physical_cash_simulations": 2,
+  "records": [
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": 0.0,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "no_nonzero_return_evidence",
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": 0.0
+      },
+      "method": "sparse_grid",
+      "model_artifact": "origin_1_model_637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845.json",
+      "model_sha256": "637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_insufficient_variation",
+          "stress_insufficient_variation"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      }
+    },
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": 0.0,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "no_nonzero_return_evidence",
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": 0.0
+      },
+      "method": "random_search",
+      "model_artifact": "origin_1_model_637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845.json",
+      "model_sha256": "637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_insufficient_variation",
+          "stress_insufficient_variation"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      }
+    },
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": 0.0,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "no_nonzero_return_evidence",
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": 0.0
+      },
+      "method": "genetic_search",
+      "model_artifact": "origin_1_model_637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845.json",
+      "model_sha256": "637ccb4f5b06af5928470f6911a4de99435a7021b0f721a0b30ac3fc92571845",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_insufficient_variation",
+          "stress_insufficient_variation"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": null,
+        "mean_difference": 0.0,
+        "observations_sha256": "2d39810688f9896a4ee7a49984ec0879bed3afb8535992c7d1fdc6ca69f70146",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0,
+        "status": "insufficient_variation"
+      }
+    }
+  ],
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "source_origin": "2024-08-01T00:00:00Z",
+  "source_origin_sha256": "2e4b1707d6a58b83f0cf39668d4545e2e81b6ef60021dc38478a37aaff0fc881",
+  "training_runs": 0,
+  "validation_values_sha256": "e6e3c05dc7d286c4dcbf36b1466b152c1cc5f2bce95ccd98ecd1dcc4ca791896"
+}

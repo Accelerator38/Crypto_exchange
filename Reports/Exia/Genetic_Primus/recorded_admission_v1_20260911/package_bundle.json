@@ -1,0 +1,895 @@
+{
+  "schema_version": "exia.genetic_primus.portfolio_bundle/1",
+  "settings": {
+    "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+    "dataset_sha256": "85ec8dbd686175521298e1f31151a4afda49fd3ac3218c15df5ff69ee97e1a9b",
+    "fee_schedule_sha256": "eb8160d89143aa9e838ccb54f34d464ad17c70d9990f062e2e83df3f72216157",
+    "evidence_kind": "synthetic",
+    "initial_cash": "1000",
+    "taker_fee": "0.001",
+    "latency_ms": 10,
+    "max_quote_age_ms": 20,
+    "max_mark_age_ms": 1000,
+    "order_ttl_ms": 100,
+    "participation": "1",
+    "max_order_notional": "900",
+    "max_gross_ratio": "1",
+    "max_loss": "200",
+    "max_drawdown": "0.2",
+    "max_events": 512,
+    "max_levels": 8,
+    "fee_valid_from_ms": 1788998400000,
+    "fee_valid_until_exclusive_ms": 1789862400000
+  },
+  "rules": {
+    "ADAUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "dedf9554cfcdf38aae66cc8cc137fa1b883de5b1fe76d2e526598658d007c865",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "BNBUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "3fc285b4b852a2def64e89c1b1bc9511b96a6af9e4729fbcb4fcb279faf31329",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "BTCUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "b1ced3586baf86c3d6396797ee24d3777b8d696de80ce1f1074712109fbd2acc",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "DOGEUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "8f2843b35fe5f8034821b757f5ce69ed28ac185e812e6151c89067ba14de5650",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "ETHUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "e6b64d88f2a6456bf580547902988f8d946873ccf5bb7085b16f2c93d782bb61",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "LINKUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "0dea78b9f2badf2682042ea562a6fd14d1c5ae8a54dc0888bd00a2cee917c185",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "SOLUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "f45388db3288f1545847b92076acc6be6d6d6d07bb73f4ccb48f80459a23c388",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    },
+    "XRPUSDT": {
+      "price_tick": "0.1",
+      "quantity_step": "0.1",
+      "minimum_quantity": "0.1",
+      "minimum_notional": "1",
+      "source_sha256": "1cbbeed1f2aedef2e5cb92813f535f3368276ce3813701060ba3cbd4e271da10",
+      "valid_from_ms": 1788998400000,
+      "valid_until_exclusive_ms": 1789862400000
+    }
+  },
+  "models": [
+    {
+      "model": {
+        "schema_version": "exia.genetic_primus.release_model/1",
+        "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+        "origin_start_ms": 1788998400000,
+        "origin_end_exclusive_ms": 1789257600000,
+        "train_end_exclusive_ms": 1788897600000,
+        "scaler": {
+          "median": [
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "scale": [
+            "1",
+            "1",
+            "0.01",
+            "1"
+          ],
+          "fitted_rows": 16,
+          "fit_values_sha256": "581e5d77b58abaa1d7a1a2cfa9969d7a457920985e59bdf9384e81b73d74520d",
+          "train_start_ms": 1640995200000,
+          "train_end_exclusive_ms": 1788897600000
+        },
+        "policy": {
+          "kind": "continuous_binary_sparse_ema_overlay",
+          "genome": [
+            0,
+            0,
+            1,
+            1,
+            -1
+          ],
+          "features": [
+            "ema_gap_12_48",
+            "ema_slope_12_3",
+            "return_12",
+            "efficiency_12"
+          ],
+          "allow_rule": "finite_features_and_logit_strictly_positive",
+          "missing_features": "abstain",
+          "same_direction": "hold_filled_quantity",
+          "zero_target": "reduce_only_exit",
+          "reverse_target": "single_ioc_net_delta",
+          "partial_fill": "keep_actual_position_no_synthetic_completion"
+        },
+        "provenance": {
+          "data_sha256": "c1da915ec940d2abd3ba4faba3b752b26bc37d95af3ebf23fe4f9afd2b7533a8",
+          "train_rows_sha256": "011b756c55a3062fa572094d379056dac61aad20facf0877b991f20fa8453683",
+          "folds_sha256": "a88c387c89b86194906e0d8d21e04acdb94e11b88b4974d99516afd90e60a4a6",
+          "resample_bank_sha256": "265f2eaf8508a9cfa6ed121d83eec57e35f5df895b1b96ee6c6a2399fd4e5d39",
+          "audit_bank_sha256": "426692c0e6182918fffd1bcd3814a53b0ed2e509b07f2b983986d3e2fec01ee1",
+          "implementation_sha256": "da2c5c72e03ba1d018ada27f305333f845fd7db28e7acd9a0248afccffa88dcf",
+          "scaler_fit_values_sha256": "581e5d77b58abaa1d7a1a2cfa9969d7a457920985e59bdf9384e81b73d74520d"
+        }
+      },
+      "model_sha256": "04f23a7c27f93c799e953310f7c9ea56664ec4edae225bbd056cb2ecfde02635"
+    }
+  ],
+  "events": [
+    {
+      "id": "m0:ADAUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "ADAUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:BNBUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "BNBUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:BTCUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "BTCUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:DOGEUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "DOGEUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:ETHUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "ETHUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:LINKUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "LINKUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:SOLUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "SOLUSDT",
+      "price": "100"
+    },
+    {
+      "id": "m0:XRPUSDT",
+      "kind": "mark",
+      "ts": 1788998400000,
+      "exchange_ms": 1788998400000,
+      "symbol": "XRPUSDT",
+      "price": "100"
+    },
+    {
+      "id": "d0:ADAUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "ADAUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:BNBUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "BNBUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:BTCUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "BTCUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:DOGEUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "DOGEUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:ETHUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "ETHUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:LINKUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "LINKUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:SOLUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "SOLUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "d0:XRPUSDT",
+      "kind": "signal",
+      "ts": 1788998400000,
+      "symbol": "XRPUSDT",
+      "feature_cutoff_ms": 1788998400000,
+      "features": [
+        "0.01",
+        "0.01",
+        "0.02",
+        "0.8"
+      ]
+    },
+    {
+      "id": "b0:ADAUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:ADAUSDT",
+      "symbol": "ADAUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:BNBUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:BNBUSDT",
+      "symbol": "BNBUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:BTCUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:BTCUSDT",
+      "symbol": "BTCUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:DOGEUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:DOGEUSDT",
+      "symbol": "DOGEUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:ETHUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:ETHUSDT",
+      "symbol": "ETHUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:LINKUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:LINKUSDT",
+      "symbol": "LINKUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:SOLUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:SOLUSDT",
+      "symbol": "SOLUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b0:XRPUSDT",
+      "kind": "book",
+      "ts": 1788998400010,
+      "exchange_ms": 1788998400010,
+      "snapshot_id": "snap0:XRPUSDT",
+      "symbol": "XRPUSDT",
+      "bids": [
+        [
+          "99.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "fund:ADAUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "ADAUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:BNBUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "BNBUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:BTCUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "BTCUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:DOGEUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "DOGEUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:ETHUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "ETHUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:LINKUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "LINKUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:SOLUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "SOLUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "fund:XRPUSDT",
+      "kind": "funding",
+      "ts": 1789012800000,
+      "settlement_ms": 1789012800000,
+      "symbol": "XRPUSDT",
+      "rate": "0.001",
+      "settlement_mark": "101"
+    },
+    {
+      "id": "m1:ADAUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "ADAUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:BNBUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "BNBUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:BTCUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "BTCUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:DOGEUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "DOGEUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:ETHUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "ETHUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:LINKUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "LINKUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:SOLUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "SOLUSDT",
+      "price": "101"
+    },
+    {
+      "id": "m1:XRPUSDT",
+      "kind": "mark",
+      "ts": 1789012800000,
+      "exchange_ms": 1789012800000,
+      "symbol": "XRPUSDT",
+      "price": "101"
+    },
+    {
+      "id": "d1:ADAUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "ADAUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:BNBUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "BNBUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:BTCUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "BTCUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:DOGEUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "DOGEUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:ETHUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "ETHUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:LINKUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "LINKUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:SOLUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "SOLUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "d1:XRPUSDT",
+      "kind": "signal",
+      "ts": 1789012800000,
+      "symbol": "XRPUSDT",
+      "feature_cutoff_ms": 1789012800000,
+      "features": [
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    {
+      "id": "b1:ADAUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:ADAUSDT",
+      "symbol": "ADAUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:BNBUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:BNBUSDT",
+      "symbol": "BNBUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:BTCUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:BTCUSDT",
+      "symbol": "BTCUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:DOGEUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:DOGEUSDT",
+      "symbol": "DOGEUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:ETHUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:ETHUSDT",
+      "symbol": "ETHUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:LINKUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:LINKUSDT",
+      "symbol": "LINKUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:SOLUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:SOLUSDT",
+      "symbol": "SOLUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    },
+    {
+      "id": "b1:XRPUSDT",
+      "kind": "book",
+      "ts": 1789012800010,
+      "exchange_ms": 1789012800010,
+      "snapshot_id": "snap1:XRPUSDT",
+      "symbol": "XRPUSDT",
+      "bids": [
+        [
+          "100.9",
+          "0.4"
+        ]
+      ],
+      "asks": [
+        [
+          "101.1",
+          "0.4"
+        ]
+      ]
+    }
+  ],
+  "profile": {
+    "protection_fraction": "0.002",
+    "max_input_events": 256,
+    "feature_dataset_sha256": "7a30aeb593d6a4b7814e42407077d98191106eb0515e1ed80e33a8891688a860"
+  },
+  "implementation_sha256": "da2c5c72e03ba1d018ada27f305333f845fd7db28e7acd9a0248afccffa88dcf"
+}

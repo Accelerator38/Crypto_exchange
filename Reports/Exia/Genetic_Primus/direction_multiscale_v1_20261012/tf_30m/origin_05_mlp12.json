@@ -1,0 +1,101 @@
+{
+  "registration_sha256": "cc173c6a2d16f6f83a897cd4c0d061b6fec9d4cecc6dca8765c217000c7b8f83",
+  "timeframe_minutes": 30,
+  "origin_index": 5,
+  "origin_ms": 1786838400000,
+  "cutoff_ms": 1786825800000,
+  "latest_label_ms": 1786825800000,
+  "fold_sha256": "9160f4a52f572bf570fc6bbe6e63fd69ae4fb62c8228e4c46c6daf72a57cafd6",
+  "info": {
+    "name": "mlp12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      0.00018337375260748655,
+      0.0002665128574203559,
+      0.2242808142655611,
+      3.2488181436928136e-05,
+      0.0026527830302430356,
+      0.5063709820635767,
+      2.128244946671473e-05,
+      2.128244946671473e-05,
+      0.00407389633854475,
+      0.0010621847364251215,
+      0.0010442077265609363,
+      -0.0100554367242046
+    ],
+    "scale": [
+      0.009285024792136063,
+      0.011831454672487425,
+      0.167250431145234,
+      0.007778352657073549,
+      0.001137930141033406,
+      0.3590878015127476,
+      0.002916725557137057,
+      0.002916725557137057,
+      0.0029754041209993786,
+      0.0012363611784085937,
+      0.001186221578768103,
+      0.859279626128279
+    ],
+    "rows": 11262,
+    "up_fraction": 0.5031077961285739,
+    "training_sha256": "044495d8296d72b40fc740ece72d5691955379b887e4fd0ae1874413595515d4",
+    "warnings": [
+      "ConvergenceWarning: Stochastic Optimizer: Maximum iterations (40) reached and the optimization hasn't converged yet."
+    ],
+    "hyperparameters": {
+      "activation": "relu",
+      "alpha": 1.0,
+      "batch_size": 512,
+      "beta_1": 0.9,
+      "beta_2": 0.999,
+      "early_stopping": false,
+      "epsilon": 1e-08,
+      "hidden_layer_sizes": [
+        8
+      ],
+      "learning_rate": "constant",
+      "learning_rate_init": 0.001,
+      "max_fun": 15000,
+      "max_iter": 40,
+      "momentum": 0.9,
+      "n_iter_no_change": 40,
+      "nesterovs_momentum": true,
+      "power_t": 0.5,
+      "random_state": 20261012,
+      "shuffle": true,
+      "solver": "adam",
+      "tol": 0.0,
+      "validation_fraction": 0.1,
+      "verbose": false,
+      "warm_start": false
+    },
+    "parameter_count": 113,
+    "iterations": 40
+  },
+  "model_pin": {
+    "sha256": "5aef65a6b4b2bcea1be8db9493960aac7db4f0db227d908a0f073d995da93bb3",
+    "bytes": 8619
+  },
+  "prediction_pin": {
+    "sha256": "67272a08ecef12721b56e3497b09f4c2d0e49055799ae3c9666af740a7bbe491",
+    "bytes": 9480
+  },
+  "saved_prediction_parity": true,
+  "train_only_scaler": true,
+  "network": false,
+  "sha256": "547815a7a7f962ec4f832ca8c20b627219ccac461396a2adc85c3678aed8d578"
+}

@@ -1,0 +1,43 @@
+{
+  "schema": "exia.genetic_primus.profit_fitness_contract/1",
+  "status": "implemented_offline_research_only",
+  "research_drawdown_budgets_percent": [10, 20, 30],
+  "objective_defaults": {
+    "scope": "research",
+    "name": "net_log_growth_constrained_drawdown/1",
+    "active_parameter_penalty_bps_per_100": "0",
+    "active_feature_penalty_bps": "0",
+    "max_fills_per_calendar_day": null
+  },
+  "fitness": "10000 * ln(final_shared_nav / initial_shared_capital) / calendar_days - registered_parsimony_penalties",
+  "drawdown_constraint": "max(normal_reference_open_dd, available_stress_reference_open_dd) <= budget",
+  "costs": "already_in_unified_ledger_nav_no_second_commission_or_turnover_cost_penalty",
+  "search_computes_lcb": false,
+  "stability_validation": {
+    "scope": "top_candidates_not_search_ranking_or_runtime_promotion",
+    "statistic": "mean_daily_net_log_growth_bps",
+    "paired_statistic": "mean_daily_challenger_minus_incumbent_log_growth_bps",
+    "default_paired_reference": "NoTrade",
+    "minimum_lcb_bps": 0,
+    "comparison": "strictly_greater_than",
+    "alpha": 0.05,
+    "selection_bank_shared": true,
+    "independent_audit_seed_bank_required": true,
+    "normal_and_stress_required": true,
+    "complete_calendar_days_required": true,
+    "temporal_folds_are_outer_slices": false
+  },
+  "matrix_policy": "report_all_three_budgets_reuse_same_ledgers_no_posthoc_best_risk_selection",
+  "live_risk_budget_approved": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

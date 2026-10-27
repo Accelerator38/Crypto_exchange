@@ -1,0 +1,426 @@
+{
+  "schema": "price_execution_audit_plan/1",
+  "client_date": "2026-10-08",
+  "period_ms": [
+    1787011200000,
+    1787443200000
+  ],
+  "event_ms": [
+    1787112000000,
+    1787371200000
+  ],
+  "max_public_GETs": 20,
+  "max_response_bytes": 1000000,
+  "timeout_seconds": 10,
+  "automatic_retries": 0,
+  "permission": "user_explicit_historical_public_REST_Bitget_and_Binance_only",
+  "cases": [
+    {
+      "kind": "bitget_trade",
+      "symbol": "ADA",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "ADAUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "BNB",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "BNBUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "BTC",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "BTCUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "DOGE",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "DOGEUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "ETH",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "ETHUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "LINK",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "LINKUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "SOL",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "SOLUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_trade",
+      "symbol": "XRP",
+      "endpoint": "https://api.bitget.com/api/v3/market/history-candles",
+      "params": {
+        "category": "USDT-FUTURES",
+        "symbol": "XRPUSDT",
+        "interval": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "ADA",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "ADAUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "BNB",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "BNBUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "BTC",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "BTCUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "DOGE",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "DOGEUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "ETH",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "ETHUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "LINK",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "LINKUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "SOL",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "SOLUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "binance_trade",
+      "symbol": "XRP",
+      "endpoint": "https://fapi.binance.com/fapi/v1/klines",
+      "params": {
+        "symbol": "XRPUSDT",
+        "interval": "4h",
+        "startTime": "1787011200000",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_mark",
+      "symbol": "BTC",
+      "endpoint": "https://api.bitget.com/api/v2/mix/market/history-mark-candles",
+      "params": {
+        "symbol": "BTCUSDT",
+        "productType": "USDT-FUTURES",
+        "granularity": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_mark",
+      "symbol": "ETH",
+      "endpoint": "https://api.bitget.com/api/v2/mix/market/history-mark-candles",
+      "params": {
+        "symbol": "ETHUSDT",
+        "productType": "USDT-FUTURES",
+        "granularity": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_mark",
+      "symbol": "SOL",
+      "endpoint": "https://api.bitget.com/api/v2/mix/market/history-mark-candles",
+      "params": {
+        "symbol": "SOLUSDT",
+        "productType": "USDT-FUTURES",
+        "granularity": "4H",
+        "startTime": "1787011199999",
+        "endTime": "1787443199999",
+        "limit": "100"
+      }
+    },
+    {
+      "kind": "bitget_contracts",
+      "symbol": "FULL8_current_rules_only",
+      "endpoint": "https://api.bitget.com/api/v2/mix/market/contracts",
+      "params": {
+        "productType": "USDT-FUTURES"
+      }
+    }
+  ],
+  "sources": {
+    "tools/check_genetic_primus_price_execution_v1.py": {
+      "bytes": 28321,
+      "sha256": "3883157c39698e346836742aa45efa8c19bdf22bfe57930fc80de1ba0bf02617"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/registration.json": {
+      "bytes": 16448,
+      "sha256": "af59fdd5f9652849344c02f0b45d81579a33a3b1e7156a46d76b3b4343f91eba"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/selected_policy.json": {
+      "bytes": 99908,
+      "sha256": "71e25ea2712757bdd6269d7cae130cd36eb51f4b3892dfc0a457ae38b2521d09"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/results.json": {
+      "bytes": 359292,
+      "sha256": "ccec0e90d25ba1c7a263ff7c6c075887c41b58fe53f598aff9fcb6d5f10a767f"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/evidence_receipt.json": {
+      "bytes": 7005,
+      "sha256": "db3cc6228d49e1ae51586ed85d916621171007f57df0d97285f0cf9a8f8c7092"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/analysis_receipt.json": {
+      "bytes": 1070,
+      "sha256": "5f35b8978d9b45f0d2a669d49ef9b17f33cbcdd1a1d6c9d4271b280a595ae58b"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/integrity_manifest.json": {
+      "bytes": 8325,
+      "sha256": "09e9462b02b9a26ce6fff769351bb6f3596302aa2ef2a1abe971cbb7ebaf570e"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/index.json": {
+      "bytes": 3176,
+      "sha256": "e5f468dfd6b4e8d2e94d0270afccb8dde85c58f52d71c0d43b83b0144e1599ad"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet": {
+      "bytes": 32889,
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.manifest.json": {
+      "bytes": 1525,
+      "sha256": "5db1decbf2e75ad5b066001a739717f779e9bea1e188f1034e9021597799b667"
+    },
+    "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet": {
+      "bytes": 55079,
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375"
+    },
+    "src/exia/genetic_primus/unified_measurement_v1.py": {
+      "bytes": 29041,
+      "sha256": "7ce9058475cf602e76c37901f5736118b7e515045c89e8d263d96b1b6fad97cb"
+    },
+    "configs/genetic_primus_release_candidate_v1.json": {
+      "bytes": 4127,
+      "sha256": "6bef1f813d24dcdd5d46b9463b85d735aa276ab3e244754f790ae13e033c3135"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/ADA_USDT/2026-08.parquet": {
+      "bytes": 406536,
+      "sha256": "0464cae57d22c42b3cae2972c90e102dfb337c61e1a85a0c8ff5b5fec391db81"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/BNB_USDT/2026-08.parquet": {
+      "bytes": 423451,
+      "sha256": "591e467f5b1f2129bd48a907db408b99918365713b296d0bf8897d7fc5974386"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/BTC_USDT/2026-08.parquet": {
+      "bytes": 637771,
+      "sha256": "5f1928368a4e4887a13067087827d6b49bed6d11fcdc546bc3afb034d3f4b037"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/DOGE_USDT/2026-08.parquet": {
+      "bytes": 482262,
+      "sha256": "962d4dbce0d78c5933af5e1cf13d1b3bdc9ae73940080c94fd9644252e12ad38"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/ETH_USDT/2026-08.parquet": {
+      "bytes": 575308,
+      "sha256": "1031091a0163bdc0d9858edd256fb126516f7670321e037d0a3d761bffe672bb"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/LINK_USDT/2026-08.parquet": {
+      "bytes": 382204,
+      "sha256": "5360e86f78e8254d8ce1d6cea1dc028eb5b008a3b7d7eb00a4527e420c917ff6"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/SOL_USDT/2026-08.parquet": {
+      "bytes": 562276,
+      "sha256": "b56964cbb7e6359fcf7f7c7f25cb21421b34600c693815143bee6c5e6ae45cd4"
+    },
+    "Retrodate/bitget_full8_1m_prospective_v1_20260818_20260903/parts/XRP_USDT/2026-08.parquet": {
+      "bytes": 475036,
+      "sha256": "87d735f93be3479c9d86b05257c8c8a55129711fa9f71c1b7a1d1a665d0421cb"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_linear6_uniform_normal.json": {
+      "bytes": 818676,
+      "sha256": "faac1610d63df26fa0a3e9cbf0a99ccb0ca7dde6bd4c2d4b2876c5ae4be16b89"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_linear6_uniform_stress.json": {
+      "bytes": 818547,
+      "sha256": "79d7669a8957b9ae80962fe548324fef53e99d933533ff23cdea96cc5ed578fe"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_linear6_half_life_90_anchor20_normal.json": {
+      "bytes": 687777,
+      "sha256": "b4447fcebf00095e84c5eb4490a3da3141c919d5160b1faad2a051d4b0ec920c"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_linear6_half_life_90_anchor20_stress.json": {
+      "bytes": 688500,
+      "sha256": "629109e198c06cd28ca19637ff5c9e59b5a82daf39c19f177442863a5129d49a"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_mlp8_uniform_normal.json": {
+      "bytes": 762247,
+      "sha256": "d4707f84165c4da445aee079ad1a6de5d8e7482691a28b0053e2b8b493f7b769"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_mlp8_uniform_stress.json": {
+      "bytes": 762312,
+      "sha256": "cf26b190e8527590d75ee370d6dc2cbe351fab2bab1f63219a5cc5ada4483059"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_mlp8_half_life_90_anchor20_normal.json": {
+      "bytes": 610987,
+      "sha256": "dba609dfe218db24f683f8b2b2c7a59245897ddfcd9656e8cf0219cb553abedd"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_mlp8_half_life_90_anchor20_stress.json": {
+      "bytes": 610905,
+      "sha256": "3936eac1d554c8e36ddaea7c6986265706ca9004f8f759f4165cd4c3227c2d29"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_NoTrade_normal.json": {
+      "bytes": 244598,
+      "sha256": "5ef94bce7f193e6a5f58d901b9f405cbc63690e6fa2164e3ad48567182129ab7"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_NoTrade_stress.json": {
+      "bytes": 244598,
+      "sha256": "c9f1405e72979053cd6a8f1d244b823d59cd668bc0fee3aa656504b53673fcdc"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_EMA48_long_only_normal.json": {
+      "bytes": 927694,
+      "sha256": "ed2690981bb73fc360787ffa4ca07f7b7a2c460d6350932e910fbb3746f0ec05"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/benchmark_EMA48_long_only_stress.json": {
+      "bytes": 927625,
+      "sha256": "a0d096110bdb37d2a82842319b9e785a570d0b1a2f3c8089db956ac8d5339b8c"
+    }
+  },
+  "primary_docs": [
+    "https://www.bitget.com/docs/catalog/market/market-data",
+    "https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data",
+    "https://www.bitget.com/docs/catalog/classic-contract-market/classic-contract-market"
+  ],
+  "live_or_account_access": false,
+  "model_fits_or_financial_replays": 0,
+  "price_confirmation_criteria": {
+    "Bitget_same_venue_OHLC_exact": true,
+    "Binance_return_difference_bps_abs_lt": 100,
+    "Binance_open_price_basis_bps_abs_lt": 200,
+    "purpose": "independent_confirmation_of_large_movement_not_fill_price_equivalence"
+  },
+  "existing_model_configuration_changed": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  },
+  "sha256": "e4ef8e46eb6a65e40586b6d66f7af44a6ab68be553e776a4c3ae9cb8aad77acf"
+}

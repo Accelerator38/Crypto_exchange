@@ -1,0 +1,76 @@
+{
+  "schema_version": "exia.genetic_primus.native_crash_diagnostic/1",
+  "status": "NATIVE_CRASH_SIGNATURE_CONFIRMED",
+  "environment": {
+    "python": "3.12.4",
+    "executable": "E:\\Crypto_exchange\\.venv\\Scripts\\python.exe",
+    "numpy": "2.4.2",
+    "pandas": "3.0.0",
+    "pyarrow": "25.0.0"
+  },
+  "crash_signature": {
+    "exception_code": "0xC0000005",
+    "operation": "read",
+    "target_address": "0x0",
+    "fault_module": "python312.dll",
+    "module_offset": "0x30a36",
+    "nearest_export": "_PyEval_EvalFrameDefault+0x11d6",
+    "instruction_bytes": "44 39 2b 7c 0a 48 83 2b 01 0f 84 47 4e 00 00 48",
+    "fault_instruction": "cmp dword ptr [rbx], r13d",
+    "rbx_all_dumps": "0x0",
+    "r13_all_dumps": "0x0",
+    "matching_dump_count": 7
+  },
+  "dumps": [
+    {"file": "python.exe.11144.dmp", "local_time": "2026-08-24T09:49:52", "bytes": 9143766},
+    {"file": "python.exe.14536.dmp", "local_time": "2026-08-24T09:50:42", "bytes": 7472519},
+    {"file": "python.exe.21720.dmp", "local_time": "2026-08-24T17:52:37", "bytes": 8680287},
+    {"file": "python.exe.30080.dmp", "local_time": "2026-08-24T18:21:36", "bytes": 8682367},
+    {"file": "python.exe.30576.dmp", "local_time": "2026-08-24T19:16:28", "bytes": 8765508},
+    {"file": "python.exe.23960.dmp", "local_time": "2026-08-24T19:24:01", "bytes": 8770948},
+    {"file": "python.exe.30412.dmp", "local_time": "2026-08-24T19:24:47", "bytes": 8780907}
+  ],
+  "interpretation": {
+    "python_exception": false,
+    "infinite_loop_evidence": false,
+    "native_null_pointer_read": true,
+    "specific_extension_attribution_available": false,
+    "local_debugger_available": false,
+    "local_python_pdb_available": false,
+    "active_stack_contains_pyd_address": false,
+    "stack_method": "Heuristic scan of module-mapped return-address candidates from exception RSP; no unwind symbols.",
+    "note": "All seven dumps have the same eval-loop null-pointer signature. The active saved stack contains python312.dll/system candidates but no .pyd address. This narrows the crash site but does not prove whether CPython or earlier native-extension memory corruption created the invalid state."
+  },
+  "checkpoint_resume_smoke": {
+    "status": "OFFLINE_CHECKPOINT_RESUME_OK",
+    "checkpoint_complete": true,
+    "sha_unchanged_after_resume": true,
+    "champion_unchanged": true,
+    "fingerprint_mismatch_rejected": true,
+    "checkpoint_sha256": "d185193baf3585ffadccdd430044784dec1c04bde38984a8901fa87f7c884676"
+  },
+  "reproduction_python_3_12_13": {
+    "dump_file": "python.exe.25596.dmp",
+    "exception_code": "0xC0000005",
+    "fault_module": "python312.dll",
+    "module_offset": "0x36f4d",
+    "nearest_export": "_PyEval_EvalFrameDefault+0x109d",
+    "instruction_bytes": "44 39 2b 7c 0a 48 83 2b 01 0f 84 2a 4e 00 00 48",
+    "rbx": "0x0",
+    "faulthandler_trigger": "pandas.DataFrame.median -> numpy.nanmedian -> labels.py:43 build_forward_labels"
+  },
+  "mitigation_validation": {
+    "change": "Replace dataframe row median with strict three-horizon pairwise median and explicit votes/support arrays.",
+    "rolling_180_hl30_outer3_completed": true,
+    "rolling_365_hl90_outer3_completed": true,
+    "semantic_equivalence_confirmed": true,
+    "new_dump_after_change": false
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

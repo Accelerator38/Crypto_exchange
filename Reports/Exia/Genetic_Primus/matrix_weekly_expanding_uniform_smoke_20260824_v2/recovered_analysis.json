@@ -1,0 +1,211 @@
+{
+  "schema_version": "exia.genetic_primus.completed_islands_analysis/1",
+  "cell_id": "weekly__expanding_uniform__cadence_7d",
+  "selected_ensemble_size": 5,
+  "islands": [
+    {
+      "island_id": "island_03",
+      "fitness": -49.928981638678295,
+      "lcb_daily_bps": 7.061201299204083,
+      "max_drawdown": 0.3372637508727313,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "island_id": "island_00",
+      "fitness": -56.9408455655115,
+      "lcb_daily_bps": 5.228522445338324,
+      "max_drawdown": 0.35507274826649726,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "island_id": "island_02",
+      "fitness": -125.68878807407367,
+      "lcb_daily_bps": -2.2736306715513632,
+      "max_drawdown": 0.6829456024493064,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "island_id": "island_01",
+      "fitness": -110.3224342919407,
+      "lcb_daily_bps": -3.679820489503022,
+      "max_drawdown": 0.6027122538001802,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "island_id": "island_04",
+      "fitness": -125.74200441348472,
+      "lcb_daily_bps": -4.022762359441889,
+      "max_drawdown": 0.6697613508972682,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    }
+  ],
+  "ensembles": [
+    {
+      "ensemble_size": 3,
+      "selection_fitness": -128.72169335539218,
+      "selection_lcb_daily_bps": -2.909034517889587,
+      "audit_lcb_daily_bps": -3.3043711380024634,
+      "max_drawdown": 0.6829456024493059,
+      "failed_gates": [
+        "minimum_trades",
+        "max_drawdown",
+        "symbol_collapse",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ],
+      "members": [
+        "island_03",
+        "island_00",
+        "island_02"
+      ]
+    },
+    {
+      "ensemble_size": 5,
+      "selection_fitness": -130.30928035196195,
+      "selection_lcb_daily_bps": -1.4770159415607433,
+      "audit_lcb_daily_bps": -2.203528363875427,
+      "max_drawdown": 0.6829456024493057,
+      "failed_gates": [
+        "minimum_trades",
+        "max_drawdown",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ],
+      "members": [
+        "island_03",
+        "island_00",
+        "island_02",
+        "island_01",
+        "island_04"
+      ]
+    }
+  ],
+  "deployment_benchmarks": [
+    {
+      "agent_id": "GeneticPrimusEnsemble5",
+      "round_trip_cost_bps": 16.0,
+      "net_return": -0.030469130139234912,
+      "net_bps": -304.69130139234915,
+      "max_drawdown": 0.05637681336354339,
+      "trades": 34,
+      "turnover_fills": 68,
+      "actions_short": 138,
+      "actions_flat": 116,
+      "actions_long": 74
+    },
+    {
+      "agent_id": "NoTrade",
+      "round_trip_cost_bps": 16.0,
+      "net_return": 0.0,
+      "net_bps": 0.0,
+      "max_drawdown": -0.0,
+      "trades": 0,
+      "turnover_fills": 0,
+      "actions_short": 0,
+      "actions_flat": 328,
+      "actions_long": 0
+    },
+    {
+      "agent_id": "Momentum_return_1",
+      "round_trip_cost_bps": 16.0,
+      "net_return": 0.08538713861912917,
+      "net_bps": 853.8713861912917,
+      "max_drawdown": 0.030518869827657835,
+      "trades": 158,
+      "turnover_fills": 316,
+      "actions_short": 151,
+      "actions_flat": 0,
+      "actions_long": 177
+    },
+    {
+      "agent_id": "MeanReversion_return_1",
+      "round_trip_cost_bps": 16.0,
+      "net_return": -0.13807546811539873,
+      "net_bps": -1380.7546811539873,
+      "max_drawdown": 0.13754909641377877,
+      "trades": 158,
+      "turnover_fills": 316,
+      "actions_short": 177,
+      "actions_flat": 0,
+      "actions_long": 151
+    },
+    {
+      "agent_id": "GeneticPrimusEnsemble5",
+      "round_trip_cost_bps": 24.0,
+      "net_return": -0.03196719670561943,
+      "net_bps": -319.67196705619426,
+      "max_drawdown": 0.05811750648916969,
+      "trades": 34,
+      "turnover_fills": 68,
+      "actions_short": 139,
+      "actions_flat": 114,
+      "actions_long": 75
+    },
+    {
+      "agent_id": "NoTrade",
+      "round_trip_cost_bps": 24.0,
+      "net_return": 0.0,
+      "net_bps": 0.0,
+      "max_drawdown": -0.0,
+      "trades": 0,
+      "turnover_fills": 0,
+      "actions_short": 0,
+      "actions_flat": 328,
+      "actions_long": 0
+    },
+    {
+      "agent_id": "Momentum_return_1",
+      "round_trip_cost_bps": 24.0,
+      "net_return": 0.06834677067711659,
+      "net_bps": 683.4677067711658,
+      "max_drawdown": 0.038293207990892086,
+      "trades": 158,
+      "turnover_fills": 316,
+      "actions_short": 151,
+      "actions_flat": 0,
+      "actions_long": 177
+    },
+    {
+      "agent_id": "MeanReversion_return_1",
+      "round_trip_cost_bps": 24.0,
+      "net_return": -0.15160059032921358,
+      "net_bps": -1516.0059032921358,
+      "max_drawdown": 0.15058128787466318,
+      "trades": 158,
+      "turnover_fills": 316,
+      "actions_short": 177,
+      "actions_flat": 0,
+      "actions_long": 151
+    }
+  ],
+  "credentials_allowed": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

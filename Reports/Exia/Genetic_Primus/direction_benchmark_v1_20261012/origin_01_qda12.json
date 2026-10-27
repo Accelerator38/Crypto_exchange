@@ -1,0 +1,82 @@
+{
+  "schema": "saved_direction_fit/1",
+  "registration_sha256": "4cbb4f2dd3236228b4d495bc5fc6eab059afd874258eafcf97c195c3e2864a80",
+  "origin_index": 1,
+  "origin_ms": 1785801600000,
+  "cutoff_us": 1785700800000000,
+  "latest_label_available_us": 1785686402250000,
+  "fold_sha256": "1c652f542d08f8c837da1499241c6037438fa16c3b8976ccd8c17084ce97f80b",
+  "info": {
+    "name": "qda12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      -0.0013448994553558605,
+      0.0015913980568980114,
+      0.24639324455145292,
+      6.256273583218799e-06,
+      0.01480087978831601,
+      0.45994149849048566,
+      9.049311699301581e-05,
+      9.047550200209722e-05,
+      0.023178079776447924,
+      0.005859563331341545,
+      0.006620172235304431,
+      0.0021092934216533094
+    ],
+    "scale": [
+      0.05684953088431774,
+      0.07154300576024579,
+      0.17617886507486763,
+      0.04164522937109218,
+      0.007469306060447222,
+      0.3914062199976892,
+      0.016760152544918337,
+      0.016760312884232027,
+      0.02002241925449053,
+      0.006670994679244364,
+      0.008962567347593917,
+      0.6404385606376732
+    ],
+    "rows": 79827,
+    "up_fraction": 0.5039272426622571,
+    "training_sha256": "3356b562c1a2d3736b423c2603a9d53da0ae5774d30a3afbeb8e58ab88e77007",
+    "warnings": [],
+    "hyperparameters": {
+      "covariance_estimator": null,
+      "priors": null,
+      "reg_param": 0.2,
+      "shrinkage": null,
+      "solver": "svd",
+      "store_covariance": false,
+      "tol": 1e-08
+    },
+    "parameterization": "class means/covariances or bounded boosting; not a neural parameter count"
+  },
+  "model_pin": {
+    "sha256": "1ce9d9ff2e9265dcfbe67f7eef9dead620c4dbc806d1b14067d03f2dae4fc1cc",
+    "bytes": 3833
+  },
+  "prediction_pin": {
+    "sha256": "43516096dbccdf06c687cdb17a2b0af040e20244d641c38fc780db7f244779f2",
+    "bytes": 1602
+  },
+  "decision_model_sha256": "1ce9d9ff2e9265dcfbe67f7eef9dead620c4dbc806d1b14067d03f2dae4fc1cc",
+  "prediction_parity": true,
+  "train_only_scaler": true,
+  "runtime_authority": false,
+  "promotion_authority": false,
+  "sha256": "d129932252b994d4b17a4faeef0c0f857d5642212998b87dc7511e1e07834846"
+}

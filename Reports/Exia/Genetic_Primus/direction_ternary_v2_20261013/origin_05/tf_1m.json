@@ -1,0 +1,603 @@
+{
+  "fold": {
+    "origin_ms": 1786838400000,
+    "train_first_ms": 1784246400000,
+    "train_last_decision_ms": 1786232820000,
+    "train_label_cutoff_exclusive_ms": 1786233180000,
+    "calibration_label_cutoff_exclusive_ms": 1786837980000,
+    "train_times_sha256": "0ff9d32a4020065fbbe7bdeeda4b33e12196d1a4dbd565ae75dbff7a9ee93aee",
+    "calibration_times_sha256": "12dde7be5322d1f9bb1389f4f3ff8cc7a2dd028535afc3839320ba621792cf72",
+    "test_times_sha256": "90081cdc5269f1e667f19b14cc6ffa1b32f023712f4ea7b67fb5982dfc4f758b",
+    "n_train_times": 4000,
+    "n_calibration_times": 10072,
+    "n_test_times": 4320,
+    "horizon_minutes": 1,
+    "example_step_minutes": 1,
+    "decision_minutes": 1,
+    "retrain_days": 3,
+    "purge_bars": 7
+  },
+  "fold_sha256": "76a4d6f6781c56d8cda72cc1903ed6befe080bfd9c4da7a6d3bf9438d98c73a2",
+  "models": [
+    {
+      "scheme": "exact_zero",
+      "file": "tf_1m__exact_zero.joblib",
+      "model_sha256": "edcd4b951e49754cf7f61909d243c3a096132e96b36adcb1408d955d3238780b",
+      "kind": "three_class_balanced_logit",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          1336,
+          1358,
+          1306
+        ],
+        [
+          1679,
+          585,
+          1736
+        ],
+        [
+          1908,
+          177,
+          1915
+        ],
+        [
+          1633,
+          720,
+          1647
+        ],
+        [
+          1925,
+          77,
+          1998
+        ],
+        [
+          1532,
+          970,
+          1498
+        ],
+        [
+          1925,
+          105,
+          1970
+        ],
+        [
+          1738,
+          497,
+          1765
+        ]
+      ],
+      "nominal_coefficient_count": 39,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_0.25pct",
+      "file": "tf_1m__fixed_0.25pct.joblib",
+      "model_sha256": "14394d49534abf185210a1aa3e7fe3176ae3ec8095bb505e3c08079e8da3cf51",
+      "kind": "three_class_balanced_logit",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          55,
+          3885,
+          60
+        ],
+        [
+          3,
+          3996,
+          1
+        ],
+        [
+          1,
+          3998,
+          1
+        ],
+        [
+          4,
+          3988,
+          8
+        ],
+        [
+          7,
+          3984,
+          9
+        ],
+        [
+          11,
+          3974,
+          15
+        ],
+        [
+          3,
+          3990,
+          7
+        ],
+        [
+          3,
+          3993,
+          4
+        ]
+      ],
+      "nominal_coefficient_count": 39,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_0.5pct",
+      "file": "tf_1m__fixed_0.5pct.joblib",
+      "model_sha256": "a8f43cec209193fe78f77c50ed2fd700ab4bf508faffe01b0d73ed896ff18b10",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          6,
+          3990,
+          4
+        ],
+        [
+          1,
+          3999,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          1,
+          3997,
+          2
+        ],
+        [
+          1,
+          3999,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_1pct",
+      "file": "tf_1m__fixed_1pct.joblib",
+      "model_sha256": "cf3bde17c5f7536fcfcbdbb8246cd3eb730b6ac6827250800f4a48e1f2c0dc3a",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          1,
+          3999,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_2pct",
+      "file": "tf_1m__fixed_2pct.joblib",
+      "model_sha256": "533b9045ba5ecbf71386ca4961af09f82469eb039a8f9ade525ced095390e012",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_3pct",
+      "file": "tf_1m__fixed_3pct.joblib",
+      "model_sha256": "533b9045ba5ecbf71386ca4961af09f82469eb039a8f9ade525ced095390e012",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_4pct",
+      "file": "tf_1m__fixed_4pct.joblib",
+      "model_sha256": "533b9045ba5ecbf71386ca4961af09f82469eb039a8f9ade525ced095390e012",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "fixed_5pct",
+      "file": "tf_1m__fixed_5pct.joblib",
+      "model_sha256": "533b9045ba5ecbf71386ca4961af09f82469eb039a8f9ade525ced095390e012",
+      "kind": "prior_only_sparse_classes",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ],
+        [
+          0,
+          4000,
+          0
+        ]
+      ],
+      "nominal_coefficient_count": 0,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    },
+    {
+      "scheme": "train_q50",
+      "file": "tf_1m__train_q50.joblib",
+      "model_sha256": "2be4aa9acc6615261af49fcd55e7748c8f6542064ca1697dd27f810da93f5511",
+      "kind": "three_class_balanced_logit",
+      "train_counts_down_neutral_up_by_asset": [
+        [
+          1012,
+          2000,
+          988
+        ],
+        [
+          977,
+          2000,
+          1023
+        ],
+        [
+          1014,
+          2000,
+          986
+        ],
+        [
+          997,
+          2000,
+          1003
+        ],
+        [
+          982,
+          2000,
+          1018
+        ],
+        [
+          1015,
+          2000,
+          985
+        ],
+        [
+          966,
+          2000,
+          1034
+        ],
+        [
+          1006,
+          2000,
+          994
+        ]
+      ],
+      "nominal_coefficient_count": 39,
+      "warnings": [],
+      "train_rows_including_neutral": 32000,
+      "scaler_sha256": "cc272cc5dbadea68387fdae618fc69a6b276b85bc2a0f92b89fc6e4a36bcdd7d"
+    }
+  ],
+  "bands_pct": [
+    [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.25,
+      0.25,
+      0.25,
+      0.25,
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ],
+    [
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0
+    ],
+    [
+      3.0,
+      3.0,
+      3.0,
+      3.0,
+      3.0,
+      3.0,
+      3.0,
+      3.0
+    ],
+    [
+      4.0,
+      4.0,
+      4.0,
+      4.0,
+      4.0,
+      4.0,
+      4.0,
+      4.0
+    ],
+    [
+      5.0,
+      5.0,
+      5.0,
+      5.0,
+      5.0,
+      5.0,
+      5.0,
+      5.0
+    ],
+    [
+      0.058190287148829345,
+      0.015833780639268324,
+      0.01664578992971455,
+      0.02797600692494573,
+      0.023609727432150063,
+      0.024286581663629514,
+      0.024689834296487412,
+      0.026380583890256437
+    ]
+  ],
+  "ledger_sha256": "a57debb36a4297f381c1a7055918244cd142c5d4314f367f3ee223172b5dd1cc",
+  "code_pins": {
+    "tools/run_genetic_primus_direction_ternary_v2.py": "1aff316448cec0c201fa67d2d8805f94a193e0e131f0188b3bc922ea054b004d",
+    "tools/run_genetic_primus_direction_ternary_v1.py": "0b0676e1ea4be79c26a403be878806e8ccf27800915ac34b1cd26467976df0a1",
+    "configs/genetic_primus_direction_ternary_v2.json": "44b4824b1fd1f3a25c84a2be965f1d1035ac7e2f84081e02f5d16376288d73bd",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c"
+  },
+  "calibration_role": "temporal gap parity only; no probability/neutral threshold tuning",
+  "model_sha_lookup": "scheme index identifies model for every decision/asset in its probability slice",
+  "independent_validation": false,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "5beb9015575395924bb817ed416035e9daad8f0b9021276816028a0a8950f0d5"
+}

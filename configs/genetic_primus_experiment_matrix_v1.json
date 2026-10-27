@@ -1,0 +1,32 @@
+{
+  "schema_version": "exia.genetic_primus.experiment_matrix/1",
+  "matrix_id": "genetic_primus_limited_matrix_v1",
+  "stage_1": {
+    "retrain_cadence_days": 7,
+    "variants": [
+      {"id": "expanding_uniform", "training_mode": "expanding", "training_window_days": null, "weighting": "uniform", "half_life_days": null},
+      {"id": "rolling_730_uniform", "training_mode": "rolling", "training_window_days": 730, "weighting": "uniform", "half_life_days": null},
+      {"id": "rolling_730_hl180", "training_mode": "rolling", "training_window_days": 730, "weighting": "half_life", "half_life_days": 180},
+      {"id": "rolling_365_hl90", "training_mode": "rolling", "training_window_days": 365, "weighting": "half_life", "half_life_days": 90},
+      {"id": "rolling_180_hl30", "training_mode": "rolling", "training_window_days": 180, "weighting": "half_life", "half_life_days": 30}
+    ]
+  },
+  "stage_2": {
+    "eligible_variants": 2,
+    "retrain_cadence_days": [1, 3, 7, 30],
+    "reuse_stage_1_cadence": true,
+    "cell_summary": {
+      "audit_paired_lcb_bps": "minimum_across_promotable_origins",
+      "positive_outer_slice_fraction": "mean_across_promotable_origins",
+      "stress_cost_lcb_bps": "minimum_across_promotable_origins"
+    },
+    "ranking": ["audit_paired_lcb_bps", "positive_outer_slice_fraction", "stress_cost_lcb_bps", "variant_id"]
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

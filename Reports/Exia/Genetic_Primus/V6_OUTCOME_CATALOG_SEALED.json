@@ -1,0 +1,67 @@
+{
+  "schema_version": "exia.genetic_primus.outcome_catalog/1",
+  "objective_registry_path": "configs/genetic_primus_objective_registry_v3.json",
+  "objective_registry_sha256": "cedcb11b736951be18a618a3d6473b6345e50c54ce2c5e938f4935aa1c2a9a92",
+  "candidate_objective_id": "overlay_3d_v6_relative_opportunity_sealed",
+  "required_candidate_objective_id": "overlay_3d_v6_relative_opportunity_sealed",
+  "evidence_role": "sealed_outer",
+  "timestamp_column": "origin_timestamp",
+  "return_column": "net_return",
+  "minimum_observations": 60,
+  "cscv_slice_count": 10,
+  "required_pbo_objective_ids": [
+    "overlay_3d_v6_relative_opportunity_sealed",
+    "baseline::NoTrade",
+    "baseline::RelativeMomentumRank_return_12",
+    "baseline::Incumbent"
+  ],
+  "pre_registered_baselines": [
+    {
+      "objective_id": "baseline::NoTrade",
+      "source_contract_path": "configs/genetic_primus_overlay_3d_v6_relative_opportunity_sealed.json",
+      "source_contract_sha256": "aea9dbb1b3acd926afc1b0509742f870f4fbdf844036e63f25d3375a91b07d93",
+      "contract_reference": "paired_incremental_fitness.references",
+      "contract_value": "NoTrade"
+    },
+    {
+      "objective_id": "baseline::RelativeMomentumRank_return_12",
+      "source_contract_path": "configs/genetic_primus_overlay_3d_v6_relative_opportunity_sealed.json",
+      "source_contract_sha256": "aea9dbb1b3acd926afc1b0509742f870f4fbdf844036e63f25d3375a91b07d93",
+      "contract_reference": "paired_incremental_fitness.references",
+      "contract_value": "RelativeMomentumRank_return_12"
+    },
+    {
+      "objective_id": "baseline::Incumbent",
+      "source_contract_path": "configs/genetic_primus_overlay_3d_v6_relative_opportunity_sealed.json",
+      "source_contract_sha256": "aea9dbb1b3acd926afc1b0509742f870f4fbdf844036e63f25d3375a91b07d93",
+      "contract_reference": "paired_incremental_fitness.references",
+      "contract_value": "Incumbent"
+    }
+  ],
+  "outcomes": [
+    {
+      "objective_id": "overlay_3d_v6_relative_opportunity_sealed",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v6_relative_opportunity_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "7f02803649a711d9386a5393e20d72cc51187506a08e3b950f4ff191d4003984",
+      "filters": {"agent_id": "GeneticPrimusChallenger"}
+    },
+    {
+      "objective_id": "baseline::NoTrade",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v6_relative_opportunity_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "7f02803649a711d9386a5393e20d72cc51187506a08e3b950f4ff191d4003984",
+      "filters": {"agent_id": "NoTrade"}
+    },
+    {
+      "objective_id": "baseline::RelativeMomentumRank_return_12",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v6_relative_opportunity_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "7f02803649a711d9386a5393e20d72cc51187506a08e3b950f4ff191d4003984",
+      "filters": {"agent_id": "RelativeMomentumRank_return_12"}
+    },
+    {
+      "objective_id": "baseline::Incumbent",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v6_relative_opportunity_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "7f02803649a711d9386a5393e20d72cc51187506a08e3b950f4ff191d4003984",
+      "filters": {"agent_id": "GeneticPrimusActive"}
+    }
+  ]
+}

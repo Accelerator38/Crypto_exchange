@@ -1,0 +1,76 @@
+{
+  "schema": "genetic_primus.v8.clean.contract/2",
+  "strategy_id": "Genetic_Primus_V8_Clean",
+  "experiment_id": "link_liquidation_reversal_prospective_clean",
+  "source_hypothesis": {
+    "v7_contract": "configs/genetic_primus_v7_contract.json",
+    "v7_contract_sha256": "bd2cefb2f5234a42cd364c4d338cd1e26487f07057e8a06d842b7b281b816cd8",
+    "v7_manifest": "Reports/Exia/Genetic_Primus/v7_event_feasibility_20260824/manifest.json",
+    "v7_manifest_sha256": "576a3ae24f73cf00167e60832a74117790b7bef1aafca653c0427d031a8e9c61",
+    "v7_posthoc_registry": "configs/genetic_primus_v7_posthoc_hypotheses.json",
+    "v7_posthoc_registry_sha256": "2d43651d63d2b5f096ee28f5c2ff8b40b652b45480581e94c8618d74e93b962f",
+    "hypothesis_id": "link_isolated_liquidation_reversal_prospective",
+    "symbol": "LINK/USDT",
+    "parameter_tuning_allowed": false
+  },
+  "frozen_event": {
+    "decision_timeframe_minutes": 240,
+    "decision_at": "bar_close",
+    "entry_at": "next_bar_open",
+    "holding_bars": 3,
+    "direction": "opposite dominant forced-flow direction",
+    "trailing_window_bars": 180,
+    "minimum_trailing_bars": 90,
+    "symbol_total_quantile": 0.95,
+    "symbol_return_quantile": 0.75,
+    "symbol_side_share_minimum": 0.75,
+    "event_cooldown_bars": 3,
+    "stress_round_trip_cost_bps": 24.0
+  },
+  "prospective_gate": {
+    "minimum_calendar_days": 180,
+    "maximum_calendar_days": 365,
+    "minimum_source_coverage": 0.98,
+    "minimum_events": 60,
+    "temporal_folds": 4,
+    "minimum_events_per_fold": 10,
+    "minimum_positive_folds": 3,
+    "requires_positive_overall_mean": true,
+    "requires_positive_overall_median": true,
+    "requires_positive_overall_lcb": true,
+    "requires_positive_worst_fold_mean": true
+  },
+  "source": {
+    "provider": "Binance COIN-M public WebSocket",
+    "url": "wss://dstream.binance.com/ws/!forceOrder@arr",
+    "stream": "!forceOrder@arr",
+    "required_symbol_type": 2,
+    "allowed_symbols": [
+      "ADAUSD_PERP",
+      "BNBUSD_PERP",
+      "BTCUSD_PERP",
+      "DOGEUSD_PERP",
+      "ETHUSD_PERP",
+      "LINKUSD_PERP",
+      "SOLUSD_PERP",
+      "XRPUSD_PERP"
+    ],
+    "heartbeat_seconds": 15,
+    "ping_timeout_seconds": 10,
+    "maximum_reconnect_delay_seconds": 8,
+    "raw_payload_retained": true
+  },
+  "root_policy": {
+    "resume": false,
+    "stitch": false,
+    "new_root_after_restart": true,
+    "reject_partial_last_record": true
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper_trading_enabled": false,
+    "live_trading_enabled": false,
+    "promotion_authority": false
+  }
+}

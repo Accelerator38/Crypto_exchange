@@ -1,0 +1,140 @@
+{
+  "baselines": {
+    "NoTrade": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "V7_EMA_TrendConsensus": [
+      613.5144546257898,
+      744.0678206225426,
+      183.7053746206374
+    ]
+  },
+  "dsr": {
+    "reason": "no_comparable_independent_global_trial_returns",
+    "status": "not_estimated"
+  },
+  "logical_candidate_evaluations": 216,
+  "methods": [
+    {
+      "active_development_return_bps": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "diagnostic_development_return_bps": [
+        0.0,
+        -3.0007852940994173,
+        0.0
+      ],
+      "diagnostic_development_stress_bps": [
+        0.0,
+        -4.997587861766961,
+        0.0
+      ],
+      "diagnostic_trades": [
+        0,
+        2,
+        0
+      ],
+      "method": "sparse_grid",
+      "origin_count": 3,
+      "train_lcb_daily_bps": [
+        0.0,
+        7.8347119601822675,
+        0.0
+      ],
+      "unique_train_evaluations": 72,
+      "validation_passes": 0
+    },
+    {
+      "active_development_return_bps": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "diagnostic_development_return_bps": [
+        0.0,
+        -3.0007852940994173,
+        0.0
+      ],
+      "diagnostic_development_stress_bps": [
+        0.0,
+        -4.997587861766961,
+        0.0
+      ],
+      "diagnostic_trades": [
+        0,
+        2,
+        0
+      ],
+      "method": "random_search",
+      "origin_count": 3,
+      "train_lcb_daily_bps": [
+        0.0,
+        7.8347119601822675,
+        0.0
+      ],
+      "unique_train_evaluations": 72,
+      "validation_passes": 0
+    },
+    {
+      "active_development_return_bps": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "diagnostic_development_return_bps": [
+        0.0,
+        16.496914101542526,
+        0.0
+      ],
+      "diagnostic_development_stress_bps": [
+        0.0,
+        14.484519596165146,
+        0.0
+      ],
+      "diagnostic_trades": [
+        0,
+        2,
+        0
+      ],
+      "method": "genetic_search",
+      "origin_count": 3,
+      "train_lcb_daily_bps": [
+        0.0,
+        6.686212928240222,
+        0.0
+      ],
+      "unique_train_evaluations": 72,
+      "validation_passes": 0
+    }
+  ],
+  "pbo": {
+    "reason": "three_origins_and_duplicate_abstention_not_a_valid_global_pbo",
+    "status": "not_estimated"
+  },
+  "physical_candidate_evaluations": 153,
+  "registered_objective_count_lower_bound": 28,
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "schema": "measurement_lab_summary/2",
+  "stage_5": "GA_ADVANTAGE_NOT_ESTABLISHED_NO_AUTOMATIC_NEW_SEARCH",
+  "stage_6": {
+    "blockers": [
+      "only_three_previously_revealed_origins_not_blind_evidence",
+      "no_complete_historical_data_exposure_registry",
+      "funding_borrow_execution_latency_not_calibrated",
+      "single_seed_per_origin_cannot_establish_optimizer_superiority",
+      "no_blind_authority_in_contract",
+      "no_train_selected_candidate_passed_independent_validation"
+    ],
+    "decision": "NO_GO_BLIND_AND_TRADING"
+  }
+}

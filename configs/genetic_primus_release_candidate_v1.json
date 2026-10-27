@@ -1,0 +1,75 @@
+{
+  "schema_version": "exia.genetic_primus.release_candidate/1",
+  "candidate_id": "continuous_sparse_ema_offline_execution_v1",
+  "created_date_utc": "2026-09-08",
+  "purpose": "Offline release qualification only; not a deployment authorization",
+  "research_model_sha256": "f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e",
+  "execution_target": {
+    "venue": "bitget", "product": "USDT-FUTURES", "settlement": "USDT",
+    "position_mode": "one_way", "instrument_type": "linear_perpetual",
+    "adapter": "offline_snapshot_ioc_v1", "live_adapter": null
+  },
+  "symbol_map": {
+    "ADA/USDT": "ADAUSDT", "BNB/USDT": "BNBUSDT", "BTC/USDT": "BTCUSDT",
+    "DOGE/USDT": "DOGEUSDT", "ETH/USDT": "ETHUSDT", "LINK/USDT": "LINKUSDT",
+    "SOL/USDT": "SOLUSDT", "XRP/USDT": "XRPUSDT"
+  },
+  "policy": {
+    "kind": "continuous_binary_sparse_ema_overlay", "genome": [0, 0, 1, 1, -1],
+    "features": ["ema_gap_12_48", "ema_slope_12_3", "return_12", "efficiency_12"],
+    "allow_rule": "finite_features_and_logit_strictly_positive",
+    "missing_features": "abstain", "same_direction": "hold_filled_quantity",
+    "zero_target": "reduce_only_exit", "reverse_target": "single_ioc_net_delta",
+    "partial_fill": "keep_actual_position_no_synthetic_completion"
+  },
+  "temporal": {
+    "timeframe_ms": 14400000, "deployment_horizon_ms": 259200000,
+    "retrain_cadence_ms": 259200000, "purge_bars": 7,
+    "train_start_utc": "2022-01-01T00:00:00Z", "window": "expanding",
+    "train_end_rule": "origin_start_minus_7_complete_bars_exclusive",
+    "scaler": "median_iqr_clip_8_refit_each_origin", "genome_refit": false
+  },
+  "execution_semantics": {
+    "orders": "marketable_limit_IOC_taker_only", "clock": "integer_event_time_ms",
+    "fill_rule": "first_fresh_snapshot_received_after_latency",
+    "liquidity": "shared_per_snapshot_price_level_participation_cap",
+    "funding": "explicit_settlement_before_same_time_fills",
+    "marking": "observed_mark_only", "ohlcv_fill_fallback": false,
+    "liquidation_simulated": false, "synthetic_evidence_can_qualify": false
+  },
+  "source_pins": {
+    "configs/genetic_primus_prospective_3d_v1.json": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f",
+    "src/exia/genetic_primus/measurement_lab_v2.py": "c09835cd20c7dbb07473fc537f25bb8d7d3ecd887a2e8a4b742c2bf9ec7a3755",
+    "src/exia/genetic_primus/accounting_v2.py": "f9294a2e4b2220aa7552ebed7d2480e7e7647744fe5a62330888acba569af5bb"
+  },
+  "qualification_gates": {
+    "comparison_alignment": "same_events_universe_capital_costs_and_nonoverlapping_3d_origins",
+    "references": ["EMA_TrendConsensus", "NoTrade"],
+    "normal_paired_incremental_lcb": "strictly_positive_against_both_references",
+    "stress_paired_incremental_lcb": "strictly_positive_against_both_references",
+    "minimum_positive_outer_fraction": "0.70",
+    "confidence_protocol": "independently_calibrated_and_preregistered_dependent_returns",
+    "independent_audit_bank_must_confirm": true,
+    "drawdown": "absolute_owner_budget_and_no_worse_than_actively_trading_incumbent",
+    "opportunities_ess_trades": "separate_preregistered_minima",
+    "turnover_concentration_drift": "preregistered_execution_calibrated_thresholds",
+    "multiple_testing": "global_immutable_objective_registry_and_DSR_PBO_audit",
+    "sample_size": "preregistered_power_and_effective_sample_size_not_calendar_only"
+  },
+  "risk_budget": {
+    "gross_notional_to_equity_ceiling": "1", "capital_usdt": null,
+    "maximum_order_notional_usdt": null, "maximum_loss_usdt": null,
+    "maximum_drawdown_fraction": null
+  },
+  "evidence": {
+    "instrument_rules": null, "account_fee_schedule": null,
+    "book_mark_funding_dataset": null, "latency_slippage_calibration": null,
+    "independent_statistical_audit": null, "global_objective_registry_audit": null,
+    "shadow_fault_reconciliation_audit": null, "risk_owner_approval": null
+  },
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "paper_allowed": false,
+    "live_allowed": false, "promotion_authority": false, "runtime_authority": false,
+    "network_allowed": false
+  }
+}

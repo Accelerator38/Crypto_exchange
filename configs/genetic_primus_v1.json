@@ -1,0 +1,72 @@
+{
+  "schema_version": "exia.genetic_primus.v1",
+  "agent_id": "Genetic_Primus",
+  "description": "Research-only compact 4h futures target-position neurogenetic policy.",
+  "dataset": {
+    "manifest": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.manifest.json",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "timeframe_minutes": 240,
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ]
+  },
+  "windows": [
+    {"name": "development", "start": "2022-01-01T00:00:00Z", "end": "2024-01-01T00:00:00Z"},
+    {"name": "validation", "start": "2024-01-01T00:00:00Z", "end": "2025-01-01T00:00:00Z"},
+    {"name": "oos", "start": "2025-01-01T00:00:00Z", "end": "2026-01-01T00:00:00Z"},
+    {"name": "sanity", "start": "2026-01-01T00:00:00Z", "end": "2026-07-15T00:00:00Z"}
+  ],
+  "network": {
+    "inputs": 30,
+    "hidden": [32, 16],
+    "outputs": 3,
+    "activation": "tanh"
+  },
+  "labels": {
+    "horizons_bars": [1, 3, 6],
+    "minimum_edge_bps": 16.0,
+    "minimum_votes": 2
+  },
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "fitness": {
+    "period": "calendar_month",
+    "weights": {"mean": 0.2, "median": 0.3, "lcb": 0.5},
+    "bootstrap_samples": 1000,
+    "bootstrap_alpha": 0.05,
+    "minimum_period_trades": 8,
+    "minimum_split_trades": 20,
+    "minimum_slice_trades": 10,
+    "minimum_supported_period_rate": 0.5,
+    "max_drawdown": 0.2,
+    "max_direction_share": 0.9,
+    "max_state_share": 0.8,
+    "max_symbol_share": 0.5
+  },
+  "evolution": {
+    "seed": 42,
+    "workers": 16,
+    "population_size": 64,
+    "generations": 50,
+    "elite_count": 8,
+    "tournament_size": 4,
+    "crossover_rate": 0.7,
+    "mutation_rate": 0.15,
+    "mutation_sigma": 0.08
+  },
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

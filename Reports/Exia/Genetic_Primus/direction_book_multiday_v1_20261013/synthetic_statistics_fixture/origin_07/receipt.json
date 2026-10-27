@@ -1,0 +1,257 @@
+{
+  "code_pins": {
+    "configs/genetic_primus_direction_book_multiday_v1.json": "13ad59ea7d416c1b7c2a3a7a07af01b404a77a4e7c090a5a9c9e89c0be3939ae",
+    "src/exia/genetic_primus/direction_book_multiday_v1.py": "3a3023fea08ab10bb065fa5191e98e0d33905a9d3aa785f401c3e52f2810573f",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_book_multiday_v1.py": "3e12b6dc36716792f9b5d019a32dc6c6c0204b1ecadd409aaee24dc2516d04b7"
+  },
+  "data_freeze_sha256": "14730f6ecabde4f4b0ff143a9686625349ef762ca9ac9d65bfbb12df72ef8010",
+  "ledger_sha256": "0db4594158e19c56280a6ace87c0d0c4f82dfe6d68598440832672bb6e0a944b",
+  "models": [
+    {
+      "model_sha256": "d3db6c520862268d30bceefbb9c5ede3dec1f0ff8d2d137403331a4ca10c3191",
+      "name": "last_trade__price_logit"
+    },
+    {
+      "model_sha256": "e7de64c4d50cc6daabd59c01d1fa7d26cb6af02b0d578348c2c77fac7a164590",
+      "name": "last_trade__price_boost"
+    },
+    {
+      "model_sha256": "eb94bdbc2aec1678731cab5b21455cc05f330a38054b8cb0966b023ec5976dbc",
+      "name": "last_trade__book_logit"
+    },
+    {
+      "model_sha256": "6d509cff30d07025c83ca13aeccb1d0baf879d5d02e3fc4b47de13dcd3cb37ca",
+      "name": "last_trade__book_boost"
+    },
+    {
+      "model_sha256": "b962deabf8a113e6a098f918ea857b2f425983614f546dc78ee4d4174945b92d",
+      "name": "midprice__price_logit"
+    },
+    {
+      "model_sha256": "9a40144964bccd5479bd0a100162133ded8a8c0b0d85b9941220d9b9239e26d9",
+      "name": "midprice__price_boost"
+    },
+    {
+      "model_sha256": "519cfd110e9c743ef832a527a29839ddff270ed4829d16af42d40d1e3abac2cc",
+      "name": "midprice__book_logit"
+    },
+    {
+      "model_sha256": "ce94142f7de4620e0f50925aead9a1bc0e5c303530dd1e953e8a4310f5ed05fb",
+      "name": "midprice__book_boost"
+    }
+  ],
+  "synthetic_fixture_only": true,
+  "thresholds": {
+    "last_trade__book_boost": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__book_logit": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__price_boost": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__price_logit": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__book_boost": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__book_logit": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__price_boost": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__price_logit": {
+      "0.1": {
+        "calibration_rows": 1000,
+        "confidence": 0.7904903159838771,
+        "coverage_target": 0.1,
+        "tie_key": 10744638510109480086
+      },
+      "0.2": {
+        "calibration_rows": 1000,
+        "confidence": 0.7625000645622437,
+        "coverage_target": 0.2,
+        "tie_key": 8962244987611567622
+      },
+      "0.5": {
+        "calibration_rows": 1000,
+        "confidence": 0.571031621055474,
+        "coverage_target": 0.5,
+        "tie_key": 3685115540442038547
+      },
+      "1.0": {
+        "calibration_rows": 1000,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    }
+  },
+  "sha256": "31002519e23bcd18a6ff92bebe2056932e7cf883119c67eb2921c21af6b95779"
+}

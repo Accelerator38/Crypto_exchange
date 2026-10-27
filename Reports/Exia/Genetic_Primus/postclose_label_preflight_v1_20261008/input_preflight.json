@@ -1,0 +1,140 @@
+{
+  "schema": "postclose_input_preflight/1",
+  "target_clock_sha256": "79b0631f3d2a417507520166dd2a6c017fcc71ff8c1af0e944d028181d4515d2",
+  "registered_manifest": "E:\\Crypto_exchange\\Retrodate\\bitget_full8_postclose_execution_bundle_v1\\manifest.json",
+  "registered_manifest_present": false,
+  "declaration_issues": [
+    "registered_execution_bundle_missing"
+  ],
+  "declaration_structurally_complete": false,
+  "required_validation_start_ms": 1785542400000,
+  "required_terminal_tail_end_ms_exclusive": 1790812807100,
+  "required_components": [
+    "l2",
+    "marks",
+    "funding",
+    "rules",
+    "fees",
+    "closed_features"
+  ],
+  "symbols": [
+    "ADAUSDT",
+    "BNBUSDT",
+    "BTCUSDT",
+    "DOGEUSDT",
+    "ETHUSDT",
+    "LINKUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "known_funding_rate_archive": {
+    "manifest_sha256": "d34b6c419b4bb0d3c7fbb31e69d6f47b4333fa2e5bfc5483e32a87d7fb461dfa",
+    "symbols": {
+      "ADAUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "BNBUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "BTCUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "DOGEUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "ETHUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "LINKUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "SOLUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      },
+      "XRPUSDT": {
+        "requested_rows": 183,
+        "left_guard_ms": 1785542400000,
+        "right_guard_ms": 1790812800000,
+        "boundary_bracketed": true
+      }
+    },
+    "requested_rate_rows": 1464,
+    "availability_and_observed_marks_qualified": false,
+    "terminal_rate_may_exist_in_old_raw_not_checked_here": true
+  },
+  "known_download_inventory": [
+    {
+      "path": "C:\\Users\\anton\\Downloads\\bitget-futures_book_ticker_2025-01-01_BTCUSDT.csv.gz",
+      "exists": true,
+      "size_bytes": 7010574,
+      "evidence_level": "filename_and_stat_only_not_contents_or_coverage",
+      "full8_aug_sep_2026_qualification": false
+    },
+    {
+      "path": "C:\\Users\\anton\\Downloads\\bitget-futures_incremental_book_L2_2024-12-01_BTCUSDT.csv.gz",
+      "exists": true,
+      "size_bytes": 101754805,
+      "evidence_level": "filename_and_stat_only_not_contents_or_coverage",
+      "full8_aug_sep_2026_qualification": false
+    },
+    {
+      "path": "C:\\Users\\anton\\Downloads\\bitget-futures_trades_2024-12-01_BTCUSDT.csv.gz",
+      "exists": true,
+      "size_bytes": 3203477,
+      "evidence_level": "filename_and_stat_only_not_contents_or_coverage",
+      "full8_aug_sep_2026_qualification": false
+    },
+    {
+      "path": "C:\\Users\\anton\\Downloads\\bitget-futures_derivative_ticker_2024-12-01_BTCUSDT.csv.gz",
+      "exists": true,
+      "size_bytes": 2547158,
+      "evidence_level": "filename_and_stat_only_not_contents_or_coverage",
+      "full8_aug_sep_2026_qualification": false
+    }
+  ],
+  "inventory_exhaustive": false,
+  "financial_replay_ready": false,
+  "training_ready": false,
+  "production_qualified": false,
+  "blockers": [
+    "registered_execution_bundle_missing",
+    "component_content_hashes_and_independent_quality_receipts_not_verified",
+    "historical_L2_sequence_gap_reconstruction_adapter_not_qualified",
+    "postclose_training_labels_and_causal_training_scope_not_registered",
+    "historical_settlement_mark_and_cost_availability_not_qualified",
+    "terminal_settlement_inclusion_not_verified",
+    "latency_and_liquidity_parameters_not_empirically_calibrated"
+  ],
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

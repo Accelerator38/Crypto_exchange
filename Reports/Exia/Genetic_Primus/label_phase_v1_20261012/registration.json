@@ -1,0 +1,140 @@
+{
+  "anchor_ms": 1785542400000,
+  "bank_pins": {
+    "folds.json": {
+      "bytes": 49823,
+      "sha256": "0bbf80ee381179aae1cbb71aedcacdb08d6ff705f59317f894ed03354fb78de0"
+    },
+    "phase_samples.npz": {
+      "bytes": 440349,
+      "sha256": "8e8ac247440bd9de650c86c6858fc02e04bb386626521a394b25ff61a7d49ddc"
+    }
+  },
+  "before_model_fits": true,
+  "code_pins": {
+    "configs/genetic_primus_label_phase_v1.json": {
+      "bytes": 1172,
+      "sha256": "11b81ebe5cae6ba4049a91fbc127167a89ca8573c7b4914a03fb1298261ba515"
+    },
+    "src/exia/genetic_primus/label_phase_v1.py": {
+      "bytes": 12216,
+      "sha256": "dca98916f163ba1e6c6c40d7cfde2a743d67bd972d075889a6710559ab540521"
+    },
+    "tools/run_genetic_primus_label_phase_v1.py": {
+      "bytes": 31994,
+      "sha256": "d8a1768eb97528896503edca2a5b6a2b5a369f233fac8d0df156afceb1f16549"
+    }
+  },
+  "contract": {
+    "architecture": "linear6",
+    "bootstrap_bank": "unchanged parent selection/audit banks, 4096 draws, blocks 3/7/14",
+    "decision_cadence_days": 3,
+    "drag_bps": {
+      "normal": 2,
+      "stress": 8
+    },
+    "experiment_id": "label_phase_v1_20261012",
+    "fee_bps": 6,
+    "l2": 0.01,
+    "label_horizon_days": 3,
+    "label_stride_days": 3,
+    "max_fits_per_command": 7,
+    "near_threshold_bps": [
+      5,
+      10,
+      20
+    ],
+    "new_financial_replays": 8,
+    "new_real_fits": 100,
+    "parameters": 7,
+    "parent_experiment": "cadence_matrix_v1_20261009",
+    "periods_are_already_open": true,
+    "phase_offsets_days": [
+      0,
+      1,
+      2
+    ],
+    "primary_bootstrap_block_days": 7,
+    "purpose": "diagnose A/B training-grid sensitivity; no tuning or promotion",
+    "retrain_cadence_days": 3,
+    "reused_policies": {
+      "B": "B",
+      "P0": "A"
+    },
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "schema": "genetic_primus_label_phase/1",
+    "selection_or_promotion": false,
+    "threshold_bps": 20,
+    "weighting": "uniform"
+  },
+  "network_used": false,
+  "new_planned_fits": 100,
+  "parent_artifacts_verified": 254,
+  "parent_receipt_pin": {
+    "bytes": 38795,
+    "sha256": "65c25806ff5a3a4b5c83f63371c148533fafcc53c6dd1407724ade09452fb9b0"
+  },
+  "parent_receipt_sha256": "b7c899a03df63f4309676abc8690b59d4530a04e57703879a4c296afb456b286",
+  "parent_registration_pin": {
+    "bytes": 16644,
+    "sha256": "1792152e10ee07ff77a8b085af2fdad775cb451e721b1891f2099cac96613a81"
+  },
+  "parent_registration_sha256": "bcf984dcd818a4b089f4e94f1927594e5727df7658cbbe0001552de8d433c292",
+  "parent_sources_verified": 43,
+  "periods": {
+    "development": {
+      "days": 86,
+      "end_ms": 1785024000000,
+      "start_ms": 1777593600000
+    },
+    "report": {
+      "days": 61,
+      "end_ms": 1790812800000,
+      "start_ms": 1785542400000
+    }
+  },
+  "phase_anchor_ms": {
+    "0": 1785542400000,
+    "1": 1785628800000,
+    "2": 1785715200000
+  },
+  "phase_sample_content_sha256": {
+    "0": "f42a22b55e3b9fee859ecf8f911191a8bad0685be9c931b13a452b8da75b4b05",
+    "1": "a0fd1279b3de3223a8d034accdc0e967f10c690a065f2201297e5212e34459eb",
+    "2": "f1beb015fe7a1e0347278ade8ced4b61e2645b2c287780645376170cdced102f"
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "label_phase_registration/1",
+  "selection_or_promotion": false,
+  "sha256": "88d49db0d92c90079b9b6c7cf7d4d4790e248f3481a5debb1ad8b597b79176a9",
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

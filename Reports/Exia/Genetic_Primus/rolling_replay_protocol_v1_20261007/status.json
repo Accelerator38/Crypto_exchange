@@ -1,0 +1,118 @@
+{
+  "schema": "rolling_replay_preflight/1",
+  "causal_forecasts_audited": true,
+  "financial_replay_status": "blocked_missing_registered_policy_costs_funding",
+  "financial_replay_completed": false,
+  "stability_of_net_policy_evaluated": false,
+  "model_fit_count_this_step": 0,
+  "market_forecast_fit_count_prior_valid_attempt": 280,
+  "market_forecast_fit_count_including_superseded": 560,
+  "data_already_revealed": true,
+  "gates": {
+    "reference_replay_ready": false,
+    "replay_missing_prerequisites": [
+      "policy_registered",
+      "capital_and_allocation_registered",
+      "normal_costs_registered",
+      "stress_costs_registered",
+      "funding_complete_for_interval"
+    ],
+    "ga_search_design_ready": false,
+    "ga_missing_prerequisites": [
+      "policy_registered",
+      "capital_and_allocation_registered",
+      "normal_costs_registered",
+      "stress_costs_registered",
+      "funding_complete_for_interval",
+      "simple_net_signal_not_evaluated",
+      "global_trial_registry_incomplete"
+    ],
+    "ga_executed": false,
+    "random_search_executed": false,
+    "prospective_started": false,
+    "prospective_seal_allowed": false,
+    "prospective_requirements": [
+      "net_replay_and_stability_completed",
+      "final_policy_and_registry_frozen",
+      "positive_economic_signal",
+      "fixed_duration_and_final_analysis_only",
+      "start_after_seal_and_all_consumed_data",
+      "unseen_interval_verified"
+    ],
+    "rmse_is_not_economic_signal_gate": true,
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "execution_allowed": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "training_allowed": false,
+      "financial_evaluation_allowed": false,
+      "network_allowed": false
+    }
+  },
+  "search_budget_plan": {
+    "ga": {
+      "unique_objective_calls_per_origin": 64,
+      "model_fits_per_origin": 128,
+      "inner_fold_evaluations_per_origin": 64,
+      "gradient_steps_per_origin": 0,
+      "duplicate_candidates_charge_budget": false,
+      "unlogged_candidate_calls_allowed": false,
+      "model_family": "linear6_feature_mask_l2_only",
+      "shared_candidate_space_required": true,
+      "shared_folds_and_resample_banks_required": true,
+      "incumbent_evaluations_charge_budget": true
+    },
+    "random_search": {
+      "unique_objective_calls_per_origin": 64,
+      "model_fits_per_origin": 128,
+      "inner_fold_evaluations_per_origin": 64,
+      "gradient_steps_per_origin": 0,
+      "duplicate_candidates_charge_budget": false,
+      "unlogged_candidate_calls_allowed": false,
+      "model_family": "linear6_feature_mask_l2_only",
+      "shared_candidate_space_required": true,
+      "shared_folds_and_resample_banks_required": true,
+      "incumbent_evaluations_charge_budget": true
+    },
+    "current_objective_calls": 0,
+    "registered_candidate_space_sha256": null,
+    "search_stage_executed": false
+  },
+  "funding_observed_common_window": {
+    "end_at": "2026-07-27T08:00:00+00:00",
+    "end_timestamp_ms": 1785139200000,
+    "start_at": "2026-04-28T16:00:00+00:00",
+    "start_timestamp_ms": 1777392000000
+  },
+  "funding_allowed_use": "recent_diagnostic_screen_only",
+  "legacy_net_inputs_gate_preserved": {
+    "fills_or_costs_calibrated": false,
+    "fit_allowed": false,
+    "market_net_computation_allowed": false,
+    "missing_registration": [
+      "allocation_rule",
+      "borrow_basis",
+      "decision_threshold_rule",
+      "funding_policy_and_evidence",
+      "market_cost_evidence",
+      "net_training_objective",
+      "normal_scenario",
+      "normalization_quote",
+      "stress_scenario"
+    ]
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "adapter_specification": {
+    "alpha": 0.025,
+    "block_rule": "ceil_sqrt_n",
+    "df_rule": "max_2_floor_n_over_2block_minus_one",
+    "hac_lags": "block_minus_one",
+    "kernel": "Bartlett",
+    "method": "hac_small_sample_t",
+    "promotion_authority": false,
+    "qualification_config_sha256": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+    "qualified_daily_counts": [
+      30,
+      365
+    ],
+    "runtime_authority": false,
+    "schema": "exia.genetic_primus.hac_adapter/1",
+    "zero_se": "insufficient_variation"
+  },
+  "created_at_utc": "2026-08-28T10:41:08.628026+00:00",
+  "fingerprint": {
+    "executable": "E:\\Crypto_exchange\\.venv\\Scripts\\python.exe",
+    "executable_sha256": "41123879d2e991377997acadf5f0cf8f34fa10d86362eded8c69b6041e2893b5",
+    "files": {
+      "configs/genetic_primus_frozen_hac_review_v1.json": "41cd3c25ca52790b61fd8db0da448c58a38e6489b633df21a962c59246fc7391",
+      "src/exia/genetic_primus_statistics/__init__.py": "41debd1e82a743c2c23e3c3505aac2dcc00564dc9c0a98ad3e20440c8ef861c0",
+      "src/exia/genetic_primus_statistics/hac_adapter_v1.py": "6e15c57fd26ac4072fde9c3eff4367659fa0be9c55f23a9579c9ccc749a1a86c",
+      "tests/test_genetic_primus_hac_adapter_v1.py": "718609e6b1ee1b1b6f1d72ab1ca033f42b9291290a4b13e520a58cb73ce1ce44",
+      "tools/run_genetic_primus_frozen_hac_review_v1.py": "dcc7929430eab41369d3da3cb6ef7380f8ec23dbe2ad5048a5cd32bf7bd0ac89"
+    },
+    "packages": {
+      "numpy": "2.4.2",
+      "pandas": "3.0.0",
+      "pyarrow": "25.0.0",
+      "scipy": "1.17.0"
+    },
+    "parents": {
+      "lab": {
+        "completion_receipt_sha256": "5a3b6ff8a75df232b027138d527da9374f2e7c9ce1cc11043b6d04855c7c244a",
+        "pre_run_receipt_sha256": "8e2966e401647906a7a4ec27e2460bce044949bcec792e6123ba67947279bf7d",
+        "verified_artifact_count": 10
+      },
+      "qualification": {
+        "completion_receipt_sha256": "ef4504bda3e5772c66998e02f15de227316cf1ab0fc1bfa1075a64ad23a454d7",
+        "pre_run_receipt_sha256": "bde6c84fa804a6ef57b59ebc3a640f09d8ee546bb3e03b104a7d099589069abe",
+        "verified_artifact_count": 64
+      }
+    },
+    "python": "3.12.4 (tags/v3.12.4:8e8a4ba, Jun  6 2024, 19:30:16) [MSC v.1940 64 bit (AMD64)]"
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "models": [
+    "original_logit",
+    "original_boost",
+    "half_logit",
+    "half_boost"
+  ],
+  "horizons_minutes": [
+    1,
+    10,
+    30,
+    240
+  ],
+  "symbol_policy": "All eight original assets; no October winner selection",
+  "earliest_start_utc": "2026-10-15T00:00:00Z",
+  "minimum_calendar_days": 90,
+  "status": "DRAFT_NOT_SEALED_NOT_SCHEDULED",
+  "automatic_download": false,
+  "automatic_training": false,
+  "automatic_analysis": false,
+  "promotion": false,
+  "source_contract": "configs/genetic_primus_direction_october_halfband_v1.json",
+  "metadata_amendment": "configs/genetic_primus_direction_october_halfband_v2.json",
+  "symbol_list": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ],
+  "original_neutral_bands_pct": {
+    "1": 0.02,
+    "10": 0.064,
+    "30": 0.109,
+    "240": 0.32
+  },
+  "training_band_factors": [
+    1.0,
+    0.5
+  ],
+  "scaler": "train-only mean/std each origin",
+  "purge_bars": 7,
+  "retrain_days": 3,
+  "analysis_rule": "One final analysis after duration and contract are approved and sealed; no intermediate tuning; no autoexecution",
+  "duration_status": "90 days is an engineering minimum proposal, NOT certified power; exact final interval remains unsealed",
+  "requires_separate_historical_data_authorization": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "659147d4c3fff096c956b2d6fdb86c39f72b7ebae460003e0db07d773a818e09"
+}

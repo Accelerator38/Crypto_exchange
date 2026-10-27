@@ -1,0 +1,1297 @@
+{
+  "calibration_sha256": "6616a4413ab62e20f32d6fdd645f5f98070ea9a107669d0a72e4598f6527072c",
+  "execution_replays": 0,
+  "family_adjusted_percentile": 0.0125,
+  "ledger_transforms": 8,
+  "multiplicity_caveat": "four contrasts only; adaptive history not corrected",
+  "new_fits": 0,
+  "paired_orientation": "H minus control",
+  "primary_block_days": 7,
+  "registration_sha256": "8a0dafb13ed166fe46e7affea3599d8b3503a43a64d9ed3150a6e63fefceb49b",
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "scenarios": {
+    "normal": {
+      "policies": {
+        "B_E": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.8568083083117308,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -0.657118770960981
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.9885562329166115,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -0.2554238862690796
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.06833357175727324,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -2.2027083894678876
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.3046126430613147,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -2.173865486860171
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.14003979777911946,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -1.1430396050627154
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.07409750467511565,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -1.2844791479483972
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -2.883004159062138,
+              "selection": -2.482317576046597
+            },
+            "3": {
+              "audit": -5.776447510581812,
+              "selection": -5.82560853824833
+            },
+            "7": {
+              "audit": -3.8273694041060833,
+              "selection": -4.405372802597648
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -8.945789946670866,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 0.07109592660836297
+              },
+              "selection": {
+                "LCB_log_bps_day": -8.902539354414387,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 0.07109592660836297
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -10.503212320716305,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 0.07109592660836297
+              },
+              "selection": {
+                "LCB_log_bps_day": -10.531435279269312,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 0.07109592660836297
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -9.584660739767784,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 0.07109592660836297
+              },
+              "selection": {
+                "LCB_log_bps_day": -9.969716894337537,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 0.07109592660836297
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "mean_exposure",
+          "fraction": 0.553482848897328,
+          "largest_asset_share_of_positive_asset_net": 0.6054642006493441,
+          "largest_daily_gain_USDT": 312.79762003472024,
+          "largest_daily_loss_USDT": -201.67132653234512,
+          "metrics": {
+            "daily_log_volatility": 0.006840159508042088,
+            "decisions": 21,
+            "fees": 19.7959197756302,
+            "fills": 60,
+            "final_capital": 10004.337792073144,
+            "funding": -26.24037297397736,
+            "gross_pnl": 56.97272702687065,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.05131961718186839,
+            "maximum_exposure": 0.46638140406178563,
+            "mean_exposure": 0.20474141696063072,
+            "net_return": 0.0004337792073143554,
+            "reconciliation_error": -9.556799795973347e-13,
+            "slippage": 6.598642204118486,
+            "turnover_initial_capital": 3.2993211020595754
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": -66.29299012285283,
+            "BNB/USDT": -24.02497886633651,
+            "BTC/USDT": 106.19109506087852,
+            "DOGE/USDT": -29.139737994943857,
+            "ETH/USDT": -23.73123801264417,
+            "LINK/USDT": -8.63382838539141,
+            "SOL/USDT": 69.19680557303414,
+            "XRP/USDT": -19.227335178599276
+          },
+          "report_to_H_exposure_ratio": 2.275284533876934,
+          "report_to_H_volatility_ratio": 1.861407412621501
+        },
+        "B_R": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.8568083083117308,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -6.4178646444570715
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.9885562329166115,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -6.082659545545942
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.06833357175727324,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -9.781496979388791
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.3046126430613147,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -9.222650079798031
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.14003979777911946,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -7.636670260209638
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.07409750467511565,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -7.925919103938232
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -10.699471827558106,
+              "selection": -10.452272402812614
+            },
+            "3": {
+              "audit": -16.441195778826106,
+              "selection": -16.00676019023589
+            },
+            "7": {
+              "audit": -12.834625152477944,
+              "selection": -14.187513180971019
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -15.23404477672597,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 0.12102673250145243
+              },
+              "selection": {
+                "LCB_log_bps_day": -15.210140241875816,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 0.12102673250145243
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -17.8819345249656,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 0.12102673250145243
+              },
+              "selection": {
+                "LCB_log_bps_day": -17.970333595622392,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 0.12102673250145243
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -16.290645005871344,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 0.12102673250145243
+              },
+              "selection": {
+                "LCB_log_bps_day": -17.008792818115708,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 0.12102673250145243
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "daily_log_volatility",
+          "fraction": 0.9423384282135852,
+          "largest_asset_share_of_positive_asset_net": 0.6054642006493441,
+          "largest_daily_gain_USDT": 532.5570940449234,
+          "largest_daily_loss_USDT": -343.3577774611367,
+          "metrics": {
+            "daily_log_volatility": 0.011629699217805984,
+            "decisions": 21,
+            "fees": 33.703765100533445,
+            "fills": 60,
+            "final_capital": 10007.385356515144,
+            "funding": -44.67584112732465,
+            "gross_pnl": 96.99955498982781,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.08564973462110304,
+            "maximum_exposure": 0.7783659677068383,
+            "mean_exposure": 0.3484176713034935,
+            "net_return": 0.0007385356515143826,
+            "reconciliation_error": -2.2026824808563106e-13,
+            "slippage": 11.234592246825555,
+            "turnover_initial_capital": 5.617296123413343
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": -112.86787339192914,
+            "BNB/USDT": -40.90399705767188,
+            "BTC/USDT": 180.79683916007025,
+            "DOGE/USDT": -49.612187541885085,
+            "ETH/USDT": -40.40388527476475,
+            "LINK/USDT": -14.699621291543973,
+            "SOL/USDT": 117.81179693463277,
+            "XRP/USDT": -32.73571502176404
+          },
+          "report_to_H_exposure_ratio": 3.8719539535017087,
+          "report_to_H_volatility_ratio": 3.164781216743715
+        },
+        "B_raw_context": {
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.0123389004601481,
+            "decisions": 21,
+            "fees": 35.766094315421824,
+            "fills": 60,
+            "final_capital": 10007.837265566199,
+            "funding": -47.40955031624655,
+            "gross_pnl": 102.93494575373768,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.0906253146756294,
+            "maximum_exposure": 0.8235829459167162,
+            "mean_exposure": 0.36971430269030564,
+            "net_return": 0.0007837265566199569,
+            "reconciliation_error": 4.263256414560601e-14,
+            "slippage": 11.922035555870576,
+            "turnover_initial_capital": 5.961017777935888
+          },
+          "not_an_equal_risk_comparison": true
+        },
+        "EMA1_raw_context": {
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.01947118765274571,
+            "decisions": 61,
+            "fees": 68.39276152343257,
+            "fills": 102,
+            "final_capital": 11896.807583697278,
+            "funding": -73.74806798792244,
+            "gross_pnl": 2061.7460828529556,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.11233860440063281,
+            "maximum_exposure": 0.8639323611302108,
+            "mean_exposure": 0.5119768282060642,
+            "net_return": 0.18968075836972775,
+            "reconciliation_error": -3.780087354243733e-12,
+            "slippage": 22.79766964431837,
+            "turnover_initial_capital": 11.39883482216041
+          },
+          "not_an_equal_risk_comparison": true
+        },
+        "EMA_E": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.8568083083117308,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -20.56658561229127
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.9885562329166115,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -20.940592847873784
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.06833357175727324,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -22.178357427461854
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.3046126430613147,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -21.379266535027334
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.14003979777911946,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -22.763069912301702
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.07409750467511565,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -22.291495052255293
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -27.678225904886745,
+              "selection": -26.86598535352924
+            },
+            "3": {
+              "audit": -29.161081307268866,
+              "selection": -27.681501552066948
+            },
+            "7": {
+              "audit": -30.36370529977666,
+              "selection": -30.27050855713484
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -4.539873502305767,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 12.033864773899193
+              },
+              "selection": {
+                "LCB_log_bps_day": -4.926496226577967,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 12.033864773899193
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -5.5063237102809515,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 12.033864773899193
+              },
+              "selection": {
+                "LCB_log_bps_day": -5.844965915776419,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 12.033864773899193
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -6.168797858057384,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 12.033864773899193
+              },
+              "selection": {
+                "LCB_log_bps_day": -6.598461614612246,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 12.033864773899193
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "mean_exposure",
+          "fraction": 0.40155887062717377,
+          "largest_asset_share_of_positive_asset_net": 0.2528654774936693,
+          "largest_daily_gain_USDT": 397.4236339970048,
+          "largest_daily_loss_USDT": -175.42889650390134,
+          "metrics": {
+            "daily_log_volatility": 0.00849075701499644,
+            "decisions": 61,
+            "fees": 27.463720076423208,
+            "fills": 102,
+            "final_capital": 10761.679911106537,
+            "funding": -29.614190892166164,
+            "gross_pnl": 827.9124285504323,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.051404246352386385,
+            "maximum_exposure": 0.3953208441593029,
+            "mean_exposure": 0.2220604407731656,
+            "net_return": 0.07616799111065364,
+            "reconciliation_error": -1.5774048733874224e-12,
+            "slippage": 9.154606475303886,
+            "turnover_initial_capital": 4.577303237652435
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": 97.15154729355439,
+            "BNB/USDT": 70.43897497559597,
+            "BTC/USDT": 60.82226989645519,
+            "DOGE/USDT": 81.75262249204891,
+            "ETH/USDT": 58.483458653525524,
+            "LINK/USDT": 192.60255441929058,
+            "SOL/USDT": 156.01868242121378,
+            "XRP/USDT": 44.409800954854745
+          },
+          "report_to_H_exposure_ratio": 2.4677502675202843,
+          "report_to_H_volatility_ratio": 2.310583258753026
+        },
+        "EMA_R": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.8568083083117308,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -62.12698337081331
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.9885562329166115,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -62.82756404278197
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.06833357175727324,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -67.01081914137487
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.3046126430613147,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -64.83426211675248
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.14003979777911946,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -68.71612329528914
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.07409750467511565,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.541158391943876,
+                "paired_LCB_log_bps_day": -67.29750659393486
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -80.3151459596267,
+              "selection": -78.6713691370068
+            },
+            "3": {
+              "audit": -85.62623443265836,
+              "selection": -82.68842088968023
+            },
+            "7": {
+              "audit": -88.51297743590675,
+              "selection": -90.00549431612201
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -10.03719200273474,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 28.472950959834378
+              },
+              "selection": {
+                "LCB_log_bps_day": -10.96599217006921,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 28.472950959834378
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -12.20808015050008,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 28.472950959834378
+              },
+              "selection": {
+                "LCB_log_bps_day": -12.764631364439863,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 28.472950959834378
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -13.61107700450103,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 28.472950959834378
+              },
+              "selection": {
+                "LCB_log_bps_day": -14.592552186052924,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 28.472950959834378
+              }
+            }
+          },
+          "calibration_capped_unreachable": true,
+          "calibration_metric": "daily_log_volatility",
+          "fraction": 1.0,
+          "largest_asset_share_of_positive_asset_net": 0.2528654774936693,
+          "largest_daily_gain_USDT": 989.7020413876089,
+          "largest_daily_loss_USDT": -436.8696829680448,
+          "metrics": {
+            "daily_log_volatility": 0.01947118765274571,
+            "decisions": 61,
+            "fees": 68.39276152343257,
+            "fills": 102,
+            "final_capital": 11896.807583697278,
+            "funding": -73.74806798792244,
+            "gross_pnl": 2061.7460828529556,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.11233860440063281,
+            "maximum_exposure": 0.8639323611302108,
+            "mean_exposure": 0.5119768282060642,
+            "net_return": 0.18968075836972775,
+            "reconciliation_error": -3.780087354243733e-12,
+            "slippage": 22.79766964431837,
+            "turnover_initial_capital": 11.39883482216041
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": 241.93600092016015,
+            "BNB/USDT": 175.41381881461368,
+            "BTC/USDT": 151.46538738257746,
+            "DOGE/USDT": 203.58813731188098,
+            "ETH/USDT": 145.64105771635244,
+            "LINK/USDT": 479.63715536522636,
+            "SOL/USDT": 388.5325261960628,
+            "XRP/USDT": 110.59349999040839
+          },
+          "report_to_H_exposure_ratio": 5.689581405723202,
+          "report_to_H_volatility_ratio": 5.2986795098495385
+        },
+        "H": {
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.8568083083117308,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.541158391943876
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.9885562329166115,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.541158391943876
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.06833357175727324,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.541158391943876
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.3046126430613147,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.541158391943876
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.14003979777911946,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.541158391943876
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.07409750467511565,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.541158391943876
+              }
+            }
+          },
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.0036747245453421684,
+            "decisions": 21,
+            "fees": 19.782989195132274,
+            "fills": 32,
+            "final_capital": 10407.078079114086,
+            "funding": -10.89929555150626,
+            "gross_pnl": 444.35471136662204,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.01680374765495518,
+            "maximum_exposure": 0.505678692402251,
+            "mean_exposure": 0.08998497282964647,
+            "net_return": 0.04070780791140849,
+            "reconciliation_error": 1.1901590823981678e-12,
+            "slippage": 6.594347505898704,
+            "turnover_initial_capital": 3.2971737529496052
+          }
+        }
+      }
+    },
+    "stress": {
+      "policies": {
+        "B_E": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.6076867682134189,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -0.5776958695774093
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.6259032751385473,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -0.215960843629855
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.34497046704857104,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -2.1519442417105763
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.6482370017005928,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -2.1098373119634184
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.45489018040647866,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -1.0984890691887133
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.37056782466003435,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -1.2432822912989954
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -2.768368258620998,
+              "selection": -2.3966130654003863
+            },
+            "3": {
+              "audit": -5.7064615495057955,
+              "selection": -5.752232552666611
+            },
+            "7": {
+              "audit": -3.7890755945676715,
+              "selection": -4.280495231420429
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -9.272425940235964,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": -0.2576221420762635
+              },
+              "selection": {
+                "LCB_log_bps_day": -9.29170286580834,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": -0.2576221420762635
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -10.81621221159505,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": -0.2576221420762635
+              },
+              "selection": {
+                "LCB_log_bps_day": -10.827927750668996,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": -0.2576221420762635
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -9.876393975437077,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": -0.2576221420762635
+              },
+              "selection": {
+                "LCB_log_bps_day": -10.308149418310514,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": -0.2576221420762635
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "mean_exposure",
+          "fraction": 0.553482848897328,
+          "largest_asset_share_of_positive_asset_net": 0.6105560146685536,
+          "largest_daily_gain_USDT": 311.83262305059,
+          "largest_daily_loss_USDT": -202.02146107318185,
+          "metrics": {
+            "daily_log_volatility": 0.0068387528951934454,
+            "decisions": 21,
+            "fees": 19.75621904235256,
+            "fills": 60,
+            "final_capital": 9984.297390851349,
+            "funding": -26.1929969471697,
+            "gross_pnl": 56.58826844716893,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.05212724172781402,
+            "maximum_exposure": 0.46613531074914,
+            "mean_exposure": 0.2045604350833447,
+            "net_return": -0.001570260914865118,
+            "reconciliation_error": -4.1460168631601846e-12,
+            "slippage": 26.34166160629392,
+            "turnover_initial_capital": 3.2927077007869032
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": -68.91728023600567,
+            "BNB/USDT": -26.604515998593186,
+            "BTC/USDT": 104.045092806374,
+            "DOGE/USDT": -31.783950367972224,
+            "ETH/USDT": -25.682098946284924,
+            "LINK/USDT": -11.91152209335084,
+            "SOL/USDT": 66.36530412150806,
+            "XRP/USDT": -21.21363843432251
+          },
+          "report_to_H_exposure_ratio": 2.2741854256068006,
+          "report_to_H_volatility_ratio": 1.8593157571369516
+        },
+        "B_R": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.6076867682134189,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -6.158037046775781
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.6259032751385473,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -5.754581800117737
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.34497046704857104,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -9.488753520355885
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.6482370017005928,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -8.926574127518162
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.45489018040647866,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -7.38611424433251
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.37056782466003435,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -7.619729967434315
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -10.362781185453672,
+              "selection": -10.130145306669663
+            },
+            "3": {
+              "audit": -16.128503243952455,
+              "selection": -15.714758692862311
+            },
+            "7": {
+              "audit": -12.633019324603811,
+              "selection": -13.973145282183935
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -15.857651283184282,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": -0.43885990358292976
+              },
+              "selection": {
+                "LCB_log_bps_day": -15.847200587689791,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": -0.43885990358292976
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -18.408026258053212,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": -0.43885990358292976
+              },
+              "selection": {
+                "LCB_log_bps_day": -18.455217087712057,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": -0.43885990358292976
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -16.8270384004763,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": -0.43885990358292976
+              },
+              "selection": {
+                "LCB_log_bps_day": -17.574276009869187,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": -0.43885990358292976
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "daily_log_volatility",
+          "fraction": 0.9423384282135852,
+          "largest_asset_share_of_positive_asset_net": 0.6105560146685536,
+          "largest_daily_gain_USDT": 530.9141276132505,
+          "largest_daily_loss_USDT": -343.95390294819845,
+          "metrics": {
+            "daily_log_volatility": 0.011636664404926944,
+            "decisions": 21,
+            "fees": 33.63617217209797,
+            "fills": 60,
+            "final_capital": 9973.26534678812,
+            "funding": -44.595180541859584,
+            "gross_pnl": 96.3449907256756,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.08702587131108208,
+            "maximum_exposure": 0.7782079047769896,
+            "mean_exposure": 0.34832806818744283,
+            "net_return": -0.002673465321188062,
+            "reconciliation_error": -9.769962616701378e-12,
+            "slippage": 44.84829122358914,
+            "turnover_initial_capital": 5.606036402948922
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": -117.33588793895919,
+            "BNB/USDT": -45.295816915454395,
+            "BTC/USDT": 177.1431389677672,
+            "DOGE/USDT": -54.11412095576887,
+            "ETH/USDT": -43.72534542395058,
+            "LINK/USDT": -20.28009545271713,
+            "SOL/USDT": 112.99099240088556,
+            "XRP/USDT": -36.11751789367376
+          },
+          "report_to_H_exposure_ratio": 3.872511395856687,
+          "report_to_H_volatility_ratio": 3.1637688654904
+        },
+        "B_raw_context": {
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.012347764825414925,
+            "decisions": 21,
+            "fees": 35.694365384061555,
+            "fills": 60,
+            "final_capital": 9971.629456667111,
+            "funding": -47.32395411954047,
+            "gross_pnl": 102.24032878327932,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.09208572858033592,
+            "maximum_exposure": 0.8234544603662036,
+            "mean_exposure": 0.3696536394975067,
+            "net_return": -0.0028370543332888465,
+            "reconciliation_error": -9.187317573378095e-12,
+            "slippage": 47.592552612556815,
+            "turnover_initial_capital": 5.949069076569898
+          },
+          "not_an_equal_risk_comparison": true
+        },
+        "EMA1_raw_context": {
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.019496210396343423,
+            "decisions": 61,
+            "fees": 68.15714538076585,
+            "fills": 102,
+            "final_capital": 11823.22590580882,
+            "funding": -73.4804613444562,
+            "gross_pnl": 2055.741022049305,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.11484133892720316,
+            "maximum_exposure": 0.8638467643493061,
+            "mean_exposure": 0.5119187032239765,
+            "net_return": 0.18232259058088207,
+            "reconciliation_error": 9.29389898374211e-12,
+            "slippage": 90.87750951527177,
+            "turnover_initial_capital": 11.359688689409403
+          },
+          "not_an_equal_risk_comparison": true
+        },
+        "EMA_E": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.6076867682134189,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -20.465425748220472
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.6259032751385473,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -20.755620766978026
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.34497046704857104,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -22.047943216372413
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.6482370017005928,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -21.26495975404527
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.45489018040647866,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -22.663451478068296
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.37056782466003435,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -22.214969122772267
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -27.575539647613454,
+              "selection": -26.7833943171584
+            },
+            "3": {
+              "audit": -28.98853454967184,
+              "selection": -27.54398309297493
+            },
+            "7": {
+              "audit": -30.27496880730526,
+              "selection": -30.21338415047261
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -5.042145376905397,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 11.583145748802245
+              },
+              "selection": {
+                "LCB_log_bps_day": -5.424287756743345,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 11.583145748802245
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -5.958567505160612,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 11.583145748802245
+              },
+              "selection": {
+                "LCB_log_bps_day": -6.342236821997114,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 11.583145748802245
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -6.6636240690085415,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 11.583145748802245
+              },
+              "selection": {
+                "LCB_log_bps_day": -7.081414016124919,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 11.583145748802245
+              }
+            }
+          },
+          "calibration_capped_unreachable": false,
+          "calibration_metric": "mean_exposure",
+          "fraction": 0.40155887062717377,
+          "largest_asset_share_of_positive_asset_net": 0.25774291829636914,
+          "largest_daily_gain_USDT": 396.51043091296197,
+          "largest_daily_loss_USDT": -174.7207368709569,
+          "metrics": {
+            "daily_log_volatility": 0.008486642901096896,
+            "decisions": 61,
+            "fees": 27.36910632427243,
+            "fills": 102,
+            "final_capital": 10732.132535634795,
+            "funding": -29.506731070643532,
+            "gross_pnl": 825.5010431160707,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.05248675020962146,
+            "maximum_exposure": 0.39481000276853867,
+            "mean_exposure": 0.22162270768252612,
+            "net_return": 0.07321325356347952,
+            "reconciliation_error": 3.211653165635653e-12,
+            "slippage": 36.49267008636277,
+            "turnover_initial_capital": 4.56158376079552
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": 94.16935512785837,
+            "BNB/USDT": 66.49571172889688,
+            "BTC/USDT": 57.47109017808381,
+            "DOGE/USDT": 78.34825199939127,
+            "ETH/USDT": 54.63590679197693,
+            "LINK/USDT": 188.70197631423176,
+            "SOL/USDT": 151.78279321028515,
+            "XRP/USDT": 40.5274502840678
+          },
+          "report_to_H_exposure_ratio": 2.463873972451058,
+          "report_to_H_volatility_ratio": 2.307343036519755
+        },
+        "EMA_R": {
+          "H_minus_control": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.6076867682134189,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -61.5664154636871
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.6259032751385473,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -62.26059424784266
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.34497046704857104,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -66.45208412113303
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.6482370017005928,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -64.23602303117129
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.45489018040647866,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -68.18653826254156
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.37056782466003435,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.2202728891649866,
+                "paired_LCB_log_bps_day": -66.6412204998092
+              }
+            }
+          },
+          "H_minus_control_family_adjusted_LCB": {
+            "14": {
+              "audit": -79.77837110532114,
+              "selection": -78.05740011283847
+            },
+            "3": {
+              "audit": -84.98732766933045,
+              "selection": -82.1239399182194
+            },
+            "7": {
+              "audit": -88.04866768416431,
+              "selection": -89.4328717749481
+            }
+          },
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": -11.137538372925192,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 27.45586901989868
+              },
+              "selection": {
+                "LCB_log_bps_day": -12.152624359837265,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 27.45586901989868
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -13.257565375716478,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 27.45586901989868
+              },
+              "selection": {
+                "LCB_log_bps_day": -13.8322625673491,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 27.45586901989868
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -14.792642164912767,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 27.45586901989868
+              },
+              "selection": {
+                "LCB_log_bps_day": -15.66682706954408,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 27.45586901989868
+              }
+            }
+          },
+          "calibration_capped_unreachable": true,
+          "calibration_metric": "daily_log_volatility",
+          "fraction": 1.0,
+          "largest_asset_share_of_positive_asset_net": 0.25774291829636914,
+          "largest_daily_gain_USDT": 987.4278964219266,
+          "largest_daily_loss_USDT": -435.10615665910336,
+          "metrics": {
+            "daily_log_volatility": 0.019496210396343423,
+            "decisions": 61,
+            "fees": 68.15714538076585,
+            "fills": 102,
+            "final_capital": 11823.22590580882,
+            "funding": -73.4804613444562,
+            "gross_pnl": 2055.741022049305,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.11484133892720316,
+            "maximum_exposure": 0.8638467643493061,
+            "mean_exposure": 0.5119187032239765,
+            "net_return": 0.18232259058088207,
+            "reconciliation_error": 9.29389898374211e-12,
+            "slippage": 90.87750951527177,
+            "turnover_initial_capital": 11.359688689409403
+          },
+          "per_asset_net_USDT": {
+            "ADA/USDT": 234.50946303534565,
+            "BNB/USDT": 165.59393053636376,
+            "BTC/USDT": 143.11996168413043,
+            "DOGE/USDT": 195.11025090050492,
+            "ETH/USDT": 136.05951901060973,
+            "LINK/USDT": 469.9235656767039,
+            "SOL/USDT": 377.98391297700266,
+            "XRP/USDT": 100.92530198814957
+          },
+          "report_to_H_exposure_ratio": 5.691218116021153,
+          "report_to_H_volatility_ratio": 5.300617195842284
+        },
+        "H": {
+          "bootstrap_absolute": {
+            "14": {
+              "audit": {
+                "LCB_log_bps_day": 0.6076867682134189,
+                "bank_sha256": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+                "mean_log_bps_day": 6.2202728891649866
+              },
+              "selection": {
+                "LCB_log_bps_day": 0.6259032751385473,
+                "bank_sha256": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+                "mean_log_bps_day": 6.2202728891649866
+              }
+            },
+            "3": {
+              "audit": {
+                "LCB_log_bps_day": -0.34497046704857104,
+                "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+                "mean_log_bps_day": 6.2202728891649866
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.6482370017005928,
+                "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+                "mean_log_bps_day": 6.2202728891649866
+              }
+            },
+            "7": {
+              "audit": {
+                "LCB_log_bps_day": -0.45489018040647866,
+                "bank_sha256": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+                "mean_log_bps_day": 6.2202728891649866
+              },
+              "selection": {
+                "LCB_log_bps_day": -0.37056782466003435,
+                "bank_sha256": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd",
+                "mean_log_bps_day": 6.2202728891649866
+              }
+            }
+          },
+          "fraction": 1,
+          "metrics": {
+            "daily_log_volatility": 0.0036781019409656535,
+            "decisions": 21,
+            "fees": 19.755362092294945,
+            "fills": 32,
+            "final_capital": 10386.727172121002,
+            "funding": -10.88282568607345,
+            "gross_pnl": 443.70612666102113,
+            "initial_capital": 10000.0,
+            "max_drawdown": 0.01709176128836587,
+            "maximum_exposure": 0.5055287550680713,
+            "mean_exposure": 0.08994888137969825,
+            "net_return": 0.038672717212100194,
+            "reconciliation_error": -4.568789790937444e-12,
+            "slippage": 26.340766761646382,
+            "turnover_initial_capital": 3.2925958452059576
+          }
+        }
+      }
+    }
+  },
+  "sha256": "141b1d8cc1aaf8ba6b4698cd9fc527017adc16fb0ea413e96ecf806622fe08ce"
+}

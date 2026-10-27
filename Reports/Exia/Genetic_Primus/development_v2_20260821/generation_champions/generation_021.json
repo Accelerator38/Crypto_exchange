@@ -1,0 +1,30 @@
+{
+  "trades": 3994,
+  "mean_bps": 42.42045007205229,
+  "median_bps": -10.074087362163628,
+  "lcb_bps": 25.458160126239456,
+  "fitness": -18.313464721301383,
+  "selection_score": -1001347.5054481245,
+  "constraint_violation": 0.0,
+  "max_drawdown": 0.16423959658445786,
+  "turnover_fills": 7988,
+  "supported_periods": 24,
+  "total_periods": 24,
+  "supported_period_rate": 1.0,
+  "max_direction_share": 0.585878818227341,
+  "max_state_share": 0.44216324486730096,
+  "max_symbol_share": 0.16649974962443664,
+  "action_counts": {
+    "SHORT": 10175,
+    "FLAT": 17587,
+    "LONG": 7270
+  },
+  "failed_gates": [
+    "nonpositive_symbol_lcb:XRP/USDT"
+  ],
+  "selection_contract": "risk>overall_gate>failed_slices>worst_slice_lcb>monthly_fitness",
+  "overall_failure_count": 0,
+  "slice_failure_count": 1,
+  "supported_slice_count": 15,
+  "worst_supported_slice_lcb_bps": -1.3291919834031674
+}

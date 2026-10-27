@@ -1,0 +1,280 @@
+{
+  "fold": {
+    "origin_ms": 1787356800000,
+    "train_times_sha256": "9c98ad814cf097a486bd351a6e35490f150c1bbc691b2f968a95df7ae00287d7",
+    "calibration_times_sha256": "d86915142db9ae27917da6a9a7fbd137ab984ed3c95ab333ebb79546865bf3d0",
+    "test_times_sha256": "70677a73c630e90571eeae6cb533af3be2ca04c96458d9f15982701e42fd30f6",
+    "n_train_times": 4000,
+    "n_calibration_times": 10072,
+    "n_test_times": 4320,
+    "train_first_ms": 1784766840000,
+    "train_latest_label_ms": 1786751160000,
+    "train_cutoff_exclusive_ms": 1786751580000,
+    "calibration_latest_label_ms": 1787356320000,
+    "calibration_cutoff_exclusive_ms": 1787356380000,
+    "horizon_minutes": 1,
+    "example_step_minutes": 1,
+    "decision_minutes": 1,
+    "retrain_days": 3,
+    "purge_bars": 7
+  },
+  "fold_sha256": "94e0964507ca4f48dd200b4096413c3570091f1ff3e2fa67c82f1aecf91148e5",
+  "band_pct": 0.02,
+  "models": [
+    {
+      "candidate": "logit_uniform",
+      "file": "tf_1m__logit_uniform.joblib",
+      "sha256": "9bbbf49400a8dfad9e64caec8e4cfc0675d7f1b3eee330897228e0c4056f1402",
+      "kind": "three_class_logit_uniform",
+      "band_pct": 0.02,
+      "scaler_sha256": "ecedf62f0726950c4b369f61684091e6f143730c4bc4b40d62aa232b3d4bce9b",
+      "coefficient_count": 39,
+      "train_rows_including_neutral": 32000,
+      "train_counts_down_neutral_up": [
+        [
+          1272,
+          1440,
+          1288
+        ],
+        [
+          843,
+          2312,
+          845
+        ],
+        [
+          869,
+          2328,
+          803
+        ],
+        [
+          1099,
+          1821,
+          1080
+        ],
+        [
+          1063,
+          1929,
+          1008
+        ],
+        [
+          1181,
+          1618,
+          1201
+        ],
+        [
+          1147,
+          1744,
+          1109
+        ],
+        [
+          985,
+          2081,
+          934
+        ]
+      ],
+      "class_weight_mass": [
+        8459.0,
+        15273.0,
+        8268.0
+      ],
+      "fitted_iterations": 24,
+      "warnings": []
+    },
+    {
+      "candidate": "logit_balanced",
+      "file": "tf_1m__logit_balanced.joblib",
+      "sha256": "ac71ee2cc03b2a9bed6028a0772d5015c8649d4f22748a8fea2b694e7ff7016f",
+      "kind": "three_class_logit_balanced",
+      "band_pct": 0.02,
+      "scaler_sha256": "ecedf62f0726950c4b369f61684091e6f143730c4bc4b40d62aa232b3d4bce9b",
+      "coefficient_count": 39,
+      "train_rows_including_neutral": 32000,
+      "train_counts_down_neutral_up": [
+        [
+          1272,
+          1440,
+          1288
+        ],
+        [
+          843,
+          2312,
+          845
+        ],
+        [
+          869,
+          2328,
+          803
+        ],
+        [
+          1099,
+          1821,
+          1080
+        ],
+        [
+          1063,
+          1929,
+          1008
+        ],
+        [
+          1181,
+          1618,
+          1201
+        ],
+        [
+          1147,
+          1744,
+          1109
+        ],
+        [
+          985,
+          2081,
+          934
+        ]
+      ],
+      "class_weight_mass": [
+        10666.666666666668,
+        10666.66666666667,
+        10666.666666666668
+      ],
+      "fitted_iterations": 26,
+      "warnings": []
+    },
+    {
+      "candidate": "boost_uniform",
+      "file": "tf_1m__boost_uniform.joblib",
+      "sha256": "1d61df3f278b32e7cf72404884f4018ca379c2eaa759976b5993661c2e15836f",
+      "kind": "three_class_boost_uniform",
+      "band_pct": 0.02,
+      "scaler_sha256": "ecedf62f0726950c4b369f61684091e6f143730c4bc4b40d62aa232b3d4bce9b",
+      "coefficient_count": 0,
+      "train_rows_including_neutral": 32000,
+      "train_counts_down_neutral_up": [
+        [
+          1272,
+          1440,
+          1288
+        ],
+        [
+          843,
+          2312,
+          845
+        ],
+        [
+          869,
+          2328,
+          803
+        ],
+        [
+          1099,
+          1821,
+          1080
+        ],
+        [
+          1063,
+          1929,
+          1008
+        ],
+        [
+          1181,
+          1618,
+          1201
+        ],
+        [
+          1147,
+          1744,
+          1109
+        ],
+        [
+          985,
+          2081,
+          934
+        ]
+      ],
+      "class_weight_mass": [
+        8459.0,
+        15273.0,
+        8268.0
+      ],
+      "fitted_iterations": 32,
+      "warnings": []
+    },
+    {
+      "candidate": "boost_balanced",
+      "file": "tf_1m__boost_balanced.joblib",
+      "sha256": "e0d5f922aa810799df1de6577fbd8c99be6802f598d7fbd14d703229e4c0455c",
+      "kind": "three_class_boost_balanced",
+      "band_pct": 0.02,
+      "scaler_sha256": "ecedf62f0726950c4b369f61684091e6f143730c4bc4b40d62aa232b3d4bce9b",
+      "coefficient_count": 0,
+      "train_rows_including_neutral": 32000,
+      "train_counts_down_neutral_up": [
+        [
+          1272,
+          1440,
+          1288
+        ],
+        [
+          843,
+          2312,
+          845
+        ],
+        [
+          869,
+          2328,
+          803
+        ],
+        [
+          1099,
+          1821,
+          1080
+        ],
+        [
+          1063,
+          1929,
+          1008
+        ],
+        [
+          1181,
+          1618,
+          1201
+        ],
+        [
+          1147,
+          1744,
+          1109
+        ],
+        [
+          985,
+          2081,
+          934
+        ]
+      ],
+      "class_weight_mass": [
+        10666.666666666668,
+        10666.66666666667,
+        10666.666666666668
+      ],
+      "fitted_iterations": 32,
+      "warnings": []
+    }
+  ],
+  "ledger_sha256": "59ed2acda5ee3aeca34333b5a52f71b9a23d615bae6f1667c1cd2d894f11e1a8",
+  "code_pins": {
+    "tools/run_genetic_primus_direction_ternary_fixed_v1.py": "d804a89d074f7a17242dc4796472e8cce8f5a7f20b0852c11ecdce9cbe0d275c",
+    "configs/genetic_primus_direction_ternary_fixed_v1.json": "d2a9bd1dac735cab199df91f146b63303a652fc7e9065fe8af774e9982a9e0e0",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c"
+  },
+  "model_sha_lookup": "candidate index identifies the model for every decision/asset in its probability slice",
+  "independent_validation": false,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "e317a419d9556ae66a80f6bd8e87ee29569e3548eeec925e4b6ee8fbd0dcab07"
+}

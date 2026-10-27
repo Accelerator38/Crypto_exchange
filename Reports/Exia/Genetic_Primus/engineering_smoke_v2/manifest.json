@@ -1,0 +1,73 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v1",
+  "agent_id": "Genetic_Primus",
+  "generated_at": "2026-08-21T10:10:37.060082+00:00",
+  "status": "ENGINEERING_SMOKE",
+  "config_sha256": "9f5bdfbf691edf248c5a465aa7f259fb5ea35036af9049545638375755e089a4",
+  "code_sha256": "1c91aa7cd59363e33abd4a171e3feb76fcd579ebdb92d5c44d821d02826377c8",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "development_start": "2022-01-01T00:00:00+00:00",
+  "development_end": "2022-06-30T00:00:00+00:00",
+  "timeframe_minutes": 240,
+  "network": {
+    "inputs": 30,
+    "hidden": [
+      32,
+      16
+    ],
+    "outputs": 3,
+    "activation": "tanh"
+  },
+  "feature_names": [
+    "return_1",
+    "return_3",
+    "return_6",
+    "return_12",
+    "ema_gap_12_48",
+    "ema_slope_12_3",
+    "atr_14_pct",
+    "realized_vol_6",
+    "realized_vol_ratio_6_24",
+    "efficiency_12",
+    "range_position_24",
+    "donchian_position_20",
+    "volume_z_24",
+    "volume_trend_6_24",
+    "candle_body_pct",
+    "wick_asymmetry",
+    "market_return_3",
+    "market_return_12",
+    "market_breadth_3",
+    "market_breadth_12",
+    "market_dispersion_3",
+    "market_vol_percentile",
+    "transition_score",
+    "relative_momentum_rank",
+    "residual_return_3",
+    "position_direction",
+    "unrealized_net_bps",
+    "holding_bars",
+    "mfe_bps",
+    "mae_bps"
+  ],
+  "label_summary": {
+    "samples": 8120,
+    "short": 3716,
+    "flat": 1093,
+    "long": 3311,
+    "future_used_as_feature": false
+  },
+  "costs_bps": {
+    "base_round_trip": 8.0,
+    "stress_round_trip": 16.0
+  },
+  "smoke": true,
+  "validation_opened": false,
+  "oos_opened": false,
+  "sanity_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

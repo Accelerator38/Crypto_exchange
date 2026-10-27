@@ -1,0 +1,15 @@
+{
+  "schema": "exia.genetic_primus.rolling_replay_protocol/1",
+  "status": "frozen_comparison_manifest_financial_inputs_pending",
+  "period": {"start_utc": "2026-08-01T00:00:00Z", "end_exclusive_utc": "2026-10-01T00:00:00Z", "last_calendar_day": "2026-09-30", "already_revealed": true, "complete_three_day_origins": 20, "hyperparameter_selection_allowed": false},
+  "forecast_source": "Reports/Exia/Genetic_Primus/compact_forecast_v1_20261007_r2",
+  "clock": {"bar_ms": 14400000, "horizon_bars": 18, "retrain_cadence_days": 3, "purge_bars": 7, "train_end_offset_bars": -1, "outcome_availability": "exit_plus_one_completed_bar", "incomplete_final_origin": "exclude_and_hold_cash_after_terminal"},
+  "arms": ["linear6_uniform", "linear6_half_life_90_anchor20", "mlp8_uniform", "mlp8_half_life_90_anchor20"],
+  "benchmark_control": "NoTrade",
+  "measurement": {"module": "unified_measurement_v1", "shared_continuous_capital": true, "reference_open_not_observed_fill": true, "execution_delay_requires_registration": true, "costs_and_funding_required": true, "no_double_charge_turnover": true},
+  "fitness": {"objective": "net_log_growth_constrained_drawdown/1", "research_drawdown_budgets_percent": [10, 20, 30], "lcb_role": "stability_not_search_objective", "live_risk_approved": false},
+  "pending_inputs": {"policy_contract": null, "capital_and_allocation": null, "normal_cost_scenario": null, "stress_cost_scenario": null, "funding_evidence": null, "independent_peak_window_evidence": null},
+  "ga": {"status": "not_started_requires_confirmed_simple_net_signal", "signal_period": "pre_august_development_only", "rmse_gate_allowed": false, "per_origin_unique_candidate_cap": 64, "candidate_space": "linear6_feature_mask_l2_only_pending_registration", "ga_vs_random_budget_equal": true, "shared_folds_and_bank_required": true, "global_trial_registry_complete": false},
+  "prospective": {"status": "not_sealed_not_started", "start_utc": null, "duration_days": null, "net_replay_and_stability_required": true, "outcomes_unseen_at_seal_required": true, "single_final_analysis": true, "selection_on_aug_sep_allowed": false},
+  "safety": {"credentials_allowed": false, "orders_enabled": false, "execution_allowed": false, "paper": false, "live": false, "promotion_authority": false, "training_allowed": false, "financial_evaluation_allowed": false, "network_allowed": false}
+}

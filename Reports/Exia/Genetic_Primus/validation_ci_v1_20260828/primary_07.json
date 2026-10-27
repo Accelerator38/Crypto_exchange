@@ -1,0 +1,64 @@
+{
+  "arrays_sha256": {
+    "candidate_bank": "447abe95552005957bf1f80e4951f1e1b744f2f87cc00b78b0b2264c44f9b334",
+    "hac_small_sample_t_lcb": "6a4e15f0472549e09a56e5bdadc0d55ba6965220cc49714d641e9900464f8edf",
+    "legacy_bank": "9b2d964f76cbba344b21eafcf9c1216decda29019abb3facfe948dcb26f5c703",
+    "legacy_lcb": "79e10ee0cdb7d13d4ac0cec9448255ce25155be81de055fbee1b6c81d540409c",
+    "paths": "8584167316ba0197207edded570dc525066bb6d3e0854592219511463ccb46f1",
+    "studentized_block_bootstrap_lcb": "d8a23fa530cd5e97a27d820578e3aa952c15a889815688a96653b441cb5c45ce"
+  },
+  "case": 7,
+  "config_sha256": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+  "days": 30,
+  "details": {
+    "block_length": 6,
+    "hac_critical": 4.302652729749462,
+    "hac_df": 2,
+    "hac_lags": 5,
+    "studentized_supported_count": 400,
+    "uninformative_original_count": 176
+  },
+  "elapsed_seconds": 0.26201579999906244,
+  "generator": "sparse_markov25_ar1_06",
+  "legacy_null": {
+    "confidence": 0.95,
+    "lower": 0.056205744767976164,
+    "rate": 0.0703125,
+    "replications": 1024,
+    "successes": 72,
+    "upper": 0.08763108682891405
+  },
+  "methods": {
+    "hac_small_sample_t": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.0,
+        "rate": 0.0,
+        "replications": 1024,
+        "successes": 0,
+        "upper": 0.00884738584379988
+      },
+      "uninformative_count": 176
+    },
+    "studentized_block_bootstrap": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.006853643978166145,
+        "rate": 0.0146484375,
+        "replications": 1024,
+        "successes": 15,
+        "upper": 0.03103141610849116
+      },
+      "uninformative_count": 624
+    }
+  },
+  "npz_sha256": "014f6f695bd81adb9c3edb08fef06de92c11461872aef77c3fb72d41e879bcb9",
+  "phase": "primary",
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  }
+}

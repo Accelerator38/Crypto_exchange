@@ -1,0 +1,97 @@
+{
+  "model_sha256": "aa4da43ebb9d9654507bd096a0a0737c9df925d35e71ab91d263866e250efdac",
+  "fold": {
+    "origin_ms": 1791590400000,
+    "train_first_ms": 1788998400000,
+    "n_train_times": 3304,
+    "n_calibration_times": 1000,
+    "n_test_times": 432,
+    "train_times_sha256": "0e14b59788900f3eadbf8b3e03c59d95fcb30c544a0cab8d5cc40232a2d6b2f2",
+    "calibration_times_sha256": "0565c61c75f25d5f9a49e56b02201d2881ebc9d24f146bf9423baf55760b4517",
+    "test_times_sha256": "2ec12b6cc6e9a452a764c9491f087d8be8641cd819ed95af230ed6a9e213212b",
+    "train_latest_label_ms": 1790980800000,
+    "train_cutoff_exclusive_ms": 1790981400000,
+    "calibration_latest_label_ms": 1791585600000,
+    "calibration_cutoff_exclusive_ms": 1791586200000,
+    "horizon_minutes": 10,
+    "example_step_minutes": 10,
+    "decision_minutes": 10,
+    "retrain_days": 3,
+    "purge_bars": 7
+  },
+  "fold_sha256": "925f8e00293768202940adf09823d7dd5c35472bfcb7d1d5ff070ac46e9689eb",
+  "training_band_factor": 0.5,
+  "scaler_sha256": "d79ba9474a29d92b5ecc2cedc1dcf639690b74a115405cc4b3d43d8319343de8",
+  "coefficient_count": 39,
+  "train_counts": [
+    [
+      1559,
+      198,
+      1547
+    ],
+    [
+      1302,
+      683,
+      1319
+    ],
+    [
+      1215,
+      851,
+      1238
+    ],
+    [
+      1446,
+      416,
+      1442
+    ],
+    [
+      1338,
+      629,
+      1337
+    ],
+    [
+      1472,
+      315,
+      1517
+    ],
+    [
+      1419,
+      451,
+      1434
+    ],
+    [
+      1436,
+      430,
+      1438
+    ]
+  ],
+  "class_weight_mass": [
+    11187.0,
+    3973.0,
+    11272.0
+  ],
+  "warnings": [],
+  "fitted_iterations": 36,
+  "estimator_fits": 1,
+  "code_pins": {
+    "configs/genetic_primus_direction_october_halfband_v1.json": "506c81f99461360e5718be8f30d51119ff412ddc9bc11faa5f20b216c35f66c9",
+    "tools/run_genetic_primus_direction_october_halfband_v1.py": "c5d40c466b1bce372fcb597066c3c3dd197d887db2d082bd67c704bf02471c7f",
+    "tools/run_genetic_primus_direction_ternary_hypotheses_v1.py": "4cc772971d33d5d68cb19bfc0d6de8c137ee028f7cdf93997e4311fc48b39f8d",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "src/exia/genetic_primus/direction_multiscale_v1.py": "2a1db4b7ab0c95216e6b027b8b2df3f055e574aa44c187b06480bd98eb7d1cbf",
+    "src/exia/genetic_primus/direction_benchmark_v1.py": "a8e1c8ca15b9b778e92ae2ebbd8c1ba7e3cd028ff90d04917d614c6d61f65dbb",
+    "configs/genetic_primus_direction_october_halfband_v2.json": "baf506b2bed047c32636b6c55004c2f09bd4bf26cad1ffa84d6437f1e0f190d2",
+    "tools/run_genetic_primus_direction_october_halfband_v2.py": "5dfce5f2321250f5718fadd7fbddde2aa40ee64a1d2befe5aebbbed9dc8b93fa"
+  },
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "0be205dbb4018253f1ce7d64b74844c754f8dc6750a4960bdc15bbd2d86518d8"
+}

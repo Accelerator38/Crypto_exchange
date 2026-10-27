@@ -1,0 +1,58 @@
+{
+  "schema_version": "exia.genetic_primus.outcome_catalog/1",
+  "catalog_id": "genetic_primus_v5_sealed_outer60",
+  "objective_registry_path": "configs/genetic_primus_objective_registry_v2.json",
+  "objective_registry_sha256": "766aed82b8c26b76ebe9a565a53fe565bcceda4a32f7360b76ff77d847de1273",
+  "evidence_role": "sealed_outer",
+  "timestamp_column": "origin_timestamp",
+  "return_column": "net_return",
+  "alignment_policy": "exact_timestamp_set",
+  "candidate_objective_id": "overlay_3d_v5_sealed",
+  "required_candidate_objective_id": "overlay_3d_v5_sealed",
+  "required_pbo_objective_ids": [
+    "overlay_3d_v5_sealed",
+    "baseline::NoTrade",
+    "baseline::Momentum_return_1"
+  ],
+  "minimum_observations": 60,
+  "cscv_slice_count": 10,
+  "pre_registered_baselines": [
+    {
+      "objective_id": "baseline::NoTrade",
+      "source_contract_path": "configs/genetic_primus_overlay_3d_v5_sealed.json",
+      "source_contract_sha256": "41a90b03f7c166d07331dc51a45972173f9a0c03cbb2b1888c9ab62a80932d70",
+      "contract_reference": "paired_incremental_fitness.references",
+      "contract_value": "NoTrade"
+    },
+    {
+      "objective_id": "baseline::Momentum_return_1",
+      "source_contract_path": "configs/genetic_primus_overlay_3d_v5_sealed.json",
+      "source_contract_sha256": "41a90b03f7c166d07331dc51a45972173f9a0c03cbb2b1888c9ab62a80932d70",
+      "contract_reference": "paired_incremental_fitness.references",
+      "contract_value": "Momentum_return_1"
+    }
+  ],
+  "outcomes": [
+    {
+      "objective_id": "overlay_3d_v5_sealed",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v5_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "9a3185a61d306f4754babdcc78737f7a008ab7df866be5cb45c450893f741b9a",
+      "filters": {"agent_id": "GeneticPrimusChallenger"}
+    },
+    {
+      "objective_id": "baseline::NoTrade",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v5_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "9a3185a61d306f4754babdcc78737f7a008ab7df866be5cb45c450893f741b9a",
+      "filters": {"agent_id": "NoTrade"}
+    },
+    {
+      "objective_id": "baseline::Momentum_return_1",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v5_sealed_outer60_20260827/benchmarks.parquet",
+      "artifact_sha256": "9a3185a61d306f4754babdcc78737f7a008ab7df866be5cb45c450893f741b9a",
+      "filters": {"agent_id": "Momentum_return_1"}
+    }
+  ],
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

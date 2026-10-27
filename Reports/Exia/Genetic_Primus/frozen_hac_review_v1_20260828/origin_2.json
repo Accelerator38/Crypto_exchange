@@ -1,0 +1,229 @@
+{
+  "config_sha256": "41cd3c25ca52790b61fd8db0da448c58a38e6489b633df21a962c59246fc7391",
+  "data_proof": {
+    "cutoff_exclusive": 1738353600000,
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "files": [
+      {
+        "path": "Retrodate\\exia_full8_timeframes_v1_20220101_20260714\\parts\\full8_240m.parquet",
+        "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36"
+      }
+    ],
+    "manifest_sha256": "5d79526614a41f1b22ca963b9fb6c07584b8b60eb0d49d76c574d6fdcc666dd5",
+    "maximum_loaded_timestamp": 1738339200000
+  },
+  "elapsed_seconds": 1.2975009000001592,
+  "legacy_bank_sha256": "23a803018cdc060a951c2512fa544cf58c234a599ea4a84f31fb58192530961a",
+  "logical_model_cost_reproductions": 6,
+  "model_artifact_hashes": {
+    "origin_2_model_941879716b440d7d7756031df8791f5ffffca023a6b90b4ffc7468435d4ab4cf.json": "0cf25f8ac971d0b805d692c24d66fddabd2b2a95167ea33bc8848c4a8b314d2c",
+    "origin_2_model_f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e.json": "6ea72c0447d76a7e390804ef94a2c2e35115b0c3d9b57fe3d9764a0b1e181a99"
+  },
+  "origin": 2,
+  "physical_cash_simulations": 4,
+  "records": [
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": -0.002397200644776943,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": -0.002605893565761995
+      },
+      "method": "sparse_grid",
+      "model_artifact": "origin_2_model_941879716b440d7d7756031df8791f5ffffca023a6b90b4ffc7468435d4ab4cf.json",
+      "model_sha256": "941879716b440d7d7756031df8791f5ffffca023a6b90b4ffc7468435d4ab4cf",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.010315527195659629,
+        "mean_difference": 0.00193443184702116,
+        "observations_sha256": "d6343cc5fba4eed873760ba43e784da295173fbace89b53b644a35dad3b6f9ec",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.002847071286507031,
+        "status": "informative"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.010389285721955245,
+        "mean_difference": 0.001782761058159325,
+        "observations_sha256": "79cadab5a6e32b18fae1565c24919a9209c165c8b8424406d09130912d92e483",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0028289633267296788,
+        "status": "informative"
+      }
+    },
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": -0.002397200644776943,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": -0.002605893565761995
+      },
+      "method": "random_search",
+      "model_artifact": "origin_2_model_941879716b440d7d7756031df8791f5ffffca023a6b90b4ffc7468435d4ab4cf.json",
+      "model_sha256": "941879716b440d7d7756031df8791f5ffffca023a6b90b4ffc7468435d4ab4cf",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.010315527195659629,
+        "mean_difference": 0.00193443184702116,
+        "observations_sha256": "d6343cc5fba4eed873760ba43e784da295173fbace89b53b644a35dad3b6f9ec",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.002847071286507031,
+        "status": "informative"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.010389285721955245,
+        "mean_difference": 0.001782761058159325,
+        "observations_sha256": "79cadab5a6e32b18fae1565c24919a9209c165c8b8424406d09130912d92e483",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0028289633267296788,
+        "status": "informative"
+      }
+    },
+    {
+      "decision_would_change": false,
+      "frozen_active_genome_unchanged": [
+        0,
+        0,
+        0,
+        0,
+        -1
+      ],
+      "legacy_gate": {
+        "maximum_drawdown": 0.1,
+        "normal_lcb": -0.0019121550205368275,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "selection_authority": false,
+        "stress_lcb": -0.002022316102453379
+      },
+      "method": "genetic_search",
+      "model_artifact": "origin_2_model_f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e.json",
+      "model_sha256": "f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e",
+      "new_diagnostic_gate": {
+        "diagnostic_only": true,
+        "drawdown_limit": 0.1,
+        "passed": false,
+        "promotion_authority": false,
+        "reasons": [
+          "normal_lcb_not_positive",
+          "stress_lcb_not_positive"
+        ],
+        "runtime_authority": false
+      },
+      "normal_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.009944840779772311,
+        "mean_difference": 0.002834911226991621,
+        "observations_sha256": "4d5c4141ba0041d7ad607b4092bd284d1bdf8c8099e7baf98d8edb1843e258e8",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.002970202990913487,
+        "status": "informative"
+      },
+      "original_metrics_reproduced": true,
+      "promotion_authority": false,
+      "stress_hac": {
+        "block_length": 6,
+        "critical_value": 4.302652729749462,
+        "daily_count": 30,
+        "degrees_of_freedom": 2,
+        "lcb": -0.009964518021119213,
+        "mean_difference": 0.0026795848724451474,
+        "observations_sha256": "a53703f9ebb5007fe5bd37a75b6937358ccb22776471db394242188640e74209",
+        "promotion_authority": false,
+        "schema": "exia.genetic_primus.hac_assessment/1",
+        "standard_error": 0.0029386761348738017,
+        "status": "informative"
+      }
+    }
+  ],
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "source_origin": "2025-02-01T00:00:00Z",
+  "source_origin_sha256": "213bff72e93338f67e833dbcc5e1c98fe723aedf74332b43877b0b11ee761287",
+  "training_runs": 0,
+  "validation_values_sha256": "2d4479b6ca804c0562d0da1207af1135a6a7751e9aa97c125a42b4145ec34213"
+}

@@ -1,0 +1,111 @@
+{
+  "schema": "exia.genetic_primus.forward_research_proposal/1",
+  "status": "draft_not_executable",
+  "scope": "separate_proposal_not_amendment_of_frozen_contracts",
+  "purpose": "causal_full_retraining_before_any_new_market_evaluation",
+  "clock": {
+    "timezone": "UTC",
+    "bar_hours": 4,
+    "deployment_days": 3,
+    "retrain_days": 3,
+    "purge_bars": 7,
+    "train_cutoff_rule": "label_available_at <= training_asof - 7 * bar_duration",
+    "feature_rule": "feature_available_at <= decision_asof",
+    "model_rule": "training_asof <= fit_started_at <= fit_completed_at <= model_available_at <= decision_asof <= submitted_at <= filled_at",
+    "training_latency_budget_seconds": null,
+    "execution_delay_seconds": null,
+    "unresolved_timing_blocks_launch": true
+  },
+  "models": {
+    "family": "linear_long_flat_overlay",
+    "features": ["return_12", "efficiency_12"],
+    "coefficient_count": 3,
+    "hidden_layers": 0,
+    "ridge_alpha": 0.5,
+    "training_window": "expanding",
+    "training_start_utc": null,
+    "full_coefficients_and_scaler_refit_each_origin": true,
+    "minimum_completed_opportunities": 64,
+    "minimum_weight_ess": 40.0,
+    "minimum_trades_forcing": false,
+    "fallback": "NoTrade",
+    "variants": ["uniform", "half_life_90d_anchor_20pct"],
+    "recency": {"half_life_days": 90, "uniform_anchor": 0.2, "weight_all_outcomes_including_losses": true},
+    "ga_enabled": false
+  },
+  "labels": {
+    "legacy_reference": "gross_open_at_origin_start_to_close_of_last_origin_bar",
+    "new_executable_label_definition": null,
+    "label_end_and_available_at_required": true,
+    "training_labels_separate_from_deploy_features": true,
+    "no_future_label_columns_in_decision_payload": true,
+    "missing_or_revised_candles_fail_closed": true,
+    "timestamp_semantics_and_grid_must_be_verified": true
+  },
+  "accounting": {
+    "capital": "continuous_signed_cash_and_quantity",
+    "unchanged_target": "carry_no_refill",
+    "retrain_forced_flat": false,
+    "terminal": "one_registered_global_end_liquidation_with_costs",
+    "open_positions_carry_entry_model_sha": true,
+    "cost_adapter": null,
+    "normal_and_stress_cost_parameters": null,
+    "funding_borrow_and_execution_risk": "unresolved_not_zero_by_default",
+    "synthetic_results_are_profit_evidence": false
+  },
+  "measurement": {
+    "primary_estimand": "mean_calendar_daily_net_return_after_stress_costs_minus_NoTrade",
+    "economic_floor_bps_per_day": 0.0,
+    "user_allows_drawdowns": true,
+    "no_loss_is_not_a_guarantee": true,
+    "primary_inference": "paired_block_bootstrap_lcb_strictly_above_zero",
+    "common_resample_bank_for_candidates": true,
+    "independent_audit_bank": true,
+    "calendar_days_include_abstention": true,
+    "opportunities_and_ess_separate_from_trade_count": true,
+    "benchmarks": ["NoTrade", "registered_EMA_reference"],
+    "ema_reference_definition": null,
+    "drawdown_budget": null,
+    "concentration_turnover_drift_gates": null,
+    "confidence_and_multiplicity_rule": null
+  },
+  "testing_budget": {
+    "planned_candidate_pipelines": 2,
+    "planned_hyperparameter_search_trials": 0,
+    "all_attempts_including_failures_registered": true,
+    "historical_global_trial_count": null,
+    "historical_dsr_pbo_verified": false,
+    "authorized_market_runs": 0,
+    "registered_dates_and_origin_count": null,
+    "power_minimum_effect_and_block_design": null,
+    "zero_economic_floor_does_not_define_power_sample_size": true
+  },
+  "lineage": {
+    "required_per_origin": ["data_file_sha256", "data_content_sha256", "revision_id", "universe_sha256", "timestamp_semantics_sha256", "feature_code_sha256", "feature_rows_sha256", "feature_available_at", "label_definition_sha256", "label_rows_sha256", "label_available_at", "training_asof", "train_cutoff", "train_rows_sha256", "scaler_fit_rows_sha256", "scaler_payload_sha256", "model_payload_sha256", "fit_started_at", "fit_completed_at", "model_available_at", "decision_model_sha256", "entry_model_sha256", "folds_sha256", "resample_bank_sha256", "audit_bank_sha256", "objective_registry_sha256", "source_environment_receipt_sha256"],
+    "all_bindings_verified_before_launch": false
+  },
+  "sealed": {
+    "new_interval_start_utc": null,
+    "new_interval_end_exclusive_utc": null,
+    "automatic_old_interval_reuse": false,
+    "peek_allowed": false,
+    "final_analysis_only_after_registered_end": true,
+    "existing_frozen_contracts_unchanged": true
+  },
+  "readiness": {
+    "market_research_launch_ready": false,
+    "real_money_ready": false,
+    "blocking_requirements": ["causal_timing_and_latency", "execution_aligned_labels", "real_data_snapshot_and_revision_bindings", "isolated_deploy_features_payload", "per_origin_full_model_lineage", "integrated_continuous_accounting", "realistic_cost_and_risk_contract", "objective_registry_and_multiplicity", "power_and_interval_registration", "independent_final_audit"]
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

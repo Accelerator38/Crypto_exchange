@@ -1,0 +1,41 @@
+{
+  "schema": "causal_capital_controls_contract/1",
+  "experiment_id": "causal_capital_controls_v1_20261012",
+  "purpose": "Prior-period fixed capital controls, not a new alpha search",
+  "reference": "H",
+  "calibration_period": "development",
+  "calibration_scenario": "stress",
+  "evaluation_period": "report",
+  "controls": {
+    "B_E": {"source": "B", "metric": "mean_exposure"},
+    "B_R": {"source": "B", "metric": "daily_log_volatility"},
+    "EMA_E": {"source": "EMA1", "metric": "mean_exposure"},
+    "EMA_R": {"source": "EMA1", "metric": "daily_log_volatility"}
+  },
+  "capital_fraction_bounds": [0, 1],
+  "initial_capital": 10000,
+  "calibration_iterations_maximum": 64,
+  "volatility_definition": "population standard deviation of calendar daily log-NAV changes; ddof=0",
+  "exposure_definition": "mean invested market value / total NAV over 4h calendar marks excluding terminal",
+  "cash_reserve_interest": 0,
+  "same_fraction_for_normal_and_stress": true,
+  "fractional_quantities_and_linear_costs_assumed": true,
+  "primary_block_days": 7,
+  "sensitivity_block_days": [3, 14],
+  "paired_orientation": "H minus control",
+  "paired_family_size": 4,
+  "nominal_alpha": 0.05,
+  "family_adjusted_percentile": 0.0125,
+  "new_model_fits": 0,
+  "new_execution_replays": 0,
+  "evaluation_ledger_transforms": 8,
+  "evaluation_used_for_calibration": false,
+  "previously_revealed_intervals": true,
+  "independent_validation_claim_allowed": false,
+  "default_deployment": "NoTrade",
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "execution_allowed": false,
+    "paper": false, "live": false, "promotion_authority": false, "training_allowed": false,
+    "financial_evaluation_allowed": false, "network_allowed": false
+  }
+}

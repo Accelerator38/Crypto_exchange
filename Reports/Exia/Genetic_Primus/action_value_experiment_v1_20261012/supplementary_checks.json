@@ -1,0 +1,106 @@
+{
+  "source_path": "tools/check_genetic_primus_action_value_experiment_v1.py",
+  "source_pin": {
+    "bytes": 7029,
+    "sha256": "22bfa6359d8b3e9d4a3dcf35d0f3061644a64b82a09cf34c02c4d1c781fe66dd"
+  },
+  "registration_sha256": "3c591adef74ce3f3b05a6e008026982373beea8a64c74d91dcb826abddd9b28b",
+  "dataset_registration_sha256": "f339d862dfd3af26beae87f5f121570ea9f985de80e7ec4b4a8bf81331f02d89",
+  "analysis_fix_sha256": "cd6cb4defe312bfe5b2e93e04568d556ddaa738cb704905916f6afcf18f15a66",
+  "train_only_scaler_checks": 84,
+  "causality_checks": 1161,
+  "min_latest_training_origin_gap_bars": 9.0,
+  "post_cost_risk_checks": 6606,
+  "max_actual_daily_risk": 0.004997233806441851,
+  "max_actual_asset_exposure": 0.09994352260442602,
+  "max_actual_gross_exposure": 0.32216599823388026,
+  "fits_completed": 21,
+  "financial_replays_completed": 6,
+  "linear_action_count": 12,
+  "linear_intervention_timestamps": 9,
+  "linear_vs_baseline_paired_positive_days": 8,
+  "linear_vs_baseline_paired_negative_days": 14,
+  "linear_asset_attribution": {
+    "ADA/USDT": {
+      "linear_net_usdt": 198.0415052230866,
+      "baseline_net_usdt": 201.50996694226868,
+      "delta_net_usdt": -3.4684617191820735
+    },
+    "BNB/USDT": {
+      "linear_net_usdt": 38.896830761856485,
+      "baseline_net_usdt": 38.889261814082666,
+      "delta_net_usdt": 0.0075689477738194455
+    },
+    "BTC/USDT": {
+      "linear_net_usdt": 101.82448195737342,
+      "baseline_net_usdt": 101.83430515287836,
+      "delta_net_usdt": -0.009823195504935711
+    },
+    "DOGE/USDT": {
+      "linear_net_usdt": 20.953107229236824,
+      "baseline_net_usdt": 18.805764099654482,
+      "delta_net_usdt": 2.1473431295823424
+    },
+    "ETH/USDT": {
+      "linear_net_usdt": 16.15997931709051,
+      "baseline_net_usdt": 16.22469302148886,
+      "delta_net_usdt": -0.06471370439835056
+    },
+    "LINK/USDT": {
+      "linear_net_usdt": 262.06159154816527,
+      "baseline_net_usdt": 264.83969915555997,
+      "delta_net_usdt": -2.778107607394702
+    },
+    "SOL/USDT": {
+      "linear_net_usdt": 140.4493338778265,
+      "baseline_net_usdt": 140.451278471237,
+      "delta_net_usdt": -0.001944593410513562
+    },
+    "XRP/USDT": {
+      "linear_net_usdt": 20.210518799218093,
+      "baseline_net_usdt": 10.366212184177327,
+      "delta_net_usdt": 9.844306615040766
+    }
+  },
+  "stress_monthly_returns": {
+    "R0_EMA_daily": {
+      "August_pct": 8.730206417678907,
+      "September_pct": 0.22589156018884396
+    },
+    "R1_EMA_4h": {
+      "August_pct": 7.661257852469911,
+      "September_pct": 0.24888614650094817
+    },
+    "AV_linear": {
+      "August_pct": 7.745389256578209,
+      "September_pct": 0.223289583174503
+    },
+    "AV_constant": {
+      "August_pct": 7.661257852469911,
+      "September_pct": 0.24888614650094817
+    },
+    "AV_causal_rule": {
+      "August_pct": 4.514836573662643,
+      "September_pct": -1.6554108983560596
+    }
+  },
+  "largest_linear_daily_capital_gains": [
+    {
+      "ending_mark_utc": "2026-08-20T00:00:00+00:00",
+      "net_usdt": 298.0244765615116
+    },
+    {
+      "ending_mark_utc": "2026-08-22T00:00:00+00:00",
+      "net_usdt": 279.91544647814044
+    },
+    {
+      "ending_mark_utc": "2026-08-21T00:00:00+00:00",
+      "net_usdt": 177.91438310696685
+    }
+  ],
+  "new_training_fits_in_this_check": 0,
+  "new_replays_in_this_check": 0,
+  "network_calls": 0,
+  "promotion_authority": false,
+  "sha256": "0c5b51670c9345ea558865ef5be7123695e9ad8abacce55f0504d9f964084ea2"
+}

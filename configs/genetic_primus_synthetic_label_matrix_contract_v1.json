@@ -1,0 +1,29 @@
+{
+  "schema": "exia.genetic_primus.synthetic_label_matrix_contract/1",
+  "status": "engineering_only_not_registered_market_objective",
+  "purpose": "causal_label_and_matrix_checks_not_profitability_validation",
+  "bar_ms": 14400000,
+  "horizon_bars": 18,
+  "purge_bars": 7,
+  "features": ["return_12", "efficiency_12"],
+  "target": "exit_open / entry_open - 1",
+  "target_kind": "gross_diagnostic_not_net_training_objective",
+  "entry_exit": "both_shifted_by_first_grid_open_strictly_after_decision_plus_delay",
+  "availability": "max_complete_entry_exit_row_publication",
+  "cutoff": "label_available_at <= training_asof - 7 * bar_ms",
+  "cost_model": null,
+  "fill_evidence_verified": false,
+  "drop_losses": false,
+  "drop_flat_or_abstention_rows": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

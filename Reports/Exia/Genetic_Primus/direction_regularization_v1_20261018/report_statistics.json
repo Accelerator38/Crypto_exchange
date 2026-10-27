@@ -1,0 +1,168 @@
+{
+  "median_across_assets": {
+    "original_C0p1": {
+      "accuracy": 0.5229823623730625,
+      "auc": 0.525885999354787,
+      "brier": 0.24986315047455576,
+      "log_loss": 0.6928796980811666
+    },
+    "original_C0p01": {
+      "accuracy": 0.5245857830037413,
+      "auc": 0.5260333123680639,
+      "brier": 0.24983646750316113,
+      "log_loss": 0.6928250198114094
+    },
+    "half_C0p1": {
+      "accuracy": 0.518558180071063,
+      "auc": 0.5281325307037832,
+      "brier": 0.24964863510624202,
+      "log_loss": 0.692489796800325
+    },
+    "half_C0p01": {
+      "accuracy": 0.5189052221200332,
+      "auc": 0.5281377610552391,
+      "brier": 0.24963705476795522,
+      "log_loss": 0.6924679900655698
+    },
+    "train_prior": {
+      "accuracy": 0.5009903180061241,
+      "auc": 0.5033535366218982,
+      "brier": 0.25000886146670664,
+      "log_loss": 0.6931649033484462
+    },
+    "random_coin": {
+      "accuracy": 0.4979858712467755,
+      "auc": 0.5,
+      "brier": 0.25,
+      "log_loss": 0.6931471805599462
+    }
+  },
+  "pair_counts": {
+    "original_C0p01": {
+      "original_C0p1": {
+        "brier": {
+          "point_positive": 8,
+          "both_banks_positive": 1,
+          "median_improvement": 2.493796694775972e-05
+        },
+        "log_loss": {
+          "point_positive": 8,
+          "both_banks_positive": 1,
+          "median_improvement": 5.253081176864377e-05
+        }
+      },
+      "train_prior": {
+        "brier": {
+          "point_positive": 6,
+          "both_banks_positive": 0,
+          "median_improvement": 0.0001875578610978208
+        },
+        "log_loss": {
+          "point_positive": 6,
+          "both_banks_positive": 0,
+          "median_improvement": 0.00036925407874545955
+        }
+      }
+    },
+    "half_C0p01": {
+      "half_C0p1": {
+        "brier": {
+          "point_positive": 8,
+          "both_banks_positive": 0,
+          "median_improvement": 1.1169362713798054e-05
+        },
+        "log_loss": {
+          "point_positive": 8,
+          "both_banks_positive": 0,
+          "median_improvement": 2.5989245366903812e-05
+        }
+      },
+      "train_prior": {
+        "brier": {
+          "point_positive": 6,
+          "both_banks_positive": 1,
+          "median_improvement": 0.0003988430212809143
+        },
+        "log_loss": {
+          "point_positive": 6,
+          "both_banks_positive": 1,
+          "median_improvement": 0.0007585819477931971
+        }
+      }
+    }
+  },
+  "norms": [
+    {
+      "origin": 0,
+      "method": "original_C0p01",
+      "before": 0.47100270704027425,
+      "after": 0.4605839053339706,
+      "fitted_iterations": 24
+    },
+    {
+      "origin": 0,
+      "method": "half_C0p01",
+      "before": 0.5273445593473559,
+      "after": 0.5039513793286554,
+      "fitted_iterations": 31
+    },
+    {
+      "origin": 1,
+      "method": "original_C0p01",
+      "before": 0.5212375901637654,
+      "after": 0.5086062105873613,
+      "fitted_iterations": 26
+    },
+    {
+      "origin": 1,
+      "method": "half_C0p01",
+      "before": 0.5646663591189668,
+      "after": 0.5406568991400633,
+      "fitted_iterations": 33
+    },
+    {
+      "origin": 2,
+      "method": "original_C0p01",
+      "before": 0.5067909666125452,
+      "after": 0.49491973706835357,
+      "fitted_iterations": 26
+    },
+    {
+      "origin": 2,
+      "method": "half_C0p01",
+      "before": 0.5358844665500511,
+      "after": 0.5147147549732666,
+      "fitted_iterations": 33
+    },
+    {
+      "origin": 3,
+      "method": "original_C0p01",
+      "before": 0.5252986041337504,
+      "after": 0.5113116629569963,
+      "fitted_iterations": 26
+    },
+    {
+      "origin": 3,
+      "method": "half_C0p01",
+      "before": 0.5489244044215921,
+      "after": 0.52423637575936,
+      "fitted_iterations": 36
+    },
+    {
+      "origin": 4,
+      "method": "original_C0p01",
+      "before": 0.5277146756566338,
+      "after": 0.5152036857404415,
+      "fitted_iterations": 25
+    },
+    {
+      "origin": 4,
+      "method": "half_C0p01",
+      "before": 0.5536866690380267,
+      "after": 0.5323118862576395,
+      "fitted_iterations": 33
+    }
+  ],
+  "new_fits": 0,
+  "sha256": "60490a40beb9fbe746296874b9ce9e5acc9c1d1c0f1e0be7d665e4bd38a86ad8"
+}

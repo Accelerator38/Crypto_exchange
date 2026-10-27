@@ -1,0 +1,104 @@
+{
+  "registration_sha256": "87ee5c1e62067a2c976db877d00079f09d8dfbea9fbcbefdcc161e9bc20077b1",
+  "origin": 6,
+  "symbol": "SOL/USDT",
+  "model": "forest12",
+  "info": {
+    "name": "forest12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      5.7515496781993134e-05,
+      8.54428794235316e-05,
+      0.23100542212476438,
+      -3.126088752262841e-05,
+      0.0014344573435841497,
+      0.5025426921145153,
+      9.590059695538287e-06,
+      9.590059695538287e-06,
+      0.002134850159765722,
+      0.0005259612327785286,
+      0.0005295044225248816,
+      0.0030806468295987866
+    ],
+    "scale": [
+      0.004657377369559861,
+      0.00609991768537128,
+      0.15999861309741278,
+      0.0026661331999322108,
+      0.0005231898483203621,
+      0.3660264460075061,
+      0.0015458496875594902,
+      0.0015458496875594902,
+      0.0014188810409819863,
+      0.000579190694824668,
+      0.0006189303361023014,
+      0.901977633798138
+    ],
+    "rows": 3982,
+    "up_fraction": 0.4899547965846308,
+    "training_sha256": "da4c84cfdbda6e99e54e0bc27a2e11eeaf65f99afb7d518e0394a55e37a97405",
+    "warnings": [],
+    "hyperparameters": {
+      "bootstrap": true,
+      "ccp_alpha": 0.0,
+      "class_weight": null,
+      "criterion": "gini",
+      "max_depth": 4,
+      "max_features": 0.75,
+      "max_leaf_nodes": null,
+      "max_samples": null,
+      "min_impurity_decrease": 0.0,
+      "min_samples_leaf": 128,
+      "min_samples_split": 2,
+      "min_weight_fraction_leaf": 0.0,
+      "monotonic_cst": null,
+      "n_estimators": 24,
+      "n_jobs": 1,
+      "oob_score": false,
+      "random_state": 20261012,
+      "verbose": 0,
+      "warm_start": false
+    },
+    "tree_nodes": 372
+  },
+  "fold": {
+    "origin_ms": 1787097600000,
+    "cutoff_ms": 1787093400000,
+    "candidate_origins": 4313,
+    "selected_origins": 4000,
+    "test_origins": 432,
+    "latest_label_ms": 1787093400000,
+    "train_first_ms": 1784505600000,
+    "train_last_ms": 1787092800000,
+    "fold_pin": {
+      "sha256": "c65a802cc9909fe9d83b4714e9a2194a09f0fdd031e58f295175b081c6bbff72",
+      "bytes": 7193
+    },
+    "train_data_sha256": "2b9209461f84e152618b2039a7dbfb7b36484ce01a10b3e7f6bf622e0f15bd9c"
+  },
+  "model_pin": {
+    "sha256": "a3b3537e602bc74806bd5159953d76b5e5818ef3e084ab3c494638fe47def5b0",
+    "bytes": 14716
+  },
+  "prediction_pin": {
+    "sha256": "95ec96888ad1eb54b6d448f48a0ae43eeffa62ba107c126504559fc23b20d1c3",
+    "bytes": 4965
+  },
+  "elapsed_seconds": 0.11715589999948861,
+  "source_train_indices_sha256": "aecfbae288177b0deeb12bd3886272a0d28df8d78d1b2558222741e39587b0fa",
+  "n_test": 432,
+  "sha256": "9e0567440f6fc7d27de2077c48553fd61e8a2e2cebd66dcdf3ae407b30077e70"
+}

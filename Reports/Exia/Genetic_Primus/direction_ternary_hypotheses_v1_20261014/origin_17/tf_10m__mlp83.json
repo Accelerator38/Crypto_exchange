@@ -1,0 +1,74 @@
+{
+  "variant": {
+    "id": "mlp83",
+    "features": "base6",
+    "estimator": "mlp"
+  },
+  "fold": {
+    "origin_ms": 1789948800000,
+    "horizon_minutes": 10,
+    "example_step_minutes": 10,
+    "decision_minutes": 10,
+    "retrain_days": 3,
+    "purge_bars": 7,
+    "n_train_times": 3304,
+    "train_times_sha256": "83c223e9bccb536b172eb87d998fe07502742109150a645c246243a79d278994",
+    "calibration_times_sha256": "0d306f2b211b755ec9729205baa0bf9024fe5d3c50a96cecdf41ee3b5dd930f5",
+    "test_times_sha256": "173e027acdf7c09a23302675bc9986d652b314b38f1a6880acd2e855d2f2dca7",
+    "train_first_ms": 1787356800000,
+    "train_latest_label_ms": 1789339200000,
+    "train_cutoff_exclusive_ms": 1789339800000,
+    "calibration_latest_label_ms": 1789944000000,
+    "calibration_cutoff_exclusive_ms": 1789944600000
+  },
+  "fold_sha256": "9f36466c705046d92ab7756618e5627f9d16aa3e0e2addd5a538c54695a6f2c3",
+  "info": {
+    "rows": 26432,
+    "features": 6,
+    "kind": "mlp",
+    "classes": [
+      -1,
+      0,
+      1
+    ],
+    "train_counts": [
+      9088,
+      8384,
+      8960
+    ],
+    "weight_mass": [
+      9088.0,
+      8384.0,
+      8960.0
+    ],
+    "kish_weight_ess_not_independent_observations": 26432.0,
+    "warnings": [
+      "lbfgs failed to converge after 80 iteration(s) (status=1):\nSTOP: TOTAL NO. OF ITERATIONS REACHED LIMIT\n\nIncrease the number of iterations to improve the convergence (max_iter=80).\nYou might also want to scale the data as shown in:\n    https"
+    ],
+    "new_fits": 1,
+    "fallback": false,
+    "fitted_iterations": 80,
+    "parameter_count": 83
+  },
+  "sha256_model": "9e42df752776272ab1d1ba5c6086639ace2e1d8c5821deb09cb1745f25170836",
+  "file": "tf_10m__mlp83.joblib",
+  "code_pins": {
+    "configs/genetic_primus_direction_ternary_hypotheses_v1.json": "29904dde7d23b52941040b711359c263b19a0dea9851ac22a9bfcecea319ccb0",
+    "tools/run_genetic_primus_direction_ternary_hypotheses_v1.py": "4cc772971d33d5d68cb19bfc0d6de8c137ee028f7cdf93997e4311fc48b39f8d",
+    "src/exia/genetic_primus/direction_ternary_hypotheses_v1.py": "5cc95454ff9c97e00c16b2ec9e1a53972f4e4e2bd7639e43f7efe7d83c0972d6",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c"
+  },
+  "scaler_sha256": "112793b6d1723eaabb80de219f21e6e3b0fadd856d1a6548432575b248f649ea",
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "9da2ea7cb406c5da76331f64af4a6c5cb0ef782c7e9fceb473b8d512347ca8e0"
+}

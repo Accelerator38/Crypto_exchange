@@ -1,0 +1,178 @@
+{
+  "active_genome": [
+    0,
+    0,
+    0,
+    0,
+    -1
+  ],
+  "created_at_utc": "2026-09-07T10:28:23.281254+00:00",
+  "screen": {
+    "full_promotion_gate": false,
+    "passed": false,
+    "promotion_authority": false,
+    "reasons": [
+      "normal_lcb_vs_EMA",
+      "normal_lcb_vs_NoTrade",
+      "stress_lcb_vs_EMA",
+      "stress_lcb_vs_NoTrade"
+    ]
+  },
+  "selected_sha256": "f62093c147f25310c2a32846ed3fb90fb001f0171724daf499defe8079c40ec4",
+  "validation": {
+    "normal": {
+      "daily_returns": [
+        -0.005642232242520584,
+        0.005454764351548125,
+        -0.01097684147623057,
+        0.0011602847163088015,
+        -0.024089657339534165,
+        0.0035511065798605745,
+        -0.006986786903480091,
+        -0.003721171884123242,
+        -0.0021728595991156174,
+        -0.003718129667516501,
+        0.0009217016461642302,
+        0.00804682981510374,
+        -0.0019074553390958648,
+        0.0010720729897832904,
+        3.7015333662848704e-05,
+        -0.009476896502374266,
+        -0.002442881435584021,
+        -0.003585399874673989,
+        -0.004515256929247147,
+        -0.0032888377901941768,
+        -0.001211887056236094,
+        -0.0017673794258366016,
+        0.0071936698492984785,
+        -0.007343065530455939,
+        0.0024580296382983313,
+        -0.0003886290861857544,
+        -0.00665136523683707,
+        -0.0028820657780985748,
+        -0.001438198833453752,
+        -0.003720677550632323
+      ],
+      "hac": {
+        "EMA": {
+          "block_length": 6,
+          "critical_value": 4.302652729749462,
+          "daily_count": 30,
+          "degrees_of_freedom": 2,
+          "lcb": -0.00018072652494440807,
+          "mean_difference": 7.180229404279611e-05,
+          "observations_sha256": "27d93fb0c878cacb85cda5bcd07dc7a6fcaefa7f0a66cab9b79cb47997933552",
+          "promotion_authority": false,
+          "schema": "exia.genetic_primus.hac_assessment/1",
+          "standard_error": 5.86914247671363e-05,
+          "status": "informative"
+        },
+        "NoTrade": {
+          "block_length": 6,
+          "critical_value": 4.302652729749462,
+          "daily_count": 30,
+          "degrees_of_freedom": 2,
+          "lcb": -0.006564907825376742,
+          "mean_difference": -0.0026010733520465974,
+          "observations_sha256": "d4e05f8fcaa35b67f2596335d053458dd47007b9418b37ac84cf102007550461",
+          "promotion_authority": false,
+          "schema": "exia.genetic_primus.hac_assessment/1",
+          "standard_error": 0.0009212536363725904,
+          "status": "informative"
+        }
+      },
+      "metrics": {
+        "accounting_version": 2,
+        "decision_count": 1440,
+        "fills": 232,
+        "final_equity": 0.9243502762522905,
+        "market_readiness": false,
+        "max_drawdown": 0.07564972374770951,
+        "maximum_reconciliation_error": 9.973304734151034e-17,
+        "net_realized_pnl": -0.07564972374770954,
+        "net_return": -0.07564972374770951,
+        "orders_enabled": false,
+        "promotion_authority": false,
+        "total_fees": 0.022147399725377367,
+        "trades": 116
+      }
+    },
+    "stress": {
+      "daily_returns": [
+        -0.006240439771373563,
+        0.005355067858396678,
+        -0.011373443406906159,
+        0.0007090246294356728,
+        -0.024739235370986434,
+        0.0031022238403257685,
+        -0.00728457292190321,
+        -0.004165726231443623,
+        -0.0025608884762489126,
+        -0.004169173994650888,
+        0.00041756677639637196,
+        0.007804774644389667,
+        -0.0021538533754348332,
+        0.0008206917183684048,
+        -0.0002596623598116743,
+        -0.010074771956863238,
+        -0.002793100871110732,
+        -0.003915839929466203,
+        -0.0046708007207068025,
+        -0.003778617331837819,
+        -0.0016186564788328583,
+        -0.0018579615941566319,
+        0.00670794151531573,
+        -0.007794263293088521,
+        0.0023579035100020906,
+        -0.0006964406282669033,
+        -0.007110474226176722,
+        -0.003320654295260961,
+        -0.0019396485063328806,
+        -0.004322516929903486
+      ],
+      "hac": {
+        "EMA": {
+          "block_length": 6,
+          "critical_value": 4.302652729749462,
+          "daily_count": 30,
+          "degrees_of_freedom": 2,
+          "lcb": -0.00018364575671975426,
+          "mean_difference": 6.497771386242413e-05,
+          "observations_sha256": "892d16ca9b03019fbce4549ac89b17670f9f1cd31804099779654c4cb805472a",
+          "promotion_authority": false,
+          "schema": "exia.genetic_primus.hac_assessment/1",
+          "standard_error": 5.778376415627097e-05,
+          "status": "informative"
+        },
+        "NoTrade": {
+          "block_length": 6,
+          "critical_value": 4.302652729749462,
+          "daily_count": 30,
+          "degrees_of_freedom": 2,
+          "lcb": -0.0070132972999649296,
+          "mean_difference": -0.0029855182726044225,
+          "observations_sha256": "a97b19aa3268ba812d75f11ce61ae42d60a805665eeeb8dd1f3b321aaa2fb160",
+          "promotion_authority": false,
+          "schema": "exia.genetic_primus.hac_assessment/1",
+          "standard_error": 0.0009361152945278573,
+          "status": "informative"
+        }
+      },
+      "metrics": {
+        "accounting_version": 2,
+        "decision_count": 1440,
+        "fills": 232,
+        "final_equity": 0.9137089711981148,
+        "market_readiness": false,
+        "max_drawdown": 0.08629102880188522,
+        "maximum_reconciliation_error": 1.249000902703301e-16,
+        "net_realized_pnl": -0.08629102880188555,
+        "net_return": -0.08629102880188522,
+        "orders_enabled": false,
+        "promotion_authority": false,
+        "total_fees": 0.03302536974648618,
+        "trades": 116
+      }
+    }
+  }
+}

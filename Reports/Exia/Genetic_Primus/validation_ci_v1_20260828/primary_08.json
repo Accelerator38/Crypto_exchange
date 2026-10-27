@@ -1,0 +1,64 @@
+{
+  "arrays_sha256": {
+    "candidate_bank": "c0b4813a49fd0da2016758f3abf8f59e7dbe9b842cb3f84316d2bb98c7159614",
+    "hac_small_sample_t_lcb": "73b73d8d0b2bd27f90bf32aca81fddfb2517f2b2e52d9a1a25b1baadfd06fdd8",
+    "legacy_bank": "2a2f06712ab8d70e8d56738074f814e5aa5de9f35ddc93b7fb87766d6a9782aa",
+    "legacy_lcb": "633f57249f732476b2faf3ec0f35a2a460bfc146c254d0a4d7abeb1be084ffec",
+    "paths": "8c347d81cfdffc25ad7ecbac4f90bfb85ee9d87cb20629cdf3c8373b20dafde5",
+    "studentized_block_bootstrap_lcb": "77725d04a6d1d81501f380a2e3cc6691d757e32848cec3396cc76c65fbf5bc88"
+  },
+  "case": 8,
+  "config_sha256": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+  "days": 365,
+  "details": {
+    "block_length": 20,
+    "hac_critical": 2.306004135204166,
+    "hac_df": 8,
+    "hac_lags": 19,
+    "studentized_supported_count": 1024,
+    "uninformative_original_count": 0
+  },
+  "elapsed_seconds": 3.9159874000033597,
+  "generator": "sparse_markov25_ar1_06",
+  "legacy_null": {
+    "confidence": 0.95,
+    "lower": 0.08721116935742498,
+    "rate": 0.1044921875,
+    "replications": 1024,
+    "successes": 107,
+    "upper": 0.12472955063516716
+  },
+  "methods": {
+    "hac_small_sample_t": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.010089239830572716,
+        "rate": 0.01953125,
+        "replications": 1024,
+        "successes": 20,
+        "upper": 0.03747504500370374
+      },
+      "uninformative_count": 0
+    },
+    "studentized_block_bootstrap": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.023711117844429478,
+        "rate": 0.0380859375,
+        "replications": 1024,
+        "successes": 39,
+        "upper": 0.06063422103079971
+      },
+      "uninformative_count": 0
+    }
+  },
+  "npz_sha256": "407ed0cd2e7574640af06baa50bc53da5d4d4facc9844d5c2328d71897ca9514",
+  "phase": "primary",
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  }
+}

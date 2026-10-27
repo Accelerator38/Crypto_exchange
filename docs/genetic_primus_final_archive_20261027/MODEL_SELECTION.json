@@ -1,0 +1,63 @@
+{
+  "as_of": "2026-10-27",
+  "unique_confirmed_winner": null,
+  "deployment_incumbent": "NoTrade",
+  "selection_basis": "Preserve representative research results and controls; do not confuse revealed-period profit ranking with evidence of deployability.",
+  "representatives": [
+    {
+      "name": "C / Ridge_C",
+      "role": "Highest descriptive August-September net result among the comparable five-policy table",
+      "stress_return_pct": 14.95,
+      "max_drawdown_pct": 8.37,
+      "limitation": "Q1 2025 stress return -22.38%; unstable across regimes and training-grid choices",
+      "evidence": "Reports/Exia/Genetic_Primus/research_review_20261012/REPORT_1_CURRENT_STATE_RU.md",
+      "artifacts": ["Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009", "Reports/Exia/Genetic_Primus/position_policy_v1_20261012"]
+    },
+    {
+      "name": "Passive_V",
+      "role": "Risk-scaled market-participation control",
+      "stress_return_pct": 10.51,
+      "max_drawdown_pct": 2.44,
+      "limitation": "A profitable rising-market control does not establish predictive skill; loses in other regimes",
+      "evidence": "Reports/Exia/Genetic_Primus/research_review_20261012/REPORT_1_CURRENT_STATE_RU.md"
+    },
+    {
+      "name": "EMA_V / EMA daily",
+      "role": "Simple signal control and reference for downstream policies",
+      "stress_return_pct": 8.9758,
+      "max_drawdown_pct": 3.969,
+      "limitation": "No general positive edge across all checked regimes",
+      "evidence": "Reports/Exia/Genetic_Primus/action_value_experiment_v1_20261012/REPORT_RU.md"
+    },
+    {
+      "name": "Huber_H3",
+      "role": "Compact robust-regression research candidate with low observed exposure",
+      "stress_return_pct": 3.87,
+      "max_drawdown_pct": 1.71,
+      "limitation": "Only two disclosed periods; May-July 2026 return -5.65%",
+      "artifacts": ["Reports/Exia/Genetic_Primus/robust_linear_v1_20261012"]
+    },
+    {
+      "name": "AV_linear",
+      "role": "Seven-parameter action-value prototype versus holding EMA 4h",
+      "stress_return_pct": 7.986,
+      "reference_return_pct": 7.9292,
+      "paired_lcb_bps_per_day": [-0.3293, -0.3373],
+      "limitation": "Incremental improvement is not confirmed",
+      "artifacts": ["Reports/Exia/Genetic_Primus/action_value_experiment_v1_20261012"]
+    },
+    {
+      "name": "Original / half-band logistic C=0.1, plus C=0.01 ablation",
+      "role": "Reproducible 10m directional forecasting reference; no confirmed replacement",
+      "conditional_raw_direction_median_accuracy_pct_before": [52.2982, 51.856],
+      "conditional_raw_direction_median_accuracy_pct_after": [52.459, 51.891],
+      "research_gates_passed": 0,
+      "research_gate_tasks": 16,
+      "limitation": "13 disclosed October days; conditional direction is distinct from full-coverage three-class accuracy",
+      "artifacts": ["Reports/Exia/Genetic_Primus/direction_october_halfband_v2_20261014", "Reports/Exia/Genetic_Primus/direction_regularization_v1_20261018"]
+    }
+  ],
+  "genetic_models": "Preserved as historical research artifacts. No GA model is promoted over NoTrade or the simple controls.",
+  "orders_enabled": false,
+  "promotion_authority": false
+}

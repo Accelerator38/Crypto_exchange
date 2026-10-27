@@ -1,0 +1,37 @@
+{
+  "schema": "compact_reference_net_replay/1",
+  "scope": "offline_research_cost_sensitivity_not_release_evidence",
+  "capital_quote": "10000",
+  "calibration_start": "2026-06-20T00:00:00+00:00",
+  "calibration_end_exclusive": "2026-07-27T00:00:00+00:00",
+  "benchmark_start": "2026-08-01T00:00:00+00:00",
+  "benchmark_end_exclusive": "2026-10-01T00:00:00+00:00",
+  "entry_threshold_candidates_bps": [20, 50, 100],
+  "selection_model": "linear6_uniform",
+  "selection_rule": "max_worst_normal_stress_log_growth_among_10pct_drawdown_valid_then_lower_threshold",
+  "research_drawdown_budgets_percent": [10, 20, 30],
+  "target_weight_per_asset": "0.10",
+  "allocation": "eight_fixed_long_cash_sleeves; unselected_sleeve_stays_cash; no_redistribution",
+  "position_transition": "unchanged_target_carries_units_not_rebalanced_weight; changed_target_closes_then_opens",
+  "execution": "decision_at_closed_bar_availability; next_4h_open_reference; no_observed_fill_claim",
+  "funding_valuation": "observed_signed_rate_times_units_times_same_timestamp_ohlcv_open_reference_proxy",
+  "funding_mark_is_observed_exchange_mark": false,
+  "borrow": "none; insufficient_funding_cash_fails",
+  "cost_scenarios": {
+    "normal": {"fee_bps_per_fill": "6", "adverse_bps_per_fill": "2"},
+    "stress": {"fee_bps_per_fill": "6", "adverse_bps_per_fill": "8"}
+  },
+  "cost_provenance": "registered_assumption_not_verified_account_tariff_or_observed_execution",
+  "bootstrap": {"selection_seed": 7301, "audit_seed": 9703, "samples": 2048, "block_days": 3},
+  "parameter_selection_on_benchmark_allowed": false,
+  "calibration_is_already_open_diagnostic": true,
+  "benchmark_is_already_open_not_prospective": true,
+  "ga_requires_confirmed_prebenchmark_net_signal_and_complete_trial_registry": true,
+  "global_trial_registry_complete": false,
+  "known_prior_forecast_fit_count_including_superseded_attempt": 560,
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "execution_allowed": false,
+    "paper": false, "live": false, "promotion_authority": false,
+    "training_allowed": false, "financial_evaluation_allowed": false, "network_allowed": false
+  }
+}

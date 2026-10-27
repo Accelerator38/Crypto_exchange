@@ -1,0 +1,21 @@
+{
+  "schema": "exia.genetic_primus.compact_forecast_contract/1",
+  "status": "registered_open_period_forecast_diagnostic_not_financial_validation",
+  "architectures": {"linear6": 7, "mlp8": 65},
+  "features": ["distance_ema48", "return_18", "efficiency_18", "relative_return_18", "volatility_48", "breadth_ema48"],
+  "weightings": ["uniform", "half_life_90_anchor20"],
+  "recency": {"half_life_days": 90, "uniform_anchor": 0.2, "age_reference": "purged_train_cutoff", "timestamp": "outcome_available_ms", "all_outcome_signs_weighted": true},
+  "recency_formula": "0.2/N + 0.8*exp2(-age_days/90)/sum(exp2(-age_days/90))",
+  "superseded_attempt": {"path": "Reports/Exia/Genetic_Primus/compact_forecast_v1_20261007", "market_forecast_fits": 280, "reason": "raw_weight_floor_did_not_preserve_twenty_percent_uniform_mass", "included_in_attempt_budget": true},
+  "training": {"window": "expanding", "purge_bars": 7, "train_end_offset_bars": -1, "inner_days": 60, "scaler": "unweighted_train_only_per_origin_ddof0_clip8", "loss": "weighted_mean_squared_error_all_outcomes", "l2": 0.01, "bias_regularized": false, "mlp_activation": "tanh", "learning_rate": 0.001, "max_epochs": 120, "patience": 12, "mlp_seeds": [11, 29, 47], "seed_aggregation": "mean_not_best_seed", "optimizer": "deterministic_full_batch_adam", "workers": 1},
+  "clock": {"bar_ms": 14400000, "deployment_horizon_bars": 18, "retrain_cadence_days": 3, "feature_lag_bars": 0, "label_entry": "first_open_strictly_after_decision_asof", "label_exit": "entry_plus_18_bars", "outcome_available": "exit_plus_1_bar"},
+  "benchmark": {"start_utc": "2026-08-01T00:00:00Z", "end_exclusive_utc": "2026-10-01T00:00:00Z", "complete_origins": 20, "data_already_revealed": true, "hyperparameter_selection_allowed": false, "scope": "gross_forecast_accuracy_not_trading_performance"},
+  "target_kind": "gross_open_open_forecast_not_net_profit",
+  "forecast_fit_basis": "explicit_user_request_20261007_new_predictor_design_not_requalification_of_old_net_targets",
+  "market_net_training_targets_requalified": false,
+  "profit_objective": "unchanged_net_log_growth_constrained_drawdown/1_requires_separate_net_policy_evaluation",
+  "costs_and_funding": "not_used_in_forecast_target_no_financial_evaluation_allowed",
+  "promotion_authority": false,
+  "live_risk_budget_approved": false,
+  "safety": {"credentials_allowed": false, "orders_enabled": false, "execution_allowed": false, "paper": false, "live": false, "promotion_authority": false, "training_allowed": false, "financial_evaluation_allowed": false, "network_allowed": false}
+}

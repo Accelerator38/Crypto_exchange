@@ -1,0 +1,181 @@
+{
+  "controls": [
+    {
+      "accuracy_all": 0.53125,
+      "accuracy_nonflat": 0.534965034965035,
+      "balanced_accuracy": 0.5353921568627451,
+      "confusion": {
+        "down_down": 74,
+        "down_up": 62,
+        "flat_down": 2,
+        "flat_up": 0,
+        "up_down": 71,
+        "up_up": 79
+      },
+      "correct": 153,
+      "coverage_actual": 1.0,
+      "flat_eligible": 2,
+      "flat_emitted": 2,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 286,
+      "name": "random",
+      "recall_down": 0.5441176470588235,
+      "recall_up": 0.5266666666666666,
+      "target": "last_trade"
+    },
+    {
+      "accuracy_all": 0.4722222222222222,
+      "accuracy_nonflat": 0.4755244755244755,
+      "balanced_accuracy": 0.5,
+      "confusion": {
+        "down_down": 136,
+        "down_up": 0,
+        "flat_down": 2,
+        "flat_up": 0,
+        "up_down": 150,
+        "up_up": 0
+      },
+      "correct": 136,
+      "coverage_actual": 1.0,
+      "flat_eligible": 2,
+      "flat_emitted": 2,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 286,
+      "name": "majority_train_only",
+      "recall_down": 1.0,
+      "recall_up": 0.0,
+      "target": "last_trade"
+    },
+    {
+      "accuracy_all": 0.5208333333333334,
+      "accuracy_nonflat": 0.5244755244755245,
+      "balanced_accuracy": 0.5233333333333333,
+      "confusion": {
+        "down_down": 68,
+        "down_up": 68,
+        "flat_down": 1,
+        "flat_up": 1,
+        "up_down": 68,
+        "up_up": 82
+      },
+      "correct": 150,
+      "coverage_actual": 1.0,
+      "flat_eligible": 2,
+      "flat_emitted": 2,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 286,
+      "name": "momentum_1m",
+      "recall_down": 0.5,
+      "recall_up": 0.5466666666666666,
+      "target": "last_trade"
+    },
+    {
+      "accuracy_all": 0.5243055555555556,
+      "accuracy_nonflat": 0.5316901408450704,
+      "balanced_accuracy": 0.53189586645469,
+      "confusion": {
+        "down_down": 73,
+        "down_up": 63,
+        "flat_down": 4,
+        "flat_up": 0,
+        "up_down": 70,
+        "up_up": 78
+      },
+      "correct": 151,
+      "coverage_actual": 1.0,
+      "flat_eligible": 4,
+      "flat_emitted": 4,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 284,
+      "name": "random",
+      "recall_down": 0.5367647058823529,
+      "recall_up": 0.527027027027027,
+      "target": "midprice"
+    },
+    {
+      "accuracy_all": 0.4722222222222222,
+      "accuracy_nonflat": 0.4788732394366197,
+      "balanced_accuracy": 0.5,
+      "confusion": {
+        "down_down": 136,
+        "down_up": 0,
+        "flat_down": 4,
+        "flat_up": 0,
+        "up_down": 148,
+        "up_up": 0
+      },
+      "correct": 136,
+      "coverage_actual": 1.0,
+      "flat_eligible": 4,
+      "flat_emitted": 4,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 284,
+      "name": "majority_train_only",
+      "recall_down": 1.0,
+      "recall_up": 0.0,
+      "target": "midprice"
+    },
+    {
+      "accuracy_all": 0.5243055555555556,
+      "accuracy_nonflat": 0.5316901408450704,
+      "balanced_accuracy": 0.5310015898251192,
+      "confusion": {
+        "down_down": 70,
+        "down_up": 66,
+        "flat_down": 0,
+        "flat_up": 4,
+        "up_down": 67,
+        "up_up": 81
+      },
+      "correct": 151,
+      "coverage_actual": 1.0,
+      "flat_eligible": 4,
+      "flat_emitted": 4,
+      "n_eligible": 288,
+      "n_emitted": 288,
+      "n_nonflat_emitted": 284,
+      "name": "momentum_1m",
+      "recall_down": 0.5147058823529411,
+      "recall_up": 0.5472972972972973,
+      "target": "midprice"
+    }
+  ],
+  "engineering_only": true,
+  "independent_validation": false,
+  "label_agreement": 0.9826388888888888,
+  "label_counts": {
+    "last_trade": {
+      "down": 136,
+      "flat": 2,
+      "up": 150
+    },
+    "midprice": {
+      "down": 136,
+      "flat": 4,
+      "up": 148
+    }
+  },
+  "trade_vs_mid_confusion_down_flat_up": [
+    [
+      135,
+      1,
+      0
+    ],
+    [
+      0,
+      1,
+      1
+    ],
+    [
+      1,
+      2,
+      147
+    ]
+  ],
+  "sha256": "cba84c568b5b55cce88f4ea73908d2f9cc6f7cac7f4648c796d5e42c5b2472fc"
+}

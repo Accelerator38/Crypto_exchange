@@ -1,0 +1,233 @@
+{
+  "schema": "compact_ioc_result/1",
+  "binding_sha256": "50f663de6b57c46de8cf80e18654a0379c88b081dc640569c1c4d96e8e524955",
+  "event_prefix_sha256": "1931846a0d94c1b3971fca3616ddb15476cf390f8410d4b25cc4341e0dacbd2f",
+  "event_count": 10,
+  "cash_quote": "999.93367000",
+  "positions": {
+    "X": "0.000"
+  },
+  "equity_quote": "999.93367000",
+  "fees_quote": "0.02412000",
+  "signed_funding_quote": "0.0020100",
+  "max_drawdown": "0.00006633",
+  "orders": {
+    "A": {
+      "order_id": "A",
+      "symbol": "X",
+      "side": "buy",
+      "requested": "0.2019",
+      "remaining": "0.000",
+      "filled": "0.201",
+      "status": "FILLED",
+      "intent_ms": 1440000100,
+      "reference_deadline_ms": 1440005100,
+      "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff",
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+      "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+      "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+      "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+      "quantity": "0.201",
+      "limit": "100.4",
+      "reference_snapshot_id": "B1",
+      "reference_exchange_ms": 1440000190,
+      "reference_received_ms": 1440000200,
+      "submitted_ms": 1440000200,
+      "arrival_ms": 1440000450,
+      "expires_ms": 1440002200,
+      "reason": "requested_quantity_filled",
+      "finished_ms": 1440000500
+    },
+    "EXIT": {
+      "order_id": "EXIT",
+      "symbol": "X",
+      "side": "sell",
+      "requested": "0.201",
+      "remaining": "0.000",
+      "filled": "0.201",
+      "status": "FILLED",
+      "intent_ms": 1440000800,
+      "reference_deadline_ms": 1440005800,
+      "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff",
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+      "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+      "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+      "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+      "quantity": "0.201",
+      "limit": "99.7",
+      "reference_snapshot_id": "B3",
+      "reference_exchange_ms": 1440000890,
+      "reference_received_ms": 1440000900,
+      "submitted_ms": 1440000900,
+      "arrival_ms": 1440001150,
+      "expires_ms": 1440002900,
+      "reason": "requested_quantity_filled",
+      "finished_ms": 1440001200
+    }
+  },
+  "ledger": [
+    {
+      "kind": "intent",
+      "ts": 1440000100,
+      "order_id": "A",
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f"
+    },
+    {
+      "kind": "submitted",
+      "ts": 1440000200,
+      "order_id": "A",
+      "quantity": "0.201",
+      "limit_price": "100.4",
+      "arrival_ms": 1440000450
+    },
+    {
+      "kind": "fill",
+      "ts": 1440000500,
+      "order_id": "A",
+      "symbol": "X",
+      "side": "buy",
+      "quantity": "0.201",
+      "price": "100.1",
+      "fee_quote": "0.01207206",
+      "snapshot_id": "B2",
+      "exchange_ms": 1440000490,
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+      "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+      "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+      "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+      "actual_fill_verified": false
+    },
+    {
+      "kind": "order_finished",
+      "ts": 1440000500,
+      "order_id": "A",
+      "status": "FILLED",
+      "reason": "requested_quantity_filled",
+      "filled_quantity": "0.201",
+      "canceled_quantity": "0.000"
+    },
+    {
+      "kind": "funding",
+      "ts": 1440000600,
+      "symbol": "X",
+      "signed_debit_quote": "0.0020100",
+      "source_sha256": "da90632827cc708076a83ad2a6daef720f88b8b4d7dabac9192a7787e4a9907e"
+    },
+    {
+      "kind": "intent",
+      "ts": 1440000800,
+      "order_id": "EXIT",
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f"
+    },
+    {
+      "kind": "submitted",
+      "ts": 1440000900,
+      "order_id": "EXIT",
+      "quantity": "0.201",
+      "limit_price": "99.7",
+      "arrival_ms": 1440001150
+    },
+    {
+      "kind": "fill",
+      "ts": 1440001200,
+      "order_id": "EXIT",
+      "symbol": "X",
+      "side": "sell",
+      "quantity": "0.201",
+      "price": "99.9",
+      "fee_quote": "0.01204794",
+      "snapshot_id": "B4",
+      "exchange_ms": 1440001190,
+      "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+      "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+      "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+      "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+      "actual_fill_verified": false
+    },
+    {
+      "kind": "order_finished",
+      "ts": 1440001200,
+      "order_id": "EXIT",
+      "status": "FILLED",
+      "reason": "requested_quantity_filled",
+      "filled_quantity": "0.201",
+      "canceled_quantity": "0.000"
+    }
+  ],
+  "equity": [
+    {
+      "ts": 1440000000,
+      "equity_quote": "1000",
+      "cash_quote": "1000",
+      "drawdown": "0"
+    },
+    {
+      "ts": 1440000100,
+      "equity_quote": "1000",
+      "cash_quote": "1000",
+      "drawdown": "0"
+    },
+    {
+      "ts": 1440000200,
+      "equity_quote": "1000",
+      "cash_quote": "1000",
+      "drawdown": "0"
+    },
+    {
+      "ts": 1440000500,
+      "equity_quote": "999.96782794",
+      "cash_quote": "979.86782794",
+      "drawdown": "0.00003217206"
+    },
+    {
+      "ts": 1440000600,
+      "equity_quote": "999.96581794",
+      "cash_quote": "979.86581794",
+      "drawdown": "0.00003418206"
+    },
+    {
+      "ts": 1440000700,
+      "equity_quote": "999.96581794",
+      "cash_quote": "979.86581794",
+      "drawdown": "0.00003418206"
+    },
+    {
+      "ts": 1440000800,
+      "equity_quote": "999.96581794",
+      "cash_quote": "979.86581794",
+      "drawdown": "0.00003418206"
+    },
+    {
+      "ts": 1440000900,
+      "equity_quote": "999.96581794",
+      "cash_quote": "979.86581794",
+      "drawdown": "0.00003418206"
+    },
+    {
+      "ts": 1440001200,
+      "equity_quote": "999.93367000",
+      "cash_quote": "999.93367000",
+      "drawdown": "0.00006633"
+    },
+    {
+      "ts": 1440001300,
+      "equity_quote": "999.93367000",
+      "cash_quote": "999.93367000",
+      "drawdown": "0.00006633"
+    }
+  ],
+  "actual_fill_verified": false,
+  "financial_strategy_qualified": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  },
+  "sha256": "48e40e9420fd292c2a5a388fb9244c61a3d230f684f44f9c88b815e93b3d1fba"
+}

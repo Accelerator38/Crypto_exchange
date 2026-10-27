@@ -98,6 +98,7 @@ def simulate_ohlc_position_policy(
     end_timestamp: int,
     policy: dict[str, Any],
     entry_mode: str = "target",
+    reentry_mode: str = "while_target_active",
 ) -> pd.DataFrame:
     """Run one deterministic next-open policy with conservative OHLC fills."""
     if len(frame) != len(signal):
@@ -106,6 +107,10 @@ def simulate_ohlc_position_policy(
         raise ValueError("start_timestamp must be before end_timestamp")
     if entry_mode not in {"target", "event"}:
         raise ValueError("entry_mode must be 'target' or 'event'")
+    if reentry_mode not in {"while_target_active", "target_transition"}:
+        raise ValueError(
+            "reentry_mode must be 'while_target_active' or 'target_transition'"
+        )
     validate_position_policy(policy)
     source = frame.copy()
     source["signal"] = signal.astype("int8")
@@ -133,6 +138,7 @@ def simulate_ohlc_position_policy(
     for symbol, raw_group in source.groupby("symbol", sort=True):
         group = raw_group.sort_values("timestamp", kind="stable").copy()
         group["desired"] = group["signal"].shift(1).fillna(0).astype("int8")
+        group["prior_desired"] = group["desired"].shift(1).fillna(0).astype("int8")
         group["entry_atr"] = (
             _true_range(group).rolling(atr_period, min_periods=atr_period).mean().shift(1)
         )
@@ -186,6 +192,7 @@ def simulate_ohlc_position_policy(
             high_price = float(row.high)
             low_price = float(row.low)
             desired = int(row.desired)
+            prior_desired = int(row.prior_desired)
 
             signal_requests_exit = entry_mode == "target" and desired != position
             opposite_event = entry_mode == "event" and desired == -position
@@ -203,7 +210,11 @@ def simulate_ohlc_position_policy(
                 close_trade(timestamp, open_price, "no_progress")
 
             candidate_atr = float(row.entry_atr)
-            if position == 0 and desired in (-1, 1):
+            target_transition = desired != prior_desired
+            entry_allowed = (
+                reentry_mode == "while_target_active" or target_transition
+            )
+            if position == 0 and desired in (-1, 1) and entry_allowed:
                 if not needs_atr or (np.isfinite(candidate_atr) and candidate_atr > 0):
                     position = desired
                     entry_price = open_price

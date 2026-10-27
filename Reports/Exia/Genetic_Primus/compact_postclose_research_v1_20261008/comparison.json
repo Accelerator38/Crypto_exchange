@@ -1,0 +1,696 @@
+{
+  "calibration_sha256": "84cc8052243ade9b8baae4cc7806c20d5d349926a29e6c5106abef1c92306e6f",
+  "complete_report_labels": 20,
+  "default_deployment": "NoTrade",
+  "diagnostics": {
+    "linear6_half_life_90_anchor20": {
+      "adjacent_action_change_fraction": 0.06875,
+      "complete_forecast_origins": 20,
+      "forecast_samples": 160,
+      "functional_drift_rms_bps_max": 60.03275108784437,
+      "functional_drift_rms_bps_mean": 9.56937329543571,
+      "model_sizes": [
+        7
+      ],
+      "origin_ess_max": 124.6643475404672,
+      "origin_ess_min": 124.31197398563243,
+      "rmse_bps": 775.1476134381206,
+      "selected_epochs_max": null,
+      "selected_epochs_min": null,
+      "threshold_bps": 100,
+      "zero_forecast_rmse_bps": 774.5631842573752
+    },
+    "linear6_uniform": {
+      "adjacent_action_change_fraction": 0.50625,
+      "complete_forecast_origins": 20,
+      "forecast_samples": 160,
+      "functional_drift_rms_bps_max": 7.819600452585266,
+      "functional_drift_rms_bps_mean": 0.9391148211532618,
+      "model_sizes": [
+        7
+      ],
+      "origin_ess_max": 573.0000000000002,
+      "origin_ess_min": 553.0000000000005,
+      "rmse_bps": 768.9243416960288,
+      "selected_epochs_max": null,
+      "selected_epochs_min": null,
+      "threshold_bps": 20,
+      "zero_forecast_rmse_bps": 774.5631842573752
+    },
+    "mlp8_half_life_90_anchor20": {
+      "adjacent_action_change_fraction": 0.28125,
+      "complete_forecast_origins": 20,
+      "forecast_samples": 160,
+      "functional_drift_rms_bps_max": 8.738668251082718,
+      "functional_drift_rms_bps_mean": 2.836028375854279,
+      "model_sizes": [
+        65,
+        65,
+        65
+      ],
+      "origin_ess_max": 124.6643475404672,
+      "origin_ess_min": 124.31197398563243,
+      "rmse_bps": 780.1703689754696,
+      "selected_epochs_max": 43,
+      "selected_epochs_min": 1,
+      "threshold_bps": 20,
+      "zero_forecast_rmse_bps": 774.5631842573752
+    },
+    "mlp8_uniform": {
+      "adjacent_action_change_fraction": 0.275,
+      "complete_forecast_origins": 20,
+      "forecast_samples": 160,
+      "functional_drift_rms_bps_max": 43.93100158882378,
+      "functional_drift_rms_bps_mean": 8.121662239422843,
+      "model_sizes": [
+        65,
+        65,
+        65
+      ],
+      "origin_ess_max": 573.0000000000002,
+      "origin_ess_min": 553.0000000000005,
+      "rmse_bps": 778.4751423976462,
+      "selected_epochs_max": 120,
+      "selected_epochs_min": 1,
+      "threshold_bps": 50,
+      "zero_forecast_rmse_bps": 774.5631842573752
+    }
+  },
+  "fits": 462,
+  "fresh_scalers": 66,
+  "genetic_random_search_fits": 0,
+  "gradient_steps": 15771,
+  "independent_validation_claim_allowed": false,
+  "network_used": false,
+  "observed_execution_qualified": false,
+  "ranking_at_dd_budget": {
+    "0.1": [
+      "linear6_half_life_90_anchor20",
+      "mlp8_half_life_90_anchor20",
+      "NoTrade",
+      "mlp8_uniform"
+    ],
+    "0.2": [
+      "linear6_uniform",
+      "EMA48_long_only",
+      "linear6_half_life_90_anchor20",
+      "mlp8_half_life_90_anchor20",
+      "NoTrade",
+      "mlp8_uniform"
+    ],
+    "0.3": [
+      "linear6_uniform",
+      "EMA48_long_only",
+      "linear6_half_life_90_anchor20",
+      "mlp8_half_life_90_anchor20",
+      "NoTrade",
+      "mlp8_uniform"
+    ]
+  },
+  "ranking_by_stress_net_growth": [
+    "linear6_uniform",
+    "EMA48_long_only",
+    "linear6_half_life_90_anchor20",
+    "mlp8_half_life_90_anchor20",
+    "NoTrade",
+    "mlp8_uniform"
+  ],
+  "real_money_eligible": false,
+  "registered_before_fits": true,
+  "registration_sha256": "98a9953907f732b5cb2f0665a26c77a3fae045a44b2066ac33eb733ee1ef2b88",
+  "report_origins": 21,
+  "research_replay_count": 36,
+  "rows": {
+    "EMA48_long_only": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -14.909909465090522,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 18.2067793800769,
+            "paired_LCB_vs_EMA_log_bps_per_day": 0.0
+          },
+          "best_three_day_share_of_total_log_growth": 1.1146906047062992,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.47619047619047616,
+          "return_excluding_best_three_day_log_window": -0.012656912804139215,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -15.757646283607865,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 18.2067793800769,
+            "paired_LCB_vs_EMA_log_bps_per_day": 0.0
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.05316205215378193
+        },
+        "drawdown_budget_passes": {
+          "0.1": false,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 40.71273568695467,
+          "fills": 62,
+          "final_capital": 11174.634658488601,
+          "funding": -68.47759407313939,
+          "gross_pnl": 1297.3959520401795,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.11232768651540337,
+          "maximum_exposure": 0.8705460347198627,
+          "mean_exposure": 0.5058182622533046,
+          "net_return": 0.11746346584886025,
+          "reconciliation_error": 3.154809746774845e-12,
+          "slippage": 13.570963791487186,
+          "turnover_initial_capital": 6.785481895744824
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -15.522377556250907,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 17.58435520317292,
+            "paired_LCB_vs_EMA_log_bps_per_day": 0.0
+          },
+          "best_three_day_share_of_total_log_growth": 1.152216328573878,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.47619047619047616,
+          "return_excluding_best_three_day_log_window": -0.016194848725337843,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -16.353004021388422,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 17.58435520317292,
+            "paired_LCB_vs_EMA_log_bps_per_day": 0.0
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.05351092594274431
+        },
+        "drawdown_budget_passes": {
+          "0.1": false,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 40.62553826724627,
+          "fills": 62,
+          "final_capital": 11132.287388198143,
+          "funding": -68.33923897158489,
+          "gross_pnl": 1295.420378862349,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.11361916071265321,
+          "maximum_exposure": 0.870408408467145,
+          "mean_exposure": 0.5057486239112644,
+          "net_return": 0.11322873881981432,
+          "reconciliation_error": -6.494360604847316e-12,
+          "slippage": 54.168213425368215,
+          "turnover_initial_capital": 6.7710266781713555
+        },
+        "research_robustness_gate": false
+      }
+    },
+    "NoTrade": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": 0.0,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 0.0,
+            "paired_LCB_vs_EMA_log_bps_per_day": -56.5681580567295
+          },
+          "best_three_day_share_of_total_log_growth": null,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.0,
+          "return_excluding_best_three_day_log_window": 0.0,
+          "selection": {
+            "LCB_mean_log_bps_per_day": 0.0,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 0.0,
+            "paired_LCB_vs_EMA_log_bps_per_day": -54.81233355393846
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": 0.0
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 0.0,
+          "fills": 0,
+          "final_capital": 10000.0,
+          "funding": 0.0,
+          "gross_pnl": 0.0,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.0,
+          "maximum_exposure": 0.0,
+          "mean_exposure": 0.0,
+          "net_return": 0.0,
+          "reconciliation_error": 0.0,
+          "slippage": 0.0,
+          "turnover_initial_capital": 0.0
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": 0.0,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 0.0,
+            "paired_LCB_vs_EMA_log_bps_per_day": -55.94785770536682
+          },
+          "best_three_day_share_of_total_log_growth": null,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.0,
+          "return_excluding_best_three_day_log_window": 0.0,
+          "selection": {
+            "LCB_mean_log_bps_per_day": 0.0,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 0.0,
+            "paired_LCB_vs_EMA_log_bps_per_day": -54.04492537287233
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": 0.0
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 0.0,
+          "fills": 0,
+          "final_capital": 10000.0,
+          "funding": 0.0,
+          "gross_pnl": 0.0,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.0,
+          "maximum_exposure": 0.0,
+          "mean_exposure": 0.0,
+          "net_return": 0.0,
+          "reconciliation_error": 0.0,
+          "slippage": 0.0,
+          "turnover_initial_capital": 0.0
+        },
+        "research_robustness_gate": false
+      }
+    },
+    "linear6_half_life_90_anchor20": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -1.476679827320012,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 2.0485281927851697,
+            "paired_LCB_vs_EMA_log_bps_per_day": -53.18596083378932
+          },
+          "best_three_day_share_of_total_log_growth": 0.835728128052705,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.14285714285714285,
+          "return_excluding_best_three_day_log_window": 0.0020548532451172986,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -1.4855144307978638,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 2.0485281927851697,
+            "paired_LCB_vs_EMA_log_bps_per_day": -51.32006531441229
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.008769916031991046
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 7.291722803448391,
+          "fills": 12,
+          "final_capital": 10125.744234872538,
+          "funding": -5.363468480721617,
+          "gross_pnl": 140.830006057726,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.010983154295206021,
+          "maximum_exposure": 0.3059590955550835,
+          "mean_exposure": 0.04167285577142783,
+          "net_return": 0.012574423487253794,
+          "reconciliation_error": -1.816324868286756e-12,
+          "slippage": 2.430579901016098,
+          "turnover_initial_capital": 1.2152899505081862
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -1.5631667606505883,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 1.9285260943621387,
+            "paired_LCB_vs_EMA_log_bps_per_day": -52.67717400070611
+          },
+          "best_three_day_share_of_total_log_growth": 0.8820164872328662,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.14285714285714285,
+          "return_excluding_best_three_day_log_window": 0.0013889227878210802,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -1.6197160852413663,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 1.9285260943621387,
+            "paired_LCB_vs_EMA_log_bps_per_day": -50.79901530154974
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.00894461208685991
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 7.285594579280528,
+          "fills": 12,
+          "final_capital": 10118.334772720675,
+          "funding": -5.358911119740306,
+          "gross_pnl": 140.69349456923885,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.011215552718433885,
+          "maximum_exposure": 0.3058317508273365,
+          "mean_exposure": 0.04165317754897356,
+          "net_return": 0.011833477272067405,
+          "reconciliation_error": 6.394884621840902e-14,
+          "slippage": 9.714216149543418,
+          "turnover_initial_capital": 1.2142770186929868
+        },
+        "research_robustness_gate": false
+      }
+    },
+    "linear6_uniform": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -12.286796073181913,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 26.911689531212552,
+            "paired_LCB_vs_EMA_log_bps_per_day": -5.541496330694887
+          },
+          "best_three_day_share_of_total_log_growth": 1.0796175677748745,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.6190476190476191,
+          "return_excluding_best_three_day_log_window": -0.012985080759436034,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -13.880751806335834,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 26.911689531212552,
+            "paired_LCB_vs_EMA_log_bps_per_day": -5.303689900141495
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.046038738532661674
+        },
+        "drawdown_budget_passes": {
+          "0.1": false,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 57.041269990262656,
+          "fills": 84,
+          "final_capital": 11784.043836256504,
+          "funding": -62.733047467593494,
+          "gross_pnl": 1922.8319872910574,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.12269344582616881,
+          "maximum_exposure": 0.822313583511289,
+          "mean_exposure": 0.45216000821722985,
+          "net_return": 0.17840438362565036,
+          "reconciliation_error": 4.263256414560601e-14,
+          "slippage": 19.01383357669761,
+          "turnover_initial_capital": 9.50691678835018
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -13.180696690689796,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 26.074280524530828,
+            "paired_LCB_vs_EMA_log_bps_per_day": -5.744047585809959
+          },
+          "best_three_day_share_of_total_log_growth": 1.1133710438697222,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.5714285714285714,
+          "return_excluding_best_three_day_log_window": -0.017870413231085087,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -14.716875582946486,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 26.074280524530828,
+            "paired_LCB_vs_EMA_log_bps_per_day": -5.526176845092264
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.046030972954417694
+        },
+        "drawdown_budget_passes": {
+          "0.1": false,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 56.88236203258679,
+          "fills": 84,
+          "final_capital": 11724.002126089428,
+          "funding": -62.541543632654154,
+          "gross_pnl": 1919.2704094644953,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.12464890200440315,
+          "maximum_exposure": 0.8222549719459373,
+          "mean_exposure": 0.4521141259227062,
+          "net_return": 0.17240021260894278,
+          "reconciliation_error": 1.524824710941175e-11,
+          "slippage": 75.84437770984138,
+          "turnover_initial_capital": 9.480547213730555
+        },
+        "research_robustness_gate": false
+      }
+    },
+    "mlp8_half_life_90_anchor20": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -6.3316759186639935,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 1.4312235980688837,
+            "paired_LCB_vs_EMA_log_bps_per_day": -52.97007811201796
+          },
+          "best_three_day_share_of_total_log_growth": 1.460354462621701,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.47619047619047616,
+          "return_excluding_best_three_day_log_window": -0.0040110422340043335,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -6.256388735408529,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 1.4312235980688837,
+            "paired_LCB_vs_EMA_log_bps_per_day": -51.799437063452956
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.01461634750106976
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 28.880318716600314,
+          "fills": 48,
+          "final_capital": 10087.68685598539,
+          "funding": -24.04685369756826,
+          "gross_pnl": 150.24080731472407,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.042360448719062305,
+          "maximum_exposure": 0.8018030018852308,
+          "mean_exposure": 0.17935802817183114,
+          "net_return": 0.008768685598538939,
+          "reconciliation_error": -4.867217739956686e-13,
+          "slippage": 9.626778915164866,
+          "turnover_initial_capital": 4.813389457582864
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -6.854375254265984,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": 0.957758939296663,
+            "paired_LCB_vs_EMA_log_bps_per_day": -52.682671629066675
+          },
+          "best_three_day_share_of_total_log_growth": 2.1608973374893496,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.42857142857142855,
+          "return_excluding_best_three_day_log_window": -0.00675939660546686,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -6.774024973494921,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": 0.957758939296663,
+            "paired_LCB_vs_EMA_log_bps_per_day": -51.64325426592458
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.01496715995921306
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 28.82888953757128,
+          "fills": 48,
+          "final_capital": 10058.594292213364,
+          "funding": -24.00648562104737,
+          "gross_pnl": 149.86828267111275,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.04292053951377783,
+          "maximum_exposure": 0.8016818934467403,
+          "mean_exposure": 0.17930425812880954,
+          "net_return": 0.00585942922133631,
+          "reconciliation_error": -3.4212632726848824e-12,
+          "slippage": 38.43861529912709,
+          "turnover_initial_capital": 4.80482691239116
+        },
+        "research_robustness_gate": false
+      }
+    },
+    "mlp8_uniform": {
+      "normal": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -13.374926151904626,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": -2.220917208176832,
+            "paired_LCB_vs_EMA_log_bps_per_day": -54.474712599564555
+          },
+          "best_three_day_share_of_total_log_growth": null,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.2857142857142857,
+          "return_excluding_best_three_day_log_window": -0.04892959287036719,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -12.85415728642388,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": -2.220917208176832,
+            "paired_LCB_vs_EMA_log_bps_per_day": -52.32492727163826
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.025345404812709936
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 26.13644800674899,
+          "fills": 44,
+          "final_capital": 9865.437606797435,
+          "funding": -16.83546417996928,
+          "gross_pnl": -82.87833499540523,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.04524827963725053,
+          "maximum_exposure": 0.5218862035496477,
+          "mean_exposure": 0.13856133476712285,
+          "net_return": -0.013456239320256413,
+          "reconciliation_error": 7.723599537712289e-12,
+          "slippage": 8.712146020448868,
+          "turnover_initial_capital": 4.3560730102247955
+        },
+        "research_robustness_gate": false
+      },
+      "stress": {
+        "audit": {
+          "audit": {
+            "LCB_mean_log_bps_per_day": -13.85316489454111,
+            "bank_sha256": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+            "mean_log_bps_per_day": -2.6525286832892787,
+            "paired_LCB_vs_EMA_log_bps_per_day": -54.262555346355974
+          },
+          "best_three_day_share_of_total_log_growth": null,
+          "full_three_day_outer_slices": 20,
+          "outer_slices": 21,
+          "positive_outer_slices_fraction": 0.23809523809523808,
+          "return_excluding_best_three_day_log_window": -0.05113564701681146,
+          "selection": {
+            "LCB_mean_log_bps_per_day": -13.329726914344304,
+            "bank_sha256": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+            "mean_log_bps_per_day": -2.6525286832892787,
+            "paired_LCB_vs_EMA_log_bps_per_day": -52.03683631095237
+          },
+          "terminal_partial_slice_days": 1,
+          "worst_three_day_return": -0.025628917252718448
+        },
+        "drawdown_budget_passes": {
+          "0.1": true,
+          "0.2": true,
+          "0.3": true
+        },
+        "metrics": {
+          "decisions": 21,
+          "fees": 26.092924757273302,
+          "fills": 44,
+          "final_capital": 9839.497749322618,
+          "funding": -16.808163167253305,
+          "gross_pnl": -82.81064940864565,
+          "initial_capital": 10000.0,
+          "max_drawdown": 0.045753624190243425,
+          "maximum_exposure": 0.5217364851917888,
+          "mean_exposure": 0.1385128134724195,
+          "net_return": -0.016050225067738233,
+          "reconciliation_error": 3.936406756110955e-12,
+          "slippage": 34.79051334421379,
+          "turnover_initial_capital": 4.34881416802693
+        },
+        "research_robustness_gate": false
+      }
+    }
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "compact_postclose_comparison/1",
+  "serialization_adapter_registration_sha256": "22a9e3690b1ebb26e1768862514d716bf8b9439274b289658ca3eac44d964d7a",
+  "serialization_adapter_source_pin": {
+    "bytes": 3105,
+    "sha256": "e6791c6117e9445049786cc50ed037dcc635ccf1252eda3dba7dc3a9d6305a32"
+  },
+  "sha256": "09c9490acab25948ebac7c2bd4c37e6b8049cb763e927a0aa567d7cbd480d0e0",
+  "terminal_partial_days": 1
+}

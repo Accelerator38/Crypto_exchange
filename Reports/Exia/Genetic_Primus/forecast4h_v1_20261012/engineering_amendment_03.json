@@ -1,0 +1,21 @@
+{
+  "schema": "forecast4h_engineering_amendment/1",
+  "sha256": "755c1ff99870ffff66c34a8391246232a51e28cd4a2050a3bf407dee2c0ced04",
+  "registration_sha256": "569f9678af18bbda59d01d86c8314e0883c7e9595e38bfc71fe0ea11726f18d9",
+  "reason": "After sealing the original 14 replays, add an optional explicit pure target-rule argument to the ledger for a separately registered position-management diagnostic. Default ledger behavior, original predictions, parameters and artifacts stay unchanged. No monkeypatch or duplicated cash engine.",
+  "model_or_policy_parameter_changes_to_original_experiment": false,
+  "additional_hyperparameter_trials": 0,
+  "additional_financial_fits": 0,
+  "code_changes": {
+    "src/exia/genetic_primus/forecast4h_v1.py": {
+      "original_pin": {"bytes": 18302, "sha256": "689231990cb45a1e55de099f515a445faa637bcfa0ba0cbd9be70b3422cbbd6c"},
+      "archived_original": "core_registered_initial.py.txt",
+      "replacement_pin": {"bytes": 18387, "sha256": "9592d3043bc8052d5ffb29dbd16073ca6e8dada4deaeab08968bf44f15d392fb"}
+    },
+    "tools/run_genetic_primus_forecast4h_v1.py": {
+      "original_pin": {"bytes": 40132, "sha256": "223d58a5f00c63fd0b5ad7982c4736e2fec40a48ff74a057377c2744ccb6f9c6"},
+      "archived_original": "runner_after_amendment_02.py.txt",
+      "replacement_pin": {"bytes": 40212, "sha256": "23a39341c1a95370b64b57e391cfccaa11586ba00d9d14b296c0733d51182296"}
+    }
+  }
+}

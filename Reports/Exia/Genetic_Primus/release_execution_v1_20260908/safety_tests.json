@@ -1,0 +1,53 @@
+{
+  "schema_version": "exia.genetic_primus.offline_execution_verification/1",
+  "source_hashes": {
+    "configs/genetic_primus_release_candidate_v1.json": "6bef1f813d24dcdd5d46b9463b85d735aa276ab3e244754f790ae13e033c3135",
+    "src/exia/genetic_primus/release_contract_v1.py": "864de0a7cc4690bc51498ab5f5f0f7ba3da55f64f2cf82fb248eecd9a327a243",
+    "src/exia/genetic_primus/execution_replay_v1.py": "c378f6ef59636d0aa9caa8172c42df006645660b1f5d85b6d0592bfb77d0e44f",
+    "tests/test_genetic_primus_release_candidate_v1.py": "0bd8bb847b60eb4674b875229fcdef9021db3acba815b25dc45b5f7178dd0f06",
+    "tools/check_genetic_primus_release_candidate_v1.py": "d3baf398a739e9b7fc62df4a804ca0a3e2ea6f550f4e080ba5b564c385b6d72a",
+    "tools/replay_genetic_primus_release_candidate_v1.py": "a03ea1881e7aa5660ba222d3cad686797504e47d68f0bea59b14f3d95c384a26"
+  },
+  "check": {
+    "schema_version": "exia.genetic_primus.release_check/1",
+    "contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+    "structurally_valid": true,
+    "errors": [],
+    "qualification_blockers": [
+      "risk_budget_missing:capital_usdt",
+      "risk_budget_missing:maximum_order_notional_usdt",
+      "risk_budget_missing:maximum_loss_usdt",
+      "risk_budget_missing:maximum_drawdown_fraction",
+      "evidence_missing:instrument_rules",
+      "evidence_missing:account_fee_schedule",
+      "evidence_missing:book_mark_funding_dataset",
+      "evidence_missing:latency_slippage_calibration",
+      "evidence_missing:independent_statistical_audit",
+      "evidence_missing:global_objective_registry_audit",
+      "evidence_missing:shadow_fault_reconciliation_audit",
+      "evidence_missing:risk_owner_approval",
+      "venue_adapter_margin_liquidation_not_qualified",
+      "separate_deployment_contract_and_explicit_approval_required"
+    ],
+    "status": "OFFLINE_CANDIDATE_UNQUALIFIED",
+    "performance_gate_evaluation": "NOT_RUN",
+    "release_ready": false,
+    "trading_authorized": false
+  },
+  "group": "safety",
+  "passed_tests": [
+    "test_expiry_boundary_cancel_and_end_state",
+    "test_gross_order_and_loss_budgets",
+    "test_stale_marks_and_no_future_decisions",
+    "test_checkpoint_resume_is_exact_and_bound",
+    "test_decimal_context_and_input_mutation_cannot_change_replay",
+    "test_bounded_replay_and_abstention_ledger",
+    "test_multiple_symbols_share_the_account_exposure_budget"
+  ],
+  "synthetic_only": true,
+  "pytest_used": false,
+  "training_run": false,
+  "network_used": false,
+  "trading_authorized": false,
+  "receipt_body_sha256": "af220ed520a66cf1f26c9073c6c6739189389dd5567ba152b4eec84c05bdb52b"
+}

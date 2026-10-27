@@ -1,0 +1,17 @@
+{
+  "schema": "forecast4h_engineering_amendment/1",
+  "sha256": "717f4782dd402ea1a093b9bfc1d69d48f65e585691edb11d8119483e8caedb30",
+  "registration_sha256": "569f9678af18bbda59d01d86c8314e0883c7e9595e38bfc71fe0ea11726f18d9",
+  "reason": "First replay stopped before output: risk_covariance returns (matrix, metadata). Pass matrix at index 0 to the cash replay. Add explicit sealed-amendment verification and disclosure.",
+  "model_or_policy_parameter_changes": false,
+  "additional_hyperparameter_trials": 0,
+  "additional_financial_fits": 0,
+  "successful_financial_replays_before_amendment": 0,
+  "code_changes": {
+    "tools/run_genetic_primus_forecast4h_v1.py": {
+      "original_pin": {"bytes": 37809, "sha256": "a0e521b3d3ca2989e0cd7df65d843d744255d4050cc7192ca3a0ec0faa43f739"},
+      "archived_original": "runner_registered_initial.py.txt",
+      "replacement_pin": {"bytes": 39212, "sha256": "0337f73269f9a2042595252ba87f5fb81fd0bac401dc20ede947f55324ff3e56"}
+    }
+  }
+}

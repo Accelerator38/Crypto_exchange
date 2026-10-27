@@ -1,0 +1,172 @@
+{
+  "schema": "direction_selective_registration/1",
+  "created_utc": "2026-10-13T11:00:48.191647+00:00",
+  "contract": {
+    "schema_version": "genetic_primus_direction_selective/1",
+    "objective_id": "direction_selective_v1_20261013",
+    "parent_registration": "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/registration.json",
+    "timeframes_minutes": [
+      1,
+      10,
+      30,
+      240
+    ],
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "models": [
+      "logistic",
+      "boosting"
+    ],
+    "target": "sign(close[t+1] - close[t]); one full bar ahead; exact flat retained",
+    "primary_accuracy": "correct_up_or_down / emitted_predictions_including_flat",
+    "secondary_accuracy": "correct_up_or_down / emitted_nonflat_predictions",
+    "coverage_denominator": "all eligible intervals including flat",
+    "coverage_targets": [
+      1.0,
+      0.5,
+      0.2,
+      0.1
+    ],
+    "flat_training": "excluded from binary fitting; retained in calibration coverage and every evaluation",
+    "historical_start_utc": "2026-08-01T00:00:00Z",
+    "historical_end_exclusive_utc": "2026-10-01T00:00:00Z",
+    "historical_status": "revealed_research_only",
+    "train_window_days": 30,
+    "calibration_days": 7,
+    "retrain_cadence_days": 3,
+    "purge_bars": 7,
+    "maximum_train_times": 4000,
+    "seed": 20261013,
+    "threshold_selection": "per origin/model/asset; quantile of abs(2*p-1) on preceding calibration only; no labels used",
+    "ties": "lexicographic confidence then SHA256(decision_time, symbol, fixed seed); no test ranking",
+    "coverage_test": "observed, never forced to target by test quantiles",
+    "controls": [
+      "random_coin",
+      "train_majority",
+      "momentum"
+    ],
+    "paired_controls": "same emitted mask as model; controls also scored at full coverage",
+    "logistic": {
+      "C": 0.1,
+      "max_iter": 120,
+      "tol": 1e-06
+    },
+    "boosting": {
+      "max_iter": 32,
+      "max_leaf_nodes": 7,
+      "learning_rate": 0.08,
+      "l2_regularization": 10,
+      "min_samples_leaf": 128,
+      "early_stopping": false
+    },
+    "bootstrap": {
+      "unit": "UTC calendar day",
+      "circular_block_days": 3,
+      "repetitions": 2000,
+      "selection_seed": 6101301,
+      "audit_seed": 6101302,
+      "family": "all 256 asset/horizon/model/coverage contrasts against each of 3 controls",
+      "confidence": 0.95
+    },
+    "new_interval": {
+      "start_utc": "2026-10-14T00:00:00Z",
+      "end_exclusive_utc": "2027-01-12T00:00:00Z",
+      "days": 90,
+      "status": "sealed_contract_pending_data",
+      "analyses": 1,
+      "interim_tuning": false,
+      "success": "paired accuracy improvement over every registered control has simultaneous LCB > 0 in both bootstrap banks; adequate emitted sample/day counts; observed coverage disclosed; per cell, no pooled substitution",
+      "minimum_emitted_days": 60,
+      "minimum_emitted_nonflat": 1000,
+      "precision_or_power_guarantee": false
+    },
+    "microstructure": {
+      "status": "separate_single_day_engineering_experiment",
+      "symbol": "BTCUSDT",
+      "date_utc": "2024-12-01",
+      "forecast_horizons_minutes": [
+        1,
+        10,
+        30
+      ],
+      "decision_grid_minutes": 1,
+      "clock": "local receipt timestamp; decisions at minute boundary, events strictly before boundary",
+      "features": [
+        "signed_trade_notional",
+        "aggressive_buy_fraction",
+        "trade_count",
+        "spread_bps",
+        "bid_depth_5",
+        "ask_depth_5",
+        "book_imbalance_5",
+        "depth_change",
+        "microprice_offset",
+        "book_age_ms"
+      ],
+      "split": "first 60% train, next 20% calibration, final 20% test; purge 7 horizon bars on both training boundaries; overlapping labels are not independent",
+      "sequence_numbers_available": false,
+      "improvement_claim_allowed": false
+    },
+    "onchain": {
+      "status": "author_data_and_code_required",
+      "paper_doi": "10.1186/s40854-024-00643-1",
+      "reported_accuracy": 0.8244,
+      "horizon_days": 1,
+      "source": "Glassnode; original data/code available from corresponding author on request",
+      "require_point_in_time_availability": true,
+      "no_proxy_reproduction_claim": true,
+      "architectural_reproduction_requires_author_artifacts": true
+    },
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "runtime_authority": false,
+      "network_allowed": false
+    }
+  },
+  "code_pins": {
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c",
+    "configs/genetic_primus_direction_selective_v1.json": "80132377163090b1345f25578dd1fc5bd4d7b4940b2174e0f95dbe4e05970cf7",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976"
+  },
+  "data_pins": {
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_1m/times.npy": "eec346cc8c08bccf789a0f4f047f0b0238110252c3c6418887cc8f2275dddd8b",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_1m/closes.npy": "cebcf60c997dc20b8d076a0395a962bd811e8f0cfc2881f7d1b0085512822518",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_1m/features.npy": "37198b91642650ab0b5b06d9f40d291efdbe1d2ffc96ff104891e08ad0c4225c",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/times.npy": "f1883811776f3747a92dea9f98f08e415bcb5cc650c7dc1c4a665d9aa5adedb8",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/closes.npy": "52d96f1f828fe4a97976aceb4429cbb25719345d98ae4933d04a765d041661dd",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_10m/features.npy": "b66bba390780588291462f441faa656b7df0da6aeec44e872082fea6d45d64ca",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_30m/times.npy": "22ee01ed6ad1c901ad1560630e95c81886502dc33631f2e9d74941a65db679ac",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_30m/closes.npy": "8211ee42cdfdd2196d1e8f1242126c15b560d4822de899853d5c890edcceb87d",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_30m/features.npy": "e4573346c186f3e2d0a9a78ffa989717df99b87eb4aa407fb52e4f2a00b8b0e5",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_240m/times.npy": "1e1aedb7b5bd7a05ea040ad0a52c4dafff3717bb8546d85e8ac4fddc41878a30",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_240m/closes.npy": "35391e7afdfa2506ea40ee20f0f6376bc19e1779578cc95a04eaa510608ea121",
+    "Reports/Exia/Genetic_Primus/direction_multiscale_v1_20261012/tf_240m/features.npy": "c637d1400b51584fc09e506f7f91a4461a3e73390cc78a48099436105d229326"
+  },
+  "parent_registration_sha256": "f0558f504facd6d91fb609b52edaca8d4316fd67e780f39418427ec9beee003e",
+  "fit_budget": 168,
+  "threshold_budget": 5376,
+  "independent_validation": false,
+  "financial_replays": 0,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "sha256": "a70746aae2baebee1519aec9862e7b2e22de1a290bdc82e6339a68c8956203b1"
+}

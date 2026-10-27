@@ -1,0 +1,37 @@
+{
+  "schema": "exia.genetic_primus.ohlcv_availability_contract/1",
+  "status": "draft_unregistered",
+  "bar_ms": 14400000,
+  "label_horizon_bars": 18,
+  "purge_bars": 7,
+  "timestamp_semantics": "bar_start",
+  "row_semantics": "complete_ohlcv_aggregate_not_independent_open_stream",
+  "policies": {
+    "row_available_at": "bar_start + bar_ms + explicit_ingestion_lag_ms",
+    "feature_available_at": "max_availability_of_all_contiguous_dependencies",
+    "feature_cutoff": "feature_available_at <= decision_asof_ms",
+    "entry_open": "first_grid_open_strictly_after_decision_plus_execution_delay",
+    "exit_open": "entry_open + 18 * bar_ms",
+    "label_available_at": "max_complete_row_availability_of_entry_and_exit",
+    "training_cutoff": "label_available_at <= training_asof_ms - 7 * bar_ms",
+    "coverage": "all_dependency_rows_inside_half_open_snapshot_interval",
+    "revision": "immutable_snapshot_no_assumption_of_original_arrival"
+  },
+  "availability": {
+    "ingestion_lag_ms": null,
+    "evidence_sha256": null,
+    "late_revision_policy_sha256": null
+  },
+  "historical_results_requalified": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

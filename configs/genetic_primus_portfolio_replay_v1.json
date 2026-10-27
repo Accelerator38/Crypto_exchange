@@ -1,0 +1,34 @@
+{
+  "schema_version": "exia.genetic_primus.portfolio_contract/1",
+  "created_date_utc": "2026-09-10",
+  "purpose": "Common offline portfolio engineering comparison, never a deployment authorization",
+  "release_contract_sha256": "ccb6c768a7379e228c7863ccd6e300489dc150ea64c181e2737a00c6ad40be83",
+  "roles": ["GA", "EMA", "NoTrade"],
+  "rules": {
+    "capital": "eight_equal_initial_virtual_sleeves_no_transfers",
+    "sizing": "own_sleeve_marked_equity_reserve_fees",
+    "same_direction": "hold_actual_filled_quantity_no_topup",
+    "zero_target": "reduce_only_exit_even_when_sleeve_equity_nonpositive",
+    "reversal": "one_net_delta_IOC_keep_partial_residual",
+    "protection_price": "fresh_observed_mark_plus_minus_registered_fraction",
+    "origins": "carry_cash_and_positions_no_free_reset",
+    "end_of_input": "mark_and_report_residual_never_force_fill",
+    "decision_grid": "full8_once_per_closed_4h_boundary",
+    "pending": "TTL_strictly_less_than_one_decision_bar",
+    "risk_latch": "block_new_risk_reduce_at_next_scheduled_decision",
+    "event_order": "funding_marks_all_decisions_all_intents_books_clock",
+    "counterfactuals": "independent_liquidity_and_wallet_same_market_inputs",
+    "statistics": "descriptive_paired_equity_only_no_promotion_test"
+  },
+  "source_pins": {
+    "configs/genetic_primus_release_candidate_v1.json": "6bef1f813d24dcdd5d46b9463b85d735aa276ab3e244754f790ae13e033c3135",
+    "src/exia/genetic_primus/release_contract_v1.py": "864de0a7cc4690bc51498ab5f5f0f7ba3da55f64f2cf82fb248eecd9a327a243",
+    "src/exia/genetic_primus/execution_replay_v1.py": "c378f6ef59636d0aa9caa8172c42df006645660b1f5d85b6d0592bfb77d0e44f"
+  },
+  "qualifying_evidence": false,
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "paper_allowed": false,
+    "live_allowed": false, "promotion_authority": false, "runtime_authority": false,
+    "network_allowed": false
+  }
+}

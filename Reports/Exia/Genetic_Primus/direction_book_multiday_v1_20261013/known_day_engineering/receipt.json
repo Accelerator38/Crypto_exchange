@@ -1,0 +1,409 @@
+{
+  "code_pins": {
+    "configs/genetic_primus_direction_book_multiday_v1.json": "13ad59ea7d416c1b7c2a3a7a07af01b404a77a4e7c090a5a9c9e89c0be3939ae",
+    "src/exia/genetic_primus/direction_book_multiday_v1.py": "3a3023fea08ab10bb065fa5191e98e0d33905a9d3aa785f401c3e52f2810573f",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_book_multiday_v1.py": "3e12b6dc36716792f9b5d019a32dc6c6c0204b1ecadd409aaee24dc2516d04b7"
+  },
+  "credentials_allowed": false,
+  "data_freeze_sha256": null,
+  "fitted_models": 8,
+  "fold": {
+    "calibration_label_cutoff_exclusive_ms": 1733079900000,
+    "calibration_times_sha256": "ee64dd9076877fa8f55e184345636f85ba55eb6fba53a6e48b26e3f5b71e1b74",
+    "horizon_minutes": 1,
+    "origin_ms": 1733080320000,
+    "purge_bars": 7,
+    "retrain_days": null,
+    "rows": {
+      "calibration": 276,
+      "test": 288,
+      "train": 813
+    },
+    "split_mode": "known_day_60_20_20_engineering_not_multiday_protocol",
+    "test_times_sha256": "6eb8a136ab77a3f5277a2ddf43a27d4e186ed2c066663b967cda18157c40fdb2",
+    "train_label_cutoff_exclusive_ms": 1733062620000,
+    "train_times_sha256": "204f1a2430167f9deb95f6db55b4a55b2caf5dbb80eeb6f859360893c3da4755"
+  },
+  "fold_sha256": "4fd2daaf937139962d8912e56b08c42ad94ae84977272a204ed5809d999f00c8",
+  "independent_validation": false,
+  "ledger_sha256": "372df39f0c814a520c508d349e68d944aea0ebc3e3172c0c75fc2437ecec4cae",
+  "live": false,
+  "model_sha_lookup": "model_sha256[model_index] applies to every time in that forecast row",
+  "models": [
+    {
+      "actual_training_index_sha256": "72ebc31196ae18ee66d9cb26c6ff0f02fe9456304ee9a8cf4bc508e630446f54",
+      "feature_count": 6,
+      "flat_train_rows_excluded": 12,
+      "info": {
+        "features": 6,
+        "kind": "logistic",
+        "kish_weight_ess_not_independent_observations": 801,
+        "parameter_count": 7,
+        "robust_train_only": false,
+        "rows": 801,
+        "warnings": [],
+        "weighted_negative_mass": 407,
+        "weighted_positive_mass": 394
+      },
+      "model_sha256": "17556b779b08a1fef1e070ff82a7de78c697759b5ef1f05f40171f6f4efdec50",
+      "name": "last_trade__price_logit",
+      "train_only_scaler_sha256": "6c4fec1ecdb30c9150feb466598e1370204648f97b75637491755f387d17e886",
+      "training_label_sha256": "a7d9e9633552da9a756c60905a289d242285e68001261aa5b428a2462acf195e"
+    },
+    {
+      "actual_training_index_sha256": "72ebc31196ae18ee66d9cb26c6ff0f02fe9456304ee9a8cf4bc508e630446f54",
+      "feature_count": 6,
+      "flat_train_rows_excluded": 12,
+      "info": {
+        "features": 6,
+        "kind": "boosting",
+        "kish_weight_ess_not_independent_observations": 801,
+        "robust_train_only": false,
+        "rows": 801,
+        "warnings": [],
+        "weighted_negative_mass": 407,
+        "weighted_positive_mass": 394
+      },
+      "model_sha256": "d7f7758c8d7f0bf6ecfc217ffd0a43bcab4de78e93f88f71dacd43bd294bf99d",
+      "name": "last_trade__price_boost",
+      "train_only_scaler_sha256": "6c4fec1ecdb30c9150feb466598e1370204648f97b75637491755f387d17e886",
+      "training_label_sha256": "a7d9e9633552da9a756c60905a289d242285e68001261aa5b428a2462acf195e"
+    },
+    {
+      "actual_training_index_sha256": "72ebc31196ae18ee66d9cb26c6ff0f02fe9456304ee9a8cf4bc508e630446f54",
+      "feature_count": 13,
+      "flat_train_rows_excluded": 12,
+      "info": {
+        "features": 13,
+        "kind": "logistic",
+        "kish_weight_ess_not_independent_observations": 801,
+        "parameter_count": 14,
+        "robust_train_only": false,
+        "rows": 801,
+        "warnings": [],
+        "weighted_negative_mass": 407,
+        "weighted_positive_mass": 394
+      },
+      "model_sha256": "02254cea0329c63a03a55747c0f623ad0f25b9e5ced99b9932bacf6fccd6ef2d",
+      "name": "last_trade__book_logit",
+      "train_only_scaler_sha256": "e2a32aa94f9abd5c9a440ce5ffd4eebd5ebf99701bf1bb0979359d38fa21a80b",
+      "training_label_sha256": "a7d9e9633552da9a756c60905a289d242285e68001261aa5b428a2462acf195e"
+    },
+    {
+      "actual_training_index_sha256": "72ebc31196ae18ee66d9cb26c6ff0f02fe9456304ee9a8cf4bc508e630446f54",
+      "feature_count": 13,
+      "flat_train_rows_excluded": 12,
+      "info": {
+        "features": 13,
+        "kind": "boosting",
+        "kish_weight_ess_not_independent_observations": 801,
+        "robust_train_only": false,
+        "rows": 801,
+        "warnings": [],
+        "weighted_negative_mass": 407,
+        "weighted_positive_mass": 394
+      },
+      "model_sha256": "ed1167f606aaf8fcbc0814bdf930a767c0bad046539c923d12361c49a5aa08db",
+      "name": "last_trade__book_boost",
+      "train_only_scaler_sha256": "e2a32aa94f9abd5c9a440ce5ffd4eebd5ebf99701bf1bb0979359d38fa21a80b",
+      "training_label_sha256": "a7d9e9633552da9a756c60905a289d242285e68001261aa5b428a2462acf195e"
+    },
+    {
+      "actual_training_index_sha256": "820f482efa96e53e892ba51d69c543dc590d93639453dcb3fe6b2fe016b09cd9",
+      "feature_count": 6,
+      "flat_train_rows_excluded": 18,
+      "info": {
+        "features": 6,
+        "kind": "logistic",
+        "kish_weight_ess_not_independent_observations": 795,
+        "parameter_count": 7,
+        "robust_train_only": false,
+        "rows": 795,
+        "warnings": [],
+        "weighted_negative_mass": 402,
+        "weighted_positive_mass": 393
+      },
+      "model_sha256": "4ab06dd5bf89c945af6827224d2446fbbd37a4ddf31fd36bcd6b750d86615526",
+      "name": "midprice__price_logit",
+      "train_only_scaler_sha256": "dddd25fecf917cc69cbe7af38ac4acd5474b9e3bf6d4902daf141584bc42019f",
+      "training_label_sha256": "52508f6325c4e3ca561039053989293a67995a4fe925abc0a08524418d22c056"
+    },
+    {
+      "actual_training_index_sha256": "820f482efa96e53e892ba51d69c543dc590d93639453dcb3fe6b2fe016b09cd9",
+      "feature_count": 6,
+      "flat_train_rows_excluded": 18,
+      "info": {
+        "features": 6,
+        "kind": "boosting",
+        "kish_weight_ess_not_independent_observations": 795,
+        "robust_train_only": false,
+        "rows": 795,
+        "warnings": [],
+        "weighted_negative_mass": 402,
+        "weighted_positive_mass": 393
+      },
+      "model_sha256": "62ce98895e46d095b082c5aec332d36473300c331275d55bf31bfd0827eaed85",
+      "name": "midprice__price_boost",
+      "train_only_scaler_sha256": "dddd25fecf917cc69cbe7af38ac4acd5474b9e3bf6d4902daf141584bc42019f",
+      "training_label_sha256": "52508f6325c4e3ca561039053989293a67995a4fe925abc0a08524418d22c056"
+    },
+    {
+      "actual_training_index_sha256": "820f482efa96e53e892ba51d69c543dc590d93639453dcb3fe6b2fe016b09cd9",
+      "feature_count": 13,
+      "flat_train_rows_excluded": 18,
+      "info": {
+        "features": 13,
+        "kind": "logistic",
+        "kish_weight_ess_not_independent_observations": 795,
+        "parameter_count": 14,
+        "robust_train_only": false,
+        "rows": 795,
+        "warnings": [],
+        "weighted_negative_mass": 402,
+        "weighted_positive_mass": 393
+      },
+      "model_sha256": "cc98ab6e13bcaf0c6cb1a287d11263f91ef42e25fc50286cc89d88e4d19605af",
+      "name": "midprice__book_logit",
+      "train_only_scaler_sha256": "ac4c2e1190547b5b382487ab94fa0c6108e803fde52d2475a075a06b954ebc26",
+      "training_label_sha256": "52508f6325c4e3ca561039053989293a67995a4fe925abc0a08524418d22c056"
+    },
+    {
+      "actual_training_index_sha256": "820f482efa96e53e892ba51d69c543dc590d93639453dcb3fe6b2fe016b09cd9",
+      "feature_count": 13,
+      "flat_train_rows_excluded": 18,
+      "info": {
+        "features": 13,
+        "kind": "boosting",
+        "kish_weight_ess_not_independent_observations": 795,
+        "robust_train_only": false,
+        "rows": 795,
+        "warnings": [],
+        "weighted_negative_mass": 402,
+        "weighted_positive_mass": 393
+      },
+      "model_sha256": "3ad6017c7c4d93f4c5090489b98946e72f63cb9488ae010d1d41e5a80ab66dbd",
+      "name": "midprice__book_boost",
+      "train_only_scaler_sha256": "ac4c2e1190547b5b382487ab94fa0c6108e803fde52d2475a075a06b954ebc26",
+      "training_label_sha256": "52508f6325c4e3ca561039053989293a67995a4fe925abc0a08524418d22c056"
+    }
+  ],
+  "network_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "previously_unexamined_test_by_manifest": false,
+  "promotion_authority": false,
+  "runtime_authority": false,
+  "thresholds": {
+    "last_trade__book_boost": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.27830241229871566,
+        "coverage_target": 0.1,
+        "tie_key": 8885753796638241132
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.22597261245971323,
+        "coverage_target": 0.2,
+        "tie_key": 11722728776745157415
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.1189572443689797,
+        "coverage_target": 0.5,
+        "tie_key": 17876892835404772030
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__book_logit": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.31203378380351765,
+        "coverage_target": 0.1,
+        "tie_key": 9647663740296242242
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.22374195750577752,
+        "coverage_target": 0.2,
+        "tie_key": 17920614407595791211
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.09989575236054771,
+        "coverage_target": 0.5,
+        "tie_key": 7991006826070015633
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__price_boost": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.17783876498836915,
+        "coverage_target": 0.1,
+        "tie_key": 6894425325634142422
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.13920192697204914,
+        "coverage_target": 0.2,
+        "tie_key": 1141975271900012885
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.06517759511703458,
+        "coverage_target": 0.5,
+        "tie_key": 9755312320272019652
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "last_trade__price_logit": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.15996587043526045,
+        "coverage_target": 0.1,
+        "tie_key": 8134876623622200343
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.11665279841235265,
+        "coverage_target": 0.2,
+        "tie_key": 16789768761798624540
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.06214833594696345,
+        "coverage_target": 0.5,
+        "tie_key": 17681955991259976880
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__book_boost": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.25530607079197254,
+        "coverage_target": 0.1,
+        "tie_key": 6895201589761135028
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.2042644768054246,
+        "coverage_target": 0.2,
+        "tie_key": 8003919406609291671
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.09645913639478132,
+        "coverage_target": 0.5,
+        "tie_key": 13750898745557265752
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__book_logit": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.2785184886977997,
+        "coverage_target": 0.1,
+        "tie_key": 2194070693210567723
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.2049557866949414,
+        "coverage_target": 0.2,
+        "tie_key": 2016920791478365727
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.09744847454934402,
+        "coverage_target": 0.5,
+        "tie_key": 18053370162917034025
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__price_boost": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.19105411736231148,
+        "coverage_target": 0.1,
+        "tie_key": 1095756493914220114
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.15406321262788614,
+        "coverage_target": 0.2,
+        "tie_key": 2228915769632620690
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.08994424348616437,
+        "coverage_target": 0.5,
+        "tie_key": 4014604073111395651
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    },
+    "midprice__price_logit": {
+      "0.1": {
+        "calibration_rows": 276,
+        "confidence": 0.1575618610507753,
+        "coverage_target": 0.1,
+        "tie_key": 15485342661622291337
+      },
+      "0.2": {
+        "calibration_rows": 276,
+        "confidence": 0.12098269366751879,
+        "coverage_target": 0.2,
+        "tie_key": 9048304654201290587
+      },
+      "0.5": {
+        "calibration_rows": 276,
+        "confidence": 0.06189674843780868,
+        "coverage_target": 0.5,
+        "tie_key": 14788845120412530860
+      },
+      "1.0": {
+        "calibration_rows": 276,
+        "confidence": -1.0,
+        "coverage_target": 1.0,
+        "tie_key": 0
+      }
+    }
+  },
+  "sha256": "41e41aacdc7335d8e63b13750ec5289c2cddc44b5a1ff2a260ea7d517a22274c"
+}

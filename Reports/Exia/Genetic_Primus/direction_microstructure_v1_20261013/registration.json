@@ -1,0 +1,70 @@
+{
+  "contract": {
+    "status": "separate_single_day_engineering_experiment",
+    "symbol": "BTCUSDT",
+    "date_utc": "2024-12-01",
+    "forecast_horizons_minutes": [
+      1,
+      10,
+      30
+    ],
+    "decision_grid_minutes": 1,
+    "clock": "local receipt timestamp; decisions at minute boundary, events strictly before boundary",
+    "features": [
+      "signed_trade_notional",
+      "aggressive_buy_fraction",
+      "trade_count",
+      "spread_bps",
+      "bid_depth_5",
+      "ask_depth_5",
+      "book_imbalance_5",
+      "depth_change",
+      "microprice_offset",
+      "book_age_ms"
+    ],
+    "split": "first 60% train, next 20% calibration, final 20% test; purge 7 horizon bars on both training boundaries; overlapping labels are not independent",
+    "sequence_numbers_available": false,
+    "improvement_claim_allowed": false
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "source_pins": {
+    "C:\\Users\\anton\\Downloads\\bitget-futures_incremental_book_L2_2024-12-01_BTCUSDT.csv.gz": "26535dceb3da2d1ee86463b49c78cd0d907b01b470365e7fcf1a10760676b4a7",
+    "C:\\Users\\anton\\Downloads\\bitget-futures_trades_2024-12-01_BTCUSDT.csv.gz": "1d2d20b8f12c73ff652894ce384fe8a0966f08eb9ef9004598af911f290d580c"
+  },
+  "code_pins": {
+    "E:\\Crypto_exchange\\tools\\run_genetic_primus_direction_microstructure_v1.py": "9a29ca53ed3fa582cbc504eee7251d7132273b147f214e531b14db1b4f9f5519",
+    "E:\\Crypto_exchange\\src\\exia\\genetic_primus\\direction_microstructure_v1.py": "19ddd45f4de32e359691febdd95182d570035f5bfc5b98252bf9c9c2f75bcbb4",
+    "E:\\Crypto_exchange\\src\\exia\\genetic_primus\\direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976"
+  },
+  "seed": 20261013,
+  "feature_sets": {
+    "price_only": 6,
+    "price_and_microstructure": 16
+  },
+  "models": [
+    "logistic",
+    "boosting"
+  ],
+  "fit_budget": 12,
+  "coverage_targets": [
+    1,
+    0.5,
+    0.2,
+    0.1
+  ],
+  "minimum_leaf": 16,
+  "missing_book_policy": "same eligible current-feature mask for both feature sets; no synthetic book filling",
+  "bootstrap": "not inferentially qualified: one day only; no accuracy improvement claim",
+  "target": "sign(last_received_trade_price[t+h] - last_received_trade_price[t]); h=1/10/30 minutes",
+  "training_thresholds": "first 60% day fit, next 20% calibrate; two 7*h minute maturity gaps",
+  "independent_validation": false,
+  "sha256": "ef51994a27c0e1a73af641c4751797125c310e311c9033643febd60aaabffdf0"
+}

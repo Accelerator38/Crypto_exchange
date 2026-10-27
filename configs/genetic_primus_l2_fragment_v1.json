@@ -1,0 +1,33 @@
+{
+  "schema": "bounded_l2_format_smoke/1",
+  "scope": "BTC_2024_format_and_engineering_only_not_2026_strategy_evidence",
+  "source_path": "C:/Users/anton/Downloads/bitget-futures_incremental_book_L2_2024-12-01_BTCUSDT.csv.gz",
+  "max_rows": 512,
+  "max_compressed_bytes": 65536,
+  "max_uncompressed_bytes": 131072,
+  "max_line_bytes": 2048,
+  "snapshot_levels_per_side": 15,
+  "max_state_levels_per_side": 128,
+  "max_rows_per_message": 256,
+  "max_events": 256,
+  "max_receive_gap_us": 2000000,
+  "silence_gap_threshold_empirically_calibrated": false,
+  "clock_unit": "UTC_microseconds_preserved_no_millisecond_conversion",
+  "group_identity": "inferred_local_timestamp_exchange_timestamp_snapshot_flag_not_venue_sequence",
+  "amount_semantics": "snapshot_positive_or_delta_absolute_size_zero_deletes_not_additive",
+  "delta_semantics_empirically_verified": false,
+  "last_unclosed_group_policy": "discard_without_publishing",
+  "provider_local_timestamp_is_strategy_availability": false,
+  "financial_replay_ready": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

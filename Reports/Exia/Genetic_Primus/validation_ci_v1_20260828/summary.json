@@ -1,0 +1,40 @@
+{
+  "audit_checks": {
+    "hac_small_sample_t": {
+      "passed": true,
+      "power10_lower": 0.37080615370789366,
+      "reasons": [],
+      "worst_null_upper_bound": 0.04201213177750354
+    }
+  },
+  "decision": "SYNTHETIC_AUDIT_PASSED_NO_RUNTIME_AUTHORITY",
+  "existing_gate_changed": false,
+  "ga_training_runs": 0,
+  "limitation": "finite synthetic domain, approximate Wilson MC bounds; not a universal coverage theorem",
+  "market_data_opened": false,
+  "primary_checks": {
+    "hac_small_sample_t": {
+      "passed": true,
+      "power10_lower": 0.3592852196355948,
+      "reasons": [],
+      "worst_null_upper_bound": 0.04742498466537922
+    },
+    "studentized_block_bootstrap": {
+      "passed": false,
+      "power10_lower": 0.41803206827136846,
+      "reasons": [
+        "null_upper_bound_exceeds_target"
+      ],
+      "worst_null_upper_bound": 0.07808347774364474
+    }
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "schema": "exia.genetic_primus.validation_ci_result/1",
+  "selected_method": "hac_small_sample_t"
+}

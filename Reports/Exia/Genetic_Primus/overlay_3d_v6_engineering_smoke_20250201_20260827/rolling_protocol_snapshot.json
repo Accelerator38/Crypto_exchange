@@ -1,0 +1,163 @@
+{
+  "schema_version": "exia.genetic_primus.rolling.overlay_3d/6",
+  "protocol_id": "genetic_primus_overlay_3d_v6",
+  "timeframe_minutes": 240,
+  "training_start": "2022-01-01T00:00:00Z",
+  "training_window_days": 730,
+  "validation_start": "2025-02-01T00:00:00Z",
+  "validation_end": "2025-02-04T00:00:00Z",
+  "deployment_horizon_days": 3,
+  "retrain_cadence_days": 3,
+  "label_purge_bars": 7,
+  "position_boundary_policy": "force_flat_at_deployment_end",
+  "sealed_interval": {
+    "status": "REVEALED_ENGINEERING",
+    "parameter_changes_after_open_forbidden": true,
+    "minimum_outer_origins": 1
+  },
+  "objective_definition": {
+    "type": "binary_opportunity_gate_over_fixed_cross_sectional_proposal",
+    "direction_authority": "RelativeMomentumRank_return_12",
+    "genetic_direction_authority": false,
+    "primary_incremental_reference": "NoTrade"
+  },
+  "genetic_training": {
+    "architecture_id": "linear",
+    "output_mode": "binary_allow",
+    "maximum_active_features": 4,
+    "seed_base": 303000,
+    "seed_stride": 1009,
+    "workers": 1,
+    "island_count": 5,
+    "population_size": 4,
+    "generations": 5,
+    "elite_count": 1,
+    "tournament_size": 2,
+    "crossover_rate": 0.7,
+    "mutation_rate": 0.15,
+    "mutation_sigma": 0.08,
+    "random_immigrant_fraction": 0.25,
+    "ensemble_sizes": [
+      1,
+      3
+    ]
+  },
+  "search_diversity": {
+    "anchor_rows": 512,
+    "minimum_action_disagreement": 0.1,
+    "selection_method": "greedy_maximin_action_hamming"
+  },
+  "stability_selection": {
+    "minimum_active_frequency": 0.6,
+    "minimum_sign_agreement": 0.8,
+    "active_weight_threshold": 0.05,
+    "incumbent_sign_control": true
+  },
+  "temporal_validation": {
+    "validation_days": 60,
+    "audit_days": 60,
+    "boundary_purge_bars": 7,
+    "inner_fold_count": 12,
+    "validation_fold_count": 6,
+    "audit_fold_count": 6,
+    "scaler_fit_scope": "inner_train_only",
+    "generation_selection_scope": "inner_train",
+    "ensemble_selection_scope": "temporal_validation",
+    "audit_used_for_selection": false
+  },
+  "recency_fitness": {
+    "weighting_mode": "half_life",
+    "half_life_days": [
+      90
+    ],
+    "uniform_anchor": 0.2,
+    "rolling_fold_count": 12,
+    "recent_lcb_weight": 0.7,
+    "worst_window_lcb_weight": 0.3,
+    "minimum_ess_days": {
+      "90": 120.0
+    },
+    "minimum_ess_fraction_of_observed_days": 0.75,
+    "drawdown_penalty_bps_per_pct": 1.0,
+    "turnover_penalty_bps_per_fill_per_day": 2.0,
+    "complexity_penalty_bps_per_100_parameters": 1.0,
+    "active_weight_threshold": 0.05,
+    "active_parameter_penalty_bps_per_100": 0.5,
+    "active_feature_penalty_bps": 0.1,
+    "action_instability_penalty_bps": 40.0
+  },
+  "policy_overlay": {
+    "mode": "momentum_abstention_binary",
+    "baseline_policy_id": "RelativeMomentumRank_return_12",
+    "baseline_feature": "relative_momentum_rank",
+    "baseline_threshold_mode": "absolute_feature",
+    "minimum_baseline_abs_value": 0.5,
+    "maximum_allowed_fraction": 0.2,
+    "coverage_penalty_bps": 80.0
+  },
+  "abstention_evidence": {
+    "minimum_opportunities": 180,
+    "minimum_trades": 0,
+    "minimum_trade_days": 0
+  },
+  "opportunity_normalized_concentration": {
+    "maximum_allocation_lift": 2.0,
+    "minimum_bucket_opportunities": 12,
+    "penalty_bps_per_excess_lift": 25.0
+  },
+  "execution_controls": {
+    "entry_logit_threshold": 0.15,
+    "exit_logit_threshold": -0.05,
+    "cooldown_bars": 2
+  },
+  "paired_incremental_fitness": {
+    "references": [
+      "NoTrade",
+      "RelativeMomentumRank_return_12",
+      "Incumbent"
+    ],
+    "absolute_reference": "NoTrade",
+    "baseline_reference": "RelativeMomentumRank_return_12",
+    "minimum_lcb_bps": 0.0
+  },
+  "adaptive_multiple_testing": {
+    "max_hypotheses_per_origin": 107,
+    "selection_candidate_upper_bound": 100,
+    "audit_finalists": 5,
+    "ensemble_hypotheses": 2,
+    "selection_bias_penalty": "gaussian_maximum_paired",
+    "selection_bias_penalty_multiplier": 1.0
+  },
+  "promotion_evidence": {
+    "training_folds_are_outer_slices": false,
+    "minimum_completed_outer_origins": 60,
+    "minimum_positive_outer_slice_fraction": 0.65,
+    "outer_bootstrap_samples": 2000,
+    "outer_block_origins": 5,
+    "selection_seed": 930001,
+    "audit_seed": 940001,
+    "stress_round_trip_cost_bps": 24.0,
+    "max_absolute_drawdown": 0.1,
+    "incumbent_minimum_turnover_fills": 1,
+    "max_drawdown_degradation": 0.0,
+    "max_turnover_fills_per_day": 12.0,
+    "max_direction_share": 0.9,
+    "max_state_share": 0.8,
+    "max_symbol_share": 0.5,
+    "max_functional_action_drift": 0.2,
+    "max_functional_logit_drift": 0.15,
+    "per_origin_training_gate_can_promote": false
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "engineering_override": {
+    "non_evidentiary": true,
+    "base_protocol_sha256": "aea9dbb1b3acd926afc1b0509742f870f4fbdf844036e63f25d3375a91b07d93",
+    "sealed_interval_touched": false
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "arrays_sha256": {
+    "candidate_bank": "447abe95552005957bf1f80e4951f1e1b744f2f87cc00b78b0b2264c44f9b334",
+    "hac_small_sample_t_lcb": "e75dd564f51d783b2e452e9a68d15f51a5a984e6ab928791b49613e23bfde520",
+    "legacy_bank": "9b2d964f76cbba344b21eafcf9c1216decda29019abb3facfe948dcb26f5c703",
+    "legacy_lcb": "b86c8a8ce6804be2011a16cdbb767d729b927f70cbea3caa45a6d318fa634d17",
+    "paths": "5a4990355e94cdfac388845aef3f8af83cb6a9b3f356503cd4647daf4cd25b31",
+    "studentized_block_bootstrap_lcb": "388f8b98689183b84537887975b717636af21ac1b3b71067d0e60481c559bd17"
+  },
+  "case": 1,
+  "config_sha256": "560a84c371f512dc91671f5c56e6ffe8b8fda9cf71bb28f2a16f9f51ab317552",
+  "days": 30,
+  "details": {
+    "block_length": 6,
+    "hac_critical": 4.302652729749462,
+    "hac_df": 2,
+    "hac_lags": 5,
+    "studentized_supported_count": 1024,
+    "uninformative_original_count": 0
+  },
+  "elapsed_seconds": 0.28729630000452744,
+  "generator": "iid_gaussian",
+  "legacy_null": {
+    "confidence": 0.95,
+    "lower": 0.07649426418142118,
+    "rate": 0.0927734375,
+    "replications": 1024,
+    "successes": 95,
+    "upper": 0.11209655121835886
+  },
+  "methods": {
+    "hac_small_sample_t": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.0003045585344619616,
+        "rate": 0.001953125,
+        "replications": 1024,
+        "successes": 2,
+        "upper": 0.012414517208385576
+      },
+      "uninformative_count": 0
+    },
+    "studentized_block_bootstrap": {
+      "null": {
+        "confidence": 0.9975,
+        "lower": 0.018514079978877492,
+        "rate": 0.03125,
+        "replications": 1024,
+        "successes": 32,
+        "upper": 0.05228034424968489
+      },
+      "uninformative_count": 0
+    }
+  },
+  "npz_sha256": "d27dba18432e3c2b3271f0890cb63a9217a76d0ec7945161eeb96b612bc7c08c",
+  "phase": "primary",
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  }
+}

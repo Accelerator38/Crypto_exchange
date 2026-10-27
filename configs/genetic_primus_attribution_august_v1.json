@@ -1,0 +1,28 @@
+{
+  "schema": "exia.genetic_primus.fixed_policy_attribution/1",
+  "registered_at_date_utc": "2026-09-07",
+  "purpose": "Diagnostic attribution only; no objective selection, training, promotion or threshold tuning",
+  "warm_completion": "Reports/Exia/Genetic_Primus/warmstart_august_v1_20260907/completion.json",
+  "warm_completion_sha256": "44dea09b5369e93cecfb4d7ac6bf90d64dffd2dbac15520d8e09323918bf847d",
+  "registry": "configs/genetic_primus_objective_registry_v8.json",
+  "registry_sha256": "79f2cce22b88549cda0137823443ede3522f7d6e5bb4daf794326bc1396677a1",
+  "origins": 10,
+  "phases": ["train", "validation", "test"],
+  "train_block_edges_days": [0, 91, 182, 273, 365],
+  "other_phases": "one complete block each",
+  "models": {"EMA": [0, 0, 0, 0, 1], "Fixed": [0, 0, 1, 1, -1]},
+  "costs_bps": {"normal": 16.0, "stress": 24.0},
+  "scaler": "reuse each original frozen train scaler; do not fit or update",
+  "block_accounting": "mark-to-market attribution without intermediate resets; additive PnL in original origin capital",
+  "trade_buckets": "classify EMA trades by same-direction Fixed decisions during original trade; diagnostic, not causal avoided PnL",
+  "search_evaluations": 0,
+  "maximum_fixed_policy_simulations": 120,
+  "data_already_revealed": true,
+  "output": "Reports/Exia/Genetic_Primus/attribution_august_v1_20260907",
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false,
+    "paper_allowed": false, "live_allowed": false,
+    "promotion_authority": false, "runtime_authority": false,
+    "network_allowed": false
+  }
+}

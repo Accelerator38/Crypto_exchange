@@ -1,0 +1,25 @@
+{
+  "schema_version": "exia.genetic_primus.measurement.3d/1",
+  "protocol_id": "genetic_primus_3d_measurement_v1",
+  "timeframe_minutes": 240,
+  "deployment_horizon_days": 3,
+  "training_cutoff": "2025-01-01T00:00:00Z",
+  "label_purge_bars": 7,
+  "selection_bootstrap": {
+    "seed": 3082401,
+    "samples": 400,
+    "block_days": 7
+  },
+  "audit_bootstrap": {
+    "seed": 3082402,
+    "samples": 5000,
+    "block_days": 7,
+    "top_k": 5
+  },
+  "safety": {
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

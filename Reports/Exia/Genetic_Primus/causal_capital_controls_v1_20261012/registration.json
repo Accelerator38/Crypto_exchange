@@ -1,0 +1,200 @@
+{
+  "bank_hashes": {
+    "report_b14_audit": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+    "report_b14_selection": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+    "report_b3_audit": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+    "report_b3_selection": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+    "report_b7_audit": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+    "report_b7_selection": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd"
+  },
+  "before_calibration_and_evaluation_transforms": true,
+  "code_pins": {
+    "configs/genetic_primus_causal_capital_controls_v1.json": {
+      "bytes": 1754,
+      "sha256": "6a63e2edfc1ec6b1e043b2cbe4ce787b4eefa33b4fece64ee132b5bab7b7b347"
+    },
+    "src/exia/genetic_primus/causal_capital_controls_v1.py": {
+      "bytes": 9402,
+      "sha256": "773f636360e6fd35f7b5ae0b6b8cd9459964e67475ea4f785f908f49ed6d1673"
+    },
+    "tools/run_genetic_primus_causal_capital_controls_v1.py": {
+      "bytes": 17418,
+      "sha256": "cc1886fadec40985e5faee7f4c2b30cd8c231208bf4b41afae05962f6fe4e428"
+    }
+  },
+  "contract": {
+    "calibration_iterations_maximum": 64,
+    "calibration_period": "development",
+    "calibration_scenario": "stress",
+    "capital_fraction_bounds": [
+      0,
+      1
+    ],
+    "cash_reserve_interest": 0,
+    "controls": {
+      "B_E": {
+        "metric": "mean_exposure",
+        "source": "B"
+      },
+      "B_R": {
+        "metric": "daily_log_volatility",
+        "source": "B"
+      },
+      "EMA_E": {
+        "metric": "mean_exposure",
+        "source": "EMA1"
+      },
+      "EMA_R": {
+        "metric": "daily_log_volatility",
+        "source": "EMA1"
+      }
+    },
+    "default_deployment": "NoTrade",
+    "evaluation_ledger_transforms": 8,
+    "evaluation_period": "report",
+    "evaluation_used_for_calibration": false,
+    "experiment_id": "causal_capital_controls_v1_20261012",
+    "exposure_definition": "mean invested market value / total NAV over 4h calendar marks excluding terminal",
+    "family_adjusted_percentile": 0.0125,
+    "fractional_quantities_and_linear_costs_assumed": true,
+    "independent_validation_claim_allowed": false,
+    "initial_capital": 10000,
+    "new_execution_replays": 0,
+    "new_model_fits": 0,
+    "nominal_alpha": 0.05,
+    "paired_family_size": 4,
+    "paired_orientation": "H minus control",
+    "previously_revealed_intervals": true,
+    "primary_block_days": 7,
+    "purpose": "Prior-period fixed capital controls, not a new alpha search",
+    "reference": "H",
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "same_fraction_for_normal_and_stress": true,
+    "schema": "causal_capital_controls_contract/1",
+    "sensitivity_block_days": [
+      3,
+      14
+    ],
+    "volatility_definition": "population standard deviation of calendar daily log-NAV changes; ddof=0"
+  },
+  "input_pins": {
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/receipt.json": {
+      "bytes": 38795,
+      "sha256": "65c25806ff5a3a4b5c83f63371c148533fafcc53c6dd1407724ade09452fb9b0"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/registration.json": {
+      "bytes": 16644,
+      "sha256": "1792152e10ee07ff77a8b085af2fdad775cb451e721b1891f2099cac96613a81"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_B_normal.json": {
+      "bytes": 960270,
+      "sha256": "8e0ff84d5447130dd3fab3fb578111691e0c877cf47402e9c089bb7da2ed44f1"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_B_stress.json": {
+      "bytes": 959571,
+      "sha256": "20b79b33620f270820c59f337b8248b682e4178fbd19966a56a6e2d9b36522db"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_EMA1_normal.json": {
+      "bytes": 1075647,
+      "sha256": "536f50930858770f3bbaaad8d64f196bf35b1924fa417e0f08107ac27be41830"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_development_EMA1_stress.json": {
+      "bytes": 1075546,
+      "sha256": "bcbb29ff3944b93bd18f4a70cd7878f17866420716df97657778a6cdc4a5d778"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_B_normal.json": {
+      "bytes": 763975,
+      "sha256": "ce184226ea59616e4e32e310091b2c7f9b3a50fd7d4262aae8f6c67608dfc3a9"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_B_stress.json": {
+      "bytes": 763686,
+      "sha256": "c6327d907163168148e39f433c59cb679e10968b33eaa50497dca8e518ec9314"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_EMA1_normal.json": {
+      "bytes": 886883,
+      "sha256": "3b08c157712eec65ff10095f84e2fc23bd1f71cd9c6c6d4e41c9378d7b2d77d2"
+    },
+    "Reports/Exia/Genetic_Primus/cadence_matrix_v1_20261009/replay_report_EMA1_stress.json": {
+      "bytes": 886680,
+      "sha256": "fab498278e7bad4fa4b630b513f5cdbcc2a86f6a657384c24b91d4de4d70b5c6"
+    },
+    "Reports/Exia/Genetic_Primus/label_phase_v1_20261012/receipt.json": {
+      "bytes": 20982,
+      "sha256": "7af9e6f4cfc9e070eccf5abbdb64e0fc4099734e3c2706ba74d333f841f7a672"
+    },
+    "Reports/Exia/Genetic_Primus/label_phase_v1_20261012/registration.json": {
+      "bytes": 4013,
+      "sha256": "8c76862bfb1643aaf9bb0cb68c62ccd2c5fb7070e01a0c1949c4e2fe119c4720"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/receipt.json": {
+      "bytes": 10759,
+      "sha256": "4126d46eaad9ffd591897b98e64519567d62f256b74045970442b28c3d6d45a9"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/registration.json": {
+      "bytes": 4011,
+      "sha256": "3d45d461e1a23a83c36bba24ec74ffb03075f26c4a8a8753980cc3d3beb6c04d"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/replay_development_H_normal.json": {
+      "bytes": 862182,
+      "sha256": "c2c5f201af12cf523f2ca1aac4256202393803798e2066d6eeaf86ec77373dc1"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/replay_development_H_stress.json": {
+      "bytes": 861698,
+      "sha256": "22d808042ab7d1cc8c7de4c512a6c40a32387db0246f5761db76eccecd3ebf07"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/replay_report_H_normal.json": {
+      "bytes": 584871,
+      "sha256": "998dd79dfd2c4e52b346af9ad634c3c9f419ab4a741dd2bb2932077314cb5d0c"
+    },
+    "Reports/Exia/Genetic_Primus/robust_linear_v1_20261012/replay_report_H_stress.json": {
+      "bytes": 584313,
+      "sha256": "c91c16121cc06ce3d37b8df6044230d2ee4fac47590fc4685da33d37175fe15b"
+    }
+  },
+  "parent_registration_sha256": "eb91b5a2b041857a750089fb5dd669aae87e73c0af121b03852d2036907ccfe6",
+  "periods": {
+    "development": {
+      "days": 86,
+      "end_ms": 1785024000000,
+      "start_ms": 1777593600000
+    },
+    "report": {
+      "days": 61,
+      "end_ms": 1790812800000,
+      "start_ms": 1785542400000
+    }
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "causal_capital_registration/1",
+  "sha256": "8a0dafb13ed166fe46e7affea3599d8b3503a43a64d9ed3150a6e63fefceb49b",
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

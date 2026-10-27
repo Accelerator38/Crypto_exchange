@@ -1,0 +1,18 @@
+{
+  "schema": "exia.direction_regularization_scoring_amendment/2",
+  "objective_id": "direction_regularization_scoring_v2_20261018",
+  "parent_objective_id": "direction_regularization_v1_20261018",
+  "previous_registry": "configs/genetic_primus_objective_registry_v28.json",
+  "correction": "Deprecated streaming scorer overwrote previous origin days. Concatenate all five frozen ledgers, then aggregate once with bincount and assert every day and full-period denominator before bootstrap.",
+  "scope": "Scoring only. No parameters, model artifacts, probabilities, folds, truth, controls, bootstrap banks, comparison family or stopping criteria change.",
+  "new_estimator_fits": 0,
+  "failed_scoring_calls": 1,
+  "failed_score_persisted_results": 0,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false
+}

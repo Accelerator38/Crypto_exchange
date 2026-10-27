@@ -1,0 +1,70 @@
+{
+  "models": [
+    {
+      "name": "original_logit",
+      "file": "tf_1m__original_logit.joblib",
+      "model_sha256": "c0fb6338a7f1384683c671cfbae964f5a988a28ca9c11ab127fb7bd31ded76b2",
+      "meta_sha256": "26190eb697e1d33afb42e385db1675fcc2994863f0a800a324b7b45bed2a8088"
+    },
+    {
+      "name": "original_boost",
+      "file": "tf_1m__original_boost.joblib",
+      "model_sha256": "ccd8bb2381482b8d1d6b869bd8c7c3a200c1928bcc3c51a984bd19e28abc3794",
+      "meta_sha256": "73ca8b0ecd087a542176691a78df455cfa13299c1102555722d67ae1d672c156"
+    },
+    {
+      "name": "half_logit",
+      "file": "tf_1m__half_logit.joblib",
+      "model_sha256": "a982365a30189e4e1e4554643a2067dcee20a85f1caf7bc706e5bb6e52decdbb",
+      "meta_sha256": "88994f2fc3882e528b94e55e6171e6ad06ecc3cc49be3065948550bbddd3947b"
+    },
+    {
+      "name": "half_boost",
+      "file": "tf_1m__half_boost.joblib",
+      "model_sha256": "7b2adb8aa3632aa6d442462d07d68c6f9182fd23edd59df55accff9ecfaf4f68",
+      "meta_sha256": "453ca0d0d859e53f0ddbf3f157ef1dd8344a70c5d1841d9407fd68c9fc761e7b"
+    }
+  ],
+  "fold": {
+    "origin_ms": 1791331200000,
+    "train_first_ms": 1788739920000,
+    "n_train_times": 4000,
+    "n_calibration_times": 10072,
+    "n_test_times": 4320,
+    "train_times_sha256": "0c86f6aa924d70d9d7be22cb1cb7e09e659a07a6a3ed7b683f8eb0b23601bc01",
+    "calibration_times_sha256": "67588342cacfcbbf96dff360fed2da868b142c1ca0f132ecc27a65e23a48c6f8",
+    "test_times_sha256": "ea3453366eafffcf69b8400a51c67e906c658559de891401730412d4ee80a47a",
+    "train_latest_label_ms": 1790725860000,
+    "train_cutoff_exclusive_ms": 1790725980000,
+    "calibration_latest_label_ms": 1791330720000,
+    "calibration_cutoff_exclusive_ms": 1791330780000,
+    "horizon_minutes": 1,
+    "example_step_minutes": 1,
+    "decision_minutes": 1,
+    "retrain_days": 3,
+    "purge_bars": 7
+  },
+  "fold_sha256": "2df5647a3f2ce064a4e649b14bf48b6428096b14ac8266514a9ff0f57458ee1a",
+  "ledger_sha256": "f7aeeda47cdaae74baaad0ebd0ca339d3038ac46eacb2651afb1531dc924be53",
+  "code_pins": {
+    "configs/genetic_primus_direction_october_halfband_v1.json": "506c81f99461360e5718be8f30d51119ff412ddc9bc11faa5f20b216c35f66c9",
+    "tools/run_genetic_primus_direction_october_halfband_v1.py": "c5d40c466b1bce372fcb597066c3c3dd197d887db2d082bd67c704bf02471c7f",
+    "tools/run_genetic_primus_direction_ternary_hypotheses_v1.py": "4cc772971d33d5d68cb19bfc0d6de8c137ee028f7cdf93997e4311fc48b39f8d",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "src/exia/genetic_primus/direction_multiscale_v1.py": "2a1db4b7ab0c95216e6b027b8b2df3f055e574aa44c187b06480bd98eb7d1cbf",
+    "src/exia/genetic_primus/direction_benchmark_v1.py": "a8e1c8ca15b9b778e92ae2ebbd8c1ba7e3cd028ff90d04917d614c6d61f65dbb",
+    "configs/genetic_primus_direction_october_halfband_v2.json": "baf506b2bed047c32636b6c55004c2f09bd4bf26cad1ffa84d6437f1e0f190d2",
+    "tools/run_genetic_primus_direction_october_halfband_v2.py": "5dfce5f2321250f5718fadd7fbddde2aa40ee64a1d2befe5aebbbed9dc8b93fa"
+  },
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "9284a03784c774bedbda58b5946d85bd39ef2bbaf18dbecb2348cbff66959f01"
+}

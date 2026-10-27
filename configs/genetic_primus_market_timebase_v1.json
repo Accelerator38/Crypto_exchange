@@ -1,0 +1,37 @@
+{
+  "schema": "bounded_market_timebase_smoke/1",
+  "scope": "BTCUSDT 2024-12-01 provider-clock engineering only; not full8 2026 evidence",
+  "sources": {
+    "trades": "C:/Users/anton/Downloads/bitget-futures_trades_2024-12-01_BTCUSDT.csv.gz",
+    "ticker": "C:/Users/anton/Downloads/bitget-futures_derivative_ticker_2024-12-01_BTCUSDT.csv.gz"
+  },
+  "prefix_limits": {
+    "max_rows": 64,
+    "max_compressed_bytes": 8192,
+    "max_uncompressed_bytes": 16384,
+    "max_line_bytes": 2048
+  },
+  "prior_l2_evidence": "Reports/Exia/Genetic_Primus/l2_format_smoke_v1_20261008",
+  "max_age_us": 500000,
+  "freshness_budget_empirically_calibrated": false,
+  "timestamp_unit": "UTC microseconds; no millisecond rounding",
+  "asof_policy": "provider receipt strictly before cutoff; equal-clock cross-stream boundary ambiguous",
+  "trade_batch_policy": "retain all same-receipt trades; no within-batch ordering proof",
+  "duplicate_id_policy": "same economic payload excluding receipt recorded once; conflicting payload rejected",
+  "last_batch_policy": "discard last receipt group without a subsequent delimiter",
+  "missing_field_policy": "raw empty string retained; normalized null, never zero",
+  "funding_policy": "reported rate/time only; never synthesize settlement, debit or final rate",
+  "strategy_availability_verified": false,
+  "financial_replay_ready": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

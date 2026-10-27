@@ -1,0 +1,54 @@
+{
+  "schema_version": "exia.genetic_primus.origin_verification/1",
+  "verified_on_utc_date": "2026-09-07",
+  "origin_id": "origin_02",
+  "status": "OFFLINE_RESULT_VERIFIED_NO_PROMOTION",
+  "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f",
+  "artifact_sha256": {
+    "origin_01.json": "4e2b05988cdc8224eee370658eaf5e7a64db60ef18f260a0936da5e29d2ff6f8",
+    "data_manifest_origin_01.json": "6fe51ca8fd54e16f6baf2e21c04f2b129ea2abd5739df8ed3f08f0b8f9f68f7b",
+    "data_manifest_origin_02.json": "f14a4601147c294454080fcdad5a39ea66a4e0861c64e2425cf6b6f9398286b7",
+    "origin_02_started.json": "d12749b2a656da03afb046541484696c55914f51ccfef3059ba4c83cc9384426",
+    "origin_02.json": "8303592a39609f6d9712017cb3dbf658ef45d75251f3d2463105653ba8577738"
+  },
+  "data_snapshot_sha256": "9ecf379c22f21326140cc5b9a0394f7a6e324da64d40cb40256d858c28e07f4e",
+  "new_4h_file": "Retrodate/exia_full8_prospective_timeframes_v1_20260904_20260906/parts/full8_240m.parquet",
+  "new_4h_file_sha256": "a9753c95035f08209fa488aad6a064259caf579fe2a1ec9915aa6b8d53184c04",
+  "new_1m_rows": 34560,
+  "new_4h_rows": 144,
+  "total_snapshot_rows": 82080,
+  "checks": {
+    "previous_snapshot_files_byte_unchanged": true,
+    "continuous_four_hour_market_grid": true,
+    "origin_completed_before_evaluation": true,
+    "purge_seven_bars": true,
+    "model_hashes_reconstructed_from_genomes_and_scaler": true,
+    "scaler_changed_since_origin_01": true,
+    "ledger_rows_checked": 864,
+    "ledger_complete_grid": true,
+    "ledger_timestamp_ordering": true,
+    "ledger_hash_field_linkage": true,
+    "action_is_zero_or_proposal": true,
+    "daily_return_count_per_candidate_cost": 3,
+    "maximum_accounting_reconciliation_error": 3.621235256101585e-17
+  },
+  "evaluation_runs_this_turn": 1,
+  "search_evaluations": 0,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed_in_evaluator": false
+  },
+  "data_acquisition": {
+    "network_used": true,
+    "public_historical_rest_only": true,
+    "exchange": "BITGET",
+    "category": "USDT-FUTURES",
+    "credentials_used": false,
+    "workers": 1
+  }
+}

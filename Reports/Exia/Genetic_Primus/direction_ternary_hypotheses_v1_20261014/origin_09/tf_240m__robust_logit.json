@@ -1,0 +1,78 @@
+{
+  "variant": {
+    "id": "robust_logit",
+    "features": "base12",
+    "estimator": "logistic",
+    "winsor_quantiles": [
+      0.005,
+      0.995
+    ]
+  },
+  "fold": {
+    "origin_ms": 1787875200000,
+    "horizon_minutes": 240,
+    "example_step_minutes": 240,
+    "decision_minutes": 240,
+    "retrain_days": 3,
+    "purge_bars": 7,
+    "n_train_times": 130,
+    "train_times_sha256": "28bf23cd5beba37317b5cb29afed2cb37c11f8220e168a5c664dbe8e4fb3dfeb",
+    "calibration_times_sha256": "9b038d604d5cd24d196f57c81aa688a905bc500e2028afb8e4e77fed25817996",
+    "test_times_sha256": "103b94cbfe447833d80b3c24f2faa3a63651f11339b0580ff4b9b7cc494038e3",
+    "train_first_ms": 1785283200000,
+    "train_latest_label_ms": 1787155200000,
+    "train_cutoff_exclusive_ms": 1787169600000,
+    "calibration_latest_label_ms": 1787760000000,
+    "calibration_cutoff_exclusive_ms": 1787774400000
+  },
+  "fold_sha256": "0e8e3b1361c31e1d4fd766b8692ef53e4811ce592269f2b3ea940ba69c497455",
+  "info": {
+    "rows": 1040,
+    "features": 12,
+    "kind": "logistic",
+    "classes": [
+      -1,
+      0,
+      1
+    ],
+    "train_counts": [
+      265,
+      485,
+      290
+    ],
+    "weight_mass": [
+      265.0,
+      485.0,
+      290.0
+    ],
+    "kish_weight_ess_not_independent_observations": 1040.0,
+    "warnings": [],
+    "new_fits": 1,
+    "fallback": false,
+    "fitted_iterations": [
+      35
+    ],
+    "parameter_count": 39
+  },
+  "sha256_model": "433782217102499ed1e34ef3090cfb565a499ebdac6bf3ad46406aada8025ff4",
+  "file": "tf_240m__robust_logit.joblib",
+  "code_pins": {
+    "configs/genetic_primus_direction_ternary_hypotheses_v1.json": "29904dde7d23b52941040b711359c263b19a0dea9851ac22a9bfcecea319ccb0",
+    "tools/run_genetic_primus_direction_ternary_hypotheses_v1.py": "4cc772971d33d5d68cb19bfc0d6de8c137ee028f7cdf93997e4311fc48b39f8d",
+    "src/exia/genetic_primus/direction_ternary_hypotheses_v1.py": "5cc95454ff9c97e00c16b2ec9e1a53972f4e4e2bd7639e43f7efe7d83c0972d6",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c"
+  },
+  "scaler_sha256": "aa31e9ba252e12c028295bdfa8561710ff350c0994a8be746b99d1b5a96abf35",
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "95418807438d57454232ba3036b5c09edddabc75612dbca32f36d9a7884a6ac8"
+}

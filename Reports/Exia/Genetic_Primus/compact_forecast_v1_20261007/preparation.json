@@ -1,0 +1,189 @@
+{
+  "schema": "compact_forecast_preparation/1",
+  "sources": {
+    "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet": {
+      "bytes": 55079,
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet": {
+      "bytes": 32889,
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260904_20260906/parts/full8_240m.parquet": {
+      "bytes": 11149,
+      "sha256": "a9753c95035f08209fa488aad6a064259caf579fe2a1ec9915aa6b8d53184c04"
+    },
+    "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet": {
+      "bytes": 3003142,
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_03_240m.parquet": {
+      "bytes": 11234,
+      "sha256": "78cebf7dd3f4f7470934ceb7a5498ee5aae48ecda0f6bd8be4d0a50ce6b227be"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_04_240m.parquet": {
+      "bytes": 11070,
+      "sha256": "e50ae6282ba30e7cc125133f71d3b45f8f41ab48c80cebe4a2bd13aeda81ed47"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_05_240m.parquet": {
+      "bytes": 11128,
+      "sha256": "bc79193956b19172368d975d3a6f3c761a778826353de6eec6666e0f3d5b5131"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_06_240m.parquet": {
+      "bytes": 11195,
+      "sha256": "8737e3af8b784461be8b01497e8623630d5ecbe33be5b0008bd8d10eb368df5e"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_07_240m.parquet": {
+      "bytes": 11303,
+      "sha256": "4af42c81dd017700f40cc7a44c907e33100f6b2da2abe15891c424a9c5aacd98"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_08_240m.parquet": {
+      "bytes": 11360,
+      "sha256": "d580e33f8961209153ea1e0e31e5e3f9926154aa95fff19b253d0c778b77b769"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_09_240m.parquet": {
+      "bytes": 11257,
+      "sha256": "22d05504944cb044a9c6db4572c1e5bdc76835aa5e5980ebb6dd9ee44e07db5a"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_final_20260928_20260930/derived_v1/origin_10_240m.parquet": {
+      "bytes": 11187,
+      "sha256": "dd3249e5c7c7f4ad527e6d44db182e00d011d3b6b0bb3b5a6e585405ecbab1a9"
+    }
+  },
+  "code_inputs": {
+    "tools/compare_genetic_primus_compact_forecast_v1.py": {
+      "bytes": 26794,
+      "sha256": "09a28ab6b499bcc8021cae0c6be47670084b577fa17a969cf43c40b7d35a8275"
+    },
+    "configs/genetic_primus_compact_forecast_v1.json": {
+      "bytes": 2263,
+      "sha256": "0a45733881292112e06189e4fa42938d5e9b94903f3701433b38244e08bf2985"
+    },
+    "src/exia/genetic_primus/compact_forecast_v1.py": {
+      "bytes": 10373,
+      "sha256": "8f8d1e7670fc188c511f948119139b92e6913d561602ce32caea08e811e96c5a"
+    },
+    "src/exia/genetic_primus/compact_forecast_data_v1.py": {
+      "bytes": 11697,
+      "sha256": "1b03b1c2e81a36543b2004c691d352a0baa36167b9a6bf1c86d0bd758eb6efb3"
+    },
+    "tools/check_genetic_primus_compact_forecast_v1.py": {
+      "bytes": 2565,
+      "sha256": "e387e99f5ab903f53e8cd721b65ae800a83559b13aaa15e83ccc5d906694c433"
+    },
+    "tests/test_genetic_primus_compact_forecast_v1.py": {
+      "bytes": 7960,
+      "sha256": "d1a25630961ac2ce285eaf478093362ad2f5d96f47b00d42b95a9ca65885c6a7"
+    },
+    "docs/GENETIC_PRIMUS_COMPACT_FORECAST_V1.md": {
+      "bytes": 4651,
+      "sha256": "ccf82bce568a8133149990fc419ad198c8cc4e86f85c40d75484e666136e971f"
+    },
+    "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/data_manifest_origin_09.json": {
+      "bytes": 3881,
+      "sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_final_20260928_20260930/dataset_seal_v1.json": {
+      "bytes": 1567,
+      "sha256": "8abe15679c39a428befa23c15586bc4ac8a525934ae7897effdf35c4ec7ec516"
+    }
+  },
+  "outputs": {
+    "sample_bank.npz": {
+      "bytes": 224710,
+      "sha256": "c5345c5a7ba9e04f95059da05f8f379573b2ee8907900e0e15514ff29f0323bb"
+    },
+    "audit_resample_banks.npz": {
+      "bytes": 77311,
+      "sha256": "805c44108cb1621dce2a3e40a9c767b9e7237fcef2f5513389ae7b26a98de02b"
+    },
+    "registration.json": {
+      "bytes": 1300,
+      "sha256": "0305e8976047fa30cfb84fa243feedf8cf1634c6cafd82b69c1f4d3251022f89"
+    }
+  },
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ],
+  "source_file_count": 12,
+  "market_rows": 83232,
+  "timestamp_count": 10404,
+  "feature_definition": {
+    "schema": "compact_six_features/1",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48"
+    ],
+    "distance_ema48": "close / ema48 - 1; adjust_false; seed first observed close",
+    "return_18": "close / close_18_bars_ago - 1",
+    "efficiency_18": "abs(close-close18) / sum(abs(diff(close)),18); flat=0",
+    "relative_return_18": "return18 - full_universe_mean(return18)",
+    "volatility_48": "std(last48 log close returns, ddof=0)",
+    "breadth_ema48": "full_universe_mean(close > ema48)",
+    "min_history_bars": 49,
+    "missing_symbol_policy": "reject",
+    "lag_bars": 0,
+    "feature_availability": "bar_open + BAR_MS; completed bars only"
+  },
+  "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+  "sample_content_sha256": "a2e2e2c9d98933fd160df6fc61372c17fb2401c442dcb0d2db205c861e1b72de",
+  "benchmark_origins_ms": [
+    1785542400000,
+    1785801600000,
+    1786060800000,
+    1786320000000,
+    1786579200000,
+    1786838400000,
+    1787097600000,
+    1787356800000,
+    1787616000000,
+    1787875200000,
+    1788134400000,
+    1788393600000,
+    1788652800000,
+    1788912000000,
+    1789171200000,
+    1789430400000,
+    1789689600000,
+    1789948800000,
+    1790208000000,
+    1790467200000
+  ],
+  "benchmark_start_ms": 1785542400000,
+  "benchmark_end_exclusive_ms": 1790812800000,
+  "bootstrap": {
+    "samples": 4096,
+    "block_origins": 2,
+    "selection_seed": 3039,
+    "audit_seed": 7079,
+    "selection_content_sha256": "6eec9086a830dc39df9dfa0347752399400e136fe346bb783be46607800c21c9",
+    "audit_content_sha256": "5028af71b62da4d3c866a59e0ca15e354eee155d997a32186957983e22e183dd",
+    "alpha": 0.05
+  },
+  "model_fit_count": 0,
+  "financial_evaluation_count": 0,
+  "network_used": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  },
+  "sha256": "9d720a6977117ba73e2de77d42cf5dc04d05e55deaa102813851acbd824f3f53"
+}

@@ -1,0 +1,164 @@
+{
+  "bounds": [
+    {
+      "test_end": 1785801600000,
+      "test_start": 1785542400000,
+      "train_end": 1782748800000,
+      "train_start": 1751212800000,
+      "validation_end": 1785441600000,
+      "validation_start": 1782849600000
+    },
+    {
+      "test_end": 1786060800000,
+      "test_start": 1785801600000,
+      "train_end": 1783008000000,
+      "train_start": 1751472000000,
+      "validation_end": 1785700800000,
+      "validation_start": 1783108800000
+    },
+    {
+      "test_end": 1786320000000,
+      "test_start": 1786060800000,
+      "train_end": 1783267200000,
+      "train_start": 1751731200000,
+      "validation_end": 1785960000000,
+      "validation_start": 1783368000000
+    },
+    {
+      "test_end": 1786579200000,
+      "test_start": 1786320000000,
+      "train_end": 1783526400000,
+      "train_start": 1751990400000,
+      "validation_end": 1786219200000,
+      "validation_start": 1783627200000
+    },
+    {
+      "test_end": 1786838400000,
+      "test_start": 1786579200000,
+      "train_end": 1783785600000,
+      "train_start": 1752249600000,
+      "validation_end": 1786478400000,
+      "validation_start": 1783886400000
+    },
+    {
+      "test_end": 1787097600000,
+      "test_start": 1786838400000,
+      "train_end": 1784044800000,
+      "train_start": 1752508800000,
+      "validation_end": 1786737600000,
+      "validation_start": 1784145600000
+    },
+    {
+      "test_end": 1787356800000,
+      "test_start": 1787097600000,
+      "train_end": 1784304000000,
+      "train_start": 1752768000000,
+      "validation_end": 1786996800000,
+      "validation_start": 1784404800000
+    },
+    {
+      "test_end": 1787616000000,
+      "test_start": 1787356800000,
+      "train_end": 1784563200000,
+      "train_start": 1753027200000,
+      "validation_end": 1787256000000,
+      "validation_start": 1784664000000
+    },
+    {
+      "test_end": 1787875200000,
+      "test_start": 1787616000000,
+      "train_end": 1784822400000,
+      "train_start": 1753286400000,
+      "validation_end": 1787515200000,
+      "validation_start": 1784923200000
+    },
+    {
+      "test_end": 1788134400000,
+      "test_start": 1787875200000,
+      "train_end": 1785081600000,
+      "train_start": 1753545600000,
+      "validation_end": 1787774400000,
+      "validation_start": 1785182400000
+    }
+  ],
+  "created_at_utc": "2026-09-07T11:43:50.337671+00:00",
+  "execution_policy": {
+    "entry": "registered_positive_logit_gate; delayed_entry_allowed",
+    "exit": "EMA_flat_or_direction_change_or_invalid_features",
+    "hold": "ignore_gate_while_valid_EMA_direction_unchanged",
+    "initial_position": "flat_per_window",
+    "promotion_authority": false,
+    "reset": "forget_held_position_before_processing_reset_bar",
+    "reversal": "close_then_check_gate_for_new_direction",
+    "runtime_authority": false,
+    "terminal_exit": "unchanged_accounting_interval_end",
+    "version": "entry_only_overlay/1"
+  },
+  "fingerprint": {
+    "config": "a8cc1ae418d336cc0498266687298fb11800cd1b0f3a89e10b1ce54ae4279660",
+    "policy": "4c87a9e39eca3f38ccd8beee565ca153c372c8042161985e2ed25439babaec0a",
+    "registry": "c4f926938f1ff5244c49f7920b4d8aaef504a9aefec3a6706ad52b1cfc543235",
+    "runner": "378b0e74d14ec4d1f1e9a6adcf9ebd713a151fce7eabe86eda1e14f89e1f81c0",
+    "tests": "7534112d1d8a46535d1ac8134f230836667dab5f8c141ffe78d5bb6a163392df",
+    "unchanged_sources": {
+      "base": {
+        "config": "323455758ecfdd3a09b085db04597645f0ca9f362c51d2855bfde62af876267c",
+        "frozen_warm_sources": {
+          "cold": {
+            "config_sha256": "da6657382eaf8732c72654895678341f5f8629f44f956804683691c4377bbc2c",
+            "registry_sha256": "e407585d37ba51d4cdc33c8cf8408f68b5b8264708661568b3f82a94869489ed",
+            "source_sha256": {
+              "src/exia/genetic_primus/accounting_v2.py": "f9294a2e4b2220aa7552ebed7d2480e7e7647744fe5a62330888acba569af5bb",
+              "src/exia/genetic_primus/contracts.py": "87f3ecb1d86cd326d9dccc619f22083df73c40457408166ab55093cf1e61bba3",
+              "src/exia/genetic_primus/features.py": "9524c4739c9c500f28fe2d0c3c4cbfc85f1840266330e0434ad59c722bf81612",
+              "src/exia/genetic_primus/measurement_lab_v2.py": "c09835cd20c7dbb07473fc537f25bb8d7d3ecd887a2e8a4b742c2bf9ec7a3755",
+              "src/exia/genetic_primus/prospective_contract_v1.py": "3d24aa865ba9c38d729646b298c0d409bcee8cb6fd3c8b58596bb1d47db325f7",
+              "src/exia/genetic_primus/prospective_manifest_v1.py": "63a4a269f490c4ff81cadf1166c2a0935694b52bb0c2b2b652594b0f65c39942",
+              "src/exia/genetic_primus_statistics/hac_adapter_v1.py": "6e15c57fd26ac4072fde9c3eff4367659fa0be9c55f23a9579c9ccc749a1a86c",
+              "tools/run_genetic_primus_retrained_august_v1.py": "6047a92fd008c9c405bd258a47be7a542853e3ea0bb08ffd289f8b1a53c0961b"
+            }
+          },
+          "config_sha256": "035f8365afa7b66b24cbd08e9c60bf7e5d73bfdf0dd1793d37bb43ca6ca2286c",
+          "registry_sha256": "79f2cce22b88549cda0137823443ede3522f7d6e5bb4daf794326bc1396677a1",
+          "warm_runner_sha256": "9a41b2301ef2604eeeee6f4f9e20aa16cf1b7c0cbe67b6667933a963e86d7a51"
+        },
+        "runner": "509719f520a7ab694ac702b5e358d29e575e95d539e59efaecaed0643a72a68f",
+        "tests": "41f1a278f64f7287892ebc4753aed8f1ef215a8b3bbce3056f52943b0db8aee3"
+      },
+      "config": "e079c61d8e9f7b21bb8e90acda3dbc36ac4a1ab1b0f0a3753d91d49ab9e1bfcc",
+      "runner": "f6dc0de8ba9cdcdbf13853021472ac659330a55819d23974c1078d7fa364990d",
+      "tests": "9462027fbb1e8d2a2637be856a02fb9a346070bc2cb8bba1e286f0c23272e3e9"
+    }
+  },
+  "fixed_policy_simulations": 180,
+  "numpy": "2.4.2",
+  "python": "3.12.4 (tags/v3.12.4:8e8a4ba, Jun  6 2024, 19:30:16) [MSC v.1940 64 bit (AMD64)]",
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false
+  },
+  "search_evaluations": 0,
+  "snapshot_sha256": "033354efce9aa6a6ceab85e9249fa3b016e7e8dd70765f5d957d43843076e654",
+  "source_files": [
+    {
+      "path": "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet",
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375",
+      "size_bytes": 55079
+    },
+    {
+      "path": "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet",
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0",
+      "size_bytes": 32889
+    },
+    {
+      "path": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet",
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36",
+      "size_bytes": 3003142
+    }
+  ]
+}

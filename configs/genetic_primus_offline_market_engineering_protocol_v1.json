@@ -1,0 +1,63 @@
+{
+  "schema": "exia.genetic_primus.offline_market_engineering_protocol/1",
+  "status": "draft_not_authorized",
+  "source_manifest_path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/data_manifest_origin_09.json",
+  "source_manifest_byte_sha256": "72631df4a0d5abca0d34319170ed0e5b1c64e5562659c89cc130a2b51982fdd9",
+  "clock": {
+    "bar_ms": 14400000,
+    "horizon_bars": 18,
+    "retrain_bars": 18,
+    "purge_bars": 7,
+    "history_start_ms": 1640995200000,
+    "origin_start_ms": 1790035200000,
+    "training_asof_ms": 1790020800000,
+    "nominal_end_exclusive_ms": 1790294400000,
+    "candidate_calendar": "18bar_grid_anchored_to_origin_no_4h_opportunity_expansion"
+  },
+  "models": {
+    "features": ["return_12", "efficiency_12"],
+    "coefficient_count": 3,
+    "hidden_layers": 0,
+    "ridge_alpha": 0.5,
+    "variants": ["uniform", "half_life_90d_anchor_20pct"],
+    "ga_enabled": false,
+    "maximum_planned_pipeline_runs_including_failures": 2
+  },
+  "availability": {
+    "timestamp_semantics": "bar_start_complete_4h_row",
+    "ingestion_lag_ms": null,
+    "arrival_evidence_sha256": null,
+    "revision_policy_sha256": null
+  },
+  "timing": {
+    "training_budget_ms": null,
+    "execution_delay_ms": null,
+    "budget_evidence_sha256": null
+  },
+  "accounting": {
+    "reference_price_kind": null,
+    "normal_scenario": null,
+    "stress_scenario": null,
+    "funding_policy": null,
+    "borrow_basis": null,
+    "terminal_policy": null,
+    "decision_threshold_rule": null,
+    "net_training_objective": null
+  },
+  "authorization": {
+    "raw_parquet_read_for_this_protocol": false,
+    "fit_for_this_protocol": false
+  },
+  "historical_scope_is_not_prospective": true,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  }
+}

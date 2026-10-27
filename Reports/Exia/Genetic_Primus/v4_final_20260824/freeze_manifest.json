@@ -1,0 +1,82 @@
+{
+  "schema_version": "exia.genetic_primus_freeze.v4",
+  "generated_at": "2026-08-24T07:32:24.113066+00:00",
+  "status": "DEVELOPMENT_V4_REJECTED_STRICT_GATES",
+  "architecture": {
+    "id": "compact_16_8",
+    "inputs": 30,
+    "hidden": [
+      16,
+      8
+    ],
+    "outputs": 3
+  },
+  "screen_manifest_sha256": "9780447d5f143d0490bda3a9ba2b887ba15e0bcb29750f0e4d0970e990dde888",
+  "experiment_manifest_sha256": "2d4a369477ec9b21ba4257295619b0865b73f164d722fb26d826f26d2372ab81",
+  "config_sha256": "74c766204a2eb06f056dc6fb7ffc599882620345122f1b8bcd3ead34cacc2cd1",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "champion_file_sha256": "b8f7014c82b1cf0a1668c8794e5e90c25417c9dada82af325fbf5a8266bd0a10",
+  "champion_genome_sha256": "0a51369afe891c7d068681273e6d07f5f4dd1791561bbdde19e58719f9a8681f",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "feature_contract_sha256": "81bcaa8032066fee30048b923662ebc2b54a4dd3f1f67078b8d8e2d32f031467",
+  "execution_contract_sha256": "6e5782e6984ca9405500f5881cc58010c4696b8d16489a5a20932b285f17825d",
+  "base16_metrics": {
+    "trades": 942,
+    "turnover_fills": 1884,
+    "fills_per_day": 1.718978102189781,
+    "days": 1096,
+    "mean_daily_bps": 14.599675947923883,
+    "median_daily_bps": 10.389866568224493,
+    "lcb_daily_bps": -0.6204639335475918,
+    "max_drawdown": 0.5391103150203109,
+    "positive_fold_means": 5,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -27.440788422523617,
+    "median_fold_lcb_bps": -17.57227631690173,
+    "worst_fold_lcb_bps": -63.180497505570415,
+    "max_direction_share": 0.6019108280254777,
+    "max_state_share": 0.4830148619957537,
+    "max_symbol_share": 0.2813163481953291,
+    "temporal_gate_passed": false,
+    "fitness": -27.870532948071062,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_overall_lcb",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "stress24_metrics": {
+    "trades": 949,
+    "turnover_fills": 1898,
+    "fills_per_day": 1.7317518248175183,
+    "days": 1096,
+    "mean_daily_bps": 14.084377267825392,
+    "median_daily_bps": 9.124459508901284,
+    "lcb_daily_bps": -1.1184057674570769,
+    "max_drawdown": 0.5413276722164215,
+    "positive_fold_means": 5,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -28.305136045196107,
+    "median_fold_lcb_bps": -16.84380335129608,
+    "worst_fold_lcb_bps": -61.95751598206006,
+    "max_direction_share": 0.6027397260273972,
+    "max_state_share": 0.48472075869336145,
+    "max_symbol_share": 0.273972602739726,
+    "temporal_gate_passed": false,
+    "fitness": -28.738074001400488,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_overall_lcb",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "validation_allowed": false,
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

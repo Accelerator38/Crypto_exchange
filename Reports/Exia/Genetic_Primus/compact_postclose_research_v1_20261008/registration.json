@@ -1,0 +1,310 @@
+{
+  "bank_pins": {
+    "data_bank.npz": {
+      "bytes": 3831285,
+      "sha256": "e12c2c2efcd9967ebbad90f5c11eaaf64af5e446b73a3d81de581b4c780f3389"
+    },
+    "modeled_rate_bank.json": {
+      "bytes": 393752,
+      "sha256": "98212cda74bdf7283726946a4691b772f7a5ce1789b5f376bbcfbab87180436a"
+    },
+    "resample_banks.npz": {
+      "bytes": 387975,
+      "sha256": "8aa2a3448eaed0aef48570422eeb47a8a2fb43fe54a70956acca17f726f1a6ef"
+    }
+  },
+  "before_fits": true,
+  "calibration_origins_ms": [
+    1781913600000,
+    1782172800000,
+    1782432000000,
+    1782691200000,
+    1782950400000,
+    1783209600000,
+    1783468800000,
+    1783728000000,
+    1783987200000,
+    1784246400000,
+    1784505600000,
+    1784764800000
+  ],
+  "code_pins": {
+    "configs/genetic_primus_compact_postclose_research_v1.json": {
+      "bytes": 2440,
+      "sha256": "e0ae31f086ba91b8eba1b575d9545d3cecf8d3701610f21a451b938597dd1bc8"
+    },
+    "src/exia/genetic_primus/compact_forecast_data_v1.py": {
+      "bytes": 11697,
+      "sha256": "1b03b1c2e81a36543b2004c691d352a0baa36167b9a6bf1c86d0bd758eb6efb3"
+    },
+    "src/exia/genetic_primus/compact_forecast_v1.py": {
+      "bytes": 10556,
+      "sha256": "bf839c41c403a37fa8f009f9c1a86502a3b695149e801e9076557a1b3f385b4b"
+    },
+    "src/exia/genetic_primus/compact_postclose_research_v1.py": {
+      "bytes": 19272,
+      "sha256": "4214b1e88ffd196a1ea7ada8a5263f33ac3be8f13d23036587c57612e9ca79ba"
+    },
+    "tools/run_genetic_primus_compact_postclose_research_v1.py": {
+      "bytes": 28128,
+      "sha256": "f729408e7f0f62ceaca67dc729c4877b336b11433926714e216f165a00edf682"
+    }
+  },
+  "contract": {
+    "adverse_price_bps": {
+      "normal": 2,
+      "stress": 8
+    },
+    "architectures": {
+      "linear6": 7,
+      "mlp8": 65
+    },
+    "bar_ms": 14400000,
+    "benchmark_is_already_open": true,
+    "bootstrap": {
+      "alpha": 0.05,
+      "audit_seed": 7079,
+      "calendar_block_days": 3,
+      "samples": 4096,
+      "selection_seed": 3039
+    },
+    "calibration_end_ms": 1785024000000,
+    "calibration_start_ms": 1781913600000,
+    "capital_account": "fully_collateralized_long_cash_research_not_futures_margin",
+    "deployment_horizon_ms": 259200000,
+    "drawdown_research_budgets": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "feature_availability": "scheduled_bar_close_assumed_not_observed",
+    "fill_price": "last_completed_4h_close_assumed_unchanged_during_350ms",
+    "funding": "historically_reported_signed_rates_times_4h_close_proxy_including_terminal_report_not_verified_cashflows",
+    "genetic_search": "only_if_simple_model_pre_august_stress_LCB_positive_on_both_banks_otherwise_skip",
+    "global_trial_registry_imported": false,
+    "independent_validation_claim_allowed": false,
+    "initial_capital_usdt": 10000,
+    "inner_days": 60,
+    "l2": 0.01,
+    "label": "close_at_origin_to_close_at_origin_plus_three_days",
+    "label_available": "scheduled_exit_boundary_assumed_closed_bar_availability",
+    "learning_rate": 0.001,
+    "long_allocation_per_symbol": 0.1,
+    "max_epochs": 120,
+    "mlp_seeds": [
+      11,
+      29,
+      47
+    ],
+    "model_fill_delay_ms": 350,
+    "observed_execution_qualified": false,
+    "patience": 12,
+    "purge_bars": 7,
+    "purpose": "explicitly_requested_offline_research_not_release_execution",
+    "quantity": "fractional_no_historical_lot_or_minimum_rules",
+    "report_end_ms": 1790812800000,
+    "report_start_ms": 1785542400000,
+    "retrain_cadence_ms": 259200000,
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "schema": "genetic_primus.compact_postclose_research/1",
+    "signal_compute_ms": 100,
+    "taker_fee_bps": 6,
+    "terminal": "partial_last_deployment_liquidated_at_report_end_plus_350ms",
+    "threshold_candidates_bps": [
+      20,
+      50,
+      100
+    ],
+    "threshold_selection": "pre_august_stress_net_growth_under_10pct_sampled_drawdown_then_lower_turnover_then_higher_threshold",
+    "train_end": "origin_minus_one_bar",
+    "unchanged_target": "hold_fixed_quantity_not_continuous_rebalancing",
+    "weightings": [
+      "uniform",
+      "half_life_90_anchor20"
+    ]
+  },
+  "contract_file_pin": {
+    "bytes": 2440,
+    "sha256": "e0ae31f086ba91b8eba1b575d9545d3cecf8d3701610f21a451b938597dd1bc8"
+  },
+  "data_already_revealed": true,
+  "feature_definition": {
+    "breadth_ema48": "full_universe_mean(close > ema48)",
+    "distance_ema48": "close / ema48 - 1; adjust_false; seed first observed close",
+    "efficiency_18": "abs(close-close18) / sum(abs(diff(close)),18); flat=0",
+    "feature_availability": "bar_open + BAR_MS; completed bars only",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48"
+    ],
+    "lag_bars": 0,
+    "min_history_bars": 49,
+    "missing_symbol_policy": "reject",
+    "relative_return_18": "return18 - full_universe_mean(return18)",
+    "return_18": "close / close_18_bars_ago - 1",
+    "schema": "compact_six_features/1",
+    "volatility_48": "std(last48 log close returns, ddof=0)"
+  },
+  "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+  "fold_rule": "last_60days_inner_validation_with_separate_7bar_purge",
+  "network_used": false,
+  "parameters_selected_on_report": false,
+  "report_cutoffs_ms": [
+    1785427200000,
+    1785686400000,
+    1785945600000,
+    1786204800000,
+    1786464000000,
+    1786723200000,
+    1786982400000,
+    1787241600000,
+    1787500800000,
+    1787760000000,
+    1788019200000,
+    1788278400000,
+    1788537600000,
+    1788796800000,
+    1789056000000,
+    1789315200000,
+    1789574400000,
+    1789833600000,
+    1790092800000,
+    1790352000000,
+    1790611200000
+  ],
+  "report_origins_ms": [
+    1785542400000,
+    1785801600000,
+    1786060800000,
+    1786320000000,
+    1786579200000,
+    1786838400000,
+    1787097600000,
+    1787356800000,
+    1787616000000,
+    1787875200000,
+    1788134400000,
+    1788393600000,
+    1788652800000,
+    1788912000000,
+    1789171200000,
+    1789430400000,
+    1789689600000,
+    1789948800000,
+    1790208000000,
+    1790467200000,
+    1790726400000
+  ],
+  "resample_content_sha256": {
+    "cal_audit": "4bbede606e20a1c8315b9114d3de3db16a385057aa3673c0d6df62ac1a8c75cf",
+    "cal_selection": "131c8880e6134e7c79f1be12665e360444989b868155b6c2a816195073c8c690",
+    "report_audit": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+    "report_selection": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053"
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "sample_content_sha256": "995a3d5964903c50916770c8fa8a09b3ef893b328cad47aff51cc3ad5229cca7",
+  "schema": "compact_postclose_research_registration/1",
+  "sha256": "98a9953907f732b5cb2f0665a26c77a3fae045a44b2066ac33eb733ee1ef2b88",
+  "source_market_rows": 83232,
+  "source_pins": {
+    "Reports/Exia/Genetic_Primus/compact_forecast_v1_20261007_r2/preparation.json": {
+      "bytes": 7418,
+      "sha256": "ebb19e989b8fe0ab0fe68b3cb160b8ebda6a422b71513c49c7294bdc76502abb"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/observed_rate_bank.json": {
+      "bytes": 562507,
+      "sha256": "cefa36cb286b137b561e32853c09ec61b9ba030351f1710184086c3faa8aaa84"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/results.json": {
+      "bytes": 359292,
+      "sha256": "ccec0e90d25ba1c7a263ff7c6c075887c41b58fe53f598aff9fcb6d5f10a767f"
+    },
+    "Reports/Exia/Genetic_Primus/execution_input_audit_v1_20261008/terminal_funding_reports.json": {
+      "bytes": 8207,
+      "sha256": "255c714b0e18268a11b0e483517e88a4f0837ac1454466eb426403077da91abc"
+    },
+    "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet": {
+      "bytes": 55079,
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet": {
+      "bytes": 32889,
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260904_20260906/parts/full8_240m.parquet": {
+      "bytes": 11149,
+      "sha256": "a9753c95035f08209fa488aad6a064259caf579fe2a1ec9915aa6b8d53184c04"
+    },
+    "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet": {
+      "bytes": 3003142,
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_03_240m.parquet": {
+      "bytes": 11234,
+      "sha256": "78cebf7dd3f4f7470934ceb7a5498ee5aae48ecda0f6bd8be4d0a50ce6b227be"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_04_240m.parquet": {
+      "bytes": 11070,
+      "sha256": "e50ae6282ba30e7cc125133f71d3b45f8f41ab48c80cebe4a2bd13aeda81ed47"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_05_240m.parquet": {
+      "bytes": 11128,
+      "sha256": "bc79193956b19172368d975d3a6f3c761a778826353de6eec6666e0f3d5b5131"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_06_240m.parquet": {
+      "bytes": 11195,
+      "sha256": "8737e3af8b784461be8b01497e8623630d5ecbe33be5b0008bd8d10eb368df5e"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_07_240m.parquet": {
+      "bytes": 11303,
+      "sha256": "4af42c81dd017700f40cc7a44c907e33100f6b2da2abe15891c424a9c5aacd98"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_final_20260928_20260930/derived_v1/origin_10_240m.parquet": {
+      "bytes": 11187,
+      "sha256": "dd3249e5c7c7f4ad527e6d44db182e00d011d3b6b0bb3b5a6e585405ecbab1a9"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_08_240m.parquet": {
+      "bytes": 11360,
+      "sha256": "d580e33f8961209153ea1e0e31e5e3f9926154aa95fff19b253d0c778b77b769"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_09_240m.parquet": {
+      "bytes": 11257,
+      "sha256": "22d05504944cb044a9c6db4572c1e5bdc76835aa5e5980ebb6dd9ee44e07db5a"
+    }
+  },
+  "source_timestamp_count": 10404,
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

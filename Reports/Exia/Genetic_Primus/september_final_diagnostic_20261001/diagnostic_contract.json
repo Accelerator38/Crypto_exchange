@@ -1,0 +1,145 @@
+{
+  "accounting": {
+    "execution_time": "next_candle_open",
+    "initial_equity": 1.0,
+    "missing_market_bar": "fail_closed",
+    "normal_round_trip_bps": 16.0,
+    "signal_time": "previous_candle_close",
+    "source_config_sha256": "7a76b0117bd86150939a7ec97c75301440391d252e140c61fe3e90b774c3e407",
+    "specification": "measurement_lab_v2/accounting_v2",
+    "stress_round_trip_bps": 24.0,
+    "terminal_exit": "origin_final_candle_close"
+  },
+  "candidates": [
+    {
+      "candidate_id": "NoTrade",
+      "policy": "always_flat",
+      "role": "current_incumbent_and_risk_reference"
+    },
+    {
+      "candidate_id": "EMA_TrendConsensus",
+      "efficiency_threshold": 0.3,
+      "policy": "V7_EMA_TrendConsensus_direct",
+      "role": "simple_baseline"
+    },
+    {
+      "allow_rule": "train_scaled_return_12_plus_efficiency_12_minus_1_strictly_positive",
+      "candidate_id": "GA_overlay_f7a4ae11",
+      "genome": [
+        0,
+        0,
+        1,
+        1,
+        -1
+      ],
+      "missing_features": "abstain",
+      "proposal": "V7_EMA_TrendConsensus",
+      "role": "single_frozen_challenger",
+      "source_model_sha256": "f7a4ae11f8db1bc7ed31bfc2ecf33f3fcfb5163a59b81b1fa142ee24fda6413e"
+    }
+  ],
+  "data_already_revealed": true,
+  "data_commitment": {
+    "future_outer_data_hash_known_at_registration": false,
+    "historical_dataset_sha256_through_2026_07_14": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "missing_or_revised_rows": "invalidate_affected_origin_fail_closed",
+    "outcome_access_before_manifest_commit": "forbidden",
+    "required_before_evaluation": "immutable_append_only_manifest_and_full_snapshot_sha256"
+  },
+  "decision": {
+    "automatic_promotion": false,
+    "interpretation_if_all_gates_pass": "candidate_for_independent_long_audit_not_live_trading",
+    "interpretation_if_any_gate_fails": "retain_NoTrade_and_archive_result",
+    "multiple_testing_budget": "exactly_one_frozen_overlay_challenger_no_replacement"
+  },
+  "diagnostic_reason": "origin 10 completed at outer interval end; prospective manifest cutoff makes pre-commit impossible",
+  "features": [
+    "ema_gap_12_48",
+    "ema_slope_12_3",
+    "return_12",
+    "efficiency_12"
+  ],
+  "frozen_at_utc": "2026-08-30T10:09:10Z",
+  "ledger": {
+    "causality_must_be_verified": true,
+    "model_sha_must_be_constant_within_candidate_origin": true,
+    "one_row_per_symbol_decision": true,
+    "required_fields": [
+      "origin_id",
+      "signal_timestamp",
+      "execution_timestamp",
+      "symbol",
+      "candidate_id",
+      "proposal",
+      "action",
+      "model_sha256",
+      "data_snapshot_sha256",
+      "train_rows_sha256",
+      "scaler_fit_values_sha256"
+    ]
+  },
+  "measurement": {
+    "alpha_one_sided": 0.025,
+    "confidence_method": "qualified_hac_small_sample_t_v1",
+    "daily_observations": 30,
+    "incumbent_drawdown_comparison": "apply_only_if_incumbent_has_at_least_5_trades",
+    "maximum_absolute_drawdown": 0.1,
+    "maximum_symbol_trade_concentration": 0.4,
+    "maximum_turnover_ratio_vs_ema": 1.25,
+    "minimum_effective_sample_size": 20.0,
+    "minimum_opportunities": 30,
+    "minimum_positive_origin_fraction": 0.7,
+    "minimum_trades": 5,
+    "normal_lcb_must_be_positive": true,
+    "opportunities_and_trades_are_separate_gates": true,
+    "outer_slice": "one_non_overlapping_3_day_origin",
+    "primary_contrast": "GA_overlay_f7a4ae11_minus_EMA_TrendConsensus_paired_daily_return",
+    "risk_contrast": "GA_overlay_f7a4ae11_minus_NoTrade_paired_daily_return",
+    "selection_or_tuning_on_outer": false,
+    "stress_lcb_must_be_positive": true
+  },
+  "objective_id": "prospective_3d_fixed_overlay_vs_ema_v1",
+  "outer": {
+    "deployment_horizon_days": 3,
+    "end_exclusive_utc": "2026-10-01T00:00:00Z",
+    "origin_count": 10,
+    "outcomes_available_at_registration": false,
+    "overlap_allowed": false,
+    "retrain_cadence_days": 3,
+    "start_utc": "2026-09-01T00:00:00Z"
+  },
+  "purpose": "Prospective comparison of one frozen GA overlay against NoTrade and a simple EMA proposal",
+  "registered_before_outer_start": true,
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false
+  },
+  "schema_version": "exia.genetic_primus.prospective_3d/1",
+  "selection_use": "engineering_diagnostic_only_not_validation_not_tuning_not_promotion",
+  "training": {
+    "genetic_search_during_outer": false,
+    "genome_updates_during_outer": false,
+    "initial_history_start_utc": "2022-01-01T00:00:00Z",
+    "label_horizon_bars": 7,
+    "purge_bars": 7,
+    "scaler": "refit_each_origin_train_only_median_iqr_clip_8",
+    "timeframe_minutes": 240,
+    "train_end_rule": "origin_start_minus_7_complete_bars_exclusive",
+    "window": "expanding"
+  },
+  "universe": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

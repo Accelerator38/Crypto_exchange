@@ -1,0 +1,66 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v4",
+  "generated_at": "2026-08-24T07:15:51.014310+00:00",
+  "stage": "screen",
+  "status": "V4_ARCHITECTURE_SCREEN_RUN",
+  "architecture": {
+    "id": "compact_16_8",
+    "inputs": 30,
+    "hidden": [
+      16,
+      8
+    ],
+    "outputs": 3
+  },
+  "parameter_count": 659,
+  "seed": 242,
+  "selected_generation": 7,
+  "metrics": {
+    "trades": 4170,
+    "turnover_fills": 8340,
+    "fills_per_day": 7.609489051094891,
+    "days": 1096,
+    "mean_daily_bps": 11.068175138469005,
+    "median_daily_bps": 0.0,
+    "lcb_daily_bps": -0.25364304205867416,
+    "max_drawdown": 0.4191902726038377,
+    "positive_fold_means": 4,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -10.442378368658959,
+    "median_fold_lcb_bps": -20.523016638836477,
+    "worst_fold_lcb_bps": -31.77453386134382,
+    "max_direction_share": 0.5309352517985612,
+    "max_state_share": 0.40911270983213427,
+    "max_symbol_share": 0.18657074340527577,
+    "temporal_gate_passed": false,
+    "fitness": -22.4253889016102,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_overall_lcb",
+      "insufficient_positive_folds",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "failed_gates": [
+    "max_drawdown",
+    "nonpositive_overall_lcb",
+    "insufficient_positive_folds",
+    "nonpositive_worst_fold_mean",
+    "nonpositive_median_fold_lcb"
+  ],
+  "config_sha256": "74c766204a2eb06f056dc6fb7ffc599882620345122f1b8bcd3ead34cacc2cd1",
+  "code_sha256": "82f1806f6a6a5e7f23fc0e6c2108459c31f52943c7d0bc7ac721549c9e2dd30d",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "run_fingerprint": "5ab8d11cb60eb7dc10436086b3779ef541dd193656c5fa89ee5b425cfc0103cc",
+  "champion_genome_sha256": "28d56e6bca8f00646f43bb8f6c749d38179cb13e04f5e9c5881e4c5099fd700f",
+  "champion_file_sha256": "ee69a47f46e5a78c25ede0ae4e4033be9ac92a1c14fe5bfa32b203f9e36e680f",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

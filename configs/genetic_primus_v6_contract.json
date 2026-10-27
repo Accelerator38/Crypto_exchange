@@ -1,0 +1,141 @@
+{
+  "schema_version": "exia.genetic_primus_experiment_contract.v6",
+  "experiment_id": "genetic_primus_v6_oi_kline_flow",
+  "agent_id": "Genetic_Primus_V6",
+  "immutable_after_freeze": true,
+  "objective": "Test preregistered derivatives events using full-history Binance USD-M open interest and four-hour taker flow before any neuroevolution.",
+  "base_derivatives_source": {
+    "manifest": "Retrodate/genetic_primus_v5_binance_metrics_v1_20220101_20241231/manifest.json",
+    "manifest_sha256": "61ca9aa9aa0577a49048f12cb3c3c48dd462512bb6f59e8dd037fe6f3fc38c78",
+    "dataset_sha256": "39ba79679655eddd4a29e2a93de2038dad13c7e91122cb9799316bc0b24207d5",
+    "dataset_artifact_sha256": "6bfdfedc3984e8dc3e6b7854d7ffc1be25921886e47aea92ed5859a9dde9d26c"
+  },
+  "flow_source": {
+    "source_id": "binance_usdm_4h_kline_taker_flow_v1",
+    "source_family": "cross_exchange_oi_kline_flow",
+    "provider": "Binance public data",
+    "url_template": "https://data.binance.vision/data/futures/um/monthly/klines/{exchange_symbol}/4h/{exchange_symbol}-4h-{year_month}.zip",
+    "checksum_suffix": ".CHECKSUM",
+    "start_month": "2022-01",
+    "end_month": "2024-12",
+    "timeframe_minutes": 240,
+    "symbols": {
+      "ADA/USDT": "ADAUSDT",
+      "BNB/USDT": "BNBUSDT",
+      "BTC/USDT": "BTCUSDT",
+      "DOGE/USDT": "DOGEUSDT",
+      "ETH/USDT": "ETHUSDT",
+      "LINK/USDT": "LINKUSDT",
+      "SOL/USDT": "SOLUSDT",
+      "XRP/USDT": "XRPUSDT"
+    },
+    "required_raw_columns": [
+      "open_time",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume",
+      "close_time",
+      "quote_volume",
+      "count",
+      "taker_buy_volume",
+      "taker_buy_quote_volume",
+      "ignore"
+    ],
+    "derived_flow_feature": "kline_taker_imbalance_4h",
+    "derived_flow_formula": "2 * taker_buy_quote_volume / quote_volume - 1",
+    "minimum_raw_file_coverage": 0.995,
+    "minimum_joined_bar_coverage": 0.95,
+    "minimum_core_feature_coverage": 0.9,
+    "official_checksum_required": true,
+    "raw_archive_required": true
+  },
+  "execution_source": {
+    "manifest": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.manifest.json",
+    "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+    "decision_at": "bar_close",
+    "entry_at": "next_bar_open",
+    "exit_at": "sixth_bar_next_open",
+    "holding_bars": 6,
+    "cross_fold_positions_allowed": false,
+    "intrabar_execution_allowed": false
+  },
+  "required_core_features": [
+    "oi_change_4h",
+    "oi_change_12h",
+    "oi_change_24h",
+    "oi_value_change_4h",
+    "account_long_short_log",
+    "kline_taker_imbalance_4h"
+  ],
+  "source_feasibility": {
+    "events": [
+      {
+        "event_id": "oi_taker_price_continuation",
+        "definition": "abs(oi_change_4h) >= trailing p90, abs(kline_taker_imbalance_4h) >= trailing p75, and taker/price direction agree",
+        "direction": "sign(return_3)"
+      },
+      {
+        "event_id": "crowding_unwind_reversal",
+        "definition": "abs(account_long_short_z) >= 2, oi_change_4h <= trailing p10, and price moves with crowded direction",
+        "direction": "opposite crowded direction"
+      },
+      {
+        "event_id": "oi_price_divergence_reversal",
+        "definition": "abs(return_3) >= trailing p90 and oi_change_4h has the opposite sign",
+        "direction": "opposite price direction"
+      }
+    ],
+    "trailing_window_bars": 1080,
+    "minimum_trailing_bars": 540,
+    "event_cooldown_bars": 6,
+    "stress_round_trip_cost_bps": 24.0,
+    "bootstrap_alpha": 0.016666666666666666,
+    "bootstrap_samples": 5000,
+    "bootstrap_block_days": 7,
+    "minimum_events_per_fold": 30,
+    "minimum_positive_folds": 4,
+    "requires_positive_overall_mean": true,
+    "requires_positive_overall_median": true,
+    "requires_positive_overall_lcb": true,
+    "requires_positive_worst_fold_mean": true,
+    "requires_positive_median_fold_lcb": true
+  },
+  "walk_forward": [
+    {"name": "WF1", "train_start": "2022-01-01T00:00:00Z", "train_end": "2023-01-01T00:00:00Z", "evaluation_start": "2023-01-01T00:00:00Z", "evaluation_end": "2023-07-01T00:00:00Z"},
+    {"name": "WF2", "train_start": "2022-01-01T00:00:00Z", "train_end": "2023-07-01T00:00:00Z", "evaluation_start": "2023-07-01T00:00:00Z", "evaluation_end": "2024-01-01T00:00:00Z"},
+    {"name": "WF3", "train_start": "2022-07-01T00:00:00Z", "train_end": "2024-01-01T00:00:00Z", "evaluation_start": "2024-01-01T00:00:00Z", "evaluation_end": "2024-07-01T00:00:00Z"},
+    {"name": "WF4", "train_start": "2023-01-01T00:00:00Z", "train_end": "2024-07-01T00:00:00Z", "evaluation_start": "2024-07-01T00:00:00Z", "evaluation_end": "2025-01-01T00:00:00Z"}
+  ],
+  "evolution": {
+    "allowed_only_after_source_status": "V6_DATA_SOURCE_AND_EVENT_CAPACITY_ACCEPTED",
+    "architecture": {"type": "sparse_mlp", "hidden": [8], "outputs": ["SHORT", "NO_TRADE", "LONG"]},
+    "screen_seeds": [919, 1020, 1121],
+    "required_passing_seeds": 2,
+    "final_seed": 1222,
+    "population_size": 32,
+    "maximum_generations": 40,
+    "extension_allowed": false,
+    "fallback_selection_allowed": false
+  },
+  "terminal_kill_criteria": [
+    "DATA_SOURCE_INTEGRITY_FAILURE",
+    "DATA_SOURCE_INSUFFICIENT_COVERAGE",
+    "NO_PREREGISTERED_EVENT_HAS_POSITIVE_STRESS_COSTED_WALK_FORWARD_CAPACITY",
+    "FEWER_THAN_TWO_OF_THREE_SEEDS_PASS",
+    "ANY_COST_ACTION_LEDGER_MISMATCH",
+    "ANY_EVALUATION_FOLD_HAS_FEWER_THAN_30_CLOSED_TRADES",
+    "ANY_POSITION_EXCEEDS_SIX_BARS",
+    "DEVELOPMENT_DRAWDOWN_EXCEEDS_20_PERCENT",
+    "DEVELOPMENT_OVERALL_OR_TEMPORAL_LCB_NONPOSITIVE"
+  ],
+  "safety": {
+    "validation_opened": false,
+    "oos_opened": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

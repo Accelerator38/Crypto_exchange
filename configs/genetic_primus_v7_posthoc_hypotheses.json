@@ -1,0 +1,28 @@
+{
+  "schema_version": "exia.genetic_primus_posthoc_hypotheses.v7",
+  "source_experiment_status": "V7_TERMINAL_REJECTED_NO_EVENT_CAPACITY",
+  "promotion_authority": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "hypotheses": [
+    {
+      "hypothesis_id": "link_isolated_liquidation_reversal_prospective",
+      "origin": "posthoc_symbol_slice",
+      "event_id": "isolated_symbol_cascade_reversal",
+      "symbol": "LINK/USDT",
+      "observed_events": 55,
+      "observed_mean_net_bps": 113.416549,
+      "observed_median_net_bps": 79.294249,
+      "observed_lcb_net_bps": 35.509770,
+      "failed_temporal_evidence": {
+        "WF1_events": 14,
+        "WF1_mean_net_bps": -0.400924,
+        "WF1_lcb_net_bps": -113.186701,
+        "minimum_events_per_fold": 30
+      },
+      "allowed_use": "new independent prospective source window only",
+      "forbidden_use": "candidate promotion, threshold tuning, V7 reopening, paper or live trading"
+    }
+  ]
+}

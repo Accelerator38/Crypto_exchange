@@ -1,0 +1,259 @@
+{
+  "registration_sha256": "e41e6fe5361696d002a517aaae155a9aac80b97fa6c313b1c08560c73de85bc1",
+  "variant": {
+    "id": "asset_intercepts",
+    "hypothesis": "shared slopes with asset-specific intercepts instead of independent models",
+    "features": "asset19",
+    "estimator": "logistic",
+    "parent": "logistic",
+    "horizons": [
+      1,
+      10,
+      30
+    ]
+  },
+  "minutes": 1,
+  "origin_index": 12,
+  "fold": {
+    "origin_ms": 1788652800000,
+    "train_sha256": "885eac56f9b13178c95f878dd155dc53e6ecb49e8cfcb7ada4c3e33558d13631",
+    "calibration_sha256": "328ea626ff4c43f7bf05e89663d3bdb3c19461a7d9e0b67083fb4c2522c9b00f",
+    "latest_train_label_ms": 1788047340000,
+    "calibration_start_ms": 1788048000000,
+    "latest_calibration_label_ms": 1788652380000,
+    "cutoff_ms": 1788652380000,
+    "train_times": 4000,
+    "calibration_times": 10073,
+    "test_times": 4320
+  },
+  "fold_sha256": "5d9765412596bdc84e2d001f51e747be97c3fc1cf9e6764deca4c449bb880422",
+  "thresholds": {
+    "ADA/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.03074099754956472,
+        "tie_key": 10392112381381188134,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.05816009270562872,
+        "tie_key": 14992706576102253296,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.07704914229272597,
+        "tie_key": 6317113872312986997,
+        "calibration_rows": 10073
+      }
+    ],
+    "BNB/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.01983231865270496,
+        "tie_key": 3377220642204261291,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.03635440700639614,
+        "tie_key": 330744581276569958,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.04579889124788772,
+        "tie_key": 10516874017081150877,
+        "calibration_rows": 10073
+      }
+    ],
+    "BTC/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.03449900100232384,
+        "tie_key": 9843307053034063788,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.053242833678956325,
+        "tie_key": 18435973933748956934,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.06233274961341273,
+        "tie_key": 15060999832320140051,
+        "calibration_rows": 10073
+      }
+    ],
+    "DOGE/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.02559755379566364,
+        "tie_key": 10605229267685214064,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.04681112086812722,
+        "tie_key": 8495329351038039265,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.060092959357615605,
+        "tie_key": 17025976712608738240,
+        "calibration_rows": 10073
+      }
+    ],
+    "ETH/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.023536079352348693,
+        "tie_key": 1198308577587530830,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.041888901703441395,
+        "tie_key": 15712384947148118898,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.05158972782538984,
+        "tie_key": 3538396376060550351,
+        "calibration_rows": 10073
+      }
+    ],
+    "LINK/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.0235557624734275,
+        "tie_key": 2647456023988051156,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.04461653897864748,
+        "tie_key": 17685259888476212407,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.05830255352338187,
+        "tie_key": 18038365777687246154,
+        "calibration_rows": 10073
+      }
+    ],
+    "SOL/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.025516890527375935,
+        "tie_key": 9050417419596174197,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.04610727973815765,
+        "tie_key": 6957017200787141642,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.058811494001410614,
+        "tie_key": 15781346927729071454,
+        "calibration_rows": 10073
+      }
+    ],
+    "XRP/USDT": [
+      {
+        "coverage_target": 1.0,
+        "confidence": -1.0,
+        "tie_key": 0,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.5,
+        "confidence": 0.03588538204038394,
+        "tie_key": 2159658199756002696,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.2,
+        "confidence": 0.05892389889741634,
+        "tie_key": 3440198637212958004,
+        "calibration_rows": 10073
+      },
+      {
+        "coverage_target": 0.1,
+        "confidence": 0.0726567999434633,
+        "tie_key": 8428409780337673863,
+        "calibration_rows": 10073
+      }
+    ]
+  },
+  "model_sha256": "cb1286c56a802d534a5e71989039f4aca808571bd660d697151a01241a0241d9",
+  "prediction_sha256": "d34b82a090e591c9149ed9d899bf0f9f097092fe33da90bda3beb1bc081cda36",
+  "source_models": [
+    "27efdc295f5daeea1fb041d791646edf29e01d84d4158b48318c4e0249d253b9"
+  ],
+  "fit_count": 1,
+  "info": {
+    "rows": 28209,
+    "features": 19,
+    "kind": "logistic",
+    "warnings": [],
+    "robust_train_only": false,
+    "weighted_positive_mass": 14439,
+    "weighted_negative_mass": 13770,
+    "kish_weight_ess_not_independent_observations": 28209,
+    "parameter_count": 20
+  },
+  "saved_parity": true,
+  "sha256": "2506cdc10097c200b1dbd4eb01a841c1414190230655581514e3dc1cc51276b2"
+}

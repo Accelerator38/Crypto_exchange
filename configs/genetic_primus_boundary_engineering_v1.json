@@ -1,0 +1,66 @@
+{
+  "schema": "exia.genetic_primus.forward_boundary_engineering_contract/1",
+  "contract_id": "boundary_carry_engineering_v1_20261005",
+  "scope": "synthetic_boundary_fixtures_only_not_research_objective",
+  "supersedes_historical_or_prospective_contracts": false,
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "paper": false,
+    "live": false, "promotion_authority": false, "execution_allowed": false,
+    "training_allowed": false, "financial_evaluation_allowed": false, "network_allowed": false
+  },
+  "time": {
+    "unit": "utc_epoch_ms", "bar_ms": 14400000,
+    "interval": "half_open_start_inclusive_end_exclusive",
+    "retrain_cadence_ms": 259200000, "deployment_horizon_ms": 259200000,
+    "partial_origins": "reject", "purge_bars": 7,
+    "train_end_exclusive": "origin_open",
+    "training_feature_open_strictly_before": "origin_open_minus_7_bars",
+    "training_label_end_no_later_than": "origin_open"
+  },
+  "capital": {
+    "initial_equity": 1.0,
+    "sleeves": "equal_initial_fixed_universe_no_cross_rebalance",
+    "across_origins": "continuous_no_reset_no_rebase",
+    "aggregation": "compound_same_trajectory_returns_not_sum"
+  },
+  "boundary": {
+    "retrain_event_causes_trade": false,
+    "unchanged_target": "carry_quantity_cash_and_entry_model_identity",
+    "changed_target": "exit_then_optional_enter_at_next_open",
+    "interval_terminal": "liquidate_at_final_candle_close_include_fees",
+    "force_flat_timestamps": [],
+    "record_details": true,
+    "force_flat_argument_semantics": "open_time_exit_not_previous_close",
+    "origin_close_liquidation_supported": false,
+    "terminal_after_final_decision": true
+  },
+  "ledger": {
+    "decision_model_sha256": "active_model_at_decision",
+    "position_entry_model_sha256": "entry_model_retained_until_exit",
+    "signal_time": "previous_candle_close_equal_next_open_boundary",
+    "same_timestamp_order": "previous_close_then_retrain_then_decision_then_open_fill",
+    "model_must_be_available_before_fill": true,
+    "training_latency": "unverified_no_execution_authority"
+  },
+  "costs": {
+    "normal_round_trip_bps": 16.0, "stress_round_trip_bps": 24.0,
+    "status": "reference_synthetic_costs_not_exchange_calibration",
+    "fee_basis": "actual_fill_notional", "funding_borrow_verified": false
+  },
+  "launch_gate": {
+    "real_evaluator_adapter_verified": false,
+    "runtime_dependency_graph_verified": false,
+    "environment_verified": false,
+    "data_and_model_payloads_verified": false,
+    "required": ["explicit_all_call_parameters", "transitive_dependency_byte_hashes",
+                 "python_and_distribution_versions", "data_folds_resample_cutoff_hashes",
+                 "model_scaler_payload_hashes", "before_after_input_identity",
+                 "actual_loaded_dependency_identity", "boundary_adapter_regressions",
+                 "separate_user_authorization_for_financial_run"]
+  },
+  "reviewed_source_references": {
+    "src/exia/genetic_primus/accounting_v2.py": "f9294a2e4b2220aa7552ebed7d2480e7e7647744fe5a62330888acba569af5bb",
+    "src/exia/genetic_primus/measurement_lab_v2.py": "ff9ec7f12412190426ebffe57d817fca9ac0d0643e628c15646e72ff84b3f648",
+    "src/exia/genetic_primus/ablation_v1.py": "429082fda31e371e71e2b2420e613c0681b08357d2495985b4ba8a8b8e645312"
+  }
+}

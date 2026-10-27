@@ -1,0 +1,52 @@
+{
+  "schema_version": "exia.genetic_primus.overlay_3d_pilot/1",
+  "pilot_id": "genetic_primus_overlay_3d_pilot6_v1",
+  "status": "PREREGISTERED_OFFLINE_ENGINEERING",
+  "origin_count": 6,
+  "validation_start": "2025-01-01T00:00:00Z",
+  "validation_end_exclusive": "2025-01-19T00:00:00Z",
+  "deployment_horizon_days": 3,
+  "retrain_cadence_days": 3,
+  "non_overlapping": true,
+  "primary_metric": "minimum_incumbent_comparable_audit_paired_lcb_bps",
+  "ranking": [
+    "audit_paired_lcb_bps",
+    "stress_cost_lcb_bps",
+    "positive_outer_slice_fraction",
+    "variant_id"
+  ],
+  "comparators": [
+    "NoTrade",
+    "Momentum_return_1",
+    "MeanReversion_return_1",
+    "GeneticPrimusIncumbent"
+  ],
+  "decision_rule": {
+    "minimum_comparable_origins": 5,
+    "audit_paired_lcb_must_be_positive": true,
+    "stress_cost_lcb_must_be_positive": true,
+    "minimum_positive_outer_slice_fraction": 0.65,
+    "promotion_pass_fraction_must_be_positive": true,
+    "threshold_changes_after_opening_results_allowed": false
+  },
+  "input_sha256": {
+    "configs/genetic_primus_overlay_3d_v1.json": "683af7a465c3630d70317c57c201f06b96eb6b82c6fe6a6f6f49886be3826484",
+    "configs/genetic_primus_v4.json": "9d4d6b8e1d33f1a824717563a440b554463de51fac1fd0561d49c115257afab7",
+    "configs/genetic_primus_measurement_3d_v1.json": "86e37547980e2313730f3d42ec6a3db99eb655a7cabd424b567180872a82c075",
+    "configs/genetic_primus_promotion_gate_v1.json": "461b27a7bda03aafadf44cb5aaa3a7106aa744081fbf7f35c258fe33a66c2bad",
+    "src/exia/genetic_primus/simulator.py": "70172504679dd0f36f8145162ef8469e38e6cab29a87c7684da7f9fbab41c288",
+    "src/exia/genetic_primus/fitness_v4.py": "47345ab6f0f5980c376c7dbf1b63817c5ae29a65ecec466a430d8a7469d34fc4",
+    "src/exia/genetic_primus/evolution_v4.py": "76e283ba260caf73f480c09b46ab86079f19460a97b1c398d04cabb2767709eb",
+    "src/exia/genetic_primus/rolling_v4.py": "3d3cddb6a74b9aaf8bb45a2a6bbf62af85a65811753e143e965475d1743b3f27",
+    "src/exia/genetic_primus/rolling.py": "ed47e89e8e88977596bf7d24c3e0c252572da452ac9b63790de18073af02224a"
+  },
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "dataset_manifest_file_sha256": "5d79526614a41f1b22ca963b9fb6c07584b8b60eb0d49d76c574d6fdcc666dd5",
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

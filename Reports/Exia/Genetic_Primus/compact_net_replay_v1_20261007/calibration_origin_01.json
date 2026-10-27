@@ -1,0 +1,118 @@
+{
+  "schema": "compact_calibration_linear_forecast/1",
+  "origin_ms": 1782172800000,
+  "training_identity": {
+    "train_samples_sha256": "ddcbf34a58d0ebaae61800cd416cc8d52464d7f62b542b93e067e7c2103ba197",
+    "fold_sha256": "4cbbca1e3e50119931230f29459e0430e61cb63bb3ca25a559b6c54e212265d3",
+    "train_end_ms": 1782158400000,
+    "cutoff_ms": 1782057600000,
+    "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+    "l2": 0.01
+  },
+  "scaler_sha256": "c52e65ac8e6180b29dc20ea58f1ae0e36579a63e2807f84f7f9c8e1bc6af6ae0",
+  "feature_prefix_sha256": "5234538bb42b15920120dd3d4ea1c71b732757b73e6da86589686901e7d596a3",
+  "train_origin_count": 540,
+  "model_fit_count": 1,
+  "scaler_fit_count": 1,
+  "gradient_steps": 0,
+  "forecast_only": true,
+  "arms": {
+    "linear6_uniform": {
+      "origin_ess": 539.9999999999997,
+      "weights_sha256": "f45927ea40751844ae5731807eaa5a022c31efe589b43dfb8ca989de47ffda8c",
+      "positive_weight_mass": 0.4858796296296295,
+      "negative_weight_mass": 0.5134259259259257,
+      "models": [
+        {
+          "schema": "compact_forecast_model/1",
+          "architecture": "linear6",
+          "features": [
+            "distance_ema48",
+            "return_18",
+            "efficiency_18",
+            "relative_return_18",
+            "volatility_48",
+            "breadth_ema48"
+          ],
+          "parameter_count": 7,
+          "parameters": [
+            -0.07677228381741107,
+            0.05939662421511342,
+            0.017666875014982215,
+            0.015863001088565774,
+            0.008311058050772343,
+            0.050570482723130195,
+            5.7911589433379745e-05
+          ],
+          "scaler": {
+            "schema": "compact_forecast_scaler/1",
+            "mean": [
+              -0.0008619131778925854,
+              0.001645518452739597,
+              0.24445518834867003,
+              3.533695969582385e-20,
+              0.014955128201209906,
+              0.4625
+            ],
+            "scale": [
+              0.05817360216402115,
+              0.07146517828551299,
+              0.17406697185763922,
+              0.04212077597780993,
+              0.007531316980769297,
+              0.3908457709463793
+            ],
+            "target_mean": 0.0017117243070460557,
+            "target_scale": 0.07451893316479852,
+            "clip": 8.0,
+            "training_sha256": "13f73cdec194c7d842bc1b27f3fb90cfe3f090b817aec09cdd417aad4b910ed9",
+            "fitting_rule": "unweighted_train_only_ddof0"
+          },
+          "scaler_sha256": "c52e65ac8e6180b29dc20ea58f1ae0e36579a63e2807f84f7f9c8e1bc6af6ae0",
+          "weighting": "uniform",
+          "seed": null,
+          "epochs": null,
+          "training_identity": {
+            "train_samples_sha256": "ddcbf34a58d0ebaae61800cd416cc8d52464d7f62b542b93e067e7c2103ba197",
+            "fold_sha256": "4cbbca1e3e50119931230f29459e0430e61cb63bb3ca25a559b6c54e212265d3",
+            "train_end_ms": 1782158400000,
+            "cutoff_ms": 1782057600000,
+            "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+            "l2": 0.01,
+            "origin_ess": 539.9999999999997,
+            "weights_sha256": "f45927ea40751844ae5731807eaa5a022c31efe589b43dfb8ca989de47ffda8c",
+            "positive_weight_mass": 0.4858796296296295,
+            "negative_weight_mass": 0.5134259259259257
+          },
+          "target_kind": "gross_open_open_forecast_not_net_profit",
+          "runtime_authority": false,
+          "promotion_authority": false,
+          "sha256": "908d9bf32bcfa923285e00fa8c24021edd4900873d23a8c44a843c6d66233392"
+        }
+      ],
+      "prediction": [
+        -0.0006721038406952251,
+        -0.0010048100895877323,
+        -0.0025731633401695478,
+        -0.002000675465683835,
+        -0.0022394291310638475,
+        -0.0028962473615892076,
+        0.00012757470187356392,
+        -0.0018022948693050935
+      ],
+      "stored_parameter_count": 7
+    }
+  },
+  "sha256": "2fa3b929307d124fd08f59253cbc0ef6d55fa4e37e7414c7c28152f9e9ddb34c",
+  "preparation_sha256": "27b11902be691c90a963662858ed3a0e08816cd5a94753b5460b2f3346ba891b",
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ]
+}

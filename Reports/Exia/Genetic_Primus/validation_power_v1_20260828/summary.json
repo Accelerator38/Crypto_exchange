@@ -1,0 +1,648 @@
+{
+  "automatic_parameter_changes": false,
+  "cells_completed": 15,
+  "config_sha256": "68f80efd23e9ad651ece99ce80b9f3ec4bcb5e5b63832255ccc9634bb5a9053b",
+  "decision": "NO_NEW_GA_TRAINING_OR_BLIND_OPENING",
+  "false_positive_inflation_cases": [
+    {
+      "bank": "primary",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.0647652677199557,
+        "rate": 0.08984375,
+        "replications": 1024,
+        "successes": 92,
+        "upper": 0.1233523343599055
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "audit",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06725202564231002,
+        "rate": 0.0927734375,
+        "replications": 1024,
+        "successes": 95,
+        "upper": 0.12666473642269502
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "both_banks",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06146354155622542,
+        "rate": 0.0859375,
+        "replications": 1024,
+        "successes": 88,
+        "upper": 0.11892184721011066
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "primary",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.05899823199056159,
+        "rate": 0.0830078125,
+        "replications": 1024,
+        "successes": 85,
+        "upper": 0.11558799679063064
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "audit",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06559321407109095,
+        "rate": 0.0908203125,
+        "replications": 1024,
+        "successes": 93,
+        "upper": 0.12445744133715153
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "both_banks",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.05247382224631035,
+        "rate": 0.0751953125,
+        "replications": 1024,
+        "successes": 77,
+        "upper": 0.1066479799078316
+      },
+      "rho": 0.0
+    },
+    {
+      "bank": "primary",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.08318719592893487,
+        "rate": 0.111328125,
+        "replications": 1024,
+        "successes": 114,
+        "upper": 0.14745757937531456
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "audit",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.08403396167493979,
+        "rate": 0.1123046875,
+        "replications": 1024,
+        "successes": 115,
+        "upper": 0.14854386695769092
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "both_banks",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07728135299761393,
+        "rate": 0.1044921875,
+        "replications": 1024,
+        "successes": 107,
+        "upper": 0.13983204900796653
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "primary",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07644084414375978,
+        "rate": 0.103515625,
+        "replications": 1024,
+        "successes": 106,
+        "upper": 0.1387395045334394
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "audit",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07896480491102342,
+        "rate": 0.1064453125,
+        "replications": 1024,
+        "successes": 109,
+        "upper": 0.14201470375131958
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "both_banks",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07141547076788844,
+        "rate": 0.09765625,
+        "replications": 1024,
+        "successes": 100,
+        "upper": 0.13216655793902304
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "primary",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06228743482072888,
+        "rate": 0.0869140625,
+        "replications": 1024,
+        "successes": 89,
+        "upper": 0.1200310072739885
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "audit",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06559321407109095,
+        "rate": 0.0908203125,
+        "replications": 1024,
+        "successes": 93,
+        "upper": 0.12445744133715153
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "both_banks",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.05491162833408553,
+        "rate": 0.078125,
+        "replications": 1024,
+        "successes": 80,
+        "upper": 0.11000933380520028
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "audit",
+      "days": 180,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.050854853726471874,
+        "rate": 0.0732421875,
+        "replications": 1024,
+        "successes": 75,
+        "upper": 0.10440084177090751
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "primary",
+      "days": 365,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.05247382224631035,
+        "rate": 0.0751953125,
+        "replications": 1024,
+        "successes": 77,
+        "upper": 0.1066479799078316
+      },
+      "rho": 0.3
+    },
+    {
+      "bank": "primary",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.12805924241565864,
+        "rate": 0.162109375,
+        "replications": 1024,
+        "successes": 166,
+        "upper": 0.20310430596441753
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "audit",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.12543013260085334,
+        "rate": 0.1591796875,
+        "replications": 1024,
+        "successes": 163,
+        "upper": 0.19993425579407897
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "both_banks",
+      "days": 30,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.11669832652778102,
+        "rate": 0.1494140625,
+        "replications": 1024,
+        "successes": 153,
+        "upper": 0.18933552858333852
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "primary",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.10628928036216634,
+        "rate": 0.1376953125,
+        "replications": 1024,
+        "successes": 141,
+        "upper": 0.17654793480837777
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "audit",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.10542548240955021,
+        "rate": 0.13671875,
+        "replications": 1024,
+        "successes": 140,
+        "upper": 0.1754786794326126
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "both_banks",
+      "days": 60,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.10197614193606705,
+        "rate": 0.1328125,
+        "replications": 1024,
+        "successes": 136,
+        "upper": 0.17119580659257064
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "primary",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.09168732720950183,
+        "rate": 0.12109375,
+        "replications": 1024,
+        "successes": 124,
+        "upper": 0.15828798137856048
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "audit",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.09254117138575577,
+        "rate": 0.1220703125,
+        "replications": 1024,
+        "successes": 125,
+        "upper": 0.1593671905306878
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "both_banks",
+      "days": 90,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.08318719592893487,
+        "rate": 0.111328125,
+        "replications": 1024,
+        "successes": 114,
+        "upper": 0.14745757937531456
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "primary",
+      "days": 180,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07644084414375978,
+        "rate": 0.103515625,
+        "replications": 1024,
+        "successes": 106,
+        "upper": 0.1387395045334394
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "audit",
+      "days": 180,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07980772877281682,
+        "rate": 0.107421875,
+        "replications": 1024,
+        "successes": 110,
+        "upper": 0.14310483321790746
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "both_banks",
+      "days": 180,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06725202564231002,
+        "rate": 0.0927734375,
+        "replications": 1024,
+        "successes": 95,
+        "upper": 0.12666473642269502
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "primary",
+      "days": 365,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07308715712450259,
+        "rate": 0.099609375,
+        "replications": 1024,
+        "successes": 102,
+        "upper": 0.13436097823917145
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "audit",
+      "days": 365,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.07728135299761393,
+        "rate": 0.1044921875,
+        "replications": 1024,
+        "successes": 107,
+        "upper": 0.13983204900796653
+      },
+      "rho": 0.6
+    },
+    {
+      "bank": "both_banks",
+      "days": 365,
+      "diagnosis": "FALSE_POSITIVE_INFLATION_DETECTED",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.06725202564231002,
+        "rate": 0.0927734375,
+        "replications": 1024,
+        "successes": 95,
+        "upper": 0.12666473642269502
+      },
+      "rho": 0.6
+    }
+  ],
+  "limitation": "stationary Gaussian synthetic sensitivity; not empirically fitted to market, no sparse trades or regime drift",
+  "null_intervals": "Bonferroni-adjusted Wilson Monte Carlo intervals over 45 prespecified tests",
+  "oracle_horizons": [
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": 365,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.0
+    },
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": 365,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.3
+    },
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 100.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    },
+    {
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 200.0,
+      "first_grid_horizon_at_80pct_stress_oracle_power": null,
+      "rho": 0.6
+    }
+  ],
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "schema": "exia.genetic_primus.validation_power_result/1"
+}

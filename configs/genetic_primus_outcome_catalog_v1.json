@@ -1,0 +1,38 @@
+{
+  "schema_version": "exia.genetic_primus.outcome_catalog/1",
+  "catalog_id": "genetic_primus_historical_overlay_pilot6_v1",
+  "objective_registry_path": "configs/genetic_primus_objective_registry_v2.json",
+  "objective_registry_sha256": "766aed82b8c26b76ebe9a565a53fe565bcceda4a32f7360b76ff77d847de1273",
+  "evidence_role": "historical_diagnostic",
+  "timestamp_column": "origin_timestamp",
+  "return_column": "net_return",
+  "alignment_policy": "exact_timestamp_set",
+  "candidate_objective_id": "overlay_3d_v4",
+  "required_candidate_objective_id": "overlay_3d_v5_sealed",
+  "required_pbo_objective_ids": ["overlay_3d_v1", "overlay_3d_v3", "overlay_3d_v4"],
+  "minimum_observations": 60,
+  "cscv_slice_count": 4,
+  "outcomes": [
+    {
+      "objective_id": "overlay_3d_v1",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_pilot6_20260826/benchmarks.parquet",
+      "artifact_sha256": "8b5356b74ea44dd526b9431ce65fd6dcbe730232759b5726e28278a62db7b36c",
+      "filters": {"agent_id": "GeneticPrimusChallenger"}
+    },
+    {
+      "objective_id": "overlay_3d_v3",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v3_pilot6_r3_20260826/benchmarks.parquet",
+      "artifact_sha256": "b9a60a37ec74b3c2c5d3358953c7f3a28687c47fc2950d3eeb0435faa0afcbee",
+      "filters": {"agent_id": "GeneticPrimusChallenger"}
+    },
+    {
+      "objective_id": "overlay_3d_v4",
+      "artifact_path": "Reports/Exia/Genetic_Primus/overlay_3d_v4_stabilization_pilot6_20260826/benchmarks.parquet",
+      "artifact_sha256": "14170bd38e55ed39d6e35ffe1adc62ec116b476d3fe0bf36e4581549e5e7b4a9",
+      "filters": {"agent_id": "GeneticPrimusChallenger"}
+    }
+  ],
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

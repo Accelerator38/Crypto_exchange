@@ -1,0 +1,99 @@
+{
+  "registration_sha256": "87ee5c1e62067a2c976db877d00079f09d8dfbea9fbcbefdcc161e9bc20077b1",
+  "origin": 12,
+  "symbol": "LINK/USDT",
+  "model": "logistic12",
+  "info": {
+    "name": "logistic12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      0.0020593968324016023,
+      0.0016400377535238286,
+      0.22599466257803896,
+      0.000462112525705125,
+      0.002649905584531374,
+      0.5517770391204295,
+      0.00010335087249363056,
+      0.00010335087249363056,
+      0.0038747842733433684,
+      0.0009139543672227038,
+      0.0009740134585754308,
+      0.004017571075314939
+    ],
+    "scale": [
+      0.009602413316714855,
+      0.012698839523740667,
+      0.16501157859746576,
+      0.007008039421119863,
+      0.001300050544484665,
+      0.38403195433841225,
+      0.0030089954357174035,
+      0.0030089954357174035,
+      0.003434669919436047,
+      0.001186525917197604,
+      0.0017382034993602346,
+      1.0341829732712178
+    ],
+    "rows": 3911,
+    "up_fraction": 0.5031961135259524,
+    "training_sha256": "704c543d8cde0a29b57ae40628c5dc064d2d041abd436718dc1708d5355b29fd",
+    "warnings": [],
+    "hyperparameters": {
+      "C": 0.1,
+      "class_weight": null,
+      "dual": false,
+      "fit_intercept": true,
+      "intercept_scaling": 1,
+      "l1_ratio": 0.0,
+      "max_iter": 120,
+      "n_jobs": null,
+      "penalty": "deprecated",
+      "random_state": 20261012,
+      "solver": "lbfgs",
+      "tol": 1e-06,
+      "verbose": 0,
+      "warm_start": false
+    },
+    "parameter_count": 13
+  },
+  "fold": {
+    "origin_ms": 1788652800000,
+    "cutoff_ms": 1788648600000,
+    "candidate_origins": 4313,
+    "selected_origins": 4000,
+    "test_origins": 432,
+    "latest_label_ms": 1788648000000,
+    "train_first_ms": 1786060800000,
+    "train_last_ms": 1788647400000,
+    "fold_pin": {
+      "sha256": "1106a910b65805b2d3f4613b85c80ecce9825db94cb2b96049e1375b1fef80c5",
+      "bytes": 7188
+    },
+    "train_data_sha256": "dd8e4e8021d9feaa3a27b69725421afe9d28edb2404b441bf2d2d0356f56e833"
+  },
+  "model_pin": {
+    "sha256": "317e1c6d8fd1a264fe47040b5d9ddc08a9317c1f420e641a9d3292d4de2f5377",
+    "bytes": 1219
+  },
+  "prediction_pin": {
+    "sha256": "e63378a9033cce8169bf6c0252c2100434a336415a600fba2cbf15069f08c6b3",
+    "bytes": 5306
+  },
+  "elapsed_seconds": 0.0051114000016241334,
+  "source_train_indices_sha256": "291fdc7c1f8e34d31f93e8311a3b87a4c8747f9db42fd40868a86b4cba157e77",
+  "n_test": 432,
+  "sha256": "e14b1ee1ed832aed16fac10a55ed3d2813e4ca15fa244c9f7e1161879034e72f"
+}

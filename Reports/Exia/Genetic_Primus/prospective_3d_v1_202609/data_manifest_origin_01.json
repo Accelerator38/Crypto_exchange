@@ -1,0 +1,63 @@
+{
+  "contract_path": "configs/genetic_primus_prospective_3d_v1.json",
+  "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f",
+  "created_at_utc": "2026-09-04T06:25:16Z",
+  "immutable": true,
+  "market_values_validated_by_builder": true,
+  "metadata": {
+    "columns": [
+      "timestamp",
+      "symbol",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume"
+    ],
+    "coverage_end_exclusive": 1788480000000,
+    "coverage_start": 1640995200000,
+    "row_count": 81936,
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "timeframe_ms": 14400000,
+    "timestamp_count": 10242
+  },
+  "network_used": false,
+  "outcome_metrics_computed_by_builder": false,
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false
+  },
+  "schema_version": "exia.genetic_primus.prospective_data_manifest/1",
+  "snapshot_files": [
+    {
+      "path": "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet",
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375",
+      "size_bytes": 55079
+    },
+    {
+      "path": "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet",
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0",
+      "size_bytes": 32889
+    },
+    {
+      "path": "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet",
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36",
+      "size_bytes": 3003142
+    }
+  ],
+  "snapshot_sha256": "033354efce9aa6a6ceab85e9249fa3b016e7e8dd70765f5d957d43843076e654"
+}

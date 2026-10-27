@@ -1,0 +1,375 @@
+{
+  "explicit_crossed_delta_then_resnapshot": {
+    "schema": "l2_fragment_result/1",
+    "arguments_sha256": "cc882dbfdf26ed4c939e1fa08af2d3ac992b5c1ac8764029dbc6f5a86153286b",
+    "accepted_rows": 10,
+    "accepted_row_prefix_sha256": "5332fd0272476ff2c81e110078e4be7d2245790c4b62c9e75f19abc0bd8a4a24",
+    "snapshot_count": 2,
+    "delta_count": 0,
+    "delete_count": 0,
+    "unknown_delete_count": 0,
+    "dropped_final_rows": 1,
+    "pending_rows": 0,
+    "finished": true,
+    "book_valid_at_last_completed_group": true,
+    "events": [
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000100,
+        "exchange_ts_us": 1733011200000090,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "008adf5bb7491cd43249ebbea989cf64c6ff5a2dc2e0c65a47ec9a68d861a4ff",
+        "message_type": "snapshot",
+        "source_rows_end_exclusive": 4,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "3"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "1"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "13acb84eeaa302588eacce79d2463ed7045655d30d994e551d43247dbc677a72"
+      },
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000300,
+        "exchange_ts_us": 1733011200000290,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "46070dc9d1a8cc80672b854fd325c5e0abf13066c75a81383fa5190fbd7f4da8",
+        "message_type": "snapshot",
+        "source_rows_end_exclusive": 9,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "3"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "1"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "b1f4205135aff50b9bbfec7df078f73eaf841dcef4060709ebe6a4eed6bac381"
+      }
+    ],
+    "faults": [
+      {
+        "reason": "incomplete_ambiguous_crossed_or_oversized_message",
+        "after_accepted_rows": 5
+      }
+    ],
+    "venue_sequence_verified": false,
+    "delta_semantics_empirically_verified": false,
+    "full_depth_verified": false,
+    "strategy_availability_verified": false,
+    "financial_replay_ready": false,
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "execution_allowed": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "training_allowed": false,
+      "financial_evaluation_allowed": false,
+      "network_allowed": false
+    },
+    "sha256": "1f19a85e266d3ce15e65472dd44ed6a39d6605c3456c78b1c5134a18e3a57a9a"
+  },
+  "with_delta": {
+    "schema": "l2_fragment_result/1",
+    "arguments_sha256": "cc882dbfdf26ed4c939e1fa08af2d3ac992b5c1ac8764029dbc6f5a86153286b",
+    "accepted_rows": 7,
+    "accepted_row_prefix_sha256": "e0b19498ba9be6ac9f5435a1bedc5312787ea016060ad71d841912e58c47ed54",
+    "snapshot_count": 1,
+    "delta_count": 2,
+    "delete_count": 0,
+    "unknown_delete_count": 0,
+    "dropped_final_rows": 1,
+    "pending_rows": 0,
+    "finished": true,
+    "book_valid_at_last_completed_group": true,
+    "events": [
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000100,
+        "exchange_ts_us": 1733011200000090,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "008adf5bb7491cd43249ebbea989cf64c6ff5a2dc2e0c65a47ec9a68d861a4ff",
+        "message_type": "snapshot",
+        "source_rows_end_exclusive": 4,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "3"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "1"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "13acb84eeaa302588eacce79d2463ed7045655d30d994e551d43247dbc677a72"
+      },
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000200,
+        "exchange_ts_us": 1733011200000190,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "ddea61332f08135e8a4f8cab483af59971aebc5998456b5129148d1bc6b64d96",
+        "message_type": "delta",
+        "source_rows_end_exclusive": 5,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "3"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "9"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "0204090e4594f16182de15fa785a10ff8f65d70ebb50decd8790452df600a944"
+      },
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000300,
+        "exchange_ts_us": 1733011200000290,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "99f491adab605fdd0b63121b4fa5146e604ed3a5668a6148b59b948de6129f65",
+        "message_type": "delta",
+        "source_rows_end_exclusive": 6,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "1"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "9"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "5aac6b2f9569862fa4fee0d2ca060aa2b7b981a3cbf5429934d4b6537df35d5b"
+      }
+    ],
+    "faults": [],
+    "venue_sequence_verified": false,
+    "delta_semantics_empirically_verified": false,
+    "full_depth_verified": false,
+    "strategy_availability_verified": false,
+    "financial_replay_ready": false,
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "execution_allowed": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "training_allowed": false,
+      "financial_evaluation_allowed": false,
+      "network_allowed": false
+    },
+    "sha256": "cc1d23629dd4871d08bb671a981a7d9bf202e0aa779d8dc602d85bd09aa73b46"
+  },
+  "silently_lost_delta": {
+    "schema": "l2_fragment_result/1",
+    "arguments_sha256": "cc882dbfdf26ed4c939e1fa08af2d3ac992b5c1ac8764029dbc6f5a86153286b",
+    "accepted_rows": 6,
+    "accepted_row_prefix_sha256": "af1701091879a55b272018b9dd8b9d4193a53b6475cec69150438224b5c762c2",
+    "snapshot_count": 1,
+    "delta_count": 1,
+    "delete_count": 0,
+    "unknown_delete_count": 0,
+    "dropped_final_rows": 1,
+    "pending_rows": 0,
+    "finished": true,
+    "book_valid_at_last_completed_group": true,
+    "events": [
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000100,
+        "exchange_ts_us": 1733011200000090,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "008adf5bb7491cd43249ebbea989cf64c6ff5a2dc2e0c65a47ec9a68d861a4ff",
+        "message_type": "snapshot",
+        "source_rows_end_exclusive": 4,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "3"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "1"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "13acb84eeaa302588eacce79d2463ed7045655d30d994e551d43247dbc677a72"
+      },
+      {
+        "kind": "engineering_book_fragment",
+        "symbol": "BTCUSDT",
+        "received_ts_us": 1733011200000300,
+        "exchange_ts_us": 1733011200000290,
+        "source_prefix_sha256": "5f3b27bc86bbfb22fd27544b1f36109576610bb9689eb87dc414aa36b318f80e",
+        "source_message_rows_sha256": "99f491adab605fdd0b63121b4fa5146e604ed3a5668a6148b59b948de6129f65",
+        "message_type": "delta",
+        "source_rows_end_exclusive": 5,
+        "venue_sequence_verified": false,
+        "full_depth_verified": false,
+        "strategy_availability_verified": false,
+        "observed_state_levels": {
+          "bid": 2,
+          "ask": 2
+        },
+        "bids": [
+          [
+            "99.9",
+            "1"
+          ],
+          [
+            "99.8",
+            "4"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "1"
+          ],
+          [
+            "100.2",
+            "2"
+          ]
+        ],
+        "sha256": "e669e2c3c48bf37bc96e9337bba2c81fd694ac8ad0a51e6111cf3cefcadd85ce"
+      }
+    ],
+    "faults": [],
+    "venue_sequence_verified": false,
+    "delta_semantics_empirically_verified": false,
+    "full_depth_verified": false,
+    "strategy_availability_verified": false,
+    "financial_replay_ready": false,
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "execution_allowed": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "training_allowed": false,
+      "financial_evaluation_allowed": false,
+      "network_allowed": false
+    },
+    "sha256": "8da38401f8d1f2f0fa6125a29df2073e6ea37d52aca52fedd0258c7cd1d9ab9d"
+  }
+}

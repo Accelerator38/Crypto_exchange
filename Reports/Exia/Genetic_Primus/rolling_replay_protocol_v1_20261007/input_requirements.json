@@ -1,0 +1,49 @@
+{
+  "financial_replay_scope": "reference_open_research_not_observed_execution",
+  "policy": [
+    "gross_forecast_to_net_action_rule",
+    "decision_threshold_and_abstention",
+    "capital_usdt_and_equal_allocation_rule",
+    "cash_reserve_and_no_borrow_policy",
+    "fixed_execution_delay_ms",
+    "unchanged_position_carry_and_terminal_close"
+  ],
+  "cost_scenarios": {
+    "normal": null,
+    "stress": null,
+    "fields": [
+      "buy_fee_bps",
+      "sell_fee_bps",
+      "buy_adverse_bps",
+      "sell_adverse_bps",
+      "provenance",
+      "evidence_sha256"
+    ],
+    "registered_assumptions_do_not_qualify_live": true
+  },
+  "funding": {
+    "required_start_ms": 1785542400000,
+    "required_end_exclusive_ms": 1790812800000,
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "events": "settlement_ms, signed_rate, settlement_mark_or_registered_reference_basis",
+    "completeness_gaps_and_interval_changes_verified": false,
+    "zero_funding_fallback_allowed": false
+  },
+  "data_quality": {
+    "independent_aug19_aug22_crosscheck": "pending_not_excluded_from_benchmark"
+  },
+  "prospective": {
+    "not_started": true,
+    "start_and_duration": null,
+    "only_after_net_signal_stability_final_contract_and_unseen_data": true
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "compact_ioc_checkpoint/1",
+  "binding_sha256": "50f663de6b57c46de8cf80e18654a0379c88b081dc640569c1c4d96e8e524955",
+  "events": [
+    {
+      "kind": "mark",
+      "ts": 1440000000,
+      "exchange_ms": 1440000000,
+      "symbol": "X",
+      "price": "100"
+    },
+    {
+      "kind": "intent",
+      "ts": 1440000100,
+      "order_id": "A",
+      "symbol": "X",
+      "side": "buy",
+      "quantity": "0.2019",
+      "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+    },
+    {
+      "kind": "book",
+      "ts": 1440000200,
+      "exchange_ms": 1440000190,
+      "snapshot_id": "B1",
+      "symbol": "X",
+      "bids": [
+        [
+          "99.9",
+          "10"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "10"
+        ]
+      ]
+    },
+    {
+      "kind": "book",
+      "ts": 1440000500,
+      "exchange_ms": 1440000490,
+      "snapshot_id": "B2",
+      "symbol": "X",
+      "bids": [
+        [
+          "99.9",
+          "10"
+        ]
+      ],
+      "asks": [
+        [
+          "100.1",
+          "10"
+        ]
+      ]
+    }
+  ],
+  "result_sha256": "23bdffcedd0123a491d59798f3ad8fa56519ab55bf2459a77a90b3293e8a5e8a",
+  "sha256": "6a1a3afc28847dd475aeeedaf47cdc545d0be8ce6e93b178eb5ba71d32c50950"
+}

@@ -1,0 +1,89 @@
+{
+  "schema_version": "exia.genetic_primus.measurement_lab/2",
+  "purpose": "measurement_repair_and_equal_budget_optimizer_diagnostics_only",
+  "registered_before_outcomes": true,
+  "legacy_results": "frozen_rejected_numerical_metrics_under_review",
+  "dataset_config": "configs/genetic_primus_v4.json",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "accounting": {
+    "instrument_model": "synthetic_cash_ledger_with_collateralized_short",
+    "market_readiness": false,
+    "initial_equity": 1.0,
+    "sleeves": "equal_initial_capital_fixed_universe_no_cross_sleeve_rebalancing",
+    "sizing": "fixed_quantity_until_exit_entry_notional_bounded_by_sleeve_equity",
+    "fee_basis": "actual_notional_per_fill",
+    "borrow_and_funding_model": "not_calibrated_no_trading_authority",
+    "missing_market_bar": "raise_fail_closed",
+    "signal_time": "previous_candle_close",
+    "execution_time": "next_candle_open",
+    "same_timestamp_order": "close_available_then_next_open_fill_no_latency_assumption",
+    "retrain_boundary": "carry_position_if_target_unchanged",
+    "terminal_exit": "final_candle_close_at_interval_end",
+    "drawdown": "event_equity_including_initial_capital"
+  },
+  "timeframe_minutes": 240,
+  "retrain_cadence_days": 3,
+  "deployment_horizon_days": 3,
+  "decision_cadence_bars": 1,
+  "holding_period": "target_change_or_terminal_exit_not_forced_to_retrain_cadence",
+  "label_policy": "no_surrogate_vote_labels_optimize_executed_cash_pnl",
+  "training_days": 150,
+  "validation_days": 30,
+  "boundary_gap_bars": 1,
+  "development_origins": [
+    "2024-08-01T00:00:00Z",
+    "2025-02-01T00:00:00Z",
+    "2026-01-01T00:00:00Z"
+  ],
+  "development_data_already_revealed": true,
+  "features": ["ema_gap_12_48", "ema_slope_12_3", "return_12", "efficiency_12"],
+  "fixed_proposal": "V7_EMA_TrendConsensus",
+  "model": {
+    "architecture": "linear_binary_allow",
+    "max_active_features": 2,
+    "weight_values": [-1, 0, 1],
+    "bias_values": [-1, 0, 1],
+    "allow_rule": "logit_strictly_positive",
+    "scaler": "train_only_median_iqr_clip_8"
+  },
+  "methods": ["sparse_grid", "random_search", "genetic_search"],
+  "unique_evaluations_per_method_per_origin": 24,
+  "genetic_population_size": 6,
+  "seed": 20260828,
+  "costs_bps": {"base_round_trip": 16.0, "stress_round_trip": 24.0},
+  "fitness": {
+    "primary": "paired_daily_block_bootstrap_lcb_vs_no_trade",
+    "daily_bins": "equal_24h_from_window_start",
+    "recency_weighting": "disabled_for_measurement_lab",
+    "penalty_stacking": false,
+    "bootstrap_samples": 256,
+    "block_days": 5,
+    "alpha": 0.05,
+    "shared_resamples_across_methods_and_candidates": true,
+    "validation_seed_offset": 100000,
+    "validation_selects_candidates": false
+  },
+  "diagnostic_validation_gate": {
+    "normal_lcb_must_be_positive": true,
+    "stress_lcb_must_be_positive": true,
+    "maximum_drawdown": 0.1,
+    "zero_variation_is_insufficient_evidence": true,
+    "minimum_trades_in_fitness": 0
+  },
+  "execution_ablation": "same_frozen_proposal_carry_vs_force_flat_at_3d_boundaries",
+  "stop_rule": "no_automatic_next_strategy_if_measurement_or_edge_or_optimizer_advantage_unproven",
+  "blind_evaluation": {
+    "allowed_by_this_contract": false,
+    "requires_clean_data_exposure_registry": true,
+    "requires_market_cost_model": true,
+    "requires_positive_verified_development_evidence": true
+  },
+  "result_path": "Reports/Exia/Genetic_Primus/measurement_lab_v2_20260828",
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

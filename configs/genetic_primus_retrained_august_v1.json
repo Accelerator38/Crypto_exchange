@@ -1,0 +1,80 @@
+{
+  "schema_version": "exia.genetic_primus.retrained_revealed_walkforward/1",
+  "objective_id": "retrained_august_365d_30d_3d_hac_v1",
+  "registration_date_utc": "2026-09-07",
+  "data_already_revealed": true,
+  "selection_use": "retrospective_method_diagnostic_no_prospective_or_promotion_claim",
+  "source_config": "configs/genetic_primus_revealed_august_diagnostic_v1.json",
+  "source_config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33",
+  "source_manifest": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/data_manifest.json",
+  "source_manifest_sha256": "12fa786fdcf75fcbd3a6b901c42e65d63ef1abab20223849a918e02da2ecef9f",
+  "source_completion": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/completion.json",
+  "source_completion_sha256": "e07f6877c9712c3bc9c9bbcc9406c0d2655a389277cfa196868ff781fe7487f0",
+  "test_start_utc": "2026-08-01T00:00:00Z",
+  "test_end_exclusive_utc": "2026-08-31T00:00:00Z",
+  "origins": 10,
+  "deployment_days": 3,
+  "retrain_cadence_days": 3,
+  "train_days": 365,
+  "validation_days": 30,
+  "purge_bars": 7,
+  "timeframe_minutes": 240,
+  "bounds_rule": "validation_end=test_start-purge; validation_start=validation_end-30d; train_end=validation_start-purge; train_start=train_end-365d; all_endpoints_exclusive",
+  "prior_completed_test_rows_may_enter_later_training": true,
+  "scaler": "fit_once_per_origin_on_train_only_median_iqr_clip8_reuse_for_validation_and_test",
+  "search": {
+    "method": "genetic_search",
+    "unique_candidates_per_origin": 24,
+    "population_size": 6,
+    "seed_base": 20260907,
+    "seed_rule": "seed_base_plus_zero_based_origin",
+    "fitness": "365_daily_paired_HAC_LCB_vs_EMA_training_ranking_only",
+    "exact_reference_tie_score": 0.0,
+    "unidentified_variation_score": -1000000.0,
+    "tie_break": "measurement_lab_v2_rank_key_prefers_feature_sparsity",
+    "independent_restarts": 1,
+    "no_search_budget_increase_after_outcomes": true
+  },
+  "model": {
+    "catalog": "measurement_lab_v2_sparse_linear_binary_catalog",
+    "features": ["ema_gap_12_48", "ema_slope_12_3", "return_12", "efficiency_12"],
+    "max_active_features": 2,
+    "weight_values": [-1, 0, 1],
+    "bias_values": [-1, 0, 1],
+    "fixed_control_genome": [0, 0, 1, 1, -1],
+    "proposal": "V7_EMA_TrendConsensus"
+  },
+  "internal_screen": {
+    "validation_selects_alternative_candidates": false,
+    "require_normal_and_stress_HAC_LCB_vs_EMA_and_NoTrade_positive": true,
+    "maximum_validation_drawdown": 0.10,
+    "minimum_validation_trades": 5,
+    "fallback": "NoTrade",
+    "full_promotion_gate": false
+  },
+  "accounting": {
+    "engine": "accounting_v2",
+    "normal_round_trip_bps": 16.0,
+    "stress_round_trip_bps": 24.0,
+    "terminal_exit": "each_origin_final_close",
+    "portfolio_restart": "equal_sleeves_each_origin"
+  },
+  "reporting": {
+    "candidates": ["NoTrade", "EMA", "FixedOverlaySameScaler", "RetrainedRaw", "RetrainedScreened"],
+    "primary_pair": "RetrainedRaw_minus_FixedOverlaySameScaler",
+    "secondary_pairs": ["RetrainedRaw_minus_EMA", "RetrainedRaw_minus_NoTrade"],
+    "historical_frozen_expanding_scaler": "context_only_different_scaler_protocol",
+    "aggregate_drawdown": "stitched_4h_close_equity_not_intrabar",
+    "daily_HAC": "descriptive_only_on_30_revealed_days"
+  },
+  "output": "Reports/Exia/Genetic_Primus/retrained_august_v1_20260907",
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  }
+}

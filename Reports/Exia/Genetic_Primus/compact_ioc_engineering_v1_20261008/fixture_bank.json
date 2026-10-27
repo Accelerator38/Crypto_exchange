@@ -1,0 +1,1155 @@
+{
+  "NoTrade": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "f4b16693aff57e875e762936a925e35ceb08ac97831ef20b6fee8e92a4d7ce7d",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "clock",
+        "ts": 1440001300
+      }
+    ]
+  },
+  "flat_price_round_trip": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "138d012f9885f7378f478323a8bd9d83990cff01c4dc97001987d629a1f2f1b7",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "0.2019",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440000500,
+        "exchange_ms": 1440000490,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "funding",
+        "ts": 1440000600,
+        "settlement_ms": 1440000600,
+        "known_at_ms": 1440000600,
+        "symbol": "X",
+        "signed_rate": "0.0001",
+        "mark_price": "100",
+        "source_sha256": "da90632827cc708076a83ad2a6daef720f88b8b4d7dabac9192a7787e4a9907e"
+      },
+      {
+        "kind": "mark",
+        "ts": 1440000700,
+        "exchange_ms": 1440000700,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000800,
+        "order_id": "EXIT",
+        "symbol": "X",
+        "side": "sell",
+        "quantity": "0.201",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000900,
+        "exchange_ms": 1440000890,
+        "snapshot_id": "B3",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440001200,
+        "exchange_ms": 1440001190,
+        "snapshot_id": "B4",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "clock",
+        "ts": 1440001300
+      }
+    ]
+  },
+  "partial_ioc": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "9dd11073b2263265a1c97c7966e880e047396fd203c53a6263e88511b5b8a607",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "0.2019",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440000500,
+        "exchange_ms": 1440000490,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            ".05"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            ".05"
+          ]
+        ]
+      }
+    ]
+  },
+  "shared_liquidity": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "3be4b2474535585393e80a56b170ab4f0b64c05770bd54bdabd4891ee3e6ec72",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": ".05",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "B",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": ".05",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440000500,
+        "exchange_ms": 1440000490,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            ".1"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            ".1"
+          ]
+        ]
+      }
+    ]
+  },
+  "price_protection": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "69e55cf32a5c80e15c86ba1133d0605c591ef080397e882f336c531b4a0b9c42",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "0.2019",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440000500,
+        "exchange_ms": 1440000490,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "100.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "101",
+            "10"
+          ]
+        ]
+      }
+    ]
+  },
+  "exclusive_expiry": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "4db90f4d485841af6704886a2b9f77b7c3aa243966368d4244d100d8ef8e990c",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "0.2019",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440002200,
+        "exchange_ms": 1440002190,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      }
+    ]
+  },
+  "below_minimum_reject": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "757c7935fb694e755af4f32d7c550112a672e9b146a0d1a3ab31b9884e5fedae",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": ".0019",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      }
+    ]
+  },
+  "funding_reservation_fault_stress": {
+    "arguments": {
+      "contract": {
+        "schema": "compact_ioc_engineering/1",
+        "scope": "bounded_offline_synthetic_engineering_only",
+        "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+        "signal_compute_latency_ms": 100,
+        "order_latency_ms": 250,
+        "order_ttl_ms": 2000,
+        "reference_wait_ms": 5000,
+        "max_quote_age_ms": 500,
+        "max_mark_age_ms": 2000,
+        "participation": "0.10",
+        "protection_bps": "30",
+        "initial_cash_quote": "1000",
+        "max_order_notional_quote": "250",
+        "max_gross_ratio": "0.80",
+        "research_drawdown_gate": "0.20",
+        "max_events": 256,
+        "max_orders": 32,
+        "max_levels": 20,
+        "evidence_kind": "synthetic",
+        "timing_and_liquidity_parameters_empirically_calibrated": false,
+        "existing_next_4h_open_forecast_labels_compatible": false,
+        "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+        "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+        "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+        "ohlcv_fill_fallback": false,
+        "live_adapter": null,
+        "safety": {
+          "credentials_allowed": false,
+          "orders_enabled": false,
+          "execution_allowed": false,
+          "paper": false,
+          "live": false,
+          "promotion_authority": false,
+          "training_allowed": false,
+          "financial_evaluation_allowed": false,
+          "network_allowed": false
+        }
+      },
+      "rules": {
+        "X": {
+          "price_tick": "0.1",
+          "quantity_step": "0.001",
+          "minimum_quantity": "0.01",
+          "minimum_notional": "5",
+          "source_sha256": "e9a2e053dd943fd6de187d77dd84ae1105cc786a8e6e16bd0d193abb78954fc7",
+          "valid_from_ms": 1439999000,
+          "valid_until_exclusive_ms": 1440010000
+        }
+      },
+      "fee_schedule": {
+        "taker_fee": "0.0006",
+        "source_sha256": "16d5fd54d41fb52f613c8b5dcca105add6b75b736bec3be305f7ee013079e9b4",
+        "valid_from_ms": 1439999000,
+        "valid_until_exclusive_ms": 1440010000
+      },
+      "bindings": [
+        {
+          "origin_closed_ms": 1440000000,
+          "signal_available_ms": 1440000100,
+          "train_end_ms": 1425600000,
+          "label_cutoff_ms": 1324800000,
+          "feature_available_ms": 1440000000,
+          "target_clock": "synthetic_execution_fixture_not_forecast",
+          "new_clock_labels_qualified": false,
+          "model_sha256": "7160451a5dde5b813175bdbcad01c297b950bc8a25b1fde843281bbf7103076f",
+          "scaler_sha256": "d009f50ade3889342c32fe8a04e3b9d4ffaa065aeebff747d42c7235dd012cb5",
+          "feature_prefix_sha256": "4ce3920cc9407a43acd1b724cdf70b793ab0e2fb9f6a5e3f1e3ee31074df6434",
+          "training_identity_sha256": "f2a8ca2034e4e0081bf693e683adf26ca03e42e65671f71203c87213f10a912d",
+          "sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+        }
+      ],
+      "data_sha256": "20e319fd315858292196370189e37099babbf485bfa22e01a92b694792f02c2b",
+      "implementation_sha256": "f46c7f22076c53029014e2098081006c33ac31f0842be67d81a85146375c5593"
+    },
+    "events": [
+      {
+        "kind": "mark",
+        "ts": 1440000000,
+        "exchange_ms": 1440000000,
+        "symbol": "X",
+        "price": "100"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000100,
+        "order_id": "A",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "2",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000200,
+        "exchange_ms": 1440000190,
+        "snapshot_id": "B1",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "book",
+        "ts": 1440000500,
+        "exchange_ms": 1440000490,
+        "snapshot_id": "B2",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "100"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "100"
+          ]
+        ]
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000600,
+        "order_id": "P1",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "2",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000600,
+        "order_id": "P2",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "2",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "intent",
+        "ts": 1440000600,
+        "order_id": "P3",
+        "symbol": "X",
+        "side": "buy",
+        "quantity": "2",
+        "model_binding_sha256": "388f4d233df5ebdc5a11a9a21424bfad76807105121bbf384efeb6f65cdd43ff"
+      },
+      {
+        "kind": "book",
+        "ts": 1440000700,
+        "exchange_ms": 1440000690,
+        "snapshot_id": "B3",
+        "symbol": "X",
+        "bids": [
+          [
+            "99.9",
+            "10"
+          ]
+        ],
+        "asks": [
+          [
+            "100.1",
+            "10"
+          ]
+        ]
+      },
+      {
+        "kind": "funding",
+        "ts": 1440000800,
+        "settlement_ms": 1440000800,
+        "known_at_ms": 1440000800,
+        "symbol": "X",
+        "signed_rate": ".9",
+        "mark_price": "100",
+        "source_sha256": "da90632827cc708076a83ad2a6daef720f88b8b4d7dabac9192a7787e4a9907e"
+      },
+      {
+        "kind": "funding",
+        "ts": 1440000900,
+        "settlement_ms": 1440000900,
+        "known_at_ms": 1440000900,
+        "symbol": "X",
+        "signed_rate": ".9",
+        "mark_price": "100",
+        "source_sha256": "da90632827cc708076a83ad2a6daef720f88b8b4d7dabac9192a7787e4a9907e"
+      }
+    ]
+  }
+}

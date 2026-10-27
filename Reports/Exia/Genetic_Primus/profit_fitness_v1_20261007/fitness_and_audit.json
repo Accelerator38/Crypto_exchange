@@ -1,0 +1,2062 @@
+{
+  "audit_bank": {
+    "bank_id": "synthetic-profit-19",
+    "block_days": 2,
+    "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+    "cutoff_ms": 604800000,
+    "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+    "samples": 64,
+    "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+    "scope_lengths": {
+      "0": 3,
+      "1": 4,
+      "overall": 7
+    },
+    "seed": 19
+  },
+  "folds": [
+    {
+      "end": "1970-01-04T00:00:00+00:00",
+      "name": "0",
+      "start": "1970-01-01T00:00:00+00:00"
+    },
+    {
+      "end": "1970-01-08T00:00:00+00:00",
+      "name": "1",
+      "start": "1970-01-04T00:00:00+00:00"
+    }
+  ],
+  "research_matrix": {
+    "10": {
+      "High": {
+        "failed_gates": [
+          "normal_drawdown_budget",
+          "stress_drawdown_budget"
+        ],
+        "fitness": 478.3889092455422,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 10,
+          "failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 139.77617908359164,
+          "fitness": 478.3889092455422,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.25089916071940527,
+          "measurement_output_sha256": "f6f1a8dddc22a92cf6bb126bd9a9eb256c9717fbd963fd617d87c76ba1a6455f",
+          "net_log_growth": 0.3348722364718796,
+          "net_return_pct": 39.776179083591636,
+          "normal_max_drawdown": 0.2505996102398549,
+          "objective_scope": "research",
+          "objective_sha256": "49971f9a076bb5a3add3da57bf61dadea622292597cb871ddba09c2d6ebba4cd",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 478.3889092455422,
+          "research_candidate_only": true,
+          "search_failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": false,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.25089916071940527,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          0.0,
+          -2.0,
+          478.3889092455422,
+          -0.25089916071940527,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Medium": {
+        "failed_gates": [
+          "normal_drawdown_budget",
+          "stress_drawdown_budget"
+        ],
+        "fitness": 316.4907873783948,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 10,
+          "failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 124.80015989606396,
+          "fitness": 316.4907873783948,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.151019048815326,
+          "measurement_output_sha256": "abff80a045a00d2ddce1b9e1a15f1598e649985e575ed481b590203d679b8b80",
+          "net_log_growth": 0.2215435511648764,
+          "net_return_pct": 24.80015989606396,
+          "normal_max_drawdown": 0.15067955827183555,
+          "objective_scope": "research",
+          "objective_sha256": "49971f9a076bb5a3add3da57bf61dadea622292597cb871ddba09c2d6ebba4cd",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 316.4907873783948,
+          "research_candidate_only": true,
+          "search_failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": false,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.151019048815326,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          0.0,
+          -2.0,
+          316.4907873783948,
+          -0.151019048815326,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "NoTrade": {
+        "failed_gates": [],
+        "fitness": 0.0,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 10,
+          "failed_gates": [],
+          "fills_per_day": 0.0,
+          "final_capital_quote": 100.0,
+          "fitness": 0.0,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0,
+          "measurement_output_sha256": "4fee3d61e55e0fef43dc6427edf4e9926250a392df08a93c5f0ce43ac63ba099",
+          "net_log_growth": 0.0,
+          "net_return_pct": 0.0,
+          "normal_max_drawdown": 0.0,
+          "objective_scope": "research",
+          "objective_sha256": "49971f9a076bb5a3add3da57bf61dadea622292597cb871ddba09c2d6ebba4cd",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 0.0,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0,
+          "temporal_gate_passed": false,
+          "trades": 0,
+          "turnover_fills": 0,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0
+        ]
+      },
+      "Safe": {
+        "failed_gates": [],
+        "fitness": 197.37420317975048,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 10,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 114.81614710437884,
+          "fitness": 197.37420317975048,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.05113893691124669,
+          "measurement_output_sha256": "33ceaf21526661e08fdecc567408826ca63483f1eb25c74b0112f88c238741fe",
+          "net_log_growth": 0.13816194222582534,
+          "net_return_pct": 14.816147104378844,
+          "normal_max_drawdown": 0.05075950630381619,
+          "objective_scope": "research",
+          "objective_sha256": "49971f9a076bb5a3add3da57bf61dadea622292597cb871ddba09c2d6ebba4cd",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 197.37420317975048,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.05113893691124669,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          197.37420317975048,
+          -0.05113893691124669,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Smooth": {
+        "failed_gates": [],
+        "fitness": 133.8716852214164,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 10,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 109.82414070853629,
+          "fitness": 133.8716852214164,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0011988809592070446,
+          "measurement_output_sha256": "99534baba61b12b3dc5e21ee9a09ef404b10d0ef7c90f2f401ae19947a880e26",
+          "net_log_growth": 0.0937101796549915,
+          "net_return_pct": 9.824140708536286,
+          "normal_max_drawdown": 0.0007994803198065164,
+          "objective_scope": "research",
+          "objective_sha256": "49971f9a076bb5a3add3da57bf61dadea622292597cb871ddba09c2d6ebba4cd",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 133.8716852214164,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0011988809592070446,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          133.8716852214164,
+          -0.0011988809592070446,
+          -0.2857142857142857,
+          -0.0
+        ]
+      }
+    },
+    "20": {
+      "High": {
+        "failed_gates": [
+          "normal_drawdown_budget",
+          "stress_drawdown_budget"
+        ],
+        "fitness": 478.3889092455422,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 20,
+          "failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 139.77617908359164,
+          "fitness": 478.3889092455422,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.25089916071940527,
+          "measurement_output_sha256": "f6f1a8dddc22a92cf6bb126bd9a9eb256c9717fbd963fd617d87c76ba1a6455f",
+          "net_log_growth": 0.3348722364718796,
+          "net_return_pct": 39.776179083591636,
+          "normal_max_drawdown": 0.2505996102398549,
+          "objective_scope": "research",
+          "objective_sha256": "ba0a00daaffd519b8b0f42c5fe355adfe1993a483131316efdc767ea7102601c",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 478.3889092455422,
+          "research_candidate_only": true,
+          "search_failed_gates": [
+            "normal_drawdown_budget",
+            "stress_drawdown_budget"
+          ],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": false,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.25089916071940527,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          0.0,
+          -2.0,
+          478.3889092455422,
+          -0.25089916071940527,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Medium": {
+        "failed_gates": [],
+        "fitness": 316.4907873783948,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 20,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 124.80015989606396,
+          "fitness": 316.4907873783948,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.151019048815326,
+          "measurement_output_sha256": "abff80a045a00d2ddce1b9e1a15f1598e649985e575ed481b590203d679b8b80",
+          "net_log_growth": 0.2215435511648764,
+          "net_return_pct": 24.80015989606396,
+          "normal_max_drawdown": 0.15067955827183555,
+          "objective_scope": "research",
+          "objective_sha256": "ba0a00daaffd519b8b0f42c5fe355adfe1993a483131316efdc767ea7102601c",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 316.4907873783948,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.151019048815326,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          316.4907873783948,
+          -0.151019048815326,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "NoTrade": {
+        "failed_gates": [],
+        "fitness": 0.0,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 20,
+          "failed_gates": [],
+          "fills_per_day": 0.0,
+          "final_capital_quote": 100.0,
+          "fitness": 0.0,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0,
+          "measurement_output_sha256": "4fee3d61e55e0fef43dc6427edf4e9926250a392df08a93c5f0ce43ac63ba099",
+          "net_log_growth": 0.0,
+          "net_return_pct": 0.0,
+          "normal_max_drawdown": 0.0,
+          "objective_scope": "research",
+          "objective_sha256": "ba0a00daaffd519b8b0f42c5fe355adfe1993a483131316efdc767ea7102601c",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 0.0,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0,
+          "temporal_gate_passed": false,
+          "trades": 0,
+          "turnover_fills": 0,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0
+        ]
+      },
+      "Safe": {
+        "failed_gates": [],
+        "fitness": 197.37420317975048,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 20,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 114.81614710437884,
+          "fitness": 197.37420317975048,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.05113893691124669,
+          "measurement_output_sha256": "33ceaf21526661e08fdecc567408826ca63483f1eb25c74b0112f88c238741fe",
+          "net_log_growth": 0.13816194222582534,
+          "net_return_pct": 14.816147104378844,
+          "normal_max_drawdown": 0.05075950630381619,
+          "objective_scope": "research",
+          "objective_sha256": "ba0a00daaffd519b8b0f42c5fe355adfe1993a483131316efdc767ea7102601c",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 197.37420317975048,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.05113893691124669,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          197.37420317975048,
+          -0.05113893691124669,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Smooth": {
+        "failed_gates": [],
+        "fitness": 133.8716852214164,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 20,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 109.82414070853629,
+          "fitness": 133.8716852214164,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0011988809592070446,
+          "measurement_output_sha256": "99534baba61b12b3dc5e21ee9a09ef404b10d0ef7c90f2f401ae19947a880e26",
+          "net_log_growth": 0.0937101796549915,
+          "net_return_pct": 9.824140708536286,
+          "normal_max_drawdown": 0.0007994803198065164,
+          "objective_scope": "research",
+          "objective_sha256": "ba0a00daaffd519b8b0f42c5fe355adfe1993a483131316efdc767ea7102601c",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 133.8716852214164,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0011988809592070446,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          133.8716852214164,
+          -0.0011988809592070446,
+          -0.2857142857142857,
+          -0.0
+        ]
+      }
+    },
+    "30": {
+      "High": {
+        "failed_gates": [],
+        "fitness": 478.3889092455422,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 30,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 139.77617908359164,
+          "fitness": 478.3889092455422,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.25089916071940527,
+          "measurement_output_sha256": "f6f1a8dddc22a92cf6bb126bd9a9eb256c9717fbd963fd617d87c76ba1a6455f",
+          "net_log_growth": 0.3348722364718796,
+          "net_return_pct": 39.776179083591636,
+          "normal_max_drawdown": 0.2505996102398549,
+          "objective_scope": "research",
+          "objective_sha256": "69a98f2f674352951c7e600a2bd23572c0ff00b94fdf0d36ab778f9cdce522c5",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 478.3889092455422,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.25089916071940527,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          478.3889092455422,
+          -0.25089916071940527,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Medium": {
+        "failed_gates": [],
+        "fitness": 316.4907873783948,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 30,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 124.80015989606396,
+          "fitness": 316.4907873783948,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.151019048815326,
+          "measurement_output_sha256": "abff80a045a00d2ddce1b9e1a15f1598e649985e575ed481b590203d679b8b80",
+          "net_log_growth": 0.2215435511648764,
+          "net_return_pct": 24.80015989606396,
+          "normal_max_drawdown": 0.15067955827183555,
+          "objective_scope": "research",
+          "objective_sha256": "69a98f2f674352951c7e600a2bd23572c0ff00b94fdf0d36ab778f9cdce522c5",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 316.4907873783948,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.151019048815326,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          316.4907873783948,
+          -0.151019048815326,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "NoTrade": {
+        "failed_gates": [],
+        "fitness": 0.0,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 30,
+          "failed_gates": [],
+          "fills_per_day": 0.0,
+          "final_capital_quote": 100.0,
+          "fitness": 0.0,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0,
+          "measurement_output_sha256": "4fee3d61e55e0fef43dc6427edf4e9926250a392df08a93c5f0ce43ac63ba099",
+          "net_log_growth": 0.0,
+          "net_return_pct": 0.0,
+          "normal_max_drawdown": 0.0,
+          "objective_scope": "research",
+          "objective_sha256": "69a98f2f674352951c7e600a2bd23572c0ff00b94fdf0d36ab778f9cdce522c5",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 0.0,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0,
+          "temporal_gate_passed": false,
+          "trades": 0,
+          "turnover_fills": 0,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          0.0,
+          -0.0,
+          -0.0,
+          -0.0
+        ]
+      },
+      "Safe": {
+        "failed_gates": [],
+        "fitness": 197.37420317975048,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 30,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 114.81614710437884,
+          "fitness": 197.37420317975048,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.05113893691124669,
+          "measurement_output_sha256": "33ceaf21526661e08fdecc567408826ca63483f1eb25c74b0112f88c238741fe",
+          "net_log_growth": 0.13816194222582534,
+          "net_return_pct": 14.816147104378844,
+          "normal_max_drawdown": 0.05075950630381619,
+          "objective_scope": "research",
+          "objective_sha256": "69a98f2f674352951c7e600a2bd23572c0ff00b94fdf0d36ab778f9cdce522c5",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 197.37420317975048,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.05113893691124669,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          197.37420317975048,
+          -0.05113893691124669,
+          -0.2857142857142857,
+          -0.0
+        ]
+      },
+      "Smooth": {
+        "failed_gates": [],
+        "fitness": 133.8716852214164,
+        "metrics": {
+          "active_feature_count": 0,
+          "active_parameter_count": 0,
+          "calendar_days": 7.0,
+          "cost_double_counting_penalty_bps": 0.0,
+          "drawdown_budget_percent": 30,
+          "failed_gates": [],
+          "fills_per_day": 0.2857142857142857,
+          "final_capital_quote": 109.82414070853629,
+          "fitness": 133.8716852214164,
+          "fitness_units": "net_log_growth_bps_per_calendar_day",
+          "initial_capital_quote": 100.0,
+          "max_drawdown": 0.0011988809592070446,
+          "measurement_output_sha256": "99534baba61b12b3dc5e21ee9a09ef404b10d0ef7c90f2f401ae19947a880e26",
+          "net_log_growth": 0.0937101796549915,
+          "net_return_pct": 9.824140708536286,
+          "normal_max_drawdown": 0.0007994803198065164,
+          "objective_scope": "research",
+          "objective_sha256": "69a98f2f674352951c7e600a2bd23572c0ff00b94fdf0d36ab778f9cdce522c5",
+          "parsimony_feature_penalty_bps": 0.0,
+          "parsimony_parameter_penalty_bps": 0.0,
+          "promotion_authority": false,
+          "ranking_semantics": "research_risk_gates_then_net_log_growth/1",
+          "raw_net_log_growth_bps_per_day": 133.8716852214164,
+          "research_candidate_only": true,
+          "search_failed_gates": [],
+          "search_objective": "net_log_growth_constrained_drawdown/1",
+          "search_risk_passed": true,
+          "stress_evaluated": true,
+          "stress_max_drawdown": 0.0011988809592070446,
+          "temporal_gate_passed": false,
+          "trades": 1,
+          "turnover_fills": 2,
+          "validation_failed_gates": [
+            "stability_not_evaluated"
+          ],
+          "validation_status": "not_evaluated"
+        },
+        "ranking_key": [
+          1.0,
+          -0.0,
+          133.8716852214164,
+          -0.0011988809592070446,
+          -0.2857142857142857,
+          -0.0
+        ]
+      }
+    }
+  },
+  "search_winners": {
+    "10": "Safe",
+    "20": "Medium",
+    "30": "High"
+  },
+  "selection_bank": {
+    "bank_id": "synthetic-profit-7",
+    "block_days": 2,
+    "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+    "cutoff_ms": 604800000,
+    "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+    "samples": 64,
+    "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+    "scope_lengths": {
+      "0": 3,
+      "1": 4,
+      "overall": 7
+    },
+    "seed": 7
+  },
+  "stability": {
+    "High": {
+      "affects_search_ranking": false,
+      "banks": {
+        "audit": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -985.7978279030909,
+                "mean_daily_bps": -915.9045329990389,
+                "mean_net_log_bps": -961.606241754716,
+                "median_daily_bps": -952.3809523809524,
+                "net_log_lcb_daily_bps": -1037.9751740806316,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 2162.9338933333333,
+                "mean_net_log_bps": 1558.3852724957362,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -852.649716756168,
+            "mean_daily_bps": 843.4317106194595,
+            "mean_net_log_bps": 478.3889092455424,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -492.89891395154547,
+            "net_log_lcb_daily_bps": -898.3133608056689,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -985.7978279030909,
+            "worst_fold_mean_bps": -915.9045329990389
+          },
+          "paired_log_lcb_bps": {
+            "normal": -898.3133608056689,
+            "stress": -898.399032259367
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -985.7978279030909,
+                "mean_daily_bps": -917.1379761501288,
+                "mean_net_log_bps": -962.9389088122407,
+                "median_daily_bps": -952.3809523809524,
+                "net_log_lcb_daily_bps": -1037.9751740806316,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 2161.06816,
+                "mean_net_log_bps": 1557.3847722022124,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -852.7290095301666,
+            "mean_daily_bps": 841.8369587928019,
+            "mean_net_log_bps": 477.2460517674468,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -492.89891395154547,
+            "net_log_lcb_daily_bps": -898.399032259367,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -985.7978279030909,
+            "worst_fold_mean_bps": -917.1379761501288
+          }
+        },
+        "selection": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -985.7978279030909,
+                "mean_daily_bps": -915.9045329990389,
+                "mean_net_log_bps": -961.606241754716,
+                "median_daily_bps": -952.3809523809524,
+                "net_log_lcb_daily_bps": -1037.9751740806316,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 2162.9338933333333,
+                "mean_net_log_bps": 1558.3852724957362,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -770.7395102039739,
+            "mean_daily_bps": 843.4317106194595,
+            "mean_net_log_bps": 478.3889092455424,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -492.89891395154547,
+            "net_log_lcb_daily_bps": -808.3165264279826,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -985.7978279030909,
+            "worst_fold_mean_bps": -915.9045329990389
+          },
+          "paired_log_lcb_bps": {
+            "normal": -808.3165264279826,
+            "stress": -809.4588124772894
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -985.7978279030909,
+                "mean_daily_bps": -917.1379761501288,
+                "mean_net_log_bps": -962.9389088122407,
+                "median_daily_bps": -952.3809523809524,
+                "net_log_lcb_daily_bps": -1037.9751740806316,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 2161.06816,
+                "mean_net_log_bps": 1557.3847722022124,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -771.7967471906223,
+            "mean_daily_bps": 841.8369587928019,
+            "mean_net_log_bps": 477.2460517674468,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -492.89891395154547,
+            "net_log_lcb_daily_bps": -809.4588124772894,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -985.7978279030909,
+            "worst_fold_mean_bps": -917.1379761501288
+          }
+        }
+      },
+      "failed_gates": [
+        "selection_normal_paired_log_lcb",
+        "selection_stress_paired_log_lcb",
+        "selection_normal_absolute_log_lcb",
+        "selection_stress_absolute_log_lcb",
+        "audit_normal_paired_log_lcb",
+        "audit_stress_paired_log_lcb",
+        "audit_normal_absolute_log_lcb",
+        "audit_stress_absolute_log_lcb"
+      ],
+      "paired_reference": "NoTrade",
+      "promotion_authority": false,
+      "statistic": "mean_calendar_daily_net_log_growth_bps_and_paired_log_difference",
+      "status": "failed"
+    },
+    "Medium": {
+      "affects_search_ranking": false,
+      "banks": {
+        "audit": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -564.67050864445,
+                "mean_daily_bps": -529.6613113225666,
+                "mean_net_log_bps": -544.3957652413627,
+                "median_daily_bps": -553.8461538461538,
+                "net_log_lcb_daily_bps": -581.2530965328189,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 1173.5298529411764,
+                "mean_net_log_bps": 962.1557018432129,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -485.6958596867868,
+            "mean_daily_bps": 443.5907825424294,
+            "mean_net_log_bps": 316.4907873783948,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -282.335254322225,
+            "net_log_lcb_daily_bps": -500.0290843342382,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -564.67050864445,
+            "worst_fold_mean_bps": -529.6613113225666
+          },
+          "paired_log_lcb_bps": {
+            "normal": -500.0290843342382,
+            "stress": -500.1147557879362
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -564.67050864445,
+                "mean_daily_bps": -530.9339113990878,
+                "mean_net_log_bps": -545.7284322988872,
+                "median_daily_bps": -553.8461538461538,
+                "net_log_lcb_daily_bps": -581.2530965328189,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 1172.06,
+                "mean_net_log_bps": 961.1552015496895,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -485.77766969170597,
+            "mean_daily_bps": 442.205466543248,
+            "mean_net_log_bps": 315.34792990029945,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -282.335254322225,
+            "net_log_lcb_daily_bps": -500.1147557879362,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -564.67050864445,
+            "worst_fold_mean_bps": -530.9339113990878
+          }
+        },
+        "selection": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -564.67050864445,
+                "mean_daily_bps": -529.6613113225666,
+                "mean_net_log_bps": -544.3957652413627,
+                "median_daily_bps": -553.8461538461538,
+                "net_log_lcb_daily_bps": -581.2530965328189,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 1173.5298529411764,
+                "mean_net_log_bps": 962.1557018432129,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -449.3564005057873,
+            "mean_daily_bps": 443.5907825424294,
+            "mean_net_log_bps": 316.4907873783948,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -282.335254322225,
+            "net_log_lcb_daily_bps": -461.70547773227565,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -564.67050864445,
+            "worst_fold_mean_bps": -529.6613113225666
+          },
+          "paired_log_lcb_bps": {
+            "normal": -461.70547773227565,
+            "stress": -462.8477637815825
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -564.67050864445,
+                "mean_daily_bps": -530.9339113990878,
+                "mean_net_log_bps": -545.7284322988872,
+                "median_daily_bps": -553.8461538461538,
+                "net_log_lcb_daily_bps": -581.2530965328189,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 1172.06,
+                "mean_net_log_bps": 961.1552015496895,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -450.4472005713769,
+            "mean_daily_bps": 442.205466543248,
+            "mean_net_log_bps": 315.34792990029945,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -282.335254322225,
+            "net_log_lcb_daily_bps": -462.8477637815825,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -564.67050864445,
+            "worst_fold_mean_bps": -530.9339113990878
+          }
+        }
+      },
+      "failed_gates": [
+        "selection_normal_paired_log_lcb",
+        "selection_stress_paired_log_lcb",
+        "selection_normal_absolute_log_lcb",
+        "selection_stress_absolute_log_lcb",
+        "audit_normal_paired_log_lcb",
+        "audit_stress_paired_log_lcb",
+        "audit_normal_absolute_log_lcb",
+        "audit_stress_absolute_log_lcb"
+      ],
+      "paired_reference": "NoTrade",
+      "promotion_authority": false,
+      "statistic": "mean_calendar_daily_net_log_growth_bps_and_paired_log_difference",
+      "status": "failed"
+    },
+    "NoTrade": {
+      "affects_search_ranking": false,
+      "banks": {
+        "audit": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 0
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 0.0,
+            "mean_daily_bps": 0.0,
+            "mean_net_log_bps": 0.0,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": 0.0,
+            "net_log_lcb_daily_bps": 0.0,
+            "positive_fold_means": 0,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 0.0,
+            "worst_fold_mean_bps": 0.0
+          },
+          "paired_log_lcb_bps": {
+            "normal": 0.0,
+            "stress": 0.0
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 0
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 0.0,
+            "mean_daily_bps": 0.0,
+            "mean_net_log_bps": 0.0,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": 0.0,
+            "net_log_lcb_daily_bps": 0.0,
+            "positive_fold_means": 0,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 0.0,
+            "worst_fold_mean_bps": 0.0
+          }
+        },
+        "selection": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 0
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 0.0,
+            "mean_daily_bps": 0.0,
+            "mean_net_log_bps": 0.0,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": 0.0,
+            "net_log_lcb_daily_bps": 0.0,
+            "positive_fold_means": 0,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 0.0,
+            "worst_fold_mean_bps": 0.0
+          },
+          "paired_log_lcb_bps": {
+            "normal": 0.0,
+            "stress": 0.0
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 0
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 0.0,
+                "mean_net_log_bps": 0.0,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 0.0,
+            "mean_daily_bps": 0.0,
+            "mean_net_log_bps": 0.0,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": 0.0,
+            "net_log_lcb_daily_bps": 0.0,
+            "positive_fold_means": 0,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 0.0,
+            "worst_fold_mean_bps": 0.0
+          }
+        }
+      },
+      "failed_gates": [
+        "selection_normal_paired_log_lcb",
+        "selection_stress_paired_log_lcb",
+        "selection_normal_absolute_log_lcb",
+        "selection_stress_absolute_log_lcb",
+        "audit_normal_paired_log_lcb",
+        "audit_stress_paired_log_lcb",
+        "audit_normal_absolute_log_lcb",
+        "audit_stress_absolute_log_lcb"
+      ],
+      "paired_reference": "NoTrade",
+      "promotion_authority": false,
+      "statistic": "mean_calendar_daily_net_log_growth_bps_and_paired_log_difference",
+      "status": "failed"
+    },
+    "Safe": {
+      "affects_search_ranking": false,
+      "banks": {
+        "audit": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -180.19325863085785,
+                "mean_daily_bps": -172.13711812428153,
+                "mean_net_log_bps": -173.64364820728136,
+                "median_daily_bps": -179.1044776119403,
+                "net_log_lcb_daily_bps": -181.8366322070148,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 523.8951,
+                "mean_net_log_bps": 475.6375917200243,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -154.3300971650611,
+            "mean_daily_bps": 225.59557794673648,
+            "mean_net_log_bps": 197.37420317975042,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -90.09662931542893,
+            "net_log_lcb_daily_bps": -155.7372065068408,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -180.19325863085785,
+            "worst_fold_mean_bps": -172.13711812428153
+          },
+          "paired_log_lcb_bps": {
+            "normal": -155.7372065068408,
+            "stress": -155.82287796053882
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -180.19325863085785,
+                "mean_daily_bps": -173.44887512623424,
+                "mean_net_log_bps": -174.976315264806,
+                "median_daily_bps": -179.1044776119403,
+                "net_log_lcb_daily_bps": -181.8366322070148,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 522.6851789473684,
+                "mean_net_log_bps": 474.6370914265009,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -154.4144244009009,
+            "mean_daily_bps": 224.3420129158244,
+            "mean_net_log_bps": 196.23134570165507,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -90.09662931542893,
+            "net_log_lcb_daily_bps": -155.82287796053882,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -180.19325863085785,
+            "worst_fold_mean_bps": -173.44887512623424
+          }
+        },
+        "selection": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -180.19325863085785,
+                "mean_daily_bps": -172.13711812428153,
+                "mean_net_log_bps": -173.64364820728136,
+                "median_daily_bps": -179.1044776119403,
+                "net_log_lcb_daily_bps": -181.8366322070148,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 523.8951,
+                "mean_net_log_bps": 475.6375917200243,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -147.0794808127052,
+            "mean_daily_bps": 225.59557794673648,
+            "mean_net_log_bps": 197.37420317975042,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -90.09662931542893,
+            "net_log_lcb_daily_bps": -148.36220348764004,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -180.19325863085785,
+            "worst_fold_mean_bps": -172.13711812428153
+          },
+          "paired_log_lcb_bps": {
+            "normal": -148.36220348764004,
+            "stress": -149.50448953694686
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": -180.19325863085785,
+                "mean_daily_bps": -173.44887512623424,
+                "mean_net_log_bps": -174.976315264806,
+                "median_daily_bps": -179.1044776119403,
+                "net_log_lcb_daily_bps": -181.8366322070148,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 0.0,
+                "mean_daily_bps": 522.6851789473684,
+                "mean_net_log_bps": 474.6370914265009,
+                "median_daily_bps": 0.0,
+                "net_log_lcb_daily_bps": 0.0,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": -148.2038439572361,
+            "mean_daily_bps": 224.3420129158244,
+            "mean_net_log_bps": 196.23134570165507,
+            "median_daily_bps": 0.0,
+            "median_fold_lcb_bps": -90.09662931542893,
+            "net_log_lcb_daily_bps": -149.50448953694686,
+            "positive_fold_means": 1,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": -180.19325863085785,
+            "worst_fold_mean_bps": -173.44887512623424
+          }
+        }
+      },
+      "failed_gates": [
+        "selection_normal_paired_log_lcb",
+        "selection_stress_paired_log_lcb",
+        "selection_normal_absolute_log_lcb",
+        "selection_stress_absolute_log_lcb",
+        "audit_normal_paired_log_lcb",
+        "audit_stress_paired_log_lcb",
+        "audit_normal_absolute_log_lcb",
+        "audit_stress_absolute_log_lcb"
+      ],
+      "paired_reference": "NoTrade",
+      "promotion_authority": false,
+      "statistic": "mean_calendar_daily_net_log_growth_bps_and_paired_log_difference",
+      "status": "failed"
+    },
+    "Smooth": {
+      "affects_search_ranking": false,
+      "banks": {
+        "audit": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 141.98321838629002,
+                "mean_daily_bps": 152.29722526226587,
+                "mean_net_log_bps": 151.13785307740395,
+                "median_daily_bps": 161.72506738544473,
+                "net_log_lcb_daily_bps": 140.972510467825,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 85.76952540691809,
+                "mean_daily_bps": 121.8370519735659,
+                "mean_net_log_bps": 120.92205932942575,
+                "median_daily_bps": 155.44980434534557,
+                "net_log_lcb_daily_bps": 85.17333780667386,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 132.05890917900848,
+            "mean_daily_bps": 134.8914119544373,
+            "mean_net_log_bps": 133.8716852214164,
+            "median_daily_bps": 156.6579634464752,
+            "median_fold_lcb_bps": 113.87637189660406,
+            "net_log_lcb_daily_bps": 131.0786922980193,
+            "positive_fold_means": 2,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 85.76952540691809,
+            "worst_fold_mean_bps": 121.8370519735659
+          },
+          "paired_log_lcb_bps": {
+            "normal": 131.0786922980193,
+            "stress": 129.45036324896853
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-19",
+              "block_days": 2,
+              "content_sha256": "d33c9b475c4e752ef88482be057737e6e1e3aa57512215438dd57eddc3802d2f",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 19
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 139.28356591626797,
+                "mean_daily_bps": 150.94739902725482,
+                "mean_net_log_bps": 149.80518601987936,
+                "median_daily_bps": 161.72506738544473,
+                "net_log_lcb_daily_bps": 138.30717635277577,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 83.76546464742441,
+                "mean_daily_bps": 120.83502159381906,
+                "mean_net_log_bps": 119.92155903590228,
+                "median_daily_bps": 155.44980434534557,
+                "net_log_lcb_daily_bps": 83.17233721962693,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 130.41610101853726,
+            "mean_daily_bps": 133.74032620814867,
+            "mean_net_log_bps": 132.72882774332103,
+            "median_daily_bps": 156.6579634464752,
+            "median_fold_lcb_bps": 111.52451528184619,
+            "net_log_lcb_daily_bps": 129.45036324896853,
+            "positive_fold_means": 2,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 83.76546464742441,
+            "worst_fold_mean_bps": 120.83502159381906
+          }
+        },
+        "selection": {
+          "normal": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 141.98321838629002,
+                "mean_daily_bps": 152.29722526226587,
+                "mean_net_log_bps": 151.13785307740395,
+                "median_daily_bps": 161.72506738544473,
+                "net_log_lcb_daily_bps": 140.972510467825,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 85.76952540691809,
+                "mean_daily_bps": 121.8370519735659,
+                "mean_net_log_bps": 120.92205932942575,
+                "median_daily_bps": 155.44980434534557,
+                "net_log_lcb_daily_bps": 85.17333780667386,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 117.79298417462185,
+            "mean_daily_bps": 134.8914119544373,
+            "mean_net_log_bps": 133.8716852214164,
+            "median_daily_bps": 156.6579634464752,
+            "median_fold_lcb_bps": 113.87637189660406,
+            "net_log_lcb_daily_bps": 116.90585114935627,
+            "positive_fold_means": 2,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 85.76952540691809,
+            "worst_fold_mean_bps": 121.8370519735659
+          },
+          "paired_log_lcb_bps": {
+            "normal": 116.90585114935627,
+            "stress": 115.76242224247228
+          },
+          "stress": {
+            "bootstrap_bank": {
+              "bank_id": "synthetic-profit-7",
+              "block_days": 2,
+              "content_sha256": "4dac8e4eb4d49fe128f585c8b022b84a5f72aa4ba51c567c889ac07588aea208",
+              "cutoff_ms": 604800000,
+              "folds_sha256": "17588555976831d0e30f7e4625d57608e79714c926dc4941024281d21beb72e1",
+              "samples": 64,
+              "schema_version": "exia.genetic_primus.bootstrap_bank/1",
+              "scope_lengths": {
+                "0": 3,
+                "1": 4,
+                "overall": 7
+              },
+              "seed": 7
+            },
+            "fold_role": "diagnostic_not_outer_slices",
+            "folds": [
+              {
+                "days": 3,
+                "end": "1970-01-04T00:00:00+00:00",
+                "fold": "0",
+                "lcb_daily_bps": 139.28356591626797,
+                "mean_daily_bps": 150.94739902725482,
+                "mean_net_log_bps": 149.80518601987936,
+                "median_daily_bps": 161.72506738544473,
+                "net_log_lcb_daily_bps": 138.30717635277577,
+                "start": "1970-01-01T00:00:00+00:00",
+                "trades": 1
+              },
+              {
+                "days": 4,
+                "end": "1970-01-08T00:00:00+00:00",
+                "fold": "1",
+                "lcb_daily_bps": 83.76546464742441,
+                "mean_daily_bps": 120.83502159381906,
+                "mean_net_log_bps": 119.92155903590228,
+                "median_daily_bps": 155.44980434534557,
+                "net_log_lcb_daily_bps": 83.17233721962693,
+                "start": "1970-01-04T00:00:00+00:00",
+                "trades": 0
+              }
+            ],
+            "lcb_daily_bps": 116.64780659776834,
+            "mean_daily_bps": 133.74032620814867,
+            "mean_net_log_bps": 132.72882774332103,
+            "median_daily_bps": 156.6579634464752,
+            "median_fold_lcb_bps": 111.52451528184619,
+            "net_log_lcb_daily_bps": 115.76242224247228,
+            "positive_fold_means": 2,
+            "stability_bootstrap_evaluated": true,
+            "worst_fold_lcb_bps": 83.76546464742441,
+            "worst_fold_mean_bps": 120.83502159381906
+          }
+        }
+      },
+      "failed_gates": [],
+      "paired_reference": "NoTrade",
+      "promotion_authority": false,
+      "statistic": "mean_calendar_daily_net_log_growth_bps_and_paired_log_difference",
+      "status": "passed"
+    }
+  }
+}

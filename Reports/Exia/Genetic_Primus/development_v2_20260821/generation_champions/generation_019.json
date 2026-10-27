@@ -1,0 +1,30 @@
+{
+  "trades": 3765,
+  "mean_bps": 43.9987022521766,
+  "median_bps": -3.3442617343488603,
+  "lcb_bps": 30.085529166573128,
+  "fitness": 2.6789565582365285,
+  "selection_score": -1002615.2416698867,
+  "constraint_violation": 0.0,
+  "max_drawdown": 0.14626430119249068,
+  "turnover_fills": 7530,
+  "supported_periods": 24,
+  "total_periods": 24,
+  "supported_period_rate": 1.0,
+  "max_direction_share": 0.5877822045152723,
+  "max_state_share": 0.4549800796812749,
+  "max_symbol_share": 0.1699867197875166,
+  "action_counts": {
+    "SHORT": 6774,
+    "FLAT": 19714,
+    "LONG": 8544
+  },
+  "failed_gates": [
+    "nonpositive_symbol_lcb:BTC/USDT"
+  ],
+  "selection_contract": "risk>overall_gate>failed_slices>worst_slice_lcb>monthly_fitness",
+  "overall_failure_count": 0,
+  "slice_failure_count": 1,
+  "supported_slice_count": 15,
+  "worst_supported_slice_lcb_bps": -2.6179206264450325
+}

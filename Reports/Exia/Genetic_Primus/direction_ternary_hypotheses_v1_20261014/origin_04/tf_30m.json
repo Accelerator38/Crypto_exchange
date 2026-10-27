@@ -1,0 +1,366 @@
+{
+  "minutes": 30,
+  "origin": 4,
+  "models": [
+    {
+      "id": "lag_logit",
+      "file": "tf_30m__lag_logit.joblib",
+      "sha256": "f1cf541874e01eb9a177a4b5e13194dea1e23be1046e1a7ba0b49b69d9fab57a",
+      "meta_sha256": "9430759dcf92e283d748be90d7eae53f0e80037d67415a181cf6de41ea45bb08",
+      "info": {
+        "rows": 8768,
+        "features": 24,
+        "kind": "logistic",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": [
+          32
+        ],
+        "parameter_count": 75
+      }
+    },
+    {
+      "id": "lag_boost",
+      "file": "tf_30m__lag_boost.joblib",
+      "sha256": "bdf0fada51152f134e3fedef899b0815ec8b845c5f916d017fa7883c90a303eb",
+      "meta_sha256": "4d1858ac42760cca439861d3cf6bd5a3c4867224c358c83fa4d9c7dbfa032072",
+      "info": {
+        "rows": 8768,
+        "features": 24,
+        "kind": "boosting",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": 32
+      }
+    },
+    {
+      "id": "context_logit",
+      "file": "tf_30m__context_logit.joblib",
+      "sha256": "df17f5bc6ea5da18eaae0fef75a64f0867ae9b712cad5bac8e770bf5d597319f",
+      "meta_sha256": "e120218de47fd9b6dca535cd8fa8bfd72808e0e9e6ee0d75d0c03bd81630c9b5",
+      "info": {
+        "rows": 8768,
+        "features": 20,
+        "kind": "logistic",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": [
+          40
+        ],
+        "parameter_count": 63
+      }
+    },
+    {
+      "id": "context_boost",
+      "file": "tf_30m__context_boost.joblib",
+      "sha256": "aaa6e29e25af87819efb5a25466b9eb37d8f2fbdbcc2ff33ffacabf7f1ff5d0c",
+      "meta_sha256": "47bf99f3ad5373f450506430050f6aa4ea2abffb82c13e15ccda305ebbff09f8",
+      "info": {
+        "rows": 8768,
+        "features": 20,
+        "kind": "boosting",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": 32
+      }
+    },
+    {
+      "id": "asset_intercepts",
+      "file": "tf_30m__asset_intercepts.joblib",
+      "sha256": "e500cd16f3b7fa425703fdddbb6eb65de8d221a8d5afb3ca7586fcd9623f5d1f",
+      "meta_sha256": "e4bc6fd51c013f62362eafcf26578f5a0503ffec9b0f6e03d468c3bb16e84eff",
+      "info": {
+        "rows": 8768,
+        "features": 19,
+        "kind": "logistic",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": [
+          28
+        ],
+        "parameter_count": 60
+      }
+    },
+    {
+      "id": "robust_logit",
+      "file": "tf_30m__robust_logit.joblib",
+      "sha256": "bfae3e3d4d2d9e8486b0bae81a9ee929806b6cbb5dcb2bd0789c977496473919",
+      "meta_sha256": "03bb9581372b9d1e67f09a74200d94455ae53a5b54b15b7ebd6c19306f0386e8",
+      "info": {
+        "rows": 8768,
+        "features": 12,
+        "kind": "logistic",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": [
+          25
+        ],
+        "parameter_count": 39
+      }
+    },
+    {
+      "id": "recency90",
+      "file": "tf_30m__recency90.joblib",
+      "sha256": "53fea66dd61facca6bb398303d2bf76a4d80195cdcba14d6563cb53242405091",
+      "meta_sha256": "7965bf7f5586addcfa6807c92fc2c2d44935242cdc79af8712bfda3dee51534f",
+      "info": {
+        "rows": 8768,
+        "features": 12,
+        "kind": "logistic",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2674.7955883765703,
+          3477.3568355421367,
+          2615.8475760812926
+        ],
+        "kish_weight_ess_not_independent_observations": 8745.47407923857,
+        "warnings": [],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": [
+          26
+        ],
+        "parameter_count": 39
+      }
+    },
+    {
+      "id": "mlp83",
+      "file": "tf_30m__mlp83.joblib",
+      "sha256": "035d03273813fc3b9a432fc2a6fc758f35f4d2c3e87b8e39021756786921c1b4",
+      "meta_sha256": "a48a4f3d647f9fa7037e6a77136fe8dd29cd07325b3f5cc569533bb96a057a05",
+      "info": {
+        "rows": 8768,
+        "features": 6,
+        "kind": "mlp",
+        "classes": [
+          -1,
+          0,
+          1
+        ],
+        "train_counts": [
+          2677,
+          3472,
+          2619
+        ],
+        "weight_mass": [
+          2677.0,
+          3472.0,
+          2619.0
+        ],
+        "kish_weight_ess_not_independent_observations": 8768.0,
+        "warnings": [
+          "lbfgs failed to converge after 80 iteration(s) (status=1):\nSTOP: TOTAL NO. OF ITERATIONS REACHED LIMIT\n\nIncrease the number of iterations to improve the convergence (max_iter=80).\nYou might also want to scale the data as shown in:\n    https"
+        ],
+        "new_fits": 1,
+        "fallback": false,
+        "fitted_iterations": 80,
+        "parameter_count": 83
+      }
+    },
+    {
+      "id": "temporal_ensemble3",
+      "file": "tf_30m__temporal_ensemble3.joblib",
+      "sha256": "44c0e77635817157a2b596194771ccaafe0eba1e4756336d4380fcb6bd5c3f96",
+      "meta_sha256": "f67d2d922c0053de947b65b7feed165f4f4f73a6cf69f5e5f34c62e125141d7d",
+      "info": {
+        "new_fits": 0,
+        "warnings": [],
+        "member_count": 3
+      }
+    },
+    {
+      "id": "neutral_direction_hierarchy",
+      "file": "tf_30m__neutral_direction_hierarchy.joblib",
+      "sha256": "1ddad0d47f621c219cb9f660f18ae3b5d34c5d0a1fc7b77780c8ded25a3ff60e",
+      "meta_sha256": "7c28c8b5d42d9b950699465d9468add145a33ef81dd4a4d1250c6f90480b0aca",
+      "info": {
+        "new_fits": 2,
+        "stages": [
+          {
+            "rows": 8768,
+            "features": 12,
+            "kind": "logistic",
+            "classes": [
+              0,
+              1
+            ],
+            "train_counts": [
+              3472,
+              5296
+            ],
+            "weight_mass": [
+              3472.0,
+              5296.0
+            ],
+            "kish_weight_ess_not_independent_observations": 8768.0,
+            "warnings": [],
+            "new_fits": 1,
+            "fallback": false,
+            "fitted_iterations": [
+              20
+            ],
+            "parameter_count": 13
+          },
+          {
+            "rows": 5296,
+            "features": 12,
+            "kind": "logistic",
+            "classes": [
+              0,
+              1
+            ],
+            "train_counts": [
+              2677,
+              2619
+            ],
+            "weight_mass": [
+              2677.0,
+              2619.0
+            ],
+            "kish_weight_ess_not_independent_observations": 5296.0,
+            "warnings": [],
+            "new_fits": 1,
+            "fallback": false,
+            "fitted_iterations": [
+              18
+            ],
+            "parameter_count": 13
+          }
+        ],
+        "warnings": [],
+        "parameter_count": 26
+      }
+    }
+  ],
+  "ledger_sha256": "f08fa85b196919aaf8171646b2a8cf894e6f1d9f7cc305da04b3902e64644538",
+  "base_ledger_sha256": "b2708fa006b2452864b0bc81266295314b6431f6721145413ce23c6fd300ea54",
+  "code_pins": {
+    "configs/genetic_primus_direction_ternary_hypotheses_v1.json": "29904dde7d23b52941040b711359c263b19a0dea9851ac22a9bfcecea319ccb0",
+    "tools/run_genetic_primus_direction_ternary_hypotheses_v1.py": "4cc772971d33d5d68cb19bfc0d6de8c137ee028f7cdf93997e4311fc48b39f8d",
+    "src/exia/genetic_primus/direction_ternary_hypotheses_v1.py": "5cc95454ff9c97e00c16b2ec9e1a53972f4e4e2bd7639e43f7efe7d83c0972d6",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_ternary_fixed_v1.py": "3d5dc8ebddf01f2f5f5ccf9eebef4cd5f30f961d0966c6e3fe2f2e6266d0c6e0",
+    "src/exia/genetic_primus/direction_ternary_v1.py": "748bb579e32a5527cef61be8a46aaa326bcd606a0fb83a3fe0f32509b6e2dbc1",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_selective_v1.py": "aac226277a3fc51345e86f7a275ad63ddc05dc3c1f6a32d48937467f19bf6f1c"
+  },
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "live": false,
+  "runtime_authority": false,
+  "network_allowed": false,
+  "promotion_authority": false,
+  "sha256": "25280e987092c61a4504f267b585361f0858a669ae52830b1315eba263f49277"
+}

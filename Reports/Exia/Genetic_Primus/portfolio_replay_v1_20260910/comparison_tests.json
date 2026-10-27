@@ -1,0 +1,29 @@
+{
+  "schema_version": "exia.genetic_primus.portfolio_verification/1",
+  "portfolio_contract_sha256": "89960011aaf432f2615797cfd6873fd931a36924250387df86fe90f364e42ed7",
+  "implementation_sha256": "da2c5c72e03ba1d018ada27f305333f845fd7db28e7acd9a0248afccffa88dcf",
+  "source_hashes": {
+    "configs/genetic_primus_portfolio_replay_v1.json": "8e05808690f4c266658748b18f1af218b04d07697d29eb80d020ed0562770a59",
+    "src/exia/genetic_primus/portfolio_replay_v1.py": "2284efb3c743a4bfd0090a1a097b0cc0732914915e1b4d59963bad146b4d47e1",
+    "tools/run_genetic_primus_portfolio_replay_v1.py": "0ea0c944e021f421827120d52940c3f803ea8aef5b437751a02bb73c56765130",
+    "configs/genetic_primus_release_candidate_v1.json": "6bef1f813d24dcdd5d46b9463b85d735aa276ab3e244754f790ae13e033c3135",
+    "src/exia/genetic_primus/release_contract_v1.py": "864de0a7cc4690bc51498ab5f5f0f7ba3da55f64f2cf82fb248eecd9a327a243",
+    "src/exia/genetic_primus/execution_replay_v1.py": "c378f6ef59636d0aa9caa8172c42df006645660b1f5d85b6d0592bfb77d0e44f",
+    "tests/test_genetic_primus_portfolio_replay_v1.py": "6f590754b8deb6a8d9393c1e1a191d3d868c78f2f28f78c50289cfceda37abe4",
+    "tools/check_genetic_primus_portfolio_replay_v1.py": "861cf2db635d9c686d396bec06b721f2d2e6cb38d0097148d2d41dd013c2b61a"
+  },
+  "group": "comparison",
+  "passed_tests": [
+    "test_identical_targets_identical_economics",
+    "test_notrade_remains_cash",
+    "test_weak_momentum_is_ema_trade_but_ga_abstention",
+    "test_abstention_does_not_reallocate_capital",
+    "test_candidate_iteration_order_is_irrelevant"
+  ],
+  "synthetic_only": true,
+  "pytest_used": false,
+  "training_run": false,
+  "network_used": false,
+  "trading_authorized": false,
+  "receipt_body_sha256": "6f9cb57d00b1599dad59817d4084d45c9d5e44c25eda5afc1e51f71ad7c7ab12"
+}

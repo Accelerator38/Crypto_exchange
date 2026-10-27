@@ -1,0 +1,56 @@
+{
+  "paper": {
+    "status": "author_data_and_code_required",
+    "paper_doi": "10.1186/s40854-024-00643-1",
+    "reported_accuracy": 0.8244,
+    "horizon_days": 1,
+    "source": "Glassnode; original data/code available from corresponding author on request",
+    "require_point_in_time_availability": true,
+    "no_proxy_reproduction_claim": true,
+    "architectural_reproduction_requires_author_artifacts": true
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "status": "awaiting_original_data_code_and_publication_vintages",
+  "trained_models": 0,
+  "measured_accuracy": null,
+  "published_accuracy_is_not_our_result": true,
+  "required_bank": {
+    "format": "NPZ, allow_pickle=false",
+    "times": "UTC completed-day decision times, int64 ms, consecutive",
+    "closes": "positive completed-day close at each decision",
+    "features": "finite daily on-chain matrix, original named schema",
+    "available_ms": "per-value actual publication timestamp matrix; <= decision time",
+    "feature_names": "unique Unicode names"
+  },
+  "required_receipt": [
+    "bank_sha256",
+    "asset=BTC",
+    "supplier=Glassnode",
+    "point_in_time_verified=true",
+    "author_feature_names",
+    "author_original_data_sha256",
+    "author_original_code_sha256"
+  ],
+  "paper_target": "next daily close > current daily close; paper negative class includes flat",
+  "our_direction_target": "up/down/flat separately; never substitute paper binary accuracy for primary minute metric",
+  "replication_stages": [
+    "verify author data/code identities and point-in-time vintages",
+    "reproduce original chronological 80/20 paper experiment, disclose original target and original preprocessing",
+    "independently audit feature selection and hyperparameter tuning boundaries",
+    "run frozen causal variant with train-only scaling/selection and purged calibration",
+    "test new temporal interval once; compare random/majority/momentum with calendar-block intervals"
+  ],
+  "architecture": "Boruta + CNN-LSTM; exact implementation requires the author code; no invented substitute",
+  "source_url": "https://link.springer.com/article/10.1186/s40854-024-00643-1",
+  "source_availability": "Article Availability of data and materials: available from corresponding author on request",
+  "engineering_validator_sha256": "db99284697a6a843b2a26bd650270210b1eaa396b4a3fade3d1384cc4f9cd481",
+  "sha256": "0f8ab0d432fe3f2dfc5fa1ec9fd65415229e4dac3d89a09a105d2ada99c44b19"
+}

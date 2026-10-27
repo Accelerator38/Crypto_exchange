@@ -1,0 +1,33 @@
+{
+  "schema": "compact_ioc_engineering/1",
+  "scope": "bounded_offline_synthetic_engineering_only",
+  "clock": "closed_bar_available_then_first_post_signal_quote_then_registered_order_latency_then_first_fresh_post_arrival_snapshot",
+  "signal_compute_latency_ms": 100,
+  "order_latency_ms": 250,
+  "order_ttl_ms": 2000,
+  "reference_wait_ms": 5000,
+  "max_quote_age_ms": 500,
+  "max_mark_age_ms": 2000,
+  "participation": "0.10",
+  "protection_bps": "30",
+  "initial_cash_quote": "1000",
+  "max_order_notional_quote": "250",
+  "max_gross_ratio": "0.80",
+  "research_drawdown_gate": "0.20",
+  "max_events": 256,
+  "max_orders": 32,
+  "max_levels": 20,
+  "evidence_kind": "synthetic",
+  "timing_and_liquidity_parameters_empirically_calibrated": false,
+  "existing_next_4h_open_forecast_labels_compatible": false,
+  "requires_new_target_clock_and_labels_before_market_strategy_replay": true,
+  "accounting": "fully_collateralized_long_cash_diagnostic_not_margin_or_liquidation_engine",
+  "funding": "signed; entry_lt_settlement; settlement_before_same_timestamp_fills; late_unknown_settlement_rejected",
+  "ohlcv_fill_fallback": false,
+  "live_adapter": null,
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false, "execution_allowed": false,
+    "paper": false, "live": false, "promotion_authority": false,
+    "training_allowed": false, "financial_evaluation_allowed": false, "network_allowed": false
+  }
+}

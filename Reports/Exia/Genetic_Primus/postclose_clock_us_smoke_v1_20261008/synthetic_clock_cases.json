@@ -1,0 +1,819 @@
+{
+  "cases": {
+    "aliased_snapshot": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "same snapshot evidence aliased as multiple observations"
+      },
+      "resolution": {
+        "error": "same snapshot evidence aliased as multiple observations",
+        "status": "INPUT_REJECTED"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "aligned_resolved": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": true,
+        "legacy_exact_agreement": true,
+        "legacy_resolution": {
+          "actual_fill_verified": false,
+          "arrival_ms": 1785542400252,
+          "endpoint": {
+            "available_ms": 1785542400254,
+            "exchange_ms": 1785542400253,
+            "received_ms": 1785542400254,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "expires_ms_exclusive": 1785542402002,
+          "reference": {
+            "available_ms": 1785542400002,
+            "exchange_ms": 1785542400001,
+            "received_ms": 1785542400002,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "signal_available_ms": 1785542400000,
+          "status": "CLOCK_RESOLVED_NOT_FILL_QUALIFIED",
+          "window_sha256": "757979d15e0ff879d0b1bbfdf104216e36ecd179eafad292a022f6dbe7705e56"
+        }
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": {
+          "available_us": 1785542400254000,
+          "exchange_us": 1785542400253000,
+          "received_us": 1785542400254000,
+          "snapshot_id": "end",
+          "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "69452dae945cc6b808f0edaf0bb1874cb506c34052185207ecbf311f84a37e30",
+        "signal_available_us": 1785542400000000,
+        "status": "CLOCK_RESOLVED_NOT_FILL_QUALIFIED",
+        "strategy_availability_verified": false,
+        "window_sha256": "6c4324f5704360d316a6d18a5c5bf06f72a630bbb201c6fe3bf99d0c56ec76c5"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "arrival_equal": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "946c11120b1ffcc1b1b7a512225660a2d0d8dfd3b3937ea25cb7672519c1cb7d",
+        "signal_available_us": 1785542400000000,
+        "status": "AMBIGUOUS_POST_ARRIVAL_BOUNDARY",
+        "strategy_availability_verified": false,
+        "window_sha256": "334a617fb8655efcc14bb2679345458537fb085b85d707db8140993e8b07a30f"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400252000,
+            "exchange_us": 1785542400252000,
+            "received_us": 1785542400252000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "arrival_minus1": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "c545e1c667a5f0f618b4d1a7fc0d6d7b7f6007c7e847465b5ed81c091091b094",
+        "signal_available_us": 1785542400000000,
+        "status": "EXPIRED_NO_POST_ARRIVAL",
+        "strategy_availability_verified": false,
+        "window_sha256": "0b798020bfb64ce5b2d4449c4d94e8b839e1f462c6be1f473c84b05e79f4417e"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400253000,
+            "exchange_us": 1785542400251999,
+            "received_us": 1785542400253000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "arrival_plus1": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "precision loss: microsecond timestamp is not millisecond aligned"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": {
+          "available_us": 1785542400252001,
+          "exchange_us": 1785542400252001,
+          "received_us": 1785542400252001,
+          "snapshot_id": "end",
+          "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "91354827b5edf892919531f71a92101d5e871af222c9c6990f167d0e3630cd43",
+        "signal_available_us": 1785542400000000,
+        "status": "CLOCK_RESOLVED_NOT_FILL_QUALIFIED",
+        "strategy_availability_verified": false,
+        "window_sha256": "f013ebe3a36f1897658b33c4eada43904872782c02eeb7f6f4c04bff00115678"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400252001,
+            "exchange_us": 1785542400252001,
+            "received_us": 1785542400252001,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "endpoint_batch": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "ea93f7fc2c65cfc05ca3394deba803a59b27e1b3a111a71a2c62955c49c3f28a",
+        "signal_available_us": 1785542400000000,
+        "status": "AMBIGUOUS_POST_ARRIVAL_BATCH",
+        "strategy_availability_verified": false,
+        "window_sha256": "97f4a1e67c8c2cb2edc57a4975b1d6b687fa8944279d4f675b59cd805d4e8d34"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "peer",
+            "snapshot_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "expiry_equal": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "89b5fe7c5d285c7bf569e4b58cf07a0d7d56a5557d31e09c0f54be4f1b6ad847",
+        "signal_available_us": 1785542400000000,
+        "status": "EXPIRED_NO_POST_ARRIVAL",
+        "strategy_availability_verified": false,
+        "window_sha256": "c4d84290a4197a111ac38ef0141c09722e4c8591aecb4e56d78764fdfc8eaff9"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542402002000,
+            "exchange_us": 1785542402002000,
+            "received_us": 1785542402002000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "expiry_minus1": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "precision loss: microsecond timestamp is not millisecond aligned"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": {
+          "available_us": 1785542402001999,
+          "exchange_us": 1785542402001999,
+          "received_us": 1785542402001999,
+          "snapshot_id": "end",
+          "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "501beb567ea426a5376ed5d5ad828bb28699b6141ca90f542cf13052344c6a45",
+        "signal_available_us": 1785542400000000,
+        "status": "CLOCK_RESOLVED_NOT_FILL_QUALIFIED",
+        "strategy_availability_verified": false,
+        "window_sha256": "20f8445e62812ad58da9b92b8cee9e89da14a0068370a879858e2f6a729ab269"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542402001999,
+            "exchange_us": 1785542402001999,
+            "received_us": 1785542402001999,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "expiry_plus1": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252000,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "expires_us_exclusive": 1785542402002000,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002000,
+          "exchange_us": 1785542400001000,
+          "received_us": 1785542400002000,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "9551af84b71ab236aa06636a8175a13060cbdf931d6fd4f0c01117745fe13df1",
+        "signal_available_us": 1785542400000000,
+        "status": "EXPIRED_NO_POST_ARRIVAL",
+        "strategy_availability_verified": false,
+        "window_sha256": "2fba5cd57d529864d4c39ba956017fc3051f718c3eb2e9538acd5c6760faea00"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542402002001,
+            "exchange_us": 1785542402002001,
+            "received_us": 1785542402002001,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "fractional_resolved": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "precision loss: microsecond timestamp is not millisecond aligned"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "arrival_us": 1785542400252001,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": {
+          "available_us": 1785542400254002,
+          "exchange_us": 1785542400253002,
+          "received_us": 1785542400254002,
+          "snapshot_id": "end",
+          "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "expires_us_exclusive": 1785542402002001,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": {
+          "available_us": 1785542400002001,
+          "exchange_us": 1785542400001001,
+          "received_us": 1785542400002001,
+          "snapshot_id": "ref",
+          "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "dc23f8d95effb02a97bce0bd731f74b3f83c4e0ccdb633c2b1286366f72a4ae3",
+        "signal_available_us": 1785542400000000,
+        "status": "CLOCK_RESOLVED_NOT_FILL_QUALIFIED",
+        "strategy_availability_verified": false,
+        "window_sha256": "70b0afab6c85ac804038b62bd6659d0809eb687651aaf2e8b096cf041007137b"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002001,
+            "exchange_us": 1785542400001001,
+            "received_us": 1785542400002001,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254002,
+            "exchange_us": 1785542400253002,
+            "received_us": 1785542400254002,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "reference_batch": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": null,
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "281676ff4b74e8c19627aa93f45745d7cb9a7aa6523be215647477248d4e5815",
+        "signal_available_us": 1785542400000000,
+        "status": "AMBIGUOUS_REFERENCE_BATCH",
+        "strategy_availability_verified": false,
+        "window_sha256": "2d84305315dd8e61a1074f7eba4b7ec9ba096609825c73efa60397f94004cccc"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400001000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "peer",
+            "snapshot_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    "signal_equality": {
+      "basis": "synthetic_fixture",
+      "legacy_bridge": {
+        "accepted": false,
+        "reason": "unresolved/ambiguous synthetic clock cannot enter legacy resolver"
+      },
+      "resolution": {
+        "actual_fill_verified": false,
+        "clock_basis": "synthetic_fixture",
+        "contract_sha256": "8ea8d8afad3e981f55e6cf400ad28c38c7bc303cf3622fbb62257b29d8b52b25",
+        "endpoint": null,
+        "financial_replay_ready": false,
+        "real_market_coverage_verified": false,
+        "reference": null,
+        "safety": {
+          "credentials_allowed": false,
+          "execution_allowed": false,
+          "financial_evaluation_allowed": false,
+          "live": false,
+          "network_allowed": false,
+          "orders_enabled": false,
+          "paper": false,
+          "promotion_authority": false,
+          "training_allowed": false
+        },
+        "sha256": "e3f4962089c3399505ef1583bfc2412dea8d5547dead9ae8f1d1273da36e4971",
+        "signal_available_us": 1785542400000000,
+        "status": "AMBIGUOUS_REFERENCE_BOUNDARY",
+        "strategy_availability_verified": false,
+        "window_sha256": "61ce11322e9cc8451e4efab7ad2c680d7b76f159173f4c0c0802342a9a4ce4a6"
+      },
+      "signal_available_us": 1785542400000000,
+      "window": {
+        "clock_basis": "synthetic_fixture",
+        "coverage_end_us_exclusive": 1785542407000000,
+        "coverage_start_us": 1785542399500000,
+        "observations": [
+          {
+            "available_us": 1785542400002000,
+            "exchange_us": 1785542400000000,
+            "received_us": 1785542400002000,
+            "snapshot_id": "ref",
+            "snapshot_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "available_us": 1785542400254000,
+            "exchange_us": 1785542400253000,
+            "received_us": 1785542400254000,
+            "snapshot_id": "end",
+            "snapshot_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    }
+  },
+  "financial_replay_ready": false,
+  "legacy_exact_agreements": 1,
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "synthetic_clock_cases/1",
+  "sha256": "d70dd193a9704082cacf4aa14fa7231479cc3ad586716ad521798e26eb4c10aa"
+}

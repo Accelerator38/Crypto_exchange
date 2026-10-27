@@ -1,0 +1,40 @@
+{
+  "schema_version": "exia.genetic_primus.incomplete_run_diagnostic/1",
+  "status": "ABORTED_BY_HOST_REBOOT",
+  "experiment_cell_id": "weekly__rolling_730_hl180__cadence_7d",
+  "usable_as_experiment_evidence": false,
+  "resume_allowed": false,
+  "manifest_present": false,
+  "root_parquet_present": false,
+  "checkpoint_state": [
+    {
+      "island_id": "island_00",
+      "complete": true,
+      "next_generation": 5,
+      "global_generation": 2,
+      "checkpoint_sha256": "a0ad2bbead80703b13ba059789826840888084e9c09e9a5f3a819996bbaacb18"
+    },
+    {
+      "island_id": "island_01",
+      "complete": false,
+      "next_generation": 2,
+      "global_generation": 1,
+      "checkpoint_sha256": "aafb883091cc364e73462f24222929fd257309f0df91e757208a68e9b6986060"
+    },
+    {
+      "island_id": "island_02",
+      "complete": false,
+      "next_generation": 3,
+      "global_generation": 0,
+      "checkpoint_sha256": "4d730948e0c470d9ed124fc6a8daf7c681d921cddd8546de3d470ea8bf3f0a49"
+    }
+  ],
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  },
+  "note": "Preserved in place for diagnostics only. Do not resume or use for model comparison."
+}

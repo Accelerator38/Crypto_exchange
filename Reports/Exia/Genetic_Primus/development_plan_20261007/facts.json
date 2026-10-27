@@ -1,0 +1,1820 @@
+{
+  "archived_endpoint_reconstruction_verified": true,
+  "attribution": {
+    "all_controls_match": true,
+    "comparisons": {
+      "normal": {
+        "GA_beats_control_count": 1,
+        "control_net_median_pct": -1.1229165710659295,
+        "control_net_return_pct_by_seed": [
+          -0.7829645725782708,
+          -0.7178171451816984,
+          -1.3514039030948166,
+          -1.334616969864122,
+          -0.8329559461046188,
+          -1.7159066234168074,
+          -1.3092912613079322,
+          -1.3092912613079322,
+          -1.002480918786286,
+          -1.303018191345251,
+          -1.1870336150811567,
+          -1.0283837439849952,
+          -1.043540793938269,
+          -1.0920774097020525,
+          -1.0619323928626856,
+          -1.1537557324298064
+        ],
+        "ga_net_return_pct": -1.4300826873511752,
+        "mean_daily_GA_minus_control": -0.00010574595455788663,
+        "paired_block_bootstrap_LCB_daily_GA_minus_control": -0.0005198452421496271
+      },
+      "stress": {
+        "GA_beats_control_count": 1,
+        "control_net_median_pct": -1.5671546725600893,
+        "control_net_return_pct_by_seed": [
+          -1.2293608059192662,
+          -1.1644734480100838,
+          -1.7944229287266245,
+          -1.7774084499301401,
+          -1.2790950576965887,
+          -2.1564997321414037,
+          -1.7524784012245331,
+          -1.7524784012245331,
+          -1.4478931187998922,
+          -1.746043535047337,
+          -1.6310007062178111,
+          -1.4729733172814452,
+          -1.488839247723528,
+          -1.5364610658120337,
+          -1.5064957603078244,
+          -1.597848279308145
+        ],
+        "ga_net_return_pct": -1.8719027114283415,
+        "mean_daily_GA_minus_control": -0.00010538610763825505,
+        "paired_block_bootstrap_LCB_daily_GA_minus_control": -0.0005286306371747033
+      }
+    },
+    "distinct_control_targets": 15,
+    "historical_support_gate": false,
+    "maximum_changed_decision_rows": 34
+  },
+  "august": {
+    "archive_summary": {
+      "costs": {
+        "normal": {
+          "candidates": {
+            "EMA_TrendConsensus": {
+              "compounded_return": 0.11000961281110566,
+              "max_drawdown": 0.06574647369402153,
+              "trades": 122
+            },
+            "GA_overlay_f7a4ae11": {
+              "compounded_return": 0.15645003490927878,
+              "max_drawdown": 0.04404990309731427,
+              "trades": 62
+            },
+            "NoTrade": {
+              "compounded_return": 0.0,
+              "max_drawdown": 0.0,
+              "trades": 0
+            }
+          },
+          "overlay_minus_ema_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.0010043094466955543,
+            "mean_difference": 0.0013408998251601542,
+            "observations_sha256": "1367be4ccd2ba33dacf7ae264bcfa8a1a351796aaa18ec179e24f4d2a25fa5cb",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0005450612492243285,
+            "status": "informative"
+          },
+          "overlay_minus_no_trade_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.017359841746017193,
+            "mean_difference": 0.005100590370461478,
+            "observations_sha256": "83daebc1b1e453d740830a79f4d0282f7ca7cb747b73339abbcc8137eea3dbaa",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0052201359317665666,
+            "status": "informative"
+          },
+          "positive_origin_fraction_vs_ema": 0.9,
+          "positive_origin_fraction_vs_no_trade": 0.4
+        },
+        "stress": {
+          "candidates": {
+            "EMA_TrendConsensus": {
+              "compounded_return": 0.0965603976868159,
+              "max_drawdown": 0.0687241051268801,
+              "trades": 122
+            },
+            "GA_overlay_f7a4ae11": {
+              "compounded_return": 0.14931304124946987,
+              "max_drawdown": 0.04614608072349835,
+              "trades": 62
+            },
+            "NoTrade": {
+              "compounded_return": 0.0,
+              "max_drawdown": 0.0,
+              "trades": 0
+            }
+          },
+          "overlay_minus_ema_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.000864484577681061,
+            "mean_difference": 0.0015398679230172463,
+            "observations_sha256": "a66f4ce8822b7f309e127481d0bf11922a3f2013951b2618c1777786a558f2a5",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.0005588070085401268,
+            "status": "informative"
+          },
+          "overlay_minus_no_trade_hac": {
+            "block_length": 6,
+            "critical_value": 4.302652729749462,
+            "daily_count": 30,
+            "degrees_of_freedom": 2,
+            "lcb": -0.01746154647631088,
+            "mean_difference": 0.00489284023701014,
+            "observations_sha256": "06d2f5216b07ae511d613061a10ed0f57dacf9cfba116617c1cd21c4dd04b424",
+            "promotion_authority": false,
+            "schema": "exia.genetic_primus.hac_assessment/1",
+            "standard_error": 0.005195489414880733,
+            "status": "informative"
+          },
+          "positive_origin_fraction_vs_ema": 0.9,
+          "positive_origin_fraction_vs_no_trade": 0.4
+        }
+      },
+      "daily_observations": 30,
+      "data_already_revealed": true,
+      "decision": "REVEALED_ENGINEERING_DIAGNOSTIC_ONLY_NO_TUNING_NO_PROMOTION",
+      "origins": 10,
+      "promotion_authority": false,
+      "schema_version": "exia.genetic_primus.revealed_3d_summary/1"
+    },
+    "end_exclusive_ms": 1788134400000,
+    "origin_model_contexts": [
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "fd5f6f3022b765d38bfbc62f5cd862a2c1379449a0aa672a466561ecffcd9474",
+          "GA_overlay_f7a4ae11": "859725faae758e62b6e942eb203738a50d279d145b001c2af1711f768c097abc",
+          "NoTrade": "5a76555009bbbdaa947bf6e0647fc34b1f6af7f5b4d2367e305bf2c60a6858c2"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_01.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "9dfe78e0b9f5596ca08029ba8ebc0f86a7086671d7f4ae3705ea3b316e245a33",
+          "GA_overlay_f7a4ae11": "a34ae7c79fba5670f611ac8ee7bb874d323be925f7fa2c2754892791ebb9ca1e",
+          "NoTrade": "0066ece3f2306bd77938e064f98d98685fc6f04cd5f5ab1cc777d37febf52458"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_02.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "11a0cc84c6876e2df5634d1d3e8f2873ca306bbc99b0af3bfe076bc58ec721c9",
+          "GA_overlay_f7a4ae11": "267695219bcc5f45a4dd2151b1157d4fcb06f8feab8963b5d167c85d6acfed8a",
+          "NoTrade": "a1981913af510af841708d8ff542a95a732ea4f30253a9e5cd44e14471aec0d7"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_03.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "d5414086db57a9b6e35bf37ca98b9bc1f8c12c9a39320e6fa1547f09a24036f6",
+          "GA_overlay_f7a4ae11": "ae6ddfe505932b6b2be50f1f47b334e9bb0684424b805c41ab59bd9417b95db1",
+          "NoTrade": "572634dc9fbf0dd5078de94cb0c0bccd115ccd35909ef919e4d535e5f8df9336"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_04.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "6e3aaba3acbe5839eaa54bebb814415fc4cd9cfd1137f10f5abed80c5c228dad",
+          "GA_overlay_f7a4ae11": "1b32f412bf015b86d568a852703a34ad5ada874c02475bcd91fe081d9da42001",
+          "NoTrade": "11fb0d3e2092ce0cf8a984598148683166d804a90e14d085c6f61b959bc2b3f5"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_05.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "7124afcf270baadf8c03f02970d7207729686e44771fe0ea82b891840ec351ca",
+          "GA_overlay_f7a4ae11": "a3b06fc3867078504a7ff7c71e2de7646ff314e4138b4ef77b684707f6a045a6",
+          "NoTrade": "89cd4cee0799ef9063f00225344214aab2db2c6455b12a75db26b5aac6d6b23a"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_06.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "8b0b53ac63a40121348c9e79f3d3e12d1e4f91b917e99bb6b10df92cb157f4e2",
+          "GA_overlay_f7a4ae11": "0b37b2d0deb15cb819171fad8a5a1d47507942c867b782501d61a2aeb2f82b57",
+          "NoTrade": "f091a5de382645d84001b6d9d9e7991dfd84e139ee400c0c8743f680310a4b43"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_07.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "70c6222c002237e7c5c8402bcd0670f5b1d66b33610e016e41f7c1b689cef868",
+          "GA_overlay_f7a4ae11": "4a19fb2fb11cea1d4b8fea93a543aab7c94da93d25c49bb39bf4598fe04e78c6",
+          "NoTrade": "fb04620619900fd7d3cdd553b45cd513bd59e64fdb64bd1dd55c94537bb1e037"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_08.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "d458ce1b6c54df2b13671b9515e6b053754ddcb96ebbf3d10494a8c74948683d",
+          "GA_overlay_f7a4ae11": "341cfbbc0b907562ed3c1e79d4d425519267a2b2ef0dfe6cc33ebe5f9bbd2845",
+          "NoTrade": "f7a6cdfee4f728d3cf0dbe2b1d6c79f8e5d8489a7fdb31650948d2b595bab65f"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_09.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "bd7bdee61f71a7c89fc91e6115e9f29bed0139023f461b1a69c3a4fed2598531",
+          "GA_overlay_f7a4ae11": "b3a8860e35e011ce09ad0fdd776b2f76d85cd3f155168f77008660cf4fa39777",
+          "NoTrade": "872dea0f963e4a51330c94c9ca71933c05f3524cf0c5946af9c69cd5960b9962"
+        },
+        "path": "Reports/Exia/Genetic_Primus/revealed_august_diagnostic_v1_20260904/origin_10.json",
+        "producer_config_identity": {
+          "config_sha256": "34239a32fd467bbea1565b4a9fa0bdb32af00eedad40e211fd64ddfb3b4fbd33"
+        }
+      }
+    ],
+    "revealed_flags": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "rows": [
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0035375700526707465,
+          -0.0006000591722767901,
+          0.0019163821444034834,
+          -4.07906091834942e-05,
+          -0.008194359126116768,
+          -0.0019728235109837122,
+          -0.00032711271667318353,
+          -0.0058132126777485915,
+          -0.0011455255528010078,
+          -0.0001443151400445375,
+          -0.005004080751957463,
+          -0.004357074015457374,
+          -0.0017907337121845224,
+          -0.0018790806574745522,
+          0.009124728402633453,
+          -0.0035509302203733384,
+          -0.002966825800924333,
+          -0.00428683994606327,
+          0.05250587756378566,
+          0.051752086692885335,
+          0.10339117231121064,
+          -0.013210748832117813,
+          -0.011881822204540038,
+          -0.0007325676617958576,
+          -0.008789945117501419,
+          0.0,
+          0.006053829588996251,
+          -0.013483889963867512,
+          0.00037090627413993715,
+          -0.025689099281600236
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 6.574647369402175,
+        "net_return_pct": 11.000961281110548,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.002404175223766014,
+          0.006431911313338423,
+          0.0021904109929835602,
+          0.0005745145352178405,
+          -0.0037518841636819955,
+          -0.006274388131170094,
+          0.0,
+          -0.002015799776058924,
+          -0.00012529846597342242,
+          0.00030952304308340395,
+          -0.001939366531051756,
+          -0.004564256776898867,
+          0.0005632434523077379,
+          0.0,
+          0.006759258922835576,
+          -0.0017546764670877124,
+          -0.000683894106443983,
+          -3.896993846774777e-05,
+          0.04427895216214717,
+          0.051754167015683805,
+          0.10365342222003049,
+          -0.013210748832117813,
+          -0.010396005792794427,
+          0.0,
+          -0.005044874492800333,
+          0.0,
+          0.006031042612197446,
+          -0.01025671672916828,
+          -9.634817946879703e-05,
+          -0.011779681996562985
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 4.4049903097314385,
+        "net_return_pct": 15.645003490927834,
+        "policy": "GA_overlay_f7a4ae11"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0029359178770247407,
+          -0.0009606710059320012,
+          0.0017612618715454609,
+          -0.0004411891524737088,
+          -0.008785140848490025,
+          -0.0025667692698332356,
+          -0.0008757384643011124,
+          -0.006260730537414161,
+          -0.001645039020097827,
+          -0.0004937952843713234,
+          -0.005452576064614911,
+          -0.004851562132364595,
+          -0.0020908252123189586,
+          -0.0025740089977727143,
+          0.008817433932760466,
+          -0.003899819974471641,
+          -0.0032636822053589976,
+          -0.004832454058670499,
+          0.05192156631258138,
+          0.0517039259448846,
+          0.10295494760837398,
+          -0.013795587151947286,
+          -0.012378661491433962,
+          -0.0008315927624685804,
+          -0.009279919297349837,
+          0.0,
+          0.005946856175793158,
+          -0.014025168734288163,
+          0.00022246372867695818,
+          -0.02637027236588041
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 6.87241051268801,
+        "net_return_pct": 9.65603976868158,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0022528977198001954,
+          0.00632564390548862,
+          0.002035474098155854,
+          0.00047409499500283836,
+          -0.004046736940925166,
+          -0.006761956340759823,
+          0.0,
+          -0.0022143569794408346,
+          -0.00032533755374464235,
+          0.00010918791404956885,
+          -0.002038153025526346,
+          -0.004859486091039589,
+          0.000462832925362644,
+          0.0,
+          0.006648846231161132,
+          -0.0019039656140168448,
+          -0.0008332628607672365,
+          -0.00023930775200309284,
+          0.04370174085724554,
+          0.051706333468490184,
+          0.10321827261671035,
+          -0.013795587151947286,
+          -0.010893152845387055,
+          0.0,
+          -0.005440680650716789,
+          0.0,
+          0.005923899877850802,
+          -0.010500695872619814,
+          -0.000144500149953819,
+          -0.012076837670165208
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 4.614608072349824,
+        "net_return_pct": 14.931304124947033,
+        "policy": "GA_overlay_f7a4ae11"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      }
+    ],
+    "start_ms": 1785542400000
+  },
+  "evidence_kind": "archive_read_and_current_static_code_review_no_new_strategy_run",
+  "frozen_ga_model": {
+    "entry_rule": "logit_strictly_positive",
+    "features": [
+      "ema_gap_12_48",
+      "ema_slope_12_3",
+      "return_12",
+      "efficiency_12"
+    ],
+    "genome": [
+      0,
+      0,
+      1,
+      1,
+      -1
+    ],
+    "missing_features": "abstain",
+    "proposal": "V7_EMA_TrendConsensus",
+    "scaler": {
+      "fit_values_sha256": "8d3fc6e983330a94b36c377edeac79cb042fc61d040afd41dc17aaab78488441",
+      "fitted_rows": 7200,
+      "median": [
+        0.0040429417272414,
+        0.0011902407558666006,
+        0.004306489149553228,
+        0.262559295203845
+      ],
+      "scale": [
+        0.04568055026581688,
+        0.013131327221021255,
+        0.06055017775656632,
+        0.31358623309226347
+      ]
+    },
+    "schema": "binary_sparse_lab/2"
+  },
+  "historical_accounting_audit": {
+    "arithmetic_check_statuses": {
+      "consistent": 100,
+      "unknown": 15
+    },
+    "cross_source_comparison_authority": false,
+    "current_dependency_profiles_reviewed": 3,
+    "execution_allowed": false,
+    "historical_accounting_unknown_in_original_context_unchanged": 42,
+    "model_module_file_hashes_matched": 1,
+    "new_model_fits": 0,
+    "new_strategy_evaluation_runs_started": 0,
+    "potential_terminal_scope_mismatches": 2,
+    "producer_file_hashes_matched": 2,
+    "promotion_authority": false,
+    "schema": "exia.genetic_primus.accounting_semantics_audit_summary/1",
+    "selected_evaluations": 25,
+    "selected_sources": 2,
+    "strict_historical_accounting_verified_evaluations": 0
+  },
+  "latest_features": {
+    "candidate_rows_are_not_label_gated_training_rows": true,
+    "feature_rows": 4592,
+    "fit_count": 0,
+    "included_source_rows": 82800,
+    "labels_materialized": false,
+    "machine_checkpoints_contain_historical_price_tail": true,
+    "market_financial_evaluations": 0,
+    "original_arrival_verified": false,
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "scenario_sha256": "3c77500f9f2822237900a7e0364bf06fff5eed9eb71024aac8c8f72f62592206",
+    "schema": "exia.genetic_primus.market_feature_materialization_result/1",
+    "selected_source_files": 9
+  },
+  "latest_gross_labels": {
+    "eligible_events": 571,
+    "excluded_events": 1,
+    "fit_count": 0,
+    "label_identity": {
+      "bytes": 8517665,
+      "sha256": "923b9cd5b5fb1f0a9a7d6679f6373a530336298191aadde6035a9a21369a402b"
+    },
+    "label_path": "Reports/Exia/Genetic_Primus/market_gross_labels_v1_20261007/data/gross_label_samples.jsonl",
+    "labels_are_gross_diagnostics_only": true,
+    "model_financial_evaluations": 0,
+    "net_objective_allowed": false,
+    "open_dependency_rows": 4576,
+    "original_arrival_or_execution_verified": false,
+    "outcome_counts_not_strategy_performance": {
+      "negative": 2320,
+      "positive": 2247,
+      "zero": 1
+    },
+    "outcome_filter_applied": false,
+    "registered_execution_delay_ms": 0,
+    "registered_ingestion_lag_ms": 0,
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "sample_rows": 4568,
+    "schema": "exia.genetic_primus.market_gross_labels_result/1"
+  },
+  "latest_net_inputs": {
+    "contract_sha256": "7c7d59f9243e8d298c0d1a659aa9862da0db652e8ca5412ba3427df9e294243b",
+    "cost_blocked_rows": 4568,
+    "data_identity": {
+      "bytes": 6815580,
+      "sha256": "4d734c6894b6519418fc63c26bae4d01d2b94eb4d51db4290431412b30031f03"
+    },
+    "data_path": "Reports/Exia/Genetic_Primus/reference_open_net_inputs_v1_20261007/data/blocked_net_inputs.jsonl",
+    "fit_count": 0,
+    "gate": {
+      "fills_or_costs_calibrated": false,
+      "fit_allowed": false,
+      "market_net_computation_allowed": false,
+      "missing_registration": [
+        "allocation_rule",
+        "borrow_basis",
+        "decision_threshold_rule",
+        "funding_policy_and_evidence",
+        "market_cost_evidence",
+        "net_training_objective",
+        "normal_scenario",
+        "normalization_quote",
+        "stress_scenario"
+      ]
+    },
+    "market_net_account_calls": 0,
+    "model_financial_evaluations": 0,
+    "net_target_values": 0,
+    "parquet_reads": 0,
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "sample_rows": 4568,
+    "schema": "exia.genetic_primus.reference_open_net_inputs_result/1",
+    "source_label_identity": {
+      "bytes": 8517665,
+      "sha256": "923b9cd5b5fb1f0a9a7d6679f6373a530336298191aadde6035a9a21369a402b"
+    }
+  },
+  "linear_matrix": {
+    "records": [
+      {
+        "evaluations": {
+          "gross_zero_cost": {
+            "fees": 0.0,
+            "max_drawdown": 0.08034000985644718,
+            "net_return": -0.08034000985644718,
+            "trades": 26
+          },
+          "normal": {
+            "fees": 0.004926616238084206,
+            "max_drawdown": 0.08505877712298171,
+            "net_return": -0.08505877712298171,
+            "trades": 26
+          },
+          "stress": {
+            "fees": 0.007379872928203551,
+            "max_drawdown": 0.08740845683368925,
+            "net_return": -0.08740845683368925,
+            "trades": 26
+          }
+        },
+        "features": "two",
+        "variant": "uniform"
+      },
+      {
+        "evaluations": {
+          "gross_zero_cost": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          },
+          "normal": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          },
+          "stress": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          }
+        },
+        "features": "two",
+        "variant": "half_life_90d_anchor_20pct"
+      },
+      {
+        "evaluations": {
+          "gross_zero_cost": {
+            "fees": 0.0,
+            "max_drawdown": 0.07642374807692476,
+            "net_return": -0.07642374807692476,
+            "trades": 18
+          },
+          "normal": {
+            "fees": 0.00343617049643111,
+            "max_drawdown": 0.07970643288073553,
+            "net_return": -0.07970643288073553,
+            "trades": 18
+          },
+          "stress": {
+            "fees": 0.005148382819311221,
+            "max_drawdown": 0.08134210035447409,
+            "net_return": -0.08134210035447409,
+            "trades": 18
+          }
+        },
+        "features": "four",
+        "variant": "uniform"
+      },
+      {
+        "evaluations": {
+          "gross_zero_cost": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          },
+          "normal": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          },
+          "stress": {
+            "fees": 0.0,
+            "max_drawdown": 0.0,
+            "net_return": 0.0,
+            "trades": 0
+          }
+        },
+        "features": "four",
+        "variant": "half_life_90d_anchor_20pct"
+      }
+    ],
+    "selected_candidate": null,
+    "validation_result": null
+  },
+  "network_used": false,
+  "new_model_fits": 0,
+  "new_strategy_evaluations": 0,
+  "raw_parquet_reads": 0,
+  "reversal_summary": {
+    "descriptive_signal_fraction": 0.4,
+    "distinct_signal_origins": 8,
+    "evidence_class": "revealed_development_calibration_not_independent_validation",
+    "execution_allowed": false,
+    "folds_sha256": "cd99e3c0e2adfddb9225bcd78588b97633c0c74d73591cc5064b8db7ae93dacd",
+    "hac_lags_predeclared": [
+      0,
+      4,
+      9,
+      14
+    ],
+    "input_sha256": "6ff3b7af77c2c91e50e441a2927be671d5a306f57a824cdd3335173d77abfb98",
+    "market_power_calibrated": false,
+    "origins": 20,
+    "promotion_authority": false,
+    "registration_allowed": false,
+    "scenarios": {
+      "normal": {
+        "calendar_days": 60,
+        "compounded_net": -0.020830420342294542,
+        "hac_sigma_by_lag": {
+          "0": 0.011644332193907756,
+          "14": 0.004851143535466152,
+          "4": 0.007379671968320271,
+          "9": 0.006246365891326705
+        },
+        "mean_net_daily": -0.0002829691392166563,
+        "planning_sigma_envelope": 0.011644332193907756,
+        "zero_return_days": 36
+      },
+      "stress": {
+        "calendar_days": 60,
+        "compounded_net": -0.00757036483422413,
+        "hac_sigma_by_lag": {
+          "0": 0.011301461440009852,
+          "14": 0.003954512046514724,
+          "4": 0.006455433438254924,
+          "9": 0.0053150706885816855
+        },
+        "mean_net_daily": -6.283092889398841e-05,
+        "planning_sigma_envelope": 0.011301461440009852,
+        "zero_return_days": 36
+      }
+    },
+    "schema": "exia.genetic_primus.reversal_calibration_summary/1",
+    "signal_fraction_is_IID_probability_or_guarantee": false,
+    "status": "NONPOSITIVE_DEVELOPMENT_NET_KEEP_NOTRADE_NO_RETUNING",
+    "variance_envelope_is_confidence_bound": false
+  },
+  "schema": "exia.genetic_primus.development_review_20261007/1",
+  "september_9_plus_1": {
+    "archive_summary": {
+      "checker_sha256": "8f9f7e41442c55fa2517c5e803871434319d95d8f89ac02a475862a0382c73d4",
+      "details": {
+        "normal": {
+          "EMA_TrendConsensus": {
+            "descriptive_9_plus_1_return": -0.08218577583189424,
+            "diagnostic_return": -0.00865083761384089,
+            "positive_origins_descriptive": 2,
+            "trades_descriptive": 119
+          },
+          "GA_overlay_f7a4ae11": {
+            "descriptive_9_plus_1_return": -0.02507536910276542,
+            "diagnostic_return": -0.006708924267493477,
+            "positive_origins_descriptive": 3,
+            "trades_descriptive": 72
+          },
+          "NoTrade": {
+            "descriptive_9_plus_1_return": 0.0,
+            "diagnostic_return": 0.0,
+            "positive_origins_descriptive": 0,
+            "trades_descriptive": 0
+          }
+        },
+        "stress": {
+          "EMA_TrendConsensus": {
+            "descriptive_9_plus_1_return": -0.09305446798300865,
+            "diagnostic_return": -0.009039552801809014,
+            "positive_origins_descriptive": 2,
+            "trades_descriptive": 119
+          },
+          "GA_overlay_f7a4ae11": {
+            "descriptive_9_plus_1_return": -0.032052009199204146,
+            "diagnostic_return": -0.0068980388482924315,
+            "positive_origins_descriptive": 3,
+            "trades_descriptive": 72
+          },
+          "NoTrade": {
+            "descriptive_9_plus_1_return": 0.0,
+            "diagnostic_return": 0.0,
+            "positive_origins_descriptive": 0,
+            "trades_descriptive": 0
+          }
+        }
+      },
+      "diagnostic_contract_sha256": "e92a7dffc4ec01a58147afb764760bf5a2aaee59835319c25bd823b9228287bb",
+      "diagnostic_manifest_sha256": "93a019fb702d6bf9d9552e651f6129f6e59b93a4e5662317e8b5affe91a257d0",
+      "diagnostic_origins": 1,
+      "diagnostic_result_sha256": "92e8e07a37ec6ba44da77b78a77d84cf75ede6de77154f1fb8562db25393dafb",
+      "ga_beats_ema_origins_descriptive": {
+        "normal": 9,
+        "stress": 9
+      },
+      "ledger_rows_verified": 8640,
+      "nine_origin_summary_sha256": "d1670cb5b3ed239104f04cb3ca46b6ebe54b1f3d4358266bff82126a94795a3e",
+      "promotion_gate_evaluated": false,
+      "prospective_validation_complete": false,
+      "qualification_allowed": false,
+      "return_semantics": "9 committed origins plus 1 separate post-period diagnostic; geometrically chained closed windows",
+      "safety": {
+        "credentials_allowed": false,
+        "live_allowed": false,
+        "network_allowed": false,
+        "orders_enabled": false,
+        "paper_allowed": false,
+        "promotion_authority": false,
+        "runtime_authority": false
+      },
+      "schema": "v8-clean-september-final-diagnostic-verification/1",
+      "verified_prospective_origins": 9
+    },
+    "end_exclusive_ms": 1790812800000,
+    "origin_model_contexts": [
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "0151b360c8f794fba54cbe2578661a962c21173e4a4a5d95b178cc04eea1ba47",
+          "GA_overlay_f7a4ae11": "ecf7bed5d4e34cff6cf7e7835529f21437926bc1d3dc96b377000c5ed33eea52",
+          "NoTrade": "eec11913d6549280d1ca9536614450f1f30ace84ae1997e8cd2513d3012e5b8e"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_01.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "fc64ffd4aa49eb598fdfd9a9c0f1e94a27d3fd01decf9dd0d8da859abec41246",
+          "GA_overlay_f7a4ae11": "88ed899f0448be17b8245a57b802ccfd652634be22c0cb5e779edcfaccee4051",
+          "NoTrade": "7c61313c13e0b04f13aab894785b12c809191d78bcbe369da1b3d072eb1363af"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_02.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "e4b8ea929de8a09521c222f10bf1b04e4d9715393dc300ebae8bc3dd4eb2ff17",
+          "GA_overlay_f7a4ae11": "d68b698868019092354daf1c582c4195e74766cad616297e169b29503c8033ab",
+          "NoTrade": "3685838b4f82059a37d2963c33572dad2cfc3dc508b88b405c063e097993392d"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_03.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "92ba0bad5660be5de8b5f9a5365d7725a39bafa95d210926747c06addee68dcb",
+          "GA_overlay_f7a4ae11": "9a5d9f3e54aa86be324057c1f49c8da6b40960d22f1bdc8793eca5129a5d4ef8",
+          "NoTrade": "174ede5e6b5a334a625f2c1bdd7e385437b7de08881f5ba9b0786ad0cb4d05ec"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_04.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "dc0e5fc7d8d1c7245de1ef9add5f030470f5aa006a351c6ba05dd72494b8a806",
+          "GA_overlay_f7a4ae11": "10936a3bb1719d37d0aaad5aeefc1cac202462e8a22a2bfc889e3b1e24eea9de",
+          "NoTrade": "6b0a8249c44fd3c2a061709bac3d7e08d3d25201a868ce49c2a55f20796114ac"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_05.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "34472e48f5765d97ede1863ef66ca51378450ec5652c283cbfbe34d35f6a2032",
+          "GA_overlay_f7a4ae11": "c27d79ec78fedffaf4a8073ce2069e32183878ed877d6c055f36f6820ab6b917",
+          "NoTrade": "1a226841cfa5c02150fcc535acb9f3ee1e0192496d7c183d8d2de1ecc69eeb38"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_06.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "ea43a35c60eff805b07de395e6942d8ab86c828587384c7b9d227606b7399136",
+          "GA_overlay_f7a4ae11": "d363e9835e02223497c21daea0b254beb2a1a058ab9c699b92e077a9f3147a0f",
+          "NoTrade": "88e4793145181e56cfbbb689b3f839bc5d9be94103a3908311a733f644bcea8d"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_07.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "78686ee96c3cb3c1a37e751ff9b02a246e3ad6a39330a4178fa3b8837bc22f8b",
+          "GA_overlay_f7a4ae11": "e2c5e43620d29289c6f71013a07e0a4702216dc1ed1e9899ebdc95509b0ccf6e",
+          "NoTrade": "a4296d2709bac3b5d065849403a7be421225d07ec4984cc8e814fa6838b15fa0"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_08.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "47ef7ad966ed734c48f93a0bd4575f077cdcb24ff25c0b99bef47c7d64346811",
+          "GA_overlay_f7a4ae11": "d6a1928e5e2e3182b2a5758d6267c157bb4602f70813235156b7dfda42a58292",
+          "NoTrade": "6b4d3dedbef66443c7ef4a79a991a4253c70afa319d1ed8666557b2819650391"
+        },
+        "path": "Reports/Exia/Genetic_Primus/prospective_3d_v1_202609/origin_09.json",
+        "producer_config_identity": {
+          "contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f"
+        }
+      },
+      {
+        "model_sha256": {
+          "EMA_TrendConsensus": "fb950aee5eb26d009c6dcfe031b502a01d58f3dc4a54fb058a4def59c5a416f8",
+          "GA_overlay_f7a4ae11": "9d566f07cb614b4ea77f6bba2bfb876741937bf0f965cb6088d730e7c639a22a",
+          "NoTrade": "cda60e6c857905ed669cdb27d832b3ce5f27d0a9aa6574ce652a8d50d2c7c12c"
+        },
+        "path": "Reports/Exia/Genetic_Primus/september_final_diagnostic_20261001/origin_10_diagnostic.json",
+        "producer_config_identity": {
+          "base_contract_sha256": "0002201ea664d868a33cdc7e4c8ceb6630bf7a072fef8eccee86927ed4f6488f",
+          "contract_sha256": "e92a7dffc4ec01a58147afb764760bf5a2aaee59835319c25bd823b9228287bb"
+        }
+      }
+    ],
+    "rows": [
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.00016471893643199564,
+          -0.005196711944602139,
+          -0.014952087230622801,
+          -0.027628282235395818,
+          0.011071817150804408,
+          0.010528952017020421,
+          -0.01763440190882315,
+          -0.005912773716238107,
+          -0.0017673140324934167,
+          0.013445706976612959,
+          -0.019951380934529417,
+          -0.002292683438214538,
+          -0.005440588074031361,
+          -0.01046729664420687,
+          0.0032638031717746596,
+          -0.01254134748441571,
+          -0.006068903845628415,
+          0.02306286822657544,
+          0.0027568532469468554,
+          -0.019959148056127418,
+          0.02349238640231599,
+          0.0019196520868032252,
+          -0.01359682551268171,
+          0.0,
+          0.003898079376801311,
+          -0.0040468108497054844,
+          -0.00109455647642287,
+          0.0028241897793610526,
+          -0.01092624717527313,
+          -0.0005221691799860428
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 8.864083248487386,
+        "net_return_pct": -8.218577583189472,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.005247876197503887,
+          -0.028270804661164606,
+          0.008712246495612641,
+          0.009628094401815446,
+          -0.01297895676375449,
+          -0.005760960632259615,
+          0.0,
+          0.0,
+          0.0,
+          -0.0009770307064779216,
+          -0.0004410390158836597,
+          -0.0036003486779038196,
+          -9.75149321764679e-05,
+          0.0,
+          0.0,
+          0.023194642271100685,
+          0.0027568532469468554,
+          -0.020071658068429588,
+          0.024233883118970123,
+          0.0014325019677725592,
+          -0.010838649715668502,
+          0.0,
+          0.003898079376801311,
+          -0.002378366088084838,
+          -0.0004105202663181595,
+          0.0028241897793610526,
+          -0.009506266546035258,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 3.8872119143266937,
+        "net_return_pct": -2.5075369102764853,
+        "policy": "GA_overlay_f7a4ae11"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          -8.610177145895737e-05,
+          -0.005741111828722278,
+          -0.016237895822649118,
+          -0.02825927749330115,
+          0.010973642013351048,
+          0.010066391920836137,
+          -0.01837187770223514,
+          -0.006107592510271487,
+          -0.0019179983280955826,
+          0.01309075463663012,
+          -0.020248811491885066,
+          -0.0025442233312940044,
+          -0.005939274577470899,
+          -0.010812773210987281,
+          0.002914836477759808,
+          -0.013085267738465078,
+          -0.0064293755905789896,
+          0.02234776825657203,
+          0.002356231252041985,
+          -0.020351478261068756,
+          0.022676040408507125,
+          0.0014702557294650198,
+          -0.01394335204680286,
+          0.0,
+          0.0036468216543175114,
+          -0.004392523438131457,
+          -0.0014950629384906655,
+          0.0027731213855219927,
+          -0.011163504634546961,
+          -0.0006234621870235824
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 9.523338214571142,
+        "net_return_pct": -9.305446798300878,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.0060433604665032226,
+          -0.028998107357797065,
+          0.008615221602736645,
+          0.009167167286326938,
+          -0.013420275091957645,
+          -0.005903075685707582,
+          0.0,
+          0.0,
+          0.0,
+          -0.0010762095056047194,
+          -0.0005406464373255426,
+          -0.0036492360230558907,
+          -0.00014623570621341564,
+          0.0,
+          0.0,
+          0.022476373175383646,
+          0.002356231252041985,
+          -0.020463943233334336,
+          0.023515173888611907,
+          0.0009340423028936229,
+          -0.011236419902802663,
+          0.0,
+          0.0036468216543175114,
+          -0.002777026800052429,
+          -0.0006590472004451842,
+          0.0027731213855219927,
+          -0.009644415100049542,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": 4.174013327410176,
+        "net_return_pct": -3.2052009199203866,
+        "policy": "GA_overlay_f7a4ae11"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 30,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      }
+    ],
+    "same_prospective_protocol_for_all_ten": false,
+    "start_ms": 1788220800000
+  },
+  "september_replay": {
+    "end_exclusive_ms": 1790553600000,
+    "metrics": [
+      {
+        "archived_max_drawdown_pct": 8.867899841214388,
+        "cost": "normal",
+        "fees_pct_initial_capital": 1.6507356823068355,
+        "gross_return_pct": -5.3068818786377685,
+        "mean_capital_exposure_fraction": 0.3451578023718786,
+        "net_return_pct": -6.957617560944607,
+        "policy": "EMA_TrendConsensus",
+        "trades": 87
+      },
+      {
+        "archived_max_drawdown_pct": 9.368504562133984,
+        "cost": "stress",
+        "fees_pct_initial_capital": 2.465006870545563,
+        "gross_return_pct": -5.298100946066019,
+        "mean_capital_exposure_fraction": 0.3451262077030859,
+        "net_return_pct": -7.763107816611581,
+        "policy": "EMA_TrendConsensus",
+        "trades": 87
+      },
+      {
+        "archived_max_drawdown_pct": 4.234909274019771,
+        "cost": "normal",
+        "fees_pct_initial_capital": 0.9293757419362371,
+        "gross_return_pct": -1.2224778594282033,
+        "mean_capital_exposure_fraction": 0.24011845960849698,
+        "net_return_pct": -2.1518536013644285,
+        "policy": "EMA_long_only",
+        "trades": 48
+      },
+      {
+        "archived_max_drawdown_pct": 4.423476872103926,
+        "cost": "stress",
+        "fees_pct_initial_capital": 1.39061928494886,
+        "gross_return_pct": -1.225646881138465,
+        "mean_capital_exposure_fraction": 0.24012480815629053,
+        "net_return_pct": -2.616266166087322,
+        "policy": "EMA_long_only",
+        "trades": 48
+      },
+      {
+        "archived_max_drawdown_pct": 3.7228433774573744,
+        "cost": "normal",
+        "fees_pct_initial_capital": 0.7969691200976791,
+        "gross_return_pct": -0.6831267136500997,
+        "mean_capital_exposure_fraction": 0.23308418033019906,
+        "net_return_pct": -1.4800958337477743,
+        "policy": "GA_entry_only",
+        "trades": 41
+      },
+      {
+        "archived_max_drawdown_pct": 3.8752132426889796,
+        "cost": "stress",
+        "fees_pct_initial_capital": 1.1928463084044825,
+        "gross_return_pct": -0.6882539786217114,
+        "mean_capital_exposure_fraction": 0.23307468564040418,
+        "net_return_pct": -1.881100287026194,
+        "policy": "GA_entry_only",
+        "trades": 41
+      },
+      {
+        "archived_max_drawdown_pct": 4.046739446514036,
+        "cost": "normal",
+        "fees_pct_initial_capital": 0.8762701214209327,
+        "gross_return_pct": -0.5538125659302418,
+        "mean_capital_exposure_fraction": 0.2237276359777802,
+        "net_return_pct": -1.4300826873511752,
+        "policy": "GA_target_gate",
+        "trades": 45
+      },
+      {
+        "archived_max_drawdown_pct": 4.218447051716812,
+        "cost": "stress",
+        "fees_pct_initial_capital": 1.3112492417204966,
+        "gross_return_pct": -0.560653469707852,
+        "mean_capital_exposure_fraction": 0.22371719287330388,
+        "net_return_pct": -1.8719027114283415,
+        "policy": "GA_target_gate",
+        "trades": 45
+      },
+      {
+        "archived_max_drawdown_pct": 0.0,
+        "cost": "normal",
+        "fees_pct_initial_capital": 0.0,
+        "gross_return_pct": 0.0,
+        "mean_capital_exposure_fraction": 0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade",
+        "trades": 0
+      },
+      {
+        "archived_max_drawdown_pct": 0.0,
+        "cost": "stress",
+        "fees_pct_initial_capital": 0.0,
+        "gross_return_pct": 0.0,
+        "mean_capital_exposure_fraction": 0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade",
+        "trades": 0
+      }
+    ],
+    "rows": [
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.00016471893643199564,
+          -0.005196711944602139,
+          -0.014163417964994762,
+          -0.026818501441529197,
+          0.011328815334303854,
+          0.010891085827527958,
+          -0.01750629581111951,
+          -0.00591178153370564,
+          -0.0017172491609089846,
+          0.013437478532238423,
+          -0.020143116336024613,
+          -0.0023418719328414106,
+          -0.00553007119363591,
+          -0.010436395031414802,
+          0.0034524194301455147,
+          -0.012456315811531726,
+          -0.006006048837480793,
+          0.02387585426766692,
+          0.0035930845201650463,
+          -0.019965482462480533,
+          0.023255399985804504,
+          0.00243967764475439,
+          -0.01319804256623125,
+          0.0,
+          0.004035002913579833,
+          -0.004097033592704524,
+          -0.00098913014986457
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 8.640320059679574,
+        "net_return_pct": -6.957617560944627,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.004451437347381737,
+          -0.02676837739239246,
+          0.011255456498813876,
+          0.010877170838571537,
+          -0.01746367663417403,
+          -0.005716578322496946,
+          -0.0013334631722128343,
+          0.0,
+          0.0,
+          -0.00097470708437708,
+          -0.0005882966776954435,
+          -0.0034533880952213325,
+          -9.352073216117862e-05,
+          0.0,
+          0.0,
+          0.024091001068742735,
+          0.0035082823956125164,
+          -0.01998256650743635,
+          0.022894452323628522,
+          0.0021415028220641563,
+          -0.013162355725468311,
+          0.0,
+          0.003947654448644977,
+          -0.003929612465673138,
+          -0.0010184683251435178
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 3.861984527521767,
+        "net_return_pct": -2.1518536013643796,
+        "policy": "EMA_long_only"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.004451437347381737,
+          -0.02676837739239246,
+          0.011255456498813876,
+          0.010877170838571537,
+          -0.01347713993994859,
+          -0.005693477642147005,
+          0.0,
+          0.0,
+          0.0,
+          -0.0009775695858829092,
+          -0.0005900260669559065,
+          -0.003521202724977246,
+          -9.536370036822284e-05,
+          0.0,
+          0.0,
+          0.023974925030595173,
+          0.003486541879575533,
+          -0.019966715313214922,
+          0.023848096823498643,
+          0.0021349832459527374,
+          -0.01319590211475874,
+          0.0,
+          0.0039113481149417595,
+          -0.003915862191028463,
+          -0.00025954709028963574
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 3.3479805084115966,
+        "net_return_pct": -1.4800958337477965,
+        "policy": "GA_entry_only"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.004451437347381737,
+          -0.027405316214142217,
+          0.008891878083886029,
+          0.009849769216988546,
+          -0.012976767267422362,
+          -0.0056939584168301804,
+          0.0,
+          0.0,
+          0.0,
+          -0.0009810019261417002,
+          -0.0004398018197743214,
+          -0.003533047081956786,
+          -9.568561495287842e-05,
+          0.0,
+          0.0,
+          0.023940118874680394,
+          0.0034608299276253085,
+          -0.020060889385418834,
+          0.02393620896352977,
+          0.0016759288294725394,
+          -0.010371173038847825,
+          0.0,
+          0.003922016439283693,
+          -0.002284772781603883,
+          -0.00035907655775435643
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 3.673177374447545,
+        "net_return_pct": -1.430082687351188,
+        "policy": "GA_target_gate"
+      },
+      {
+        "cost": "normal",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          -8.610177145895737e-05,
+          -0.005741111828722278,
+          -0.01505596297822287,
+          -0.02705671978292612,
+          0.011232297166889893,
+          0.010629552225296823,
+          -0.01803397435203513,
+          -0.006115053630961431,
+          -0.0018638493130666012,
+          0.01307257625595959,
+          -0.02044411887780484,
+          -0.002596290110259525,
+          -0.006024444779625937,
+          -0.010775587807541509,
+          0.0032584255001326667,
+          -0.012953270337574097,
+          -0.006361298482198685,
+          0.0235339936860397,
+          0.003546927371449904,
+          -0.020355432764047943,
+          0.022766971423387794,
+          0.0023322294410670352,
+          -0.01353572983128204,
+          0.0,
+          0.003784952653896001,
+          -0.004432611484405435,
+          -0.0013844721524455261
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 9.172624966686183,
+        "net_return_pct": -7.763107816611679,
+        "policy": "EMA_TrendConsensus"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.00484917948188146,
+          -0.0270096901271486,
+          0.011156910752966098,
+          0.010624365489140919,
+          -0.01799399283055958,
+          -0.005862630269048319,
+          -0.0014292248996331525,
+          0.0,
+          0.0,
+          -0.0010738409600828946,
+          -0.0006865066001398024,
+          -0.003498445167151365,
+          -0.00014017185552350764,
+          0.0,
+          0.0,
+          0.02373733221124441,
+          0.0034620018278583853,
+          -0.020373283072181114,
+          0.022419998617480452,
+          0.002030340956482357,
+          -0.013501549995710405,
+          0.0,
+          0.003696834333617227,
+          -0.00425903662417626,
+          -0.0014187379810429723
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 4.060517151297338,
+        "net_return_pct": -2.6162661660872004,
+        "policy": "EMA_long_only"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.00484917948188146,
+          -0.0270096901271486,
+          0.011156910752966098,
+          0.010624365489140919,
+          -0.013717557091439292,
+          -0.005837210409059823,
+          0.0,
+          0.0,
+          0.0,
+          -0.001077431528649142,
+          -0.000688804526731368,
+          -0.003571452420408905,
+          -0.00014310751446489078,
+          0.0,
+          0.0,
+          0.023614068842998215,
+          0.0034380772089572798,
+          -0.020356270183998104,
+          0.023483360937929243,
+          0.002023946311970004,
+          -0.013538100768480943,
+          0.0,
+          0.0036583249049195743,
+          -0.004244817668882961,
+          -0.00046298070846817474
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 3.5102613642604585,
+        "net_return_pct": -1.8811002870261717,
+        "policy": "GA_entry_only"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          -0.00484917948188146,
+          -0.027742392192922405,
+          0.008794496717186906,
+          0.009543683907192069,
+          -0.013270377364838604,
+          -0.005838413132700726,
+          0.0,
+          0.0,
+          0.0,
+          -0.001081436453472584,
+          -0.0005391779443028044,
+          -0.003584205589773015,
+          -0.00014362037005566375,
+          0.0,
+          0.0,
+          0.023573551955210714,
+          0.003414365036098266,
+          -0.020450752610518874,
+          0.023574450606564268,
+          0.0015167185955133888,
+          -0.01076829447684724,
+          0.0,
+          0.0036698503787535586,
+          -0.0026699779983918592,
+          -0.0006100232282295615
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": 3.8548669702093252,
+        "net_return_pct": -1.8719027114283193,
+        "policy": "GA_target_gate"
+      },
+      {
+        "cost": "stress",
+        "daily_returns": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "days": 27,
+        "max_drawdown_daily_close_pct": -0.0,
+        "net_return_pct": 0.0,
+        "policy": "NoTrade"
+      }
+    ],
+    "start_ms": 1788220800000
+  },
+  "source_coverage": {
+    "columns": [
+      "timestamp",
+      "symbol",
+      "open",
+      "high",
+      "low",
+      "close",
+      "volume"
+    ],
+    "coverage_end_exclusive": 1790553600000,
+    "coverage_start": 1640995200000,
+    "row_count": 83088,
+    "symbols": [
+      "ADA/USDT",
+      "BNB/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "LINK/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "timeframe_ms": 14400000,
+    "timestamp_count": 10386
+  },
+  "tail_metadata": {
+    "already_has_separate_diagnostic_result": true,
+    "end_exclusive_ms": 1790812800000,
+    "four_hour_rows": 144,
+    "raw_prices_read_for_this_review": false,
+    "start_ms": 1790553600000
+  },
+  "trading_runtime_used": false,
+  "v4": {
+    "architecture": {
+      "hidden": [
+        16,
+        8
+      ],
+      "id": "compact_16_8",
+      "inputs": 30,
+      "outputs": 3
+    },
+    "parameter_count": 659,
+    "strict": {
+      "days": 1096,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ],
+      "fills_per_day": 1.718978102189781,
+      "fitness": -27.870532948071062,
+      "fold_count": 6,
+      "lcb_daily_bps": -0.6204639335475918,
+      "max_direction_share": 0.6019108280254777,
+      "max_drawdown": 0.5391103150203109,
+      "max_state_share": 0.4830148619957537,
+      "max_symbol_share": 0.2813163481953291,
+      "mean_daily_bps": 14.599675947923883,
+      "median_daily_bps": 10.389866568224493,
+      "median_fold_lcb_bps": -17.57227631690173,
+      "positive_fold_means": 5,
+      "temporal_gate_passed": false,
+      "trades": 942,
+      "turnover_fills": 1884,
+      "worst_fold_lcb_bps": -63.180497505570415,
+      "worst_fold_mean_bps": -27.440788422523617
+    }
+  },
+  "warm_start": {
+    "origins": 10,
+    "same_winner_as_cold_origins": 9,
+    "screen_passes": 0,
+    "search_evaluations": 240,
+    "warm_plus_cold_evaluations": 480
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "schema": "genetic_primus.v8.clean.retrospective_shadow_model/1",
+  "status": "ENGINEERING_ONLY_RETROSPECTIVE_SYMBOL_HOLDOUT",
+  "event_id": "isolated_symbol_cascade_reversal",
+  "training_symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ],
+  "holdout_symbol": "LINK/USDT",
+  "feature_names": [
+    "log_liquidation_total",
+    "log_cross_liquidation_total",
+    "absolute_symbol_return",
+    "absolute_market_return",
+    "available_symbol_count",
+    "direction_value"
+  ],
+  "genome": [
+    1.6286557111592466,
+    -0.2639710291696893,
+    2.8147036248094417,
+    -1.5863680953001105,
+    -2.414571010313333,
+    2.371095996711619,
+    -2.621020533062405
+  ],
+  "median": [
+    11.546721470386736,
+    14.357643551423694,
+    0.026239342916554165,
+    0.019980448653887484,
+    8.0,
+    1.0
+  ],
+  "scale": [
+    1.8727567539930359,
+    0.8849171999920564,
+    0.009455761554781617,
+    0.00939470406055691,
+    1.0,
+    1.0
+  ],
+  "train_rows": 532,
+  "holdout_rows": 55,
+  "source_sha256": {
+    "v8_contract": "7e0e9eb3cfa7b8da4f4c571722ee6bca533e5f6d40991d0a4f04657e2c916fdb",
+    "v7_contract": "bd2cefb2f5234a42cd364c4d338cd1e26487f07057e8a06d842b7b281b816cd8",
+    "v7_manifest": "576a3ae24f73cf00167e60832a74117790b7bef1aafca653c0427d031a8e9c61",
+    "v7_events": "e79d461e92dec8d306d70dc20d1ea255911783dd547894994f50d1b4aaa04790"
+  },
+  "not_prospective_evidence": true,
+  "credentials_allowed": false,
+  "orders_enabled": false,
+  "paper_trading_enabled": false,
+  "live_trading_enabled": false,
+  "promotion_authority": false
+}

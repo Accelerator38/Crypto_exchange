@@ -1,0 +1,257 @@
+{
+  "schema_version": "exia.genetic_primus.rolling_origin/1",
+  "status": "OFFLINE_ROLLING_ORIGIN_COMPLETE",
+  "model_sha256": "ea2ed831596752c018920ced30838c7f98274337f933f50f01a4abe66ca5e0a4",
+  "challenger_model_sha256": "565eb70c7657e734b3b41254b4c58843707f41434faf7e62fa0c76171414f68f",
+  "promotion_approved": false,
+  "genome_sha256": "3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad",
+  "challenger_genome_sha256": "4adcd543e85e37a749d7ec06901f64ea5bdcd5248789c1e60eff8bd91ca8a831",
+  "ensemble_genome_sha256": [
+    "3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad",
+    "aa5ac0774697c7682612b5843bdd24c551f3a978438fafa460f370952a00e9b1",
+    "b544cab1b8fe24b26a0684691011bbb336eda2b1f67c4382d39b63fa771d9836"
+  ],
+  "challenger_ensemble_genome_sha256": [
+    "4adcd543e85e37a749d7ec06901f64ea5bdcd5248789c1e60eff8bd91ca8a831",
+    "3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad",
+    "3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad"
+  ],
+  "scaler_sha256": "cb71ce37155fab3151340af2ecf543234ea300418462cdd9adbde96933564604",
+  "challenger_scaler_sha256": "f760b41a85ebf17d38e9c4d3224ed5cf92af2d0675f23c83cd9ca9bcf5248e23",
+  "rolling_protocol_sha256": "784c1d78ef26dc74ddf4abd8ab7f2c8828a8233f816bcbe733a917653863e5a5",
+  "trainer_id": "bounded_v4_island_ensemble_origin_trainer/1",
+  "trainer_metadata": {
+    "seed_base": 303004,
+    "island_seeds": [
+      307040,
+      303004,
+      306031,
+      305022,
+      304013
+    ],
+    "island_count": 5,
+    "random_immigrant_fraction": 0.25,
+    "incumbent_model_sha256": "ea2ed831596752c018920ced30838c7f98274337f933f50f01a4abe66ca5e0a4",
+    "selection_bank_sha256": "176e5aad7d8226328bfbe839936bb159c1a6808c8b2c995767061d8822c0b4da",
+    "audit_bank_sha256": "997123b0091a7ecd74205829b2d53f0625faed1bf3f3db3f22a87a5c38d76625",
+    "folds": [
+      {
+        "name": "rolling_01",
+        "start": "2023-01-30T00:00:00Z",
+        "end": "2023-03-31T20:00:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2023-03-31T20:00:00Z",
+        "end": "2023-05-31T16:00:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2023-05-31T16:00:00Z",
+        "end": "2023-07-31T12:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2023-07-31T12:00:00Z",
+        "end": "2023-09-30T08:00:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2023-09-30T08:00:00Z",
+        "end": "2023-11-30T04:00:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2023-11-30T04:00:00Z",
+        "end": "2024-01-30T00:00:00Z"
+      },
+      {
+        "name": "rolling_07",
+        "start": "2024-01-30T00:00:00Z",
+        "end": "2024-03-30T20:00:00Z"
+      },
+      {
+        "name": "rolling_08",
+        "start": "2024-03-30T20:00:00Z",
+        "end": "2024-05-30T16:00:00Z"
+      },
+      {
+        "name": "rolling_09",
+        "start": "2024-05-30T16:00:00Z",
+        "end": "2024-07-30T12:00:00Z"
+      },
+      {
+        "name": "rolling_10",
+        "start": "2024-07-30T12:00:00Z",
+        "end": "2024-09-29T08:00:00Z"
+      },
+      {
+        "name": "rolling_11",
+        "start": "2024-09-29T08:00:00Z",
+        "end": "2024-11-29T04:00:00Z"
+      },
+      {
+        "name": "rolling_12",
+        "start": "2024-11-29T04:00:00Z",
+        "end": "2025-01-29T00:00:00Z"
+      }
+    ],
+    "selected_ensemble_size": 3,
+    "selection_metrics": {
+      "trades": 163,
+      "turnover_fills": 326,
+      "fills_per_day": 0.4465753424657534,
+      "days": 730,
+      "mean_daily_bps": 26.551523192757614,
+      "median_daily_bps": 30.654592736212294,
+      "lcb_daily_bps": 10.016109354437285,
+      "max_drawdown": 0.4218247133014942,
+      "positive_fold_means": 9,
+      "fold_count": 12,
+      "worst_fold_mean_bps": -17.685717713512002,
+      "median_fold_lcb_bps": -37.608418011677614,
+      "worst_fold_lcb_bps": -71.504536447919,
+      "max_direction_share": 0.5030674846625767,
+      "max_state_share": 0.4662576687116564,
+      "max_symbol_share": 0.3067484662576687,
+      "temporal_gate_passed": false,
+      "fitness": -66.64685669423643,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ],
+      "recency_mean_180d_bps": 32.79506294352925,
+      "recency_lcb_180d_bps": 6.209112561453317,
+      "recency_ess_180d": 531.0368903310319,
+      "recency_primary_lcb_bps": 6.209112561453317,
+      "recency_worst_window_lcb_bps": -71.504536447919,
+      "recency_action_instability": 0.009305777574788765,
+      "recency_drawdown_penalty_bps": 42.18247133014942,
+      "recency_turnover_penalty_bps": 0.2232876712328767,
+      "recency_complexity_penalty_bps": 2.79,
+      "recency_active_parameter_count": 232,
+      "recency_parameter_sparsity": 0.1684587813620072,
+      "recency_active_feature_count": 30,
+      "recency_feature_sparsity": 0.0,
+      "recency_active_parameter_penalty_bps": 1.16,
+      "recency_active_feature_penalty_bps": 3.0,
+      "recency_parsimony_penalty_bps": 6.95,
+      "recency_instability_penalty_bps": 0.1861155514957753,
+      "recency_total_penalty_bps": 49.54187455287806
+    },
+    "audit_selected_ensemble_metrics": {
+      "trades": 163,
+      "turnover_fills": 326,
+      "fills_per_day": 0.4465753424657534,
+      "days": 730,
+      "mean_daily_bps": 26.551523192757614,
+      "median_daily_bps": 30.654592736212294,
+      "lcb_daily_bps": 9.354911830138729,
+      "max_drawdown": 0.4218247133014942,
+      "positive_fold_means": 9,
+      "fold_count": 12,
+      "worst_fold_mean_bps": -17.685717713512002,
+      "median_fold_lcb_bps": -40.59709012342759,
+      "worst_fold_lcb_bps": -74.22108389408524,
+      "max_direction_share": 0.5030674846625767,
+      "max_state_share": 0.4662576687116564,
+      "max_symbol_share": 0.3067484662576687,
+      "temporal_gate_passed": false,
+      "fitness": -67.64997953831735,
+      "failed_gates": [
+        "max_drawdown",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ],
+      "recency_mean_180d_bps": 32.79506294352925,
+      "recency_lcb_180d_bps": 5.9403145468375484,
+      "recency_ess_180d": 531.0368903310319,
+      "recency_primary_lcb_bps": 5.9403145468375484,
+      "recency_worst_window_lcb_bps": -74.22108389408524,
+      "recency_action_instability": 0.009305777574788765,
+      "recency_drawdown_penalty_bps": 42.18247133014942,
+      "recency_turnover_penalty_bps": 0.2232876712328767,
+      "recency_complexity_penalty_bps": 2.79,
+      "recency_active_parameter_count": 232,
+      "recency_parameter_sparsity": 0.1684587813620072,
+      "recency_active_feature_count": 30,
+      "recency_feature_sparsity": 0.0,
+      "recency_active_parameter_penalty_bps": 1.16,
+      "recency_active_feature_penalty_bps": 3.0,
+      "recency_parsimony_penalty_bps": 6.95,
+      "recency_instability_penalty_bps": 0.1861155514957753,
+      "recency_total_penalty_bps": 49.54187455287806
+    },
+    "ensemble_candidates": [
+      {
+        "ensemble_size": 3,
+        "selected_by_selection_bank": true,
+        "selection_fitness": -66.64685669423643,
+        "selection_failed_gates": "max_drawdown;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb",
+        "audit_fitness": -67.64997953831735,
+        "audit_failed_gates": "max_drawdown;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb",
+        "member_genome_sha256": "4adcd543e85e37a749d7ec06901f64ea5bdcd5248789c1e60eff8bd91ca8a831;3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad;3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad"
+      },
+      {
+        "ensemble_size": 5,
+        "selected_by_selection_bank": false,
+        "selection_fitness": -68.36434299391127,
+        "selection_failed_gates": "max_drawdown;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb",
+        "audit_fitness": -69.71234891247435,
+        "audit_failed_gates": "max_drawdown;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb",
+        "member_genome_sha256": "4adcd543e85e37a749d7ec06901f64ea5bdcd5248789c1e60eff8bd91ca8a831;3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad;3efe302b07a18e3d09e782d240186c8a7dec51345139bcb0febfa92e5f4bd7ad;b544cab1b8fe24b26a0684691011bbb336eda2b1f67c4382d39b63fa771d9836;aa5ac0774697c7682612b5843bdd24c551f3a978438fafa460f370952a00e9b1"
+      }
+    ],
+    "promotion_protocol_sha256": "461b27a7bda03aafadf44cb5aaa3a7106aa744081fbf7f35c258fe33a66c2bad",
+    "promotion_approved": false,
+    "promotion_metrics": {
+      "paired_selection_lcb_bps": -2.4949920682106503,
+      "paired_audit_lcb_bps": -2.3365985713164084,
+      "stress_cost_lcb_bps": -2.2038194298755216,
+      "positive_outer_slices": 5,
+      "outer_slice_count": 12,
+      "positive_outer_slice_fraction": 0.4166666666666667,
+      "challenger_max_drawdown": 0.4218247133014942,
+      "incumbent_max_drawdown": 0.39380922775202076,
+      "action_total_variation": 0.03125000000000002,
+      "normalized_model_drift": 0.2760852365867688,
+      "promotion_gate_passed": false,
+      "failed_gates": [
+        "paired_selection_lcb",
+        "positive_outer_slices",
+        "stress_cost_lcb",
+        "drawdown_vs_incumbent",
+        "paired_audit_lcb"
+      ]
+    },
+    "audit_selection_champion": {
+      "selection_rank": 1,
+      "is_selection_champion": true,
+      "genome_sha256": "4adcd543e85e37a749d7ec06901f64ea5bdcd5248789c1e60eff8bd91ca8a831",
+      "audit_fitness": -40.78978752302481,
+      "audit_lcb_daily_bps": 0.8883110314628042,
+      "audit_worst_fold_mean_bps": -14.931741178837374,
+      "audit_median_fold_lcb_bps": -16.31703112032016,
+      "audit_recency_primary_lcb_bps": -0.5270258573645338,
+      "audit_recency_worst_window_lcb_bps": -45.91653796868809,
+      "audit_recency_total_penalty_bps": 26.645908032263215,
+      "audit_active_parameter_count": 78,
+      "audit_active_feature_count": 30,
+      "audit_feature_sparsity": 0.0,
+      "audit_failed_gates": "nonpositive_worst_fold_mean;nonpositive_median_fold_lcb"
+    },
+    "audit_used_for_selection": false
+  },
+  "origin_index": 4,
+  "train_start": 1675036800000,
+  "train_end": 1738108800000,
+  "purge_cutoff": 1738008000000,
+  "deployment_start": 1738108800000,
+  "deployment_end": 1738713600000,
+  "credentials_allowed": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

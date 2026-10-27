@@ -1,0 +1,59 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v4",
+  "generated_at": "2026-08-24T07:03:52.377421+00:00",
+  "stage": "screen",
+  "status": "V4_ARCHITECTURE_SCREEN_RUN",
+  "architecture": {
+    "id": "compact_8",
+    "inputs": 30,
+    "hidden": [
+      8
+    ],
+    "outputs": 3
+  },
+  "parameter_count": 275,
+  "seed": 141,
+  "selected_generation": 5,
+  "metrics": {
+    "trades": 5922,
+    "turnover_fills": 11844,
+    "fills_per_day": 10.806569343065693,
+    "days": 1096,
+    "mean_daily_bps": 11.842242423074998,
+    "median_daily_bps": -2.230249146963903,
+    "lcb_daily_bps": 0.9025166793432131,
+    "max_drawdown": 0.40898426139205,
+    "positive_fold_means": 6,
+    "fold_count": 6,
+    "worst_fold_mean_bps": 3.1615015714759784,
+    "median_fold_lcb_bps": -10.26782174646581,
+    "worst_fold_lcb_bps": -28.34599052868003,
+    "max_direction_share": 0.602161431948666,
+    "max_state_share": 0.40797028031070587,
+    "max_symbol_share": 0.13272543059777103,
+    "temporal_gate_passed": false,
+    "fitness": -12.969464082232232,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "failed_gates": [
+    "max_drawdown",
+    "nonpositive_median_fold_lcb"
+  ],
+  "config_sha256": "74c766204a2eb06f056dc6fb7ffc599882620345122f1b8bcd3ead34cacc2cd1",
+  "code_sha256": "82f1806f6a6a5e7f23fc0e6c2108459c31f52943c7d0bc7ac721549c9e2dd30d",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "run_fingerprint": "884c96b540879669f7132c97da08d0fb808930223426ff56d763ba2796615465",
+  "champion_genome_sha256": "32cef9cae2dde1023ab0b33cd77be8a8a4e17ccff8b55c985c9fdd36a02b94a9",
+  "champion_file_sha256": "b006f0ac43a3b57a1aaff49663ebb7314e76b79f5700a0bee20dffe0dd206ea5",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

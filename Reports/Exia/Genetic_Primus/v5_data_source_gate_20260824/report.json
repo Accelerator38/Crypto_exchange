@@ -1,0 +1,451 @@
+{
+  "schema_version": "exia.genetic_primus_data_source_gate.v5",
+  "generated_at": "2026-08-24T08:28:52.642892+00:00",
+  "status": "V5_TERMINAL_REJECTED_DATA_SOURCE_INSUFFICIENT_COVERAGE",
+  "terminal_reason": "DATA_SOURCE_INSUFFICIENT_COVERAGE",
+  "contract_sha256": "6c897d9e03fc0c1d4c8d74433ddccc81060a7409c4d13d8cb94496daf4d6cd67",
+  "dataset_manifest_sha256": "61ca9aa9aa0577a49048f12cb3c3c48dd462512bb6f59e8dd037fe6f3fc38c78",
+  "dataset_sha256": "39ba79679655eddd4a29e2a93de2038dad13c7e91122cb9799316bc0b24207d5",
+  "source_id": "binance_usdm_derivatives_metrics_v1",
+  "checks": [
+    {
+      "check_id": "new_source_family",
+      "actual": "cross_exchange_derivatives_metrics",
+      "required": "not present in prior_terminal_experiments",
+      "passed": true
+    },
+    {
+      "check_id": "point_in_time",
+      "actual": true,
+      "required": true,
+      "passed": true
+    },
+    {
+      "check_id": "official_checksums_verified",
+      "actual": true,
+      "required": true,
+      "passed": true
+    },
+    {
+      "check_id": "raw_archive_retained",
+      "actual": true,
+      "required": true,
+      "passed": true
+    },
+    {
+      "check_id": "raw_file_coverage",
+      "actual": 1.0,
+      "required": 0.995,
+      "passed": true
+    },
+    {
+      "check_id": "symbol_count",
+      "actual": 8,
+      "required": 8,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:oi_change_4h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:oi_change_12h",
+      "actual": 0.9987830848798296,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:oi_change_24h",
+      "actual": 0.9983267417097658,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:oi_value_change_4h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ADA/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "BNB/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:oi_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:oi_change_12h",
+      "actual": 0.9987830848798296,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:oi_change_24h",
+      "actual": 0.9983267417097658,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:oi_value_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BNB/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "BTC/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:oi_change_4h",
+      "actual": 0.9978703985397018,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:oi_change_12h",
+      "actual": 0.9978703985397018,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:oi_change_24h",
+      "actual": 0.997414055369638,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:oi_value_change_4h",
+      "actual": 0.9978703985397018,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "BTC/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "DOGE/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:oi_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:oi_change_12h",
+      "actual": 0.9987830848798296,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:oi_change_24h",
+      "actual": 0.9983267417097658,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:oi_value_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "DOGE/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "ETH/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:oi_change_4h",
+      "actual": 0.9992394280498935,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:oi_change_12h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:oi_change_24h",
+      "actual": 0.998478856099787,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:oi_value_change_4h",
+      "actual": 0.9992394280498935,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "ETH/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "LINK/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:oi_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:oi_change_12h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:oi_change_24h",
+      "actual": 0.998478856099787,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:oi_value_change_4h",
+      "actual": 0.9993915424399148,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "LINK/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "SOL/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:complete_bar_rate",
+      "actual": 0.9993915424399148,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:oi_change_4h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:oi_change_12h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:oi_change_24h",
+      "actual": 0.998478856099787,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:oi_value_change_4h",
+      "actual": 0.998935199269851,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "SOL/USDT:taker_imbalance_mean",
+      "actual": 0.8834803772436872,
+      "required": 0.9,
+      "passed": false
+    },
+    {
+      "check_id": "XRP/USDT:bar_coverage",
+      "actual": 0.9996958637469586,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:complete_bar_rate",
+      "actual": 0.9996957712199575,
+      "required": 0.95,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:oi_change_4h",
+      "actual": 0.9992394280498935,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:oi_change_12h",
+      "actual": 0.9987830848798296,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:oi_change_24h",
+      "actual": 0.9983267417097658,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:oi_value_change_4h",
+      "actual": 0.9992394280498935,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:account_long_short_log",
+      "actual": 0.9831153027076361,
+      "required": 0.9,
+      "passed": true
+    },
+    {
+      "check_id": "XRP/USDT:taker_imbalance_mean",
+      "actual": 0.884393063583815,
+      "required": 0.9,
+      "passed": false
+    }
+  ],
+  "failed_checks": [
+    "ADA/USDT:taker_imbalance_mean",
+    "BNB/USDT:taker_imbalance_mean",
+    "BTC/USDT:taker_imbalance_mean",
+    "DOGE/USDT:taker_imbalance_mean",
+    "ETH/USDT:taker_imbalance_mean",
+    "LINK/USDT:taker_imbalance_mean",
+    "SOL/USDT:taker_imbalance_mean",
+    "XRP/USDT:taker_imbalance_mean"
+  ],
+  "integrity_and_coverage_passed": false,
+  "feasibility_labels_opened": false,
+  "evolution_allowed": false,
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

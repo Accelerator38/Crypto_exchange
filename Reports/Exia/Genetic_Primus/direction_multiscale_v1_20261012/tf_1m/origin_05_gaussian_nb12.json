@@ -1,0 +1,75 @@
+{
+  "registration_sha256": "cc173c6a2d16f6f83a897cd4c0d061b6fec9d4cecc6dca8765c217000c7b8f83",
+  "timeframe_minutes": 1,
+  "origin_index": 5,
+  "origin_ms": 1786838400000,
+  "cutoff_ms": 1786837980000,
+  "latest_label_ms": 1786837020000,
+  "fold_sha256": "00d326e9766c6f7f85b5397a895b762bcba8f9905f51a37fcc5345b86b5f8ab2",
+  "info": {
+    "name": "gaussian_nb12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      4.2874341825468447e-05,
+      4.9582520568364796e-05,
+      0.24079717903247358,
+      7.021771092501679e-06,
+      0.0004955948017944761,
+      0.5049760783024725,
+      3.3726776610689117e-06,
+      3.3726776610689117e-06,
+      0.0005652221845770447,
+      9.655187663608382e-05,
+      9.734872099898806e-05,
+      0.04000356650512887
+    ],
+    "scale": [
+      0.0019177627039180945,
+      0.002400967329430357,
+      0.17880690557083204,
+      0.0014278158830000076,
+      0.00029130590824527077,
+      0.36325828992455855,
+      0.0005941624960608444,
+      0.0005941624960608444,
+      0.0006017055033054481,
+      0.00021322008376214324,
+      0.00020774357627994985,
+      1.8041375033180325
+    ],
+    "rows": 27381,
+    "up_fraction": 0.5089295496877396,
+    "training_sha256": "6c312ac94d1577647b0511ddfdbddc8aae3be4d04917aa5d325359872379a627",
+    "warnings": [],
+    "hyperparameters": {
+      "priors": null,
+      "var_smoothing": 1e-05
+    },
+    "parameterization": "class means/covariances or bounded boosting; not a neural parameter count"
+  },
+  "model_pin": {
+    "sha256": "192acbda5e7987b655d42a016a34f6c615128e8f070b534397bb8b22eb28e804",
+    "bytes": 1444
+  },
+  "prediction_pin": {
+    "sha256": "43fb36db7f6e1b0cb0cf2d6ad0268bad436689c58816e3b7e076265aa2685bf2",
+    "bytes": 270606
+  },
+  "saved_prediction_parity": true,
+  "train_only_scaler": true,
+  "network": false,
+  "sha256": "ce47fb70a06a5c1c625f862fe62e17a8baabf3ac2bc0c1f0eb69af72e832686e"
+}

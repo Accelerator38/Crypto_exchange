@@ -1,0 +1,80 @@
+{
+  "schema_version": "exia.genetic_primus_event_feasibility.v7",
+  "generated_at": "2026-08-24T10:37:40.717447+00:00",
+  "status": "V7_TERMINAL_REJECTED_NO_EVENT_CAPACITY",
+  "terminal_reason": "NO_PREREGISTERED_EVENT_HAS_POSITIVE_STRESS_COSTED_WALK_FORWARD_CAPACITY",
+  "contract_sha256": "bd2cefb2f5234a42cd364c4d338cd1e26487f07057e8a06d842b7b281b816cd8",
+  "dataset_manifest_sha256": "5ed309de1c191adce4ed894eeac7ffd1f68d39706b8807a15259b4da30c4ad7b",
+  "dataset_sha256": "656f4491ced505b74879fd3b8de897a93e799e4dd3d9477666c50c469981802f",
+  "source_gate_sha256": "fd82c6e309ead97cebf56f62a0cf58f6517bc0a4a18f0ea3bd1e6fd90985cdaa",
+  "passing_event_ids": [],
+  "event_summary": [
+    {
+      "event_id": "cross_market_cascade_reversal",
+      "events": 114,
+      "mean_net_bps": -30.10249555889568,
+      "median_net_bps": -15.869226770465628,
+      "lcb_net_bps": -52.92202380798228,
+      "positive_folds": 1,
+      "worst_fold_mean_bps": -98.68840461212916,
+      "median_fold_lcb_bps": -86.47648745475271,
+      "passed": false,
+      "failed_gates": [
+        "minimum_events_per_fold",
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_median",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "event_id": "cross_market_cascade_continuation",
+      "events": 114,
+      "mean_net_bps": -17.89750444110433,
+      "median_net_bps": -32.13077322953437,
+      "lcb_net_bps": -56.68132775793419,
+      "positive_folds": 2,
+      "worst_fold_mean_bps": -71.82464605400466,
+      "median_fold_lcb_bps": -78.04713742106203,
+      "passed": false,
+      "failed_gates": [
+        "minimum_events_per_fold",
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_median",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "event_id": "isolated_symbol_cascade_reversal",
+      "events": 587,
+      "mean_net_bps": -4.836754489603724,
+      "median_net_bps": -2.683709566491533,
+      "lcb_net_bps": -33.86247371734891,
+      "positive_folds": 2,
+      "worst_fold_mean_bps": -59.01201544739786,
+      "median_fold_lcb_bps": -69.95334627291487,
+      "passed": false,
+      "failed_gates": [
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_median",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    }
+  ],
+  "labels_opened": true,
+  "evolution_allowed": false,
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

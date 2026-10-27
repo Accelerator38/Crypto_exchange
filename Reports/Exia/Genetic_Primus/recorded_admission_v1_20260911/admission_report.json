@@ -1,0 +1,53 @@
+{
+  "schema_version": "exia.genetic_primus.recorded_intake_receipt/1",
+  "admission": {
+    "schema_version": "exia.genetic_primus.recorded_admission/1",
+    "admitted_for_offline_replay": true,
+    "qualification_eligible": false,
+    "trading_authorized": false,
+    "evidence_kind": "synthetic",
+    "manifest_sha256": "c40821c437f2b512ff91284675ce32461778fb34e81ca25d42882b760085f8be",
+    "bundle_sha256": "816736c79254530e4d5f16b6c71b8e8cfe1c8158f626afc3598ef1c3a8ef0ddc",
+    "provenance_sha256": "21678fdb5cb2e82d3c792a923442af18cc8e33c292de368cd1444801e9928d58",
+    "unique_events": 56,
+    "decision_boundaries": 2,
+    "common_opportunities": 8,
+    "funding_settlements": 8,
+    "source_authenticity_verified": false,
+    "feature_computation_verified": false,
+    "scaler_recomputed": false,
+    "calibration_verified": false,
+    "performance_gate_evaluation": "NOT_RUN",
+    "limitations": [
+      "lineage_timestamps_are_claims_cross_checked_not_raw_history_recomputed",
+      "coverage_thresholds_and_funding_schedule_are_supplied_not_venue_verified",
+      "admission_is_not_evidence_of_strategy_profitability"
+    ],
+    "admission_body_sha256": "8939651ab23c51198e31f417deb570278794252d1f8c769e5a9542198c4f6315"
+  },
+  "input_file_hashes": {
+    "manifest": "c7f407e6f7431b6887f991282e6a6c4df5017c1ab3f055dfe215251b0780efe6",
+    "bundle": "d262a801319f23422dd277f7c799b36772d0663636f76cc76ba1175effd97ee5",
+    "provenance": "0e86ea121de20ec7a4fb701a6e8cf500526a78cde7ec3e6422562de89ee0639b"
+  },
+  "frozen_implementation": {
+    "source_hashes": {
+      "configs/genetic_primus_portfolio_replay_v1.json": "8e05808690f4c266658748b18f1af218b04d07697d29eb80d020ed0562770a59",
+      "src/exia/genetic_primus/portfolio_replay_v1.py": "2284efb3c743a4bfd0090a1a097b0cc0732914915e1b4d59963bad146b4d47e1",
+      "tools/run_genetic_primus_portfolio_replay_v1.py": "0ea0c944e021f421827120d52940c3f803ea8aef5b437751a02bb73c56765130",
+      "configs/genetic_primus_release_candidate_v1.json": "6bef1f813d24dcdd5d46b9463b85d735aa276ab3e244754f790ae13e033c3135",
+      "src/exia/genetic_primus/release_contract_v1.py": "864de0a7cc4690bc51498ab5f5f0f7ba3da55f64f2cf82fb248eecd9a327a243",
+      "src/exia/genetic_primus/execution_replay_v1.py": "c378f6ef59636d0aa9caa8172c42df006645660b1f5d85b6d0592bfb77d0e44f"
+    },
+    "sha256": "da2c5c72e03ba1d018ada27f305333f845fd7db28e7acd9a0248afccffa88dcf"
+  },
+  "importer_sources": {
+    "src/exia/genetic_primus/recorded_admission_v1.py": "562e53242d710e7233b3015cac8580d7d7656145eef278bad06fafc4b88c2ae2",
+    "tools/import_genetic_primus_recorded_v1.py": "fe1150a2df1fb5d850ba012b1f14763ed85d80497f5b3ff67b2236df350e58dc"
+  },
+  "replay_run": false,
+  "network_used": false,
+  "training_run": false,
+  "trading_authorized": false,
+  "receipt_body_sha256": "9596c64794e3553a263301a517efd60738f3cefad38db72c63314d9be69fe559"
+}

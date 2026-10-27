@@ -1,0 +1,158 @@
+{
+  "contract": {
+    "schema": "direction_micro_hypotheses/1",
+    "objective_id": "direction_micro_hypotheses_v1_20261013",
+    "date_utc": "2024-12-01",
+    "symbol": "BTCUSDT",
+    "venue": "bitget-futures",
+    "forecast_horizons_minutes": [
+      1,
+      10,
+      30
+    ],
+    "decision_minutes": 1,
+    "clock": "receipt timestamps; events strictly before boundary",
+    "primary_target": "future last received trade price minus current last received trade price; flat explicit",
+    "secondary_diagnostic": "evaluate same saved forecasts against future midprice sign; never replace primary target",
+    "coverage_targets": [
+      1,
+      0.5,
+      0.2,
+      0.1
+    ],
+    "split": "60/20/20 percent of UTC day; train/calibration maturity purge 7*h minutes",
+    "models": [
+      {
+        "id": "reference_price_logit",
+        "features": "price",
+        "estimator": "logistic"
+      },
+      {
+        "id": "reference_price_boost",
+        "features": "price",
+        "estimator": "boosting"
+      },
+      {
+        "id": "reference_full_logit",
+        "features": "full",
+        "estimator": "logistic"
+      },
+      {
+        "id": "reference_full_boost",
+        "features": "full",
+        "estimator": "boosting"
+      },
+      {
+        "id": "flow_logit",
+        "features": "flow",
+        "estimator": "logistic"
+      },
+      {
+        "id": "flow_boost",
+        "features": "flow",
+        "estimator": "boosting"
+      },
+      {
+        "id": "book_logit",
+        "features": "book",
+        "estimator": "logistic"
+      },
+      {
+        "id": "book_boost",
+        "features": "book",
+        "estimator": "boosting"
+      },
+      {
+        "id": "lag_micro_logit",
+        "features": "lag_micro",
+        "estimator": "logistic"
+      },
+      {
+        "id": "lag_micro_boost",
+        "features": "lag_micro",
+        "estimator": "boosting"
+      },
+      {
+        "id": "derivatives_logit",
+        "features": "derivatives",
+        "estimator": "logistic"
+      },
+      {
+        "id": "derivatives_boost",
+        "features": "derivatives",
+        "estimator": "boosting"
+      },
+      {
+        "id": "compact_micro_logit",
+        "features": "compact6",
+        "estimator": "logistic"
+      },
+      {
+        "id": "compact_micro_mlp65",
+        "features": "compact6",
+        "estimator": "mlp"
+      },
+      {
+        "id": "quote_gap_logit",
+        "features": "quotes",
+        "estimator": "logistic"
+      },
+      {
+        "id": "quote_gap_boost",
+        "features": "quotes",
+        "estimator": "boosting"
+      },
+      {
+        "id": "interactions_logit",
+        "features": "interactions",
+        "estimator": "logistic"
+      },
+      {
+        "id": "interactions_boost",
+        "features": "interactions",
+        "estimator": "boosting"
+      }
+    ],
+    "fit_budget": 54,
+    "primary_rows": 216,
+    "same_eligible_grid_for_all_models": true,
+    "max_quote_age_ms": 5000,
+    "max_derivative_age_ms": 30000,
+    "boosting_minimum_leaf": 16,
+    "seed": 20261013,
+    "inference": "single-day engineering only; overlapping 10/30m labels; no independent significance claim",
+    "original_book_contains_only_snapshots": true,
+    "safety": {
+      "credentials_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "live": false,
+      "promotion_authority": false,
+      "runtime_authority": false,
+      "network_allowed": false
+    }
+  },
+  "code_pins": {
+    "tools/run_genetic_primus_direction_micro_hypotheses_v1.py": "61e0af2205546a0ea522f01c540b386667b780f416b87370e8cbfab15d55c7a6",
+    "configs/genetic_primus_direction_micro_hypotheses_v1.json": "223afdf9789d5efbb9659c7de64cf260e7b8163c60129ab6a308e3eb1b0a5540",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9"
+  },
+  "source_pins": {
+    "C:\\Users\\anton\\Downloads\\bitget-futures_incremental_book_L2_2024-12-01_BTCUSDT.csv.gz": "26535dceb3da2d1ee86463b49c78cd0d907b01b470365e7fcf1a10760676b4a7",
+    "C:\\Users\\anton\\Downloads\\bitget-futures_derivative_ticker_2024-12-01_BTCUSDT.csv.gz": "47db0d0633045d6c3a646b6ed37571dfd65b7d882e92a24a60f47971272703c9"
+  },
+  "parent_bank_sha256": "59825bdffa928d9aae42304cb62858faf129cf0025fa5b0452ef3f457f44f39d",
+  "parent_registration_sha256": "05c77803f9433949ce83d39f30d162bfedccc734b17579ca349f1bf594f78943",
+  "new_data_opened": false,
+  "independent_validation": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "sha256": "ba59cd78be8454408b24e09ac1ee9e05efbbf3ded35d9cf83d34858e8e7762b8"
+}

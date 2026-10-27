@@ -1,0 +1,78 @@
+{
+  "schema_version": "exia.genetic_primus_event_feasibility.v6",
+  "generated_at": "2026-08-24T10:12:03.173784+00:00",
+  "status": "V6_TERMINAL_REJECTED_NO_EVENT_CAPACITY",
+  "terminal_reason": "NO_PREREGISTERED_EVENT_HAS_POSITIVE_STRESS_COSTED_WALK_FORWARD_CAPACITY",
+  "contract_sha256": "2746fb1e3ab0119e8076e856415964f651149123e059b1a8a518f7db78d15b92",
+  "dataset_manifest_sha256": "dc381788d53b16991f8c0e3ce250b2070d556b0453c8bd294b484846ba25fb89",
+  "dataset_sha256": "137bc104159dcd25f5d334299e2229d80be7c3a3e4da13519d409f7d2f4d4953",
+  "source_gate_sha256": "a300704eaf4b1850e66861352f774507e75f1c7a91d5a0b32a7d636d21386748",
+  "passing_event_ids": [],
+  "event_summary": [
+    {
+      "event_id": "oi_taker_price_continuation",
+      "events": 774,
+      "mean_net_bps": -49.73458784605185,
+      "median_net_bps": -56.967216777403664,
+      "lcb_net_bps": -95.0147700549175,
+      "positive_folds": 1,
+      "worst_fold_mean_bps": -157.01186926456097,
+      "median_fold_lcb_bps": -122.70249670254347,
+      "passed": false,
+      "failed_gates": [
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_median",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "event_id": "crowding_unwind_reversal",
+      "events": 64,
+      "mean_net_bps": -0.3700042791725977,
+      "median_net_bps": -28.44356378586197,
+      "lcb_net_bps": -172.81805076470133,
+      "positive_folds": 3,
+      "worst_fold_mean_bps": -101.99926809585178,
+      "median_fold_lcb_bps": -172.40648458774552,
+      "passed": false,
+      "failed_gates": [
+        "minimum_events_per_fold",
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_median",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    },
+    {
+      "event_id": "oi_price_divergence_reversal",
+      "events": 862,
+      "mean_net_bps": -28.368819345823905,
+      "median_net_bps": 20.36479895605749,
+      "lcb_net_bps": -74.90881122251112,
+      "positive_folds": 1,
+      "worst_fold_mean_bps": -77.766719908053,
+      "median_fold_lcb_bps": -93.88614730849194,
+      "passed": false,
+      "failed_gates": [
+        "minimum_positive_folds",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_lcb",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb"
+      ]
+    }
+  ],
+  "labels_opened": true,
+  "evolution_allowed": false,
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

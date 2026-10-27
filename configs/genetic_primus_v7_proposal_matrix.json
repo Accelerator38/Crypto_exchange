@@ -1,0 +1,86 @@
+{
+  "schema_version": "exia.genetic_primus.v7_proposal_matrix/1",
+  "status": "REGISTERED_BEFORE_EVALUATION",
+  "purpose": "revealed-development-only fixed proposal screening before any V7 genetic search",
+  "created_date": "2026-08-28",
+  "dataset_config_path": "configs/genetic_primus_v4.json",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "timeframe_minutes": 240,
+  "development_start": "2024-08-01T00:00:00Z",
+  "development_end": "2026-07-01T00:00:00Z",
+  "origin_cadence_days": 3,
+  "deployment_horizon_days": 3,
+  "round_trip_cost_bps": 16.0,
+  "stress_round_trip_cost_bps": 24.0,
+  "calendar_blocks": [
+    ["2024-08-01T00:00:00Z", "2025-02-01T00:00:00Z"],
+    ["2025-02-01T00:00:00Z", "2025-08-01T00:00:00Z"],
+    ["2025-08-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+    ["2026-01-01T00:00:00Z", "2026-07-01T00:00:00Z"]
+  ],
+  "testing_budget": {
+    "fixed_proposals": 4,
+    "parameter_variants_per_proposal": 1,
+    "post_outcome_threshold_changes_allowed": false,
+    "genetic_training_allowed": false,
+    "promotion_evidence": false
+  },
+  "proposals": [
+    {
+      "policy_id": "V7_EMA_TrendConsensus",
+      "rule": "ema_trend_consensus",
+      "direction_feature": "ema_gap_12_48",
+      "required_same_sign": ["ema_slope_12_3", "return_12"],
+      "minimum_efficiency_12": 0.30
+    },
+    {
+      "policy_id": "V7_ResidualRankConsensus",
+      "rule": "residual_rank_consensus",
+      "direction_feature": "relative_momentum_rank",
+      "absolute_rank_entry": 0.50,
+      "required_same_sign": ["residual_return_3"],
+      "minimum_efficiency_12": 0.20
+    },
+    {
+      "policy_id": "V7_DonchianBreakout",
+      "rule": "donchian_breakout",
+      "direction_feature": "donchian_position_20",
+      "absolute_breakout_entry": 1.0,
+      "required_same_sign": ["ema_slope_12_3"]
+    },
+    {
+      "policy_id": "V7_MarketAlignedTrend",
+      "rule": "market_aligned_trend",
+      "direction_feature": "return_12",
+      "required_same_sign": ["market_return_12", "market_breadth_12"],
+      "minimum_absolute_market_breadth_12": 0.25,
+      "minimum_efficiency_12": 0.30
+    }
+  ],
+  "reference_agents": [
+    "NoTrade",
+    "Momentum_return_1",
+    "RelativeMomentumRank_return_12"
+  ],
+  "selection_rule": {
+    "outer_bootstrap_samples": 2000,
+    "outer_block_origins": 5,
+    "selection_seed": 950001,
+    "audit_seed": 960001,
+    "required_positive_compound_blocks": 3,
+    "required_positive_full_period_return": true,
+    "required_positive_paired_block_lcb_vs_no_trade": true,
+    "required_positive_stress_return": true,
+    "maximum_drawdown": 0.10,
+    "maximum_trades_per_day": 4.0,
+    "tie_breaker": "lowest_drawdown_then_lowest_turnover"
+  },
+  "result_path": "Reports/Exia/Genetic_Primus/v7_proposal_matrix_revealed_20260828",
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

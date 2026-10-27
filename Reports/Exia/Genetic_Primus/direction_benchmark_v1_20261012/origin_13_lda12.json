@@ -1,0 +1,82 @@
+{
+  "schema": "saved_direction_fit/1",
+  "registration_sha256": "4cbb4f2dd3236228b4d495bc5fc6eab059afd874258eafcf97c195c3e2864a80",
+  "origin_index": 13,
+  "origin_ms": 1788912000000,
+  "cutoff_us": 1788811200000000,
+  "latest_label_available_us": 1788796802250000,
+  "fold_sha256": "558dbf2233ce1c4305957c9df8e57330e753d84892ba2436c0f140ec820f5a80",
+  "info": {
+    "name": "lda12",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48",
+      "return_1",
+      "candle_body",
+      "candle_range",
+      "upper_wick",
+      "lower_wick",
+      "log_volume_minus_previous_42_mean"
+    ],
+    "mean": [
+      -0.0007150176448676237,
+      0.0021038897691848146,
+      0.24658575319022036,
+      7.161686324386325e-06,
+      0.014719314728616229,
+      0.46448081568588984,
+      0.00011794796108137955,
+      0.00011793071847393073,
+      0.023057799614636915,
+      0.005841641629198989,
+      0.0065801728835369125,
+      0.0029786586352956424
+    ],
+    "scale": [
+      0.056914650058231944,
+      0.07163763644488881,
+      0.17670007760640133,
+      0.04153303646316777,
+      0.007451630199136431,
+      0.390745109346469,
+      0.016688848997624444,
+      0.016689006646289285,
+      0.019985594376338414,
+      0.006667646289329043,
+      0.008934370827617411,
+      0.6433140366546583
+    ],
+    "rows": 81551,
+    "up_fraction": 0.5043714975904648,
+    "training_sha256": "cd1417d1fa8f54d3371e76ec29ae6b82ea9083ee045a0171a7f42805739c9a03",
+    "warnings": [],
+    "hyperparameters": {
+      "covariance_estimator": null,
+      "n_components": null,
+      "priors": null,
+      "shrinkage": "auto",
+      "solver": "lsqr",
+      "store_covariance": false,
+      "tol": 0.0001
+    },
+    "parameterization": "class means/covariances or bounded boosting; not a neural parameter count"
+  },
+  "model_pin": {
+    "sha256": "c5e7945f61d1be78f53a92a5cc62a81c194295cf3b162a790ac1ad277aa43893",
+    "bytes": 2255
+  },
+  "prediction_pin": {
+    "sha256": "bac5dd6ad93e38c44cf76927c2f6dde73d85a6ecc9102327b00c2e16f7e927a2",
+    "bytes": 1600
+  },
+  "decision_model_sha256": "c5e7945f61d1be78f53a92a5cc62a81c194295cf3b162a790ac1ad277aa43893",
+  "prediction_parity": true,
+  "train_only_scaler": true,
+  "runtime_authority": false,
+  "promotion_authority": false,
+  "sha256": "a32d70a9a085cd77fb7f7c938b3aea446ea229fbe7b0dca224a1d42464ad97a7"
+}

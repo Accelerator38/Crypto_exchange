@@ -1,0 +1,61 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v4",
+  "generated_at": "2026-08-24T06:47:13.325729+00:00",
+  "stage": "screen",
+  "status": "V4_ARCHITECTURE_SCREEN_RUN",
+  "architecture": {
+    "id": "linear",
+    "inputs": 30,
+    "hidden": [],
+    "outputs": 3
+  },
+  "parameter_count": 93,
+  "seed": 141,
+  "selected_generation": 11,
+  "metrics": {
+    "trades": 4929,
+    "turnover_fills": 9858,
+    "fills_per_day": 8.994525547445255,
+    "days": 1096,
+    "mean_daily_bps": 8.38953326319895,
+    "median_daily_bps": 0.0,
+    "lcb_daily_bps": -4.654724238004487,
+    "max_drawdown": 0.537276842741123,
+    "positive_fold_means": 5,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -16.6068450572146,
+    "median_fold_lcb_bps": -14.282324325012713,
+    "worst_fold_lcb_bps": -64.58280191499833,
+    "max_direction_share": 0.6922296611888821,
+    "max_state_share": 0.4893487522824102,
+    "max_symbol_share": 0.1312639480624873,
+    "temporal_gate_passed": false,
+    "fitness": -18.85547644407591,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_overall_lcb",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "failed_gates": [
+    "max_drawdown",
+    "nonpositive_overall_lcb",
+    "nonpositive_worst_fold_mean",
+    "nonpositive_median_fold_lcb"
+  ],
+  "config_sha256": "178cb7edc9f1ebd79dc9f895b6c198d3ec4cb915abc83623513e105227b500e8",
+  "code_sha256": "dfed97ef6816fdcdc462bb82987940938ca57026506c5cf5b5f56011eaa12523",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "run_fingerprint": "726e9c115719c110f69c7ea13085d3958ef337a096309d135537f34c40b58d98",
+  "champion_genome_sha256": "6cde9b511dca7a67b3785043d538a32c6f58ff1c19fee57267a37b66e64a7cc1",
+  "champion_file_sha256": "544036aa416e2a2fe5aead5b0e86e7882ba5e442d3fbcc053eef0f6264b4f331",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

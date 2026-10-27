@@ -1,0 +1,63 @@
+{
+  "schema_version": "exia.genetic_primus_freeze.v2",
+  "agent_id": "Genetic_Primus",
+  "generated_at": "2026-08-21T12:25:32.597382+00:00",
+  "status": "DEVELOPMENT_V2_REJECTED_TEMPORAL_ROBUSTNESS",
+  "selection_contract": "risk>overall_gate>failed_slices>worst_slice_lcb>monthly_fitness",
+  "experiment_manifest_sha256": "fdc849c856d0b784ae5a43f4e9952087fdc53cb79bbfe8a460367a3d7ac445df",
+  "config_sha256": "6694b862f895988f0228129b4b5167cd5affdacee9992c497340e7fe43eaca3e",
+  "code_sha256": "3b5d3bd338f20947a601ce6aa3efdd1dd74425a1d10656c1d30f235df0ad4b21",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "champion_file_sha256": "6f4b9d9850296e7f3e752a228fdffa8bdd8407ad9d744322db092f934c4f3c36",
+  "champion_genome_sha256": "50a7528bce14a0e699ebc9f89e85d98bb96936a6efe6128b393ddf4c2e02ad54",
+  "scaler_sha256": "5be04193487f9a83e355f387066850cff83f1a535e18f75f405f841defcb0793",
+  "split": "development",
+  "cost_profile": "stress_round_trip",
+  "metrics": {
+    "trades": 3319,
+    "mean_bps": 55.429025202358275,
+    "median_bps": 7.700192564064526,
+    "lcb_bps": 38.75709751161273,
+    "fitness": -6.140581679396829,
+    "selection_score": 9494.45745638506,
+    "constraint_violation": 0.0,
+    "max_drawdown": 0.1655998638652224,
+    "turnover_fills": 6638,
+    "supported_periods": 24,
+    "total_periods": 24,
+    "supported_period_rate": 1.0,
+    "max_direction_share": 0.5363061163000904,
+    "max_state_share": 0.44200060259114193,
+    "max_symbol_share": 0.1693281108767701,
+    "action_counts": {
+      "SHORT": 8358,
+      "FLAT": 18865,
+      "LONG": 7809
+    },
+    "failed_gates": [],
+    "selection_contract": "risk>overall_gate>failed_slices>worst_slice_lcb>monthly_fitness",
+    "overall_failure_count": 0,
+    "slice_failure_count": 0,
+    "supported_slice_count": 15,
+    "worst_supported_slice_lcb_bps": 9.500598038064458
+  },
+  "temporal_evidence": {
+    "supported_periods": 24,
+    "positive_period_scores": 10,
+    "nonpositive_period_scores": 14,
+    "positive_period_lcb": 9,
+    "nonpositive_period_lcb": 15,
+    "median_period_score": -6.140581679396829
+  },
+  "failed_gates": [
+    "nonpositive_temporal_fitness"
+  ],
+  "validation_allowed": false,
+  "validation_opened": false,
+  "oos_opened": false,
+  "sanity_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

@@ -1,0 +1,32 @@
+{
+  "checks": [
+    "up_flat_down_and_last_endpoint",
+    "no_gap_or_cross_day_label",
+    "mature_labels_and_purge_on_both_boundaries",
+    "deterministic_common_time_sample",
+    "future_suffix_does_not_change_training",
+    "bounded_bank_schema_and_receipt_checks",
+    "future_or_exact_boundary_receipt_rejected",
+    "unsafe_permissions_rejected",
+    "fitted_scaler_and_predictions_ignore_future_mutation",
+    "each_origin_refits_scaler_from_its_own_training_rows",
+    "calibration_threshold_is_not_a_test_quantile"
+  ],
+  "code_pins": {
+    "configs/genetic_primus_direction_book_multiday_v1.json": "13ad59ea7d416c1b7c2a3a7a07af01b404a77a4e7c090a5a9c9e89c0be3939ae",
+    "src/exia/genetic_primus/direction_book_multiday_v1.py": "3a3023fea08ab10bb065fa5191e98e0d33905a9d3aa785f401c3e52f2810573f",
+    "src/exia/genetic_primus/direction_hypotheses_v1.py": "cb5b33fd80ad7e6f54e566b6b125929ae0b4d48e04c006eeacefbc7f290886c9",
+    "src/exia/genetic_primus/direction_selective_v1.py": "c044e74acc66e1ef107808249a838e956dbebfb73388b65b986555a20940c976",
+    "tools/run_genetic_primus_direction_book_multiday_v1.py": "3e12b6dc36716792f9b5d019a32dc6c6c0204b1ecadd409aaee24dc2516d04b7"
+  },
+  "credentials_allowed": false,
+  "historical_fits": 0,
+  "live": false,
+  "network_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "promotion_authority": false,
+  "runtime_authority": false,
+  "synthetic_estimator_fits": 3,
+  "sha256": "342230f97374d23c2b66f9b712edffff7cdb948caf47c8120a989424b2ad8ddf"
+}

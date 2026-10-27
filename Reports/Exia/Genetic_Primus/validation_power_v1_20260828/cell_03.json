@@ -1,0 +1,1012 @@
+{
+  "arrays_sha256": {
+    "audit_bank": "2794bfab8302e076260c9cf76c8a8e84786ee2388ed6638705719ee7c0fd7cbc",
+    "audit_unit_lcb": "852cd4f31ab5d81befd481758cac8fdc2fa5c941c520ad7f369ecd5f69df0806",
+    "primary_bank": "e39b8edcab3de1f12db6fffd7ab08e2db8d9cc06f1e763bd787c5ded5f9b2dc1",
+    "primary_unit_lcb": "459d39f22876a46e5cac2dcae30b2fbb9f9af03a65e1d401f3f1389dd827af63",
+    "unit_paths": "40194e0dd2b1241edffeeb9c5178c93b4a834eb39d005968a6dec56c50bc57af"
+  },
+  "cell": 3,
+  "config_sha256": "68f80efd23e9ad651ece99ce80b9f3ec4bcb5e5b63832255ccc9634bb5a9053b",
+  "days": 90,
+  "elapsed_seconds": 0.2028143000061391,
+  "known_ar1_information_equivalent_days": 90.0,
+  "npz_sha256": "cf1aadbe92ff89d35c80d3b08a4d8d84029bc15c87646ceec8abdec1c72c3899",
+  "null_results": [
+    {
+      "bank": "primary",
+      "diagnosis": "INCONCLUSIVE_NOT_PROOF_OF_CALIBRATION",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.044432902963450496,
+        "rate": 0.0654296875,
+        "replications": 1024,
+        "successes": 67,
+        "upper": 0.09535836590687864
+      }
+    },
+    {
+      "bank": "audit",
+      "diagnosis": "INCONCLUSIVE_NOT_PROOF_OF_CALIBRATION",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.04763269308202674,
+        "rate": 0.0693359375,
+        "replications": 1024,
+        "successes": 71,
+        "upper": 0.09989078910182753
+      }
+    },
+    {
+      "bank": "both_banks",
+      "diagnosis": "INCONCLUSIVE_NOT_PROOF_OF_CALIBRATION",
+      "false_positive_rate": {
+        "confidence": 0.9988888888888889,
+        "lower": 0.03654384065574897,
+        "rate": 0.0556640625,
+        "replications": 1024,
+        "successes": 57,
+        "upper": 0.08391689493076734
+      }
+    }
+  ],
+  "oracle_null_false_positive_rate": {
+    "confidence": 0.95,
+    "lower": 0.04149582875413907,
+    "rate": 0.0537109375,
+    "replications": 1024,
+    "successes": 55,
+    "upper": 0.06926197133626735
+  },
+  "replications": 1024,
+  "rho": 0.0,
+  "safety": {
+    "credentials_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "paper_allowed": false,
+    "promotion_authority": false
+  },
+  "scenarios": [
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01039069464635897,
+            "rate": 0.0166015625,
+            "replications": 1024,
+            "successes": 17,
+            "upper": 0.02642574090014249
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01039069464635897,
+            "rate": 0.0166015625,
+            "replications": 1024,
+            "successes": 17,
+            "upper": 0.02642574090014249
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.015799756863611528,
+            "rate": 0.0234375,
+            "replications": 1024,
+            "successes": 24,
+            "upper": 0.034637456362030326
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01039069464635897,
+            "rate": 0.0166015625,
+            "replications": 1024,
+            "successes": 17,
+            "upper": 0.02642574090014249
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01039069464635897,
+            "rate": 0.0166015625,
+            "replications": 1024,
+            "successes": 17,
+            "upper": 0.02642574090014249
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.013451953263233686,
+            "rate": 0.0205078125,
+            "replications": 1024,
+            "successes": 21,
+            "upper": 0.03114778381420514
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.011910267656436975,
+            "rate": 0.0185546875,
+            "replications": 1024,
+            "successes": 19,
+            "upper": 0.028797818655533172
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.011910267656436975,
+            "rate": 0.0185546875,
+            "replications": 1024,
+            "successes": 19,
+            "upper": 0.028797818655533172
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01423015539991666,
+            "rate": 0.021484375,
+            "replications": 1024,
+            "successes": 22,
+            "upper": 0.03231540706025651
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.3717670374387616,
+        "rate": 0.4013671875,
+        "replications": 1024,
+        "successes": 411,
+        "upper": 0.43170459890507007
+      },
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 100.0,
+      "known_parameter_oracle_power": 0.017036983683989426,
+      "known_parameter_oracle_stress_power": 0.01047367925577447
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02965003460561738,
+            "rate": 0.0400390625,
+            "replications": 1024,
+            "successes": 41,
+            "upper": 0.053866210126508274
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02965003460561738,
+            "rate": 0.0400390625,
+            "replications": 1024,
+            "successes": 41,
+            "upper": 0.053866210126508274
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.05533269912305735,
+            "rate": 0.0693359375,
+            "replications": 1024,
+            "successes": 71,
+            "upper": 0.08655830709109853
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02550092690529453,
+            "rate": 0.03515625,
+            "replications": 1024,
+            "successes": 36,
+            "upper": 0.048286190913159416
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02550092690529453,
+            "rate": 0.03515625,
+            "replications": 1024,
+            "successes": 36,
+            "upper": 0.048286190913159416
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.043210314621672116,
+            "rate": 0.0556640625,
+            "replications": 1024,
+            "successes": 57,
+            "upper": 0.07143913623420299
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.03132325446943114,
+            "rate": 0.0419921875,
+            "replications": 1024,
+            "successes": 43,
+            "upper": 0.056084641028163185
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.03132325446943114,
+            "rate": 0.0419921875,
+            "replications": 1024,
+            "successes": 43,
+            "upper": 0.056084641028163185
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.051849408955957264,
+            "rate": 0.0654296875,
+            "replications": 1024,
+            "successes": 67,
+            "upper": 0.08225829572726123
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.5368416217958547,
+        "rate": 0.5673828125,
+        "replications": 1024,
+        "successes": 581,
+        "upper": 0.5974203296128149
+      },
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 100.0,
+      "known_parameter_oracle_power": 0.050000000000000155,
+      "known_parameter_oracle_stress_power": 0.033283209492482646
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.10070826395026218,
+            "rate": 0.119140625,
+            "replications": 1024,
+            "successes": 122,
+            "upper": 0.14041983678334505
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.10070826395026218,
+            "rate": 0.119140625,
+            "replications": 1024,
+            "successes": 122,
+            "upper": 0.14041983678334505
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1316358460916453,
+            "rate": 0.15234375,
+            "replications": 1024,
+            "successes": 156,
+            "upper": 0.1756503176549295
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.08721116935742498,
+            "rate": 0.1044921875,
+            "replications": 1024,
+            "successes": 107,
+            "upper": 0.12472955063516716
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.08721116935742498,
+            "rate": 0.1044921875,
+            "replications": 1024,
+            "successes": 107,
+            "upper": 0.12472955063516716
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11702993473028742,
+            "rate": 0.13671875,
+            "replications": 1024,
+            "successes": 140,
+            "upper": 0.15912302289253796
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.09529706066474786,
+            "rate": 0.11328125,
+            "replications": 1024,
+            "successes": 116,
+            "upper": 0.13415608777245333
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.09529706066474786,
+            "rate": 0.11328125,
+            "replications": 1024,
+            "successes": 116,
+            "upper": 0.13415608777245333
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.12158506511779174,
+            "rate": 0.1416015625,
+            "replications": 1024,
+            "successes": 145,
+            "upper": 0.16429701941870536
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.6724260311029691,
+        "rate": 0.701171875,
+        "replications": 1024,
+        "successes": 718,
+        "upper": 0.728413997740305
+      },
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 100.0,
+      "known_parameter_oracle_power": 0.12089749838131036,
+      "known_parameter_oracle_stress_power": 0.08687562797613624
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1879841567336833,
+            "rate": 0.2119140625,
+            "replications": 1024,
+            "successes": 217,
+            "upper": 0.2379973553596863
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1879841567336833,
+            "rate": 0.2119140625,
+            "replications": 1024,
+            "successes": 217,
+            "upper": 0.2379973553596863
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.2498509207039102,
+            "rate": 0.2763671875,
+            "replications": 1024,
+            "successes": 283,
+            "upper": 0.3045550666499259
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.16848122097629661,
+            "rate": 0.19140625,
+            "replications": 1024,
+            "successes": 196,
+            "upper": 0.21663795807965183
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.16848122097629661,
+            "rate": 0.19140625,
+            "replications": 1024,
+            "successes": 196,
+            "upper": 0.21663795807965183
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.23102042769036454,
+            "rate": 0.2568359375,
+            "replications": 1024,
+            "successes": 263,
+            "upper": 0.2844690520087847
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.18333171845931576,
+            "rate": 0.20703125,
+            "replications": 1024,
+            "successes": 212,
+            "upper": 0.23292066672038217
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.18333171845931576,
+            "rate": 0.20703125,
+            "replications": 1024,
+            "successes": 212,
+            "upper": 0.23292066672038217
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.24513704316129822,
+            "rate": 0.271484375,
+            "replications": 1024,
+            "successes": 278,
+            "upper": 0.2995398172788662
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.8099541681304901,
+        "rate": 0.833984375,
+        "replications": 1024,
+        "successes": 854,
+        "upper": 0.8555181127646544
+      },
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 100.0,
+      "known_parameter_oracle_power": 0.24316108346383591,
+      "known_parameter_oracle_stress_power": 0.1878338249743472
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5437115654893939,
+            "rate": 0.57421875,
+            "replications": 1024,
+            "successes": 588,
+            "upper": 0.604171163598416
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5437115654893939,
+            "rate": 0.57421875,
+            "replications": 1024,
+            "successes": 588,
+            "upper": 0.604171163598416
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.6226550527820909,
+            "rate": 0.65234375,
+            "replications": 1024,
+            "successes": 668,
+            "upper": 0.6808937069244663
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5182240362021555,
+            "rate": 0.548828125,
+            "replications": 1024,
+            "successes": 562,
+            "upper": 0.5790672329345614
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5182240362021555,
+            "rate": 0.548828125,
+            "replications": 1024,
+            "successes": 562,
+            "upper": 0.5790672329345614
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.6008645344428185,
+            "rate": 0.630859375,
+            "replications": 1024,
+            "successes": 646,
+            "upper": 0.6598760668435832
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5515701383700847,
+            "rate": 0.58203125,
+            "replications": 1024,
+            "successes": 596,
+            "upper": 0.6118791937795999
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.5535359893088865,
+            "rate": 0.583984375,
+            "replications": 1024,
+            "successes": 598,
+            "upper": 0.6138049936062668
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.6236470560636478,
+            "rate": 0.6533203125,
+            "replications": 1024,
+            "successes": 669,
+            "upper": 0.6818475290256436
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.9406006961897279,
+        "rate": 0.955078125,
+        "replications": 1024,
+        "successes": 978,
+        "upper": 0.9661539321644749
+      },
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 100.0,
+      "known_parameter_oracle_power": 0.5996777045464381,
+      "known_parameter_oracle_stress_power": 0.5250276845497646
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.00964032654076094,
+            "rate": 0.015625,
+            "replications": 1024,
+            "successes": 16,
+            "upper": 0.025230283623006187
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.022221683203531434,
+            "rate": 0.03125,
+            "replications": 1024,
+            "successes": 32,
+            "upper": 0.04378213308398515
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.027984296104463145,
+            "rate": 0.0380859375,
+            "replications": 1024,
+            "successes": 39,
+            "upper": 0.051640297862193825
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.008161286776036565,
+            "rate": 0.013671875,
+            "replications": 1024,
+            "successes": 14,
+            "upper": 0.022817672622261878
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.018183454017356528,
+            "rate": 0.0263671875,
+            "replications": 1024,
+            "successes": 27,
+            "upper": 0.03809123535648835
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02550092690529453,
+            "rate": 0.03515625,
+            "replications": 1024,
+            "successes": 36,
+            "upper": 0.048286190913159416
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.008161286776036565,
+            "rate": 0.013671875,
+            "replications": 1024,
+            "successes": 14,
+            "upper": 0.022817672622261878
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.021408223753385185,
+            "rate": 0.0302734375,
+            "replications": 1024,
+            "successes": 31,
+            "upper": 0.04264976715139706
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.02965003460561738,
+            "rate": 0.0400390625,
+            "replications": 1024,
+            "successes": 41,
+            "upper": 0.053866210126508274
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.039786304459362334,
+        "rate": 0.0517578125,
+        "replications": 1024,
+        "successes": 53,
+        "upper": 0.0670798448655754
+      },
+      "daily_mean_bps": -5.0,
+      "daily_volatility_bps": 200.0,
+      "known_parameter_oracle_power": 0.029916347903320317,
+      "known_parameter_oracle_stress_power": 0.024026875486249377
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.021408223753385185,
+            "rate": 0.0302734375,
+            "replications": 1024,
+            "successes": 31,
+            "upper": 0.04264976715139706
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.039786304459362334,
+            "rate": 0.0517578125,
+            "replications": 1024,
+            "successes": 53,
+            "upper": 0.0670798448655754
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.05533269912305735,
+            "rate": 0.0693359375,
+            "replications": 1024,
+            "successes": 71,
+            "upper": 0.08655830709109853
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.01659063902633727,
+            "rate": 0.0244140625,
+            "replications": 1024,
+            "successes": 25,
+            "upper": 0.03579239958203892
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.03048574091676788,
+            "rate": 0.041015625,
+            "replications": 1024,
+            "successes": 42,
+            "upper": 0.0549763291980921
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.043210314621672116,
+            "rate": 0.0556640625,
+            "replications": 1024,
+            "successes": 57,
+            "upper": 0.07143913623420299
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.019789746477255746,
+            "rate": 0.0283203125,
+            "replications": 1024,
+            "successes": 29,
+            "upper": 0.04037659366205781
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.039786304459362334,
+            "rate": 0.0517578125,
+            "replications": 1024,
+            "successes": 53,
+            "upper": 0.0670798448655754
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.051849408955957264,
+            "rate": 0.0654296875,
+            "replications": 1024,
+            "successes": 67,
+            "upper": 0.08225829572726123
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.06498077177023281,
+        "rate": 0.080078125,
+        "replications": 1024,
+        "successes": 82,
+        "upper": 0.09831431365400081
+      },
+      "daily_mean_bps": 0.0,
+      "daily_volatility_bps": 200.0,
+      "known_parameter_oracle_power": 0.050000000000000155,
+      "known_parameter_oracle_stress_power": 0.040953925988670425
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.04235246698808857,
+            "rate": 0.0546875,
+            "replications": 1024,
+            "successes": 56,
+            "upper": 0.0703511584850522
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.08184294655950852,
+            "rate": 0.0986328125,
+            "replications": 1024,
+            "successes": 101,
+            "upper": 0.11842282113667757
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.09080012521608274,
+            "rate": 0.1083984375,
+            "replications": 1024,
+            "successes": 111,
+            "upper": 0.12892389630744674
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.038933483946073155,
+            "rate": 0.05078125,
+            "replications": 1024,
+            "successes": 52,
+            "upper": 0.06598683999613024
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.06851157797251875,
+            "rate": 0.083984375,
+            "replications": 1024,
+            "successes": 86,
+            "upper": 0.10256680898265222
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.08184294655950852,
+            "rate": 0.0986328125,
+            "replications": 1024,
+            "successes": 101,
+            "upper": 0.11842282113667757
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.043210314621672116,
+            "rate": 0.0556640625,
+            "replications": 1024,
+            "successes": 57,
+            "upper": 0.07143913623420299
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.07649426418142118,
+            "rate": 0.0927734375,
+            "replications": 1024,
+            "successes": 95,
+            "upper": 0.11209655121835886
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.08990215330276034,
+            "rate": 0.107421875,
+            "replications": 1024,
+            "successes": 110,
+            "upper": 0.12787604283803483
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.08452470965303348,
+        "rate": 0.1015625,
+        "replications": 1024,
+        "successes": 104,
+        "upper": 0.12157853419135563
+      },
+      "daily_mean_bps": 5.0,
+      "daily_volatility_bps": 200.0,
+      "known_parameter_oracle_power": 0.07961250821244603,
+      "known_parameter_oracle_stress_power": 0.06647741650830596
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.06409983319352609,
+            "rate": 0.0791015625,
+            "replications": 1024,
+            "successes": 81,
+            "upper": 0.09724942684797318
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11702993473028742,
+            "rate": 0.13671875,
+            "replications": 1024,
+            "successes": 140,
+            "upper": 0.15912302289253796
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1316358460916453,
+            "rate": 0.15234375,
+            "replications": 1024,
+            "successes": 156,
+            "upper": 0.1756503176549295
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.06146143929473033,
+            "rate": 0.076171875,
+            "replications": 1024,
+            "successes": 78,
+            "upper": 0.09405034459856593
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.10432427326603068,
+            "rate": 0.123046875,
+            "replications": 1024,
+            "successes": 126,
+            "upper": 0.14458712899851395
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11702993473028742,
+            "rate": 0.13671875,
+            "replications": 1024,
+            "successes": 140,
+            "upper": 0.15912302289253796
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.06234015439884305,
+            "rate": 0.0771484375,
+            "replications": 1024,
+            "successes": 79,
+            "upper": 0.09511745487718754
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11066779637363207,
+            "rate": 0.1298828125,
+            "replications": 1024,
+            "successes": 133,
+            "upper": 0.15186438357005294
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.12158506511779174,
+            "rate": 0.1416015625,
+            "replications": 1024,
+            "successes": 145,
+            "upper": 0.16429701941870536
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.11430110271244867,
+        "rate": 0.1337890625,
+        "replications": 1024,
+        "successes": 137,
+        "upper": 0.1560143787621737
+      },
+      "daily_mean_bps": 10.0,
+      "daily_volatility_bps": 200.0,
+      "known_parameter_oracle_power": 0.12089749838131036,
+      "known_parameter_oracle_stress_power": 0.10286751543431683
+    },
+    {
+      "banks": {
+        "audit": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1252353200485724,
+            "rate": 0.1455078125,
+            "replications": 1024,
+            "successes": 149,
+            "upper": 0.168430066018862
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.22069299211438048,
+            "rate": 0.24609375,
+            "replications": 1024,
+            "successes": 252,
+            "upper": 0.27339240837469103
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.2498509207039102,
+            "rate": 0.2763671875,
+            "replications": 1024,
+            "successes": 283,
+            "upper": 0.3045550666499259
+          }
+        },
+        "both_banks": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11339221902494703,
+            "rate": 0.1328125,
+            "replications": 1024,
+            "successes": 136,
+            "upper": 0.15497743706694098
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.1982380126277556,
+            "rate": 0.22265625,
+            "replications": 1024,
+            "successes": 228,
+            "upper": 0.24914757867569176
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.23102042769036454,
+            "rate": 0.2568359375,
+            "replications": 1024,
+            "successes": 263,
+            "upper": 0.2844690520087847
+          }
+        },
+        "primary": {
+          "lcb_stress_and_daily_drawdown_proxy_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.11885094097997437,
+            "rate": 0.138671875,
+            "replications": 1024,
+            "successes": 142,
+            "upper": 0.16119366740831967
+          },
+          "normal_and_stress_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.21600590173694384,
+            "rate": 0.2412109375,
+            "replications": 1024,
+            "successes": 247,
+            "upper": 0.268350371838456
+          },
+          "normal_lcb_pass_rate": {
+            "confidence": 0.95,
+            "lower": 0.24513704316129822,
+            "rate": 0.271484375,
+            "replications": 1024,
+            "successes": 278,
+            "upper": 0.2995398172788662
+          }
+        }
+      },
+      "daily_drawdown_proxy_pass_rate": {
+        "confidence": 0.95,
+        "lower": 0.1963718268932809,
+        "rate": 0.220703125,
+        "replications": 1024,
+        "successes": 226,
+        "upper": 0.2471221136446978
+      },
+      "daily_mean_bps": 20.0,
+      "daily_volatility_bps": 200.0,
+      "known_parameter_oracle_power": 0.24316108346383591,
+      "known_parameter_oracle_stress_power": 0.21446071634808983
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "adaptive_history_not_reset": true,
+  "controls": {
+    "B_E": {
+      "metric": "mean_exposure",
+      "source": "B"
+    },
+    "B_R": {
+      "metric": "daily_log_volatility",
+      "source": "B"
+    },
+    "EMA_E": {
+      "metric": "mean_exposure",
+      "source": "EMA1"
+    },
+    "EMA_R": {
+      "metric": "daily_log_volatility",
+      "source": "EMA1"
+    }
+  },
+  "new_execution_replays": 0,
+  "new_fits": 0,
+  "not_a_global_registry_completeness_claim": true,
+  "objective": "solve two prior-period budget constraints; no return optimization",
+  "registration_sha256": "8a0dafb13ed166fe46e7affea3599d8b3503a43a64d9ed3150a6e63fefceb49b",
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "schema": "local_append_only_research_entry/1",
+  "sha256": "11e4b9793e84d0f3b1493c42426f32e46ff512a80edbdc67b4fd9eead1f010fd"
+}

@@ -1,0 +1,31 @@
+{
+  "registration_sha256": "a70746aae2baebee1519aec9862e7b2e22de1a290bdc82e6339a68c8956203b1",
+  "start_utc": "2026-10-14T00:00:00Z",
+  "end_exclusive_utc": "2027-01-12T00:00:00Z",
+  "days": 90,
+  "status": "sealed_contract_pending_data",
+  "analyses": 1,
+  "interim_tuning": false,
+  "success": "paired accuracy improvement over every registered control has simultaneous LCB > 0 in both bootstrap banks; adequate emitted sample/day counts; observed coverage disclosed; per cell, no pooled substitution",
+  "minimum_emitted_days": 30,
+  "minimum_emitted_nonflat": 50,
+  "precision_or_power_guarantee": false,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "runtime_authority": false,
+    "network_allowed": false
+  },
+  "qualification": "Minimum eligibility only. Simultaneous paired LCB against all controls in both banks remains mandatory. Sparse 4h cells may be inconclusive.",
+  "predecessor_path": "Reports/Exia/Genetic_Primus/direction_selective_v1_20261013/new_interval_contract.json",
+  "predecessor_file_sha256": "4c90e56c20f4ef65b0dad9ea53e119705401e3e21f2cd847a7278aa7e6c27f98",
+  "amendment": "Pre-data correction of infeasible universal sample floors",
+  "reason": "90 days * 6 decisions/day * 10% coverage = 54 expected 4h predictions; 1000 nonflat observations and 60 emitted days cannot be universal minima.",
+  "sample_floor_is_not_power_proof": true,
+  "historical_fit_or_threshold_changes": false,
+  "new_data_opened_for_amendment": false,
+  "sha256": "37af3cc53f0882a692817fac8bbd56fd8033aed4db4db6e0e8b8ede2fc66ade7"
+}

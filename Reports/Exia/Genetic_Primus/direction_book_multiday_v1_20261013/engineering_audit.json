@@ -1,0 +1,82 @@
+{
+  "checker_code_sha256": "bcaea7d1b2ba28d6714b537d6178ce6d544c2ea135f771c28fdc7d8150f7ece3",
+  "checks": [
+    "hand_recomputed_direction_and_flat_denominator",
+    "strict_maturity_and_purge",
+    "all_8_model_hashes",
+    "train_only_scalers",
+    "forecast_reload_parity",
+    "all_32_calibration_thresholds_and_metrics",
+    "no_estimator_warnings",
+    "matched_feature_sets_share_training_times_and_price_scaler",
+    "one_day_cannot_freeze_multiday_test",
+    "all_seven_permissions_false"
+  ],
+  "credentials_allowed": false,
+  "forecast_ledger_sha256": "372df39f0c814a520c508d349e68d944aea0ebc3e3172c0c75fc2437ecec4cae",
+  "historical_refits": 0,
+  "independent_validation": false,
+  "known_days": 1,
+  "live": false,
+  "metric_cells_recomputed": 32,
+  "models": [
+    {
+      "model": "price_logit",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "17556b779b08a1fef1e070ff82a7de78c697759b5ef1f05f40171f6f4efdec50",
+      "target": "last_trade"
+    },
+    {
+      "model": "price_boost",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "d7f7758c8d7f0bf6ecfc217ffd0a43bcab4de78e93f88f71dacd43bd294bf99d",
+      "target": "last_trade"
+    },
+    {
+      "model": "book_logit",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "02254cea0329c63a03a55747c0f623ad0f25b9e5ced99b9932bacf6fccd6ef2d",
+      "target": "last_trade"
+    },
+    {
+      "model": "book_boost",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "ed1167f606aaf8fcbc0814bdf930a767c0bad046539c923d12361c49a5aa08db",
+      "target": "last_trade"
+    },
+    {
+      "model": "price_logit",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "4ab06dd5bf89c945af6827224d2446fbbd37a4ddf31fd36bcd6b750d86615526",
+      "target": "midprice"
+    },
+    {
+      "model": "price_boost",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "62ce98895e46d095b082c5aec332d36473300c331275d55bf31bfd0827eaed85",
+      "target": "midprice"
+    },
+    {
+      "model": "book_logit",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "cc98ab6e13bcaf0c6cb1a287d11263f91ef42e25fc50286cc89d88e4d19605af",
+      "target": "midprice"
+    },
+    {
+      "model": "book_boost",
+      "recomputed_label_scaler_predictions_and_thresholds": true,
+      "sha256": "3ad6017c7c4d93f4c5090489b98946e72f63cb9488ae010d1d41e5a80ab66dbd",
+      "target": "midprice"
+    }
+  ],
+  "multiday_fits": 0,
+  "network_allowed": false,
+  "orders_enabled": false,
+  "paper": false,
+  "promotion_authority": false,
+  "registration_sha256": "66faa03fa0f0d130b9542570366bd203a7a5f26f62dad81b2478d52a50c22131",
+  "required_days": 60,
+  "runtime_authority": false,
+  "status": "DATA_INSUFFICIENT",
+  "sha256": "ba0bac42659fd991875712000755540bcfdf11044981a760ed9bf8f9d1557902"
+}

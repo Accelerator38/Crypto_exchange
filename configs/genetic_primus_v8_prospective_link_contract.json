@@ -1,0 +1,84 @@
+{
+  "schema_version": "exia.genetic_primus_prospective_contract.v8",
+  "experiment_id": "genetic_primus_v8_link_liquidation_reversal_prospective",
+  "agent_id": "Genetic_Primus_V8",
+  "immutable_after_freeze": true,
+  "frozen_at": "2026-08-24T10:43:13.534305Z",
+  "prospective_not_before": "2026-08-24T10:43:13.534305Z",
+  "source_hypothesis": {
+    "v7_event_manifest": "Reports/Exia/Genetic_Primus/v7_event_feasibility_20260824/manifest.json",
+    "v7_event_manifest_sha256": "576a3ae24f73cf00167e60832a74117790b7bef1aafca653c0427d031a8e9c61",
+    "v7_posthoc_registry": "configs/genetic_primus_v7_posthoc_hypotheses.json",
+    "v7_posthoc_registry_sha256": "2d43651d63d2b5f096ee28f5c2ff8b40b652b45480581e94c8618d74e93b962f",
+    "hypothesis_id": "link_isolated_liquidation_reversal_prospective",
+    "symbol": "LINK/USDT",
+    "event_id": "isolated_symbol_cascade_reversal",
+    "parameter_tuning_allowed": false
+  },
+  "liquidation_stream": {
+    "provider": "Binance COIN-M public WebSocket",
+    "url": "wss://dstream.binance.com/ws/!forceOrder@arr",
+    "stream": "!forceOrder@arr",
+    "required_symbol_type": 2,
+    "snapshot_interval_ms": 1000,
+    "symbols": {
+      "ADAUSD_PERP": {"target_symbol": "ADA/USDT", "contract_size_usd": 10},
+      "BNBUSD_PERP": {"target_symbol": "BNB/USDT", "contract_size_usd": 10},
+      "BTCUSD_PERP": {"target_symbol": "BTC/USDT", "contract_size_usd": 100},
+      "DOGEUSD_PERP": {"target_symbol": "DOGE/USDT", "contract_size_usd": 10},
+      "ETHUSD_PERP": {"target_symbol": "ETH/USDT", "contract_size_usd": 10},
+      "LINKUSD_PERP": {"target_symbol": "LINK/USDT", "contract_size_usd": 10},
+      "SOLUSD_PERP": {"target_symbol": "SOL/USDT", "contract_size_usd": 10},
+      "XRPUSD_PERP": {"target_symbol": "XRP/USDT", "contract_size_usd": 10}
+    },
+    "heartbeat_seconds": 60,
+    "ping_timeout_seconds": 15,
+    "status_stale_seconds": 180,
+    "raw_payload_retained": true,
+    "credentials_allowed": false,
+    "orders_allowed": false
+  },
+  "frozen_event": {
+    "trailing_window_bars": 180,
+    "minimum_trailing_bars": 90,
+    "symbol_total_quantile": 0.95,
+    "symbol_return_quantile": 0.75,
+    "symbol_side_share_minimum": 0.75,
+    "event_cooldown_bars": 3,
+    "decision_timeframe_minutes": 240,
+    "decision_at": "bar_close",
+    "entry_at": "next_bar_open",
+    "holding_bars": 3,
+    "direction": "opposite dominant forced-flow direction",
+    "stress_round_trip_cost_bps": 24.0
+  },
+  "prospective_gate": {
+    "minimum_calendar_days": 180,
+    "maximum_calendar_days": 365,
+    "minimum_source_coverage": 0.98,
+    "minimum_events": 60,
+    "temporal_folds": 4,
+    "minimum_events_per_fold": 10,
+    "minimum_positive_folds": 3,
+    "requires_positive_overall_mean": true,
+    "requires_positive_overall_median": true,
+    "requires_positive_overall_lcb": true,
+    "requires_positive_worst_fold_mean": true,
+    "terminal_if_maximum_days_and_insufficient_events": true
+  },
+  "root_policy": {
+    "resume_existing_root": false,
+    "stitch_roots": false,
+    "new_root_after_process_restart": true,
+    "new_root_after_collector_code_change": true,
+    "partial_last_record_policy": "reject_root"
+  },
+  "safety": {
+    "validation_opened": false,
+    "oos_opened": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "schema": "bounded_l2_smoke_receipt/1",
+  "source_hashes": {
+    "configs/genetic_primus_l2_fragment_v1.json": "f07913e78859ce7c5da6dff8cd24477c28d405a595413cba2577d6686f0b1382",
+    "tests/test_genetic_primus_l2_fragment_v1.py": "798c71b48719bfed0afd89aecdcbc328ab59f105e16bc5732c027a10fe69ae5c",
+    "src/exia/genetic_primus/bounded_gzip_csv_v1.py": "07ed3eac2f024f6923228fd44e3656b8e860a62b4fa0f8814a28e449e570e168",
+    "src/exia/genetic_primus/l2_fragment_reconstruction_v1.py": "3113ecf6dfb3a22e2cb9c68ad3673104743cb134d92df3f363f6f5807a5a487e",
+    "src/exia/genetic_primus/market_fragment_v1.py": "e7f2788e4d2ce671aac73d2885b8e8bd9e20fc4ab66c151993fd8d782e7909b6",
+    "src/exia/genetic_primus/unified_measurement_v1.py": "7ce9058475cf602e76c37901f5736118b7e515045c89e8d263d96b1b6fad97cb",
+    "tools/check_genetic_primus_l2_fragment_v1.py": "2839061e434a61081a4dd27785572458093888b9ae2e8274ee520dc30b932cc6",
+    "docs/GENETIC_PRIMUS_L2_FORMAT_SMOKE_V1.md": "39af1cb8fdc992821bb9d997af96ad7549cbb31d111ac09a3859d596764cb549",
+    "Reports/Exia/Genetic_Primus/postclose_label_preflight_v1_20261008/receipt.json": "9b916b19331f8df3f282e9f77575b50dba26dbe46c3aae247bafb753d5b5179c",
+    "Reports/Exia/Genetic_Primus/postclose_label_preflight_v1_20261008/artifact_hashes.json": "6a9bdbb359ded1d578374d11f1ceba1528617856035f4118575f22817853dcdb"
+  },
+  "input_archive": {
+    "path": "C:\\Users\\anton\\Downloads\\bitget-futures_incremental_book_L2_2024-12-01_BTCUSDT.csv.gz",
+    "size_bytes": 101754805,
+    "mtime_ns": 1789398008675491600,
+    "stat_unchanged_during_read": true,
+    "full_sha256_verified": false
+  },
+  "prefix_hashes": {
+    "compressed_prefix_sha256": "c5a57d2897427dc9735f55a8128184a5b602280d4dbca7e771364494c73b27af",
+    "uncompressed_prefix_sha256": "02c93d0ddd74896aa87b6d28f7c3b929b4cdd464568f76e6d36e4cd0a4cb5349",
+    "row_bank_sha256": "6d16fd03a696c749a68b6f5b1e4ab4c23a4a2e4a13e684f39f90522e8c8355ba"
+  },
+  "bounds": {
+    "max_rows": 512,
+    "max_compressed_bytes": 65536,
+    "max_uncompressed_bytes": 131072,
+    "max_line_bytes": 2048
+  },
+  "unit_checks_passed": 31,
+  "real_snapshot_count": 17,
+  "real_delta_count": 0,
+  "legacy_snapshot_agreement": true,
+  "checkpoint_resume_exact": true,
+  "reconstruction_sha256": "6a7ab9730c578462eee65d2c527eff5ac63790e6c8bce02d6dd63361c6a27b45",
+  "prior_evidence_integrity": {
+    "sources_verified": 12,
+    "artifacts_verified": 7
+  },
+  "financial_replay_ready": false,
+  "economic_labels_constructed": 0,
+  "new_model_fits": 0,
+  "market_strategy_replays": 0,
+  "network_requests": 0,
+  "safety": {
+    "credentials_allowed": false,
+    "orders_enabled": false,
+    "execution_allowed": false,
+    "paper": false,
+    "live": false,
+    "promotion_authority": false,
+    "training_allowed": false,
+    "financial_evaluation_allowed": false,
+    "network_allowed": false
+  },
+  "sha256": "34b4be66da69913b68b248d50c0aeb31dd6d8130b6d0ab7a6fdf22575f6d24ef"
+}

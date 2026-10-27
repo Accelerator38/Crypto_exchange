@@ -1,0 +1,33 @@
+{
+  "schema": "genetic_primus_label_phase/1",
+  "experiment_id": "label_phase_v1_20261012",
+  "parent_experiment": "cadence_matrix_v1_20261009",
+  "purpose": "diagnose A/B training-grid sensitivity; no tuning or promotion",
+  "phase_offsets_days": [0, 1, 2],
+  "label_horizon_days": 3,
+  "label_stride_days": 3,
+  "decision_cadence_days": 3,
+  "retrain_cadence_days": 3,
+  "architecture": "linear6",
+  "parameters": 7,
+  "weighting": "uniform",
+  "l2": 0.01,
+  "threshold_bps": 20,
+  "fee_bps": 6,
+  "drag_bps": {"normal": 2, "stress": 8},
+  "near_threshold_bps": [5, 10, 20],
+  "max_fits_per_command": 7,
+  "new_real_fits": 100,
+  "new_financial_replays": 8,
+  "reused_policies": {"P0": "A", "B": "B"},
+  "primary_bootstrap_block_days": 7,
+  "bootstrap_bank": "unchanged parent selection/audit banks, 4096 draws, blocks 3/7/14",
+  "selection_or_promotion": false,
+  "periods_are_already_open": true,
+  "safety": {
+    "credentials_allowed": false, "orders_enabled": false,
+    "execution_allowed": false, "paper": false, "live": false,
+    "promotion_authority": false, "training_allowed": false,
+    "financial_evaluation_allowed": false, "network_allowed": false
+  }
+}

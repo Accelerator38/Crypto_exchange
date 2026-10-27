@@ -1,0 +1,58 @@
+{
+  "model_sha256": "89fc36fe13dcd53c52ed958e7774dea37aa0cab971745ccf2e5c8d588e7e5d59",
+  "predictions_sha256": "91715a0d9b0957cd66e30abd85824dbe261c48d8619ebc2e8f9eda09d03c3d86",
+  "variant": {
+    "id": "compact_micro_mlp65",
+    "features": "compact6",
+    "estimator": "mlp"
+  },
+  "info": {
+    "rows": 812,
+    "features": 6,
+    "kind": "mlp",
+    "warnings": [
+      "lbfgs failed to converge after 80 iteration(s) (status=1):\nSTOP: TOTAL NO. OF ITERATIONS REACHED LIMIT\n\nIncrease the number of iterations to improve the convergence (max_iter=80).\n"
+    ],
+    "robust_train_only": false,
+    "weighted_positive_mass": 399,
+    "weighted_negative_mass": 413,
+    "kish_weight_ess_not_independent_observations": 812,
+    "parameter_count": 65
+  },
+  "train_sha256": "532af47a86be30fb26587cfe237580215ee432dcc4dca38afadd8dc08dc7581a",
+  "calibration_sha256": "a85be02f8b69e219112b3a31765b84f54aff9f1197d864bd5a636051bea5aaae",
+  "train_latest_label_ms": 1733062620000,
+  "calibration_first_ms": 1733063040000,
+  "calibration_latest_label_ms": 1733079900000,
+  "test_first_ms": 1733080320000,
+  "thresholds": [
+    {
+      "coverage_target": 1.0,
+      "confidence": -1.0,
+      "tie_key": 0,
+      "calibration_rows": 281
+    },
+    {
+      "coverage_target": 0.5,
+      "confidence": 0.09830794604543003,
+      "tie_key": 5207782888025037461,
+      "calibration_rows": 281
+    },
+    {
+      "coverage_target": 0.2,
+      "confidence": 0.18959077057272844,
+      "tie_key": 3161875827167484821,
+      "calibration_rows": 281
+    },
+    {
+      "coverage_target": 0.1,
+      "confidence": 0.2579976163238624,
+      "tie_key": 5833820632911732808,
+      "calibration_rows": 281
+    }
+  ],
+  "n_train": 826,
+  "n_calibration": 281,
+  "saved_parity": true,
+  "sha256": "9e41e4aa8bdec83011d569faddf9ebe0248205bcbfcda51fc7a8d62a64150ed7"
+}

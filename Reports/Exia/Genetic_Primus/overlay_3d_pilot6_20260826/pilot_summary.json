@@ -1,0 +1,72 @@
+{
+  "schema_version": "exia.genetic_primus.overlay_3d_pilot_summary/1",
+  "pilot_id": "genetic_primus_overlay_3d_pilot6_v1",
+  "status": "COMPLETED_REJECTED",
+  "preregistration_sha256": "077d65493a1a4ddd5011265571ed055b4d5c2b25b890618ebfe6d24de88a6208",
+  "source_manifest_sha256": "45cf7870f7a0dd5ca4191f5ecfd90c5ecdbd2fec0b18f18f3900b9e0e1104ad9",
+  "validation_start": "2025-01-01T00:00:00Z",
+  "validation_end_exclusive": "2025-01-19T00:00:00Z",
+  "completed_origins": 6,
+  "incumbent_comparable_origins": 5,
+  "origin_duration_hours": 72,
+  "promotion": {
+    "minimum_incumbent_comparable_audit_paired_lcb_bps": 0.0,
+    "minimum_incumbent_comparable_stress_cost_lcb_bps": 0.0,
+    "mean_positive_outer_slice_fraction": 0.0,
+    "promotion_pass_fraction": 0.0,
+    "decision": "REJECT"
+  },
+  "agents": {
+    "GeneticPrimusActive": {
+      "total_net_bps": 0.0,
+      "trades": 0,
+      "positive_origins": 0,
+      "worst_drawdown": 0.0
+    },
+    "GeneticPrimusChallenger": {
+      "total_net_bps": -81.65680854334778,
+      "trades": 12,
+      "positive_origins": 0,
+      "worst_drawdown": 0.011751879981229396
+    },
+    "NoTrade": {
+      "total_net_bps": 0.0,
+      "trades": 0,
+      "positive_origins": 0,
+      "worst_drawdown": 0.0
+    },
+    "Momentum_return_1": {
+      "total_net_bps": 117.04721727625267,
+      "trades": 424,
+      "positive_origins": 3,
+      "worst_drawdown": 0.07422949774134668
+    },
+    "MeanReversion_return_1": {
+      "total_net_bps": -1874.4073785043315,
+      "trades": 424,
+      "positive_origins": 0,
+      "worst_drawdown": 0.07033099464133918
+    }
+  },
+  "diagnosis": {
+    "origin_0": "challenger traded and failed paired selection/audit gates",
+    "origins_1_to_5": "challenger converged to complete abstention and tied NoTrade",
+    "primary_failure": "no positive incremental evidence versus NoTrade/momentum/incumbent",
+    "unchanged_extension_allowed": false
+  },
+  "provenance": {
+    "all_root_artifact_hashes_verified": true,
+    "all_hypothesis_budget_hashes_verified": true,
+    "hypothesis_budget_per_origin": 100,
+    "selection_bootstrap_banks_unique": 6,
+    "audit_bootstrap_banks_unique": 6,
+    "selection_audit_bank_collision": false
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "paper_allowed": false,
+    "live_allowed": false,
+    "orders_enabled": false,
+    "promotion_authority": false
+  }
+}

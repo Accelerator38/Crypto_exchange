@@ -1,0 +1,62 @@
+{
+  "schema_version": "exia.genetic_primus_experiment.v4",
+  "generated_at": "2026-08-24T07:32:10.969406+00:00",
+  "stage": "final",
+  "status": "V4_FINAL_RESEARCH_RUN",
+  "architecture": {
+    "id": "compact_16_8",
+    "inputs": 30,
+    "hidden": [
+      16,
+      8
+    ],
+    "outputs": 3
+  },
+  "parameter_count": 659,
+  "seed": 444,
+  "selected_generation": 15,
+  "metrics": {
+    "trades": 942,
+    "turnover_fills": 1884,
+    "fills_per_day": 1.718978102189781,
+    "days": 1096,
+    "mean_daily_bps": 14.599675947923883,
+    "median_daily_bps": 10.389866568224493,
+    "lcb_daily_bps": 0.38556966385123187,
+    "max_drawdown": 0.5391103150203109,
+    "positive_fold_means": 5,
+    "fold_count": 6,
+    "worst_fold_mean_bps": -27.440788422523617,
+    "median_fold_lcb_bps": -16.395620570685534,
+    "worst_fold_lcb_bps": -64.85724186633011,
+    "max_direction_share": 0.6019108280254777,
+    "max_state_share": 0.4830148619957537,
+    "max_symbol_share": 0.2813163481953291,
+    "temporal_gate_passed": false,
+    "fitness": -27.870532948071062,
+    "failed_gates": [
+      "max_drawdown",
+      "nonpositive_worst_fold_mean",
+      "nonpositive_median_fold_lcb"
+    ]
+  },
+  "failed_gates": [
+    "max_drawdown",
+    "nonpositive_worst_fold_mean",
+    "nonpositive_median_fold_lcb"
+  ],
+  "config_sha256": "74c766204a2eb06f056dc6fb7ffc599882620345122f1b8bcd3ead34cacc2cd1",
+  "code_sha256": "82f1806f6a6a5e7f23fc0e6c2108459c31f52943c7d0bc7ac721549c9e2dd30d",
+  "dataset_sha256": "f66529b4135d04ddc35b7a6535667d1c6d53cd39c34adb86f23e54d4082b2de7",
+  "run_fingerprint": "f1d1f458b92eaf6898541a069dc39464b78b9c3e85264fd7807f9f4f2059da2b",
+  "champion_genome_sha256": "0a51369afe891c7d068681273e6d07f5f4dd1791561bbdde19e58719f9a8681f",
+  "champion_file_sha256": "b8f7014c82b1cf0a1668c8794e5e90c25417c9dada82af325fbf5a8266bd0a10",
+  "scaler_sha256": "cfdc420248f41fde7032406f2583e47ba7a99a414ae0582c7590cfdff36e578f",
+  "source_revision": "c5b4b8210c2edc12d7999b7baf1ce642efa70882",
+  "validation_opened": false,
+  "oos_opened": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

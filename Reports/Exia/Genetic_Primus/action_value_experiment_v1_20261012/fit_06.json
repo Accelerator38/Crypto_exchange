@@ -1,0 +1,91 @@
+{
+  "origin_index": 6,
+  "origin_ms": 1787097600000,
+  "train_rows": 1805,
+  "train_origin_clusters": 459,
+  "max_label_available_us": 1786982402250000,
+  "label_cutoff_us": 1786996800000000,
+  "model": {
+    "schema": "compact_forecast_model/1",
+    "architecture": "linear6",
+    "features": [
+      "distance_ema48",
+      "return_18",
+      "efficiency_18",
+      "relative_return_18",
+      "volatility_48",
+      "breadth_ema48"
+    ],
+    "parameter_count": 7,
+    "parameters": [
+      0.028102986754552802,
+      -0.06729048542827994,
+      0.009219879356719751,
+      0.0027314741688907983,
+      0.017983191642696413,
+      0.07410312680722789,
+      1.1695391730231246e-16
+    ],
+    "scaler": {
+      "schema": "compact_forecast_scaler/1",
+      "mean": [
+        0.026661514475422098,
+        0.03168934273970598,
+        0.25791679727791555,
+        0.011615323652239702,
+        0.009762058580264755,
+        0.7093490304709141
+      ],
+      "scale": [
+        0.024465149830734292,
+        0.03581222669647238,
+        0.16226830363826145,
+        0.028838769955652852,
+        0.003548854848799578,
+        0.26830659077664354
+      ],
+      "target_mean": -25.90059981725218,
+      "target_scale": 117.05385509413935,
+      "clip": 8.0,
+      "training_sha256": "d13f0f9e47aca175baa850593c8c510b5942f535dd6d6b7f33261ab506f01a00",
+      "fitting_rule": "unweighted_train_only_ddof0"
+    },
+    "scaler_sha256": "9e389200e0c3ba62609126bc7d633c90578ca9400aa2dbc108968b3d92a70ac9",
+    "weighting": "uniform",
+    "seed": null,
+    "epochs": null,
+    "training_identity": {
+      "fit_ms": 1787097600000,
+      "label_cutoff_us": 1786996800000000,
+      "training_samples_sha256": "e450c9888aa342f06d4cb58bd3382cfe90445ecf95424d205edb1f878fc111eb",
+      "indices_sha256": "1763a0df763dc0bb5dfa6ff6fb3e9d3106e74cbc93c118c8b154b8852831e126",
+      "dataset_registration_sha256": "f339d862dfd3af26beae87f5f121570ea9f985de80e7ec4b4a8bf81331f02d89",
+      "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+      "uniform_all_outcomes": true,
+      "purge_bars": 7
+    },
+    "target_kind": "paired_incremental_close_vs_baseline_rebalance_net_bps",
+    "runtime_authority": false,
+    "promotion_authority": false,
+    "sha256": "acedd12ce89df2edc3a9797bbb50eb30df7eaa9efb958c83a12b18fc32f026ab"
+  },
+  "constant": {
+    "kind": "train_only_mean_action_value",
+    "mean_bps": -25.90059981725218,
+    "training_identity": {
+      "fit_ms": 1787097600000,
+      "label_cutoff_us": 1786996800000000,
+      "training_samples_sha256": "e450c9888aa342f06d4cb58bd3382cfe90445ecf95424d205edb1f878fc111eb",
+      "indices_sha256": "1763a0df763dc0bb5dfa6ff6fb3e9d3106e74cbc93c118c8b154b8852831e126",
+      "dataset_registration_sha256": "f339d862dfd3af26beae87f5f121570ea9f985de80e7ec4b4a8bf81331f02d89",
+      "feature_definition_sha256": "73e9b8bbf8d24e4bdfb315c0e977d443d16d4b775e230d9755387c8f597af87f",
+      "uniform_all_outcomes": true,
+      "purge_bars": 7
+    },
+    "sha256": "c0e8ad125b627dfe52645de9cd71bf1663505566f5e6cec97edf3c34bf197bef"
+  },
+  "fit_seconds": 0.0007373999978881329,
+  "model_ready_us": 1787097601000000,
+  "registration_sha256": "3c591adef74ce3f3b05a6e008026982373beea8a64c74d91dcb826abddd9b28b",
+  "sha256": "2fa9d99646d2ffb9ca0cbaf4d4a208ed806e47045e3c15d5f9f8cbffd426f805"
+}

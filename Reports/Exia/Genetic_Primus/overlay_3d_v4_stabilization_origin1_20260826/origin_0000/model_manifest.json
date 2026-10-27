@@ -1,0 +1,597 @@
+{
+  "schema_version": "exia.genetic_primus.rolling_origin/1",
+  "status": "OFFLINE_ROLLING_ORIGIN_COMPLETE",
+  "model_sha256": "2b7e19a756584237cd0b7b289f909ad4339994f53a85ca82283843a7c63b4c1e",
+  "challenger_model_sha256": "44a881cd18cf7b82970cbdc4e0b26a2dd7f14c72162f9efb3f04449befd6c080",
+  "promotion_approved": false,
+  "genome_sha256": "8c424e02650a2c51f1887062d04d7b1df2e64adb5be53abcf88061d70917a1cd",
+  "challenger_genome_sha256": "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f",
+  "ensemble_genome_sha256": [],
+  "challenger_ensemble_genome_sha256": [
+    "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f"
+  ],
+  "scaler_sha256": "cb71ce37155fab3151340af2ecf543234ea300418462cdd9adbde96933564604",
+  "challenger_scaler_sha256": "1bd9d63d15a6feab3eeb47a66f0f6a09de5419cb9fe4ac3d5c8a328366cb5aff",
+  "rolling_protocol_sha256": "5477b2a03eb60089799a91dc26fb8d2e1800ced3ad5ba132958b4d05e6e857c1",
+  "trainer_id": "deterministic_no_trade_bootstrap/1",
+  "trainer_metadata": {
+    "status": "PAIRWISE_BOOTSTRAP_REJECTED_USE_NOTRADE",
+    "rejected_challenger_model_sha256": "44a881cd18cf7b82970cbdc4e0b26a2dd7f14c72162f9efb3f04449befd6c080"
+  },
+  "challenger_trainer_id": "bounded_v4_island_ensemble_origin_trainer/1",
+  "challenger_trainer_metadata": {
+    "seed_base": 303000,
+    "island_seeds": [
+      307036,
+      306027,
+      305018,
+      303000,
+      304009
+    ],
+    "island_count": 5,
+    "random_immigrant_fraction": 0.25,
+    "incumbent_model_sha256": null,
+    "selection_bank_sha256": "89d96c82011becc8f5d1688a6054e35371feffe70203e4ea7b722703940ce6de",
+    "temporal_validation_bank_sha256": "8788faa2d6cbbf449b7677ac61431f1bebb6efbb414dcb892cd93be42959b4be",
+    "audit_bank_sha256": "163c5ce35af3bec54f75adfe36118656164de12c36732ae054f799c1ba68b4fc",
+    "folds": [
+      {
+        "name": "rolling_01",
+        "start": "2023-01-02T00:00:00Z",
+        "end": "2023-02-21T15:20:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2023-02-21T15:20:00Z",
+        "end": "2023-04-13T06:40:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2023-04-13T06:40:00Z",
+        "end": "2023-06-02T22:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2023-06-02T22:00:00Z",
+        "end": "2023-07-23T13:20:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2023-07-23T13:20:00Z",
+        "end": "2023-09-12T04:40:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2023-09-12T04:40:00Z",
+        "end": "2023-11-01T20:00:00Z"
+      },
+      {
+        "name": "rolling_07",
+        "start": "2023-11-01T20:00:00Z",
+        "end": "2023-12-22T11:20:00Z"
+      },
+      {
+        "name": "rolling_08",
+        "start": "2023-12-22T11:20:00Z",
+        "end": "2024-02-11T02:40:00Z"
+      },
+      {
+        "name": "rolling_09",
+        "start": "2024-02-11T02:40:00Z",
+        "end": "2024-04-01T18:00:00Z"
+      },
+      {
+        "name": "rolling_10",
+        "start": "2024-04-01T18:00:00Z",
+        "end": "2024-05-22T09:20:00Z"
+      },
+      {
+        "name": "rolling_11",
+        "start": "2024-05-22T09:20:00Z",
+        "end": "2024-07-12T00:40:00Z"
+      },
+      {
+        "name": "rolling_12",
+        "start": "2024-07-12T00:40:00Z",
+        "end": "2024-08-31T16:00:00Z"
+      }
+    ],
+    "training_folds": [
+      {
+        "name": "rolling_01",
+        "start": "2023-01-02T00:00:00Z",
+        "end": "2023-02-21T15:20:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2023-02-21T15:20:00Z",
+        "end": "2023-04-13T06:40:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2023-04-13T06:40:00Z",
+        "end": "2023-06-02T22:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2023-06-02T22:00:00Z",
+        "end": "2023-07-23T13:20:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2023-07-23T13:20:00Z",
+        "end": "2023-09-12T04:40:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2023-09-12T04:40:00Z",
+        "end": "2023-11-01T20:00:00Z"
+      },
+      {
+        "name": "rolling_07",
+        "start": "2023-11-01T20:00:00Z",
+        "end": "2023-12-22T11:20:00Z"
+      },
+      {
+        "name": "rolling_08",
+        "start": "2023-12-22T11:20:00Z",
+        "end": "2024-02-11T02:40:00Z"
+      },
+      {
+        "name": "rolling_09",
+        "start": "2024-02-11T02:40:00Z",
+        "end": "2024-04-01T18:00:00Z"
+      },
+      {
+        "name": "rolling_10",
+        "start": "2024-04-01T18:00:00Z",
+        "end": "2024-05-22T09:20:00Z"
+      },
+      {
+        "name": "rolling_11",
+        "start": "2024-05-22T09:20:00Z",
+        "end": "2024-07-12T00:40:00Z"
+      },
+      {
+        "name": "rolling_12",
+        "start": "2024-07-12T00:40:00Z",
+        "end": "2024-08-31T16:00:00Z"
+      }
+    ],
+    "temporal_validation_folds": [
+      {
+        "name": "rolling_01",
+        "start": "2024-09-01T20:00:00Z",
+        "end": "2024-09-11T20:00:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2024-09-11T20:00:00Z",
+        "end": "2024-09-21T20:00:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2024-09-21T20:00:00Z",
+        "end": "2024-10-01T20:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2024-10-01T20:00:00Z",
+        "end": "2024-10-11T20:00:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2024-10-11T20:00:00Z",
+        "end": "2024-10-21T20:00:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2024-10-21T20:00:00Z",
+        "end": "2024-10-31T20:00:00Z"
+      }
+    ],
+    "temporal_audit_folds": [
+      {
+        "name": "rolling_01",
+        "start": "2024-11-02T00:00:00Z",
+        "end": "2024-11-12T00:00:00Z"
+      },
+      {
+        "name": "rolling_02",
+        "start": "2024-11-12T00:00:00Z",
+        "end": "2024-11-22T00:00:00Z"
+      },
+      {
+        "name": "rolling_03",
+        "start": "2024-11-22T00:00:00Z",
+        "end": "2024-12-02T00:00:00Z"
+      },
+      {
+        "name": "rolling_04",
+        "start": "2024-12-02T00:00:00Z",
+        "end": "2024-12-12T00:00:00Z"
+      },
+      {
+        "name": "rolling_05",
+        "start": "2024-12-12T00:00:00Z",
+        "end": "2024-12-22T00:00:00Z"
+      },
+      {
+        "name": "rolling_06",
+        "start": "2024-12-22T00:00:00Z",
+        "end": "2025-01-01T00:00:00Z"
+      }
+    ],
+    "temporal_split": {
+      "inner_start": 1672617600000,
+      "inner_end": 1725120000000,
+      "validation_start": 1725220800000,
+      "validation_end": 1730404800000,
+      "audit_start": 1730505600000,
+      "audit_end": 1735689600000
+    },
+    "scaler_fit_scope": "inner_train_only",
+    "search_diversity": {
+      "anchor_rows": 512,
+      "selected_genomes": 3,
+      "minimum_pairwise_action_disagreement": 0.310546875,
+      "minimum_action_disagreement_required": 0.1,
+      "diversity_gate_passed": true
+    },
+    "selected_ensemble_size": 1,
+    "selection_metrics": {
+      "trades": 228,
+      "turnover_fills": 456,
+      "fills_per_day": 7.6,
+      "days": 60,
+      "mean_daily_bps": -6.527986255322511,
+      "median_daily_bps": -5.6228939466085315,
+      "lcb_daily_bps": -16.272248325264187,
+      "max_drawdown": 0.06544675306444125,
+      "positive_fold_means": 2,
+      "fold_count": 6,
+      "worst_fold_mean_bps": -32.26014566403835,
+      "median_fold_lcb_bps": -23.19168491357043,
+      "worst_fold_lcb_bps": -43.152658878407806,
+      "max_direction_share": 1.0,
+      "max_state_share": 0.38596491228070173,
+      "max_symbol_share": 0.2324561403508772,
+      "temporal_gate_passed": false,
+      "fitness": -136.8871181677753,
+      "failed_gates": [
+        "direction_collapse",
+        "nonpositive_overall_mean",
+        "nonpositive_overall_lcb",
+        "insufficient_positive_folds",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb",
+        "recency_ess_90d",
+        "nonpositive_paired_lcb:NoTrade"
+      ],
+      "recency_mean_90d_bps": -5.309293778620599,
+      "recency_lcb_90d_bps": -16.33680610417415,
+      "recency_ess_90d": 59.3269376374183,
+      "recency_primary_lcb_bps": -16.33680610417415,
+      "recency_worst_window_lcb_bps": -43.152658878407806,
+      "recency_action_instability": 0.15877437325905291,
+      "recency_drawdown_penalty_bps": 6.544675306444125,
+      "recency_turnover_penalty_bps": 15.2,
+      "recency_complexity_penalty_bps": 0.31,
+      "recency_active_parameter_count": 2,
+      "recency_parameter_sparsity": 0.935483870967742,
+      "recency_active_feature_count": 1,
+      "recency_feature_sparsity": 0.9666666666666667,
+      "recency_active_parameter_penalty_bps": 0.01,
+      "recency_active_feature_penalty_bps": 0.1,
+      "recency_parsimony_penalty_bps": 0.42000000000000004,
+      "recency_instability_penalty_bps": 6.350974930362117,
+      "recency_total_penalty_bps": 28.51565023680624,
+      "overlay_opportunities": 2245,
+      "overlay_allowed": 258,
+      "overlay_abstained": 1987,
+      "overlay_allowed_fraction": 0.11492204899777284,
+      "overlay_minimum_allowed_fraction": 0.03,
+      "overlay_maximum_allowed_fraction": 0.25,
+      "overlay_coverage_penalty_bps": 0.0,
+      "paired_incremental_lcb_bps": {
+        "NoTrade": -16.272248325264187,
+        "Momentum_return_1": 22.457966744138712
+      },
+      "paired_reference_aliases": {},
+      "paired_incremental_min_lcb_bps": -16.272248325264187,
+      "paired_incremental_penalty_bps": 0.0,
+      "adaptive_hypothesis_budget": 107,
+      "adaptive_standard_error_bps": 22.151186479209084,
+      "adaptive_selection_bias_penalty_bps": 67.71765766926063,
+      "paired_incremental_adjusted_lcb_bps": {
+        "NoTrade": -83.98990599452482,
+        "Momentum_return_1": -45.259690925121916
+      },
+      "paired_objective_lcb_bps": -83.98990599452482,
+      "paired_absolute_lcb_bps": -83.98990599452482,
+      "paired_baseline_lcb_bps": -45.259690925121916,
+      "coverage_constraint_passed": true
+    },
+    "audit_selected_ensemble_metrics": {
+      "trades": 494,
+      "turnover_fills": 988,
+      "fills_per_day": 16.466666666666665,
+      "days": 60,
+      "mean_daily_bps": 18.771341590845644,
+      "median_daily_bps": -13.539661635048606,
+      "lcb_daily_bps": -18.15643356911297,
+      "max_drawdown": 0.12045500277156174,
+      "positive_fold_means": 3,
+      "fold_count": 6,
+      "worst_fold_mean_bps": -84.90235123142753,
+      "median_fold_lcb_bps": -34.80710618266614,
+      "worst_fold_lcb_bps": -107.6693714498791,
+      "max_direction_share": 0.9838056680161943,
+      "max_state_share": 0.3481781376518219,
+      "max_symbol_share": 0.17611336032388664,
+      "temporal_gate_passed": false,
+      "fitness": -238.68156124407733,
+      "failed_gates": [
+        "turnover",
+        "direction_collapse",
+        "nonpositive_overall_lcb",
+        "insufficient_positive_folds",
+        "nonpositive_worst_fold_mean",
+        "nonpositive_median_fold_lcb",
+        "recency_ess_90d",
+        "overlay_action_coverage",
+        "nonpositive_paired_lcb:NoTrade"
+      ],
+      "recency_mean_90d_bps": 12.745355341874728,
+      "recency_lcb_90d_bps": -18.58898529086163,
+      "recency_ess_90d": 59.32693763741829,
+      "recency_primary_lcb_bps": -18.58898529086163,
+      "recency_worst_window_lcb_bps": -107.6693714498791,
+      "recency_action_instability": 0.34401114206128136,
+      "recency_drawdown_penalty_bps": 12.045500277156174,
+      "recency_turnover_penalty_bps": 32.93333333333333,
+      "recency_complexity_penalty_bps": 0.31,
+      "recency_active_parameter_count": 2,
+      "recency_parameter_sparsity": 0.935483870967742,
+      "recency_active_feature_count": 1,
+      "recency_feature_sparsity": 0.9666666666666667,
+      "recency_active_parameter_penalty_bps": 0.01,
+      "recency_active_feature_penalty_bps": 0.1,
+      "recency_parsimony_penalty_bps": 0.42000000000000004,
+      "recency_instability_penalty_bps": 13.760445682451255,
+      "recency_total_penalty_bps": 59.15927929294076,
+      "overlay_opportunities": 2499,
+      "overlay_allowed": 750,
+      "overlay_abstained": 1749,
+      "overlay_allowed_fraction": 0.30012004801920766,
+      "overlay_minimum_allowed_fraction": 0.03,
+      "overlay_maximum_allowed_fraction": 0.25,
+      "overlay_coverage_penalty_bps": 4.009603841536613,
+      "paired_incremental_lcb_bps": {
+        "NoTrade": -18.15643356911297,
+        "Momentum_return_1": 43.48193075035474
+      },
+      "paired_reference_aliases": {},
+      "paired_incremental_min_lcb_bps": -18.15643356911297,
+      "paired_incremental_penalty_bps": 0.0,
+      "adaptive_hypothesis_budget": 107,
+      "adaptive_standard_error_bps": 36.65053766824708,
+      "adaptive_selection_bias_penalty_bps": 112.04314340192012,
+      "paired_incremental_adjusted_lcb_bps": {
+        "NoTrade": -130.19957697103308,
+        "Momentum_return_1": -68.56121265156537
+      },
+      "paired_objective_lcb_bps": -130.19957697103308,
+      "paired_absolute_lcb_bps": -130.19957697103308,
+      "paired_baseline_lcb_bps": -68.56121265156537,
+      "coverage_constraint_passed": false
+    },
+    "ensemble_candidates": [
+      {
+        "ensemble_size": 1,
+        "selected_by_selection_bank": true,
+        "selection_fitness": -136.8871181677753,
+        "selection_failed_gates": "direction_collapse;nonpositive_overall_mean;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;nonpositive_paired_lcb:NoTrade",
+        "audit_fitness": -238.68156124407733,
+        "audit_failed_gates": "turnover;direction_collapse;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;overlay_action_coverage;nonpositive_paired_lcb:NoTrade",
+        "member_genome_sha256": "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f"
+      },
+      {
+        "ensemble_size": 3,
+        "selected_by_selection_bank": false,
+        "selection_fitness": -177.85534549057587,
+        "selection_failed_gates": "turnover;direction_collapse;nonpositive_overall_mean;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;overlay_action_coverage;nonpositive_paired_lcb:NoTrade",
+        "audit_fitness": -330.91325202042776,
+        "audit_failed_gates": "max_drawdown;turnover;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;overlay_action_coverage;nonpositive_paired_lcb:NoTrade",
+        "member_genome_sha256": "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f;e93db992036249c0868beaacea1287cdfd6a5745c54b51330d3ccbf6b049d253;d1a393c6371c7bab3b7b558e55749ebedde95eeda10e5c1bccf44c20bed63b83"
+      }
+    ],
+    "promotion_protocol_sha256": "461b27a7bda03aafadf44cb5aaa3a7106aa744081fbf7f35c258fe33a66c2bad",
+    "promotion_approved": false,
+    "promotion_metrics": {
+      "promotion_gate_status": "TRAINING_DIAGNOSTIC_ONLY",
+      "predeployment_training_gate_passed": false,
+      "temporal_audit_passed": false,
+      "training_fold_count": 12,
+      "training_folds_are_outer_slices": false,
+      "paired_selection_lcb_bps": -16.272248325264187,
+      "paired_audit_lcb_bps": -18.15643356911297,
+      "promotion_gate_passed": false,
+      "failed_gates": [
+        "temporal_validation_lcb",
+        "temporal_audit_lcb",
+        "insufficient_completed_outer_origins"
+      ]
+    },
+    "audit_selection_champion": {
+      "selection_rank": 1,
+      "is_selection_champion": true,
+      "genome_sha256": "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f",
+      "audit_fitness": -136.8871181677753,
+      "audit_lcb_daily_bps": -16.272248325264187,
+      "audit_worst_fold_mean_bps": -32.26014566403835,
+      "audit_median_fold_lcb_bps": -23.19168491357043,
+      "audit_recency_primary_lcb_bps": -16.33680610417415,
+      "audit_recency_worst_window_lcb_bps": -43.152658878407806,
+      "audit_recency_total_penalty_bps": 28.51565023680624,
+      "audit_active_parameter_count": 2,
+      "audit_active_feature_count": 1,
+      "audit_feature_sparsity": 0.9666666666666667,
+      "audit_failed_gates": "direction_collapse;nonpositive_overall_mean;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;nonpositive_paired_lcb:NoTrade"
+    },
+    "temporal_validation_champion": {
+      "selection_rank": 1,
+      "is_selection_champion": true,
+      "genome_sha256": "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f",
+      "audit_fitness": -136.8871181677753,
+      "audit_lcb_daily_bps": -16.272248325264187,
+      "audit_worst_fold_mean_bps": -32.26014566403835,
+      "audit_median_fold_lcb_bps": -23.19168491357043,
+      "audit_recency_primary_lcb_bps": -16.33680610417415,
+      "audit_recency_worst_window_lcb_bps": -43.152658878407806,
+      "audit_recency_total_penalty_bps": 28.51565023680624,
+      "audit_active_parameter_count": 2,
+      "audit_active_feature_count": 1,
+      "audit_feature_sparsity": 0.9666666666666667,
+      "audit_failed_gates": "direction_collapse;nonpositive_overall_mean;nonpositive_overall_lcb;insufficient_positive_folds;nonpositive_worst_fold_mean;nonpositive_median_fold_lcb;recency_ess_90d;nonpositive_paired_lcb:NoTrade"
+    },
+    "audit_used_for_selection": false,
+    "policy_overlay": {
+      "mode": "momentum_abstention_binary",
+      "baseline_policy_id": "Momentum_return_1",
+      "baseline_feature": "return_1",
+      "minimum_baseline_move_bps": 24.0,
+      "minimum_allowed_fraction": 0.03,
+      "maximum_allowed_fraction": 0.25,
+      "coverage_penalty_bps": 80.0
+    },
+    "paired_incremental_fitness": {
+      "references": [
+        "NoTrade",
+        "Momentum_return_1",
+        "Incumbent"
+      ],
+      "absolute_reference": "NoTrade",
+      "baseline_reference": "Momentum_return_1",
+      "minimum_lcb_bps": 0.0
+    },
+    "adaptive_multiple_testing": {
+      "schema_version": "exia.genetic_primus.hypothesis_budget/1",
+      "origin_index": 0,
+      "island_count": 5,
+      "population_size": 4,
+      "generations": 5,
+      "selection_candidate_upper_bound": 100,
+      "actual_unique_selection_genomes": 76,
+      "evaluated_genome_sha256": [
+        "008e9247d2c24ea60a5e9c8bd75eb8816fde0c9d94c79ad722dad20abe2eaffc",
+        "04234c1dd4a931095b49fa0617a7e4fcf6e8ccdda174316506b216b81f8e4744",
+        "051a4b0a38be87ca4b4de2181f190afc6e1b9953457cae7220a04f70316d3cb2",
+        "094132c80cb77d0e5ff13f4f26ec0c0c8267a719a09fee2c46734ee8a845c6df",
+        "09484df5c5469ca760ee3efc61952d97736e0a7f2b283851cec5e58e0fe5c717",
+        "1729b1409b1ee5bb43d8f6e6a54d0e3a3ad9e3b7bf78afed81071f9536f0ef49",
+        "1c1a07ba6fb835b2cf43be53f15418c775f569e21b75f869e0a76b9082e233b7",
+        "1fdb2f90649d0f94a79b2248d67487e4f0070868e5bd5549444a17a7cc921679",
+        "207c62afd97308531c754421c14e5ff03b26351203251954378c0b1f8424b0ef",
+        "20d96a25fcd6ea269c7f6fcc1faa8a27c5d7d91bb9cf15743c4571bd96ffda20",
+        "27d2cfea29e9098a3c5bbc0b75b21684de605425733256ee8c0aaf6854931747",
+        "281712f099b520069dfaa40e06ab3680826cb9c4db6258ff7ac14d5117054df1",
+        "2931b1e1a758b6f77d8425e724e128cac9d261685e95ba68654c97596195863f",
+        "2c703e85713470ccfc3bd917878d76ab9757ca6f809f27902cd80c316142952f",
+        "3dc19d8337b80ff0cdf6faa2b321ef006b1e4edbab2a764ef2f749c5964bd3c4",
+        "46b002723c0335d82731dab5ade11b1e0288bd75c996a9bff446bd1bff23760a",
+        "46d3db339c5be31bdea933f61a1cb62df7283f08dcf780a195d66d6519970b9a",
+        "4b59eb3f9b6a106fe72d8ab85e630bebdbd636eaca9bb32c51845efa556c7f0d",
+        "502893e4c1ddcb96198ae734332e28afe4679e93891f180e2bc683d3988bc3ca",
+        "51c37d704e76e2398ce301736125591677bb20dc12e6f528e85fae9ed57d4a2a",
+        "542bf54f1cfd0c1e369d8dafa0e57b8ce198da63cec062ba8e12304a331fb94a",
+        "580416c46e472e1d71afba1664be52a6c0f8473631a060de55f64e425e140fe8",
+        "59a4075d550e6a83c1a589800be3c8b25512de96f681b59c9fe8ca9240873dae",
+        "5ad09ccaaa36230aa2a78455c972a4f31ae099d81a9dad2563b6e4b48ce14446",
+        "5c2e9f87ed34d64df022026ab2a70c48aaedd9183a450fbadb777178faa7a767",
+        "5e2781922101ea001209097bcca00d83182ed9e51999f376b076b99cd8b5a975",
+        "68c5b2eb761201e2ce8a8d4211569e5bd4338fd7c3615f91e16b73f715f821c0",
+        "6a189e1a84aa50a98d560bf7b8a3b454e5831d637191d0759efdaf915ce97567",
+        "6b7750195b43d2a4ee51acf0a6c23d4e3db10247415ac9e61b83b9e35b7a7291",
+        "721830168fdf05304bdbd4425c7813b2c4ab0c0167329ae11b8d5ab40102a762",
+        "74470cbfe7c4eda979a36a9bcf7c8934c4f0ea6112a138e276b29a64c0c02a91",
+        "75460cf78bcd65a968fb2336c88a425be028a8e68cf0be7b6e952a7222cda115",
+        "7b047f017d1357c0d3efc54ec55d967d3380c54c657ebb16ef49d1ec3cb9bfe9",
+        "7e0f3884f05c541686422a7b4ae5ed8ef7fd99feafe428ba4268eef0159e40f7",
+        "819e4cb965b87f0aa5c20d229698a1eef3c22898779cb22d00b39faa866d93b0",
+        "8836b0b9ac6903ffb30afcbb0a07f50668e309024405cca3da8b44390a844398",
+        "89ff4dc23b89b0c336c7c6c0c52aae08e9ec5dd08b107239913c8d5f816adee2",
+        "8a26bbde28bdd54efbe4913559591bd1bcc25815e3921d9bf898816f31256d48",
+        "8cc092d3589a4b0f5c6799d281a5b67ddb233e76ebbbaae83d7d8d1edbbc571c",
+        "8fa80a9f12693b816306c0bc7c3464bf64b3a5a3383afaed9a1023de6c4c6cd5",
+        "92a5128373a1419a3a0def96a9da902bd6e8eb438da007f60876326a36790910",
+        "9322ff6b685d2d3102294e82da998831c781a8f755a98395d5af665118fdecc1",
+        "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f",
+        "9da416f8a024b3b2bd799432c24e828466c335db31f02182f36002dda57777e0",
+        "9e9216d0040d20dfbbe6b08259ef924a71ca194533b7665106bedb21709d1858",
+        "9f1aa15eb99ee34d2e529cf5df869f4e67b600414cad227236aeeaeb2d1ccff7",
+        "a64811ee6a31aa8fd846d19a79a071ac36e1513d4fbeeb898f44ed0cd372de5f",
+        "a6c38672c86bf3e6cf0bdc1bfe92d57670bc12c946dabb74e2858f7b5fdb2a64",
+        "a6f8dd6de7f8b39aeb0c9f508fcfbe3834219fd158f000fc6ba877ae02a40cf3",
+        "aac765fc9b1bfdd9da344b57affc858604e8d94975ce5f5a7436ca93e3ee54ba",
+        "b192251954142b99e5c19eb4df91cdfde15b06a5a47c5e0b5ccd402d9f9b4bc1",
+        "b31cf0dd13bee70a58c68f387789f385fd542c3e201ab68974333f2393e5a597",
+        "b728a3d5c44804e6f7969e9fc15dec8285bbb8ce8bc9be9c54242961d1ddedb4",
+        "b7b54a9fe00f5987862c91f0c7530397edfcbedadd422cb83126941e0dd91757",
+        "b89790abf34c2064c85f6e3d46c7d1418d145a8113be41355464842956480a3d",
+        "ba54c09d161566822a0306179880292483c253c0f6239fcbd5a8a87a32df9376",
+        "bd62e7b3d11783be7bf0b715679c7731ea92082b6979072fa2c3e8f67c4cb5a7",
+        "c712b4a40afcdcdae4f3860526a7b720462e690e94982b19a3bd4fd42248cf93",
+        "c87656e83c1d093990c31614627c358e0a06689cb576815ee070b6554e1d03f3",
+        "c95367b223fa54f9e2355b5560b654d8f5e286d6e7bf690ff2dda699895205a8",
+        "cae90791690f43f90330aadb8e3f28ac1ec5b54976d48ddef9a9b75292807749",
+        "cd4b322e5265127c411fbd16a65617ae564b21f93b2eeb1498ae12daa26d7b0c",
+        "ce105d039e7c3efd42cd32f3d714af218771e7268c55b60a2d6a3a1bab2fb9e2",
+        "ce9d6944c123ac812fe7d248af0d0387573d4da27b65db4bf4f3fb9ffe48ec4a",
+        "d05c008addcf1e179e40ec31d5e2b11902fcffb796175f75379a59bec18f68f9",
+        "d0f0e7eaecc3c44f20aa785953d09bab9e9560a7945e9a311b0686b66b835668",
+        "d1a393c6371c7bab3b7b558e55749ebedde95eeda10e5c1bccf44c20bed63b83",
+        "d5c30d6ea1fca74aaebb0f5f61dc0ff252ee0b117bc75be5f7030ef2ec50f824",
+        "e47db31d43231201be14827eb2cd5253e31305f0c683b6e3de9982bee64beb84",
+        "e639af4ac911a79a789957e57bc774443f55c2ea0e82f7e6785d71fa6d6b61c2",
+        "e93db992036249c0868beaacea1287cdfd6a5745c54b51330d3ccbf6b049d253",
+        "f1ab3a4ad09e5b43a9dc677ef8c2f46202a6586c31a0d0d359619877da32a4d2",
+        "f5eb73608cfdf2078b8c2e9236324429a0cf97ecc8f7e3e478e70a8304c542de",
+        "f7bbae9adcae10d2b384bff292af1ecf8d48adaf4e81b3ad5b39d3732611bca6",
+        "fbe736d274c27b807ed16c110a96fa2c8eeb4663c45ae8945a461c5718f5bc6d",
+        "fe815f791516268ffa2eab77f1771386a126eec0de44a03d3ec392d75c8bf486"
+      ],
+      "audit_hypotheses": 4,
+      "ensemble_hypotheses": 2,
+      "registered_unique_hypothesis_upper_bound": 106,
+      "independent_audit_finalists": 4,
+      "unique_audit_finalist_sha256": [
+        "7e0f3884f05c541686422a7b4ae5ed8ef7fd99feafe428ba4268eef0159e40f7",
+        "94e1850767ab6b6b416115b6c037625f24893c6a376b1a77c62896a7a756dd8f",
+        "d1a393c6371c7bab3b7b558e55749ebedde95eeda10e5c1bccf44c20bed63b83",
+        "e93db992036249c0868beaacea1287cdfd6a5745c54b51330d3ccbf6b049d253"
+      ],
+      "selection_bias_penalty": {
+        "max_hypotheses_per_origin": 107,
+        "selection_candidate_upper_bound": 100,
+        "audit_finalists": 5,
+        "ensemble_hypotheses": 2,
+        "selection_bias_penalty": "gaussian_maximum_paired",
+        "selection_bias_penalty_multiplier": 1.0
+      },
+      "within_registered_budget": true,
+      "payload_sha256": "91413ad7c485f2bd0eb282f688074f26c4f8d973cbbc58a51b1a074179b841a2"
+    }
+  },
+  "origin_index": 0,
+  "train_start": 1672617600000,
+  "train_end": 1735689600000,
+  "purge_cutoff": 1735588800000,
+  "deployment_start": 1735689600000,
+  "deployment_end": 1735948800000,
+  "credentials_allowed": false,
+  "paper_allowed": false,
+  "live_allowed": false,
+  "orders_enabled": false,
+  "promotion_authority": false
+}

@@ -1,0 +1,61 @@
+{
+  "rows": 1747,
+  "metrics": {
+    "AV_never": {
+      "rmse_bps": 151.11855116442374,
+      "mae_bps": 100.33213890310373,
+      "predicted_positive_share": 0.0,
+      "prediction_quantiles_bps": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "positive_label_mean_bps": null
+    },
+    "AV_linear": {
+      "rmse_bps": 149.616895556377,
+      "mae_bps": 98.16879356051555,
+      "predicted_positive_share": 0.010875787063537493,
+      "prediction_quantiles_bps": [
+        -192.65406683589396,
+        -68.07071019627517,
+        -26.535512842639918,
+        -6.372225405520127,
+        14.877914228956321
+      ],
+      "positive_label_mean_bps": 37.93643321287241
+    },
+    "AV_constant": {
+      "rmse_bps": 147.39942841978416,
+      "mae_bps": 96.71795702257482,
+      "predicted_positive_share": 0.0,
+      "prediction_quantiles_bps": [
+        -34.164444875843984,
+        -34.164444875843984,
+        -30.7351738750253,
+        -25.061096784239673,
+        -24.940280707173464
+      ],
+      "positive_label_mean_bps": null
+    },
+    "AV_causal_rule": {
+      "rmse_bps": 200.95855970825045,
+      "mae_bps": 138.67299541655527,
+      "predicted_positive_share": 0.30509444762449917,
+      "prediction_quantiles_bps": [
+        -891.6836628511979,
+        -296.1578956620179,
+        -37.1862433425538,
+        139.18901642487097,
+        651.9436733051689
+      ],
+      "positive_label_mean_bps": -27.14187958141812
+    }
+  },
+  "reference_states_only": true,
+  "local_counterfactual_is_not_policy_pnl": true,
+  "registration_sha256": "3c591adef74ce3f3b05a6e008026982373beea8a64c74d91dcb826abddd9b28b",
+  "sha256": "65a563936c1dbf5006d15e73a2c1a714e534383d5bd023d6fd01f802e57d647a"
+}

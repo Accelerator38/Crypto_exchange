@@ -1,0 +1,55 @@
+{
+  "model_sha256": "81b139b8fb601680e7344081ac15cc825cd24297a97dda795246974a2bde8671",
+  "predictions_sha256": "588ec2f8b96714bc03563982b999efe85036446e148309259ac952bb5cb6b1fa",
+  "variant": {
+    "id": "flow_boost",
+    "features": "flow",
+    "estimator": "boosting"
+  },
+  "info": {
+    "rows": 752,
+    "features": 9,
+    "kind": "boosting",
+    "warnings": [],
+    "robust_train_only": false,
+    "weighted_positive_mass": 381,
+    "weighted_negative_mass": 371,
+    "kish_weight_ess_not_independent_observations": 752
+  },
+  "train_sha256": "d08706f898ff19ca103dc38128e900d865371e6d545fee204ed4b12e4f81bb15",
+  "calibration_sha256": "db6ded0a70eddc28402b16af5a5079e3713831d06a44e5df98c21d93e17841d8",
+  "train_latest_label_ms": 1733058840000,
+  "calibration_first_ms": 1733063040000,
+  "calibration_latest_label_ms": 1733076120000,
+  "test_first_ms": 1733080320000,
+  "thresholds": [
+    {
+      "coverage_target": 1.0,
+      "confidence": -1.0,
+      "tie_key": 0,
+      "calibration_rows": 209
+    },
+    {
+      "coverage_target": 0.5,
+      "confidence": 0.08112644631874444,
+      "tie_key": 16576097629945780511,
+      "calibration_rows": 209
+    },
+    {
+      "coverage_target": 0.2,
+      "confidence": 0.1503785921056071,
+      "tie_key": 509291827008507964,
+      "calibration_rows": 209
+    },
+    {
+      "coverage_target": 0.1,
+      "confidence": 0.1874313292506269,
+      "tie_key": 5646087242253147950,
+      "calibration_rows": 209
+    }
+  ],
+  "n_train": 754,
+  "n_calibration": 209,
+  "saved_parity": true,
+  "sha256": "bb26448600fcda7cbc8ecbb1d3c4523b3b3f9d670af4c09bd789cc90480729c4"
+}

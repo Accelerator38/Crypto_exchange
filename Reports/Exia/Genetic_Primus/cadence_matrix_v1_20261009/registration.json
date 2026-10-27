@@ -1,0 +1,410 @@
+{
+  "ESS_adjusted_for_overlap_claimed": false,
+  "bank_pins": {
+    "folds.json": {
+      "bytes": 90746,
+      "sha256": "94a328593a669489a2a5c4fb727df9bb02e2e2c7cc26461d747b36a0e9d88dc0"
+    },
+    "modeled_rates.json": {
+      "bytes": 564262,
+      "sha256": "f22f60e694a9d6dd628b3c4fe08839d2b0ef5b0f916c05d19422a40b9d21729e"
+    },
+    "resample_banks.npz": {
+      "bytes": 1216730,
+      "sha256": "6ca2f96e85068c7464653bd90d1f8d609e5d9c72366316c01339722eccacac46"
+    },
+    "sample_banks.npz": {
+      "bytes": 877039,
+      "sha256": "281d7764210e6ecb6630fefbd5e22f2c2f8c49e5a23c52b297df286447c13f02"
+    }
+  },
+  "before_model_fits": true,
+  "code_pins": {
+    "configs/genetic_primus_cadence_matrix_v1.json": {
+      "bytes": 2695,
+      "sha256": "afce382054b2a73b8a97f4d34fa557c038ac5035d387b1218b981b711aeabb44"
+    },
+    "src/exia/genetic_primus/cadence_matrix_v1.py": {
+      "bytes": 17635,
+      "sha256": "e322c0efede7f5b0f995945589d8cce4a32bdccca84435ccf3c0453e2f93dff4"
+    },
+    "src/exia/genetic_primus/compact_forecast_data_v1.py": {
+      "bytes": 11697,
+      "sha256": "1b03b1c2e81a36543b2004c691d352a0baa36167b9a6bf1c86d0bd758eb6efb3"
+    },
+    "src/exia/genetic_primus/compact_forecast_v1.py": {
+      "bytes": 10556,
+      "sha256": "bf839c41c403a37fa8f009f9c1a86502a3b695149e801e9076557a1b3f385b4b"
+    },
+    "src/exia/genetic_primus/compact_postclose_research_v1.py": {
+      "bytes": 19272,
+      "sha256": "4214b1e88ffd196a1ea7ada8a5263f33ac3be8f13d23036587c57612e9ca79ba"
+    },
+    "tools/run_genetic_primus_cadence_matrix_v1.py": {
+      "bytes": 31373,
+      "sha256": "10ffa4679f1680ccc9763d08d191f62692c4acfb75e2b79877a66b754d69899c"
+    }
+  },
+  "contract": {
+    "architecture": "linear6",
+    "assumed_fit_ready_ms": 100,
+    "baselines": [
+      "NoTrade",
+      "EMA1",
+      "EMA3",
+      "PassiveEW8"
+    ],
+    "bootstrap": {
+      "alpha": 0.05,
+      "audit_seed": 7079,
+      "draws": 4096,
+      "primary_block_days": 7,
+      "selection_seed": 3039,
+      "sensitivity_block_days": [
+        3,
+        14
+      ]
+    },
+    "configurations": {
+      "A": {
+        "decision_cadence_days": 3,
+        "label_horizon_days": 3,
+        "label_stride_days": 3,
+        "retrain_cadence_days": 3
+      },
+      "B": {
+        "decision_cadence_days": 3,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 3
+      },
+      "C": {
+        "decision_cadence_days": 1,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 3
+      },
+      "D": {
+        "decision_cadence_days": 1,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 1
+      },
+      "E": {
+        "decision_cadence_days": 1,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 2
+      },
+      "F": {
+        "decision_cadence_days": 1,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 4
+      },
+      "G": {
+        "decision_cadence_days": 1,
+        "label_horizon_days": 3,
+        "label_stride_days": 1,
+        "retrain_cadence_days": 5
+      }
+    },
+    "data_already_revealed": true,
+    "development_slices_utc": [
+      "2026-05-01",
+      "2026-05-29",
+      "2026-06-26",
+      "2026-07-26"
+    ],
+    "drag_bps": {
+      "normal": 2,
+      "stress": 8
+    },
+    "fee_bps": 6,
+    "fill_price": "last_completed_4h_close_assumed_unchanged_for_350ms",
+    "funding": "reported_signed_rates_times_4h_close_proxy_before_terminal_fill",
+    "global_trial_registry_complete": false,
+    "gross_cap_at_entry": 0.8,
+    "independent_validation_claim_allowed": false,
+    "initial_capital": 10000,
+    "l2": 0.01,
+    "label_anchor_utc": "2026-08-01",
+    "label_eligibility": "label_available_at <= train_end_minus_7bars",
+    "maximum_training_days_per_command": 7,
+    "model_fill_delay_ms": 350,
+    "observed_execution_qualified": false,
+    "parameter_count": 7,
+    "periods": {
+      "development": {
+        "end_exclusive_utc": "2026-07-26",
+        "start_utc": "2026-05-01"
+      },
+      "report": {
+        "end_exclusive_utc": "2026-10-01",
+        "start_utc": "2026-08-01"
+      }
+    },
+    "purge_bars": 7,
+    "purpose": "authorized_offline_research_clock_comparison",
+    "research_drawdown_budgets": [
+      0.1,
+      0.2,
+      0.3
+    ],
+    "safety": {
+      "credentials_allowed": false,
+      "execution_allowed": false,
+      "financial_evaluation_allowed": false,
+      "live": false,
+      "network_allowed": false,
+      "orders_enabled": false,
+      "paper": false,
+      "promotion_authority": false,
+      "training_allowed": false
+    },
+    "schema": "genetic_primus.cadence_matrix/1",
+    "signal_compute_ms": 100,
+    "symbol_allocation": 0.1,
+    "terminal": "end_boundary_plus_350ms_all_positions_liquidated",
+    "threshold_bps": 20,
+    "train_end": "fit_time_minus_one_4h_bar",
+    "unchanged_target": "retain_units",
+    "weighting": "uniform"
+  },
+  "frozen_parent_registration_sha256": "98a9953907f732b5cb2f0665a26c77a3fae045a44b2066ac33eb733ee1ef2b88",
+  "independent_validation_claim_allowed": false,
+  "labels_overlap_days": {
+    "1": 2,
+    "3": 0
+  },
+  "network_used": false,
+  "periods": {
+    "development": {
+      "days": 86,
+      "end_ms": 1785024000000,
+      "start_ms": 1777593600000
+    },
+    "report": {
+      "days": 61,
+      "end_ms": 1790812800000,
+      "start_ms": 1785542400000
+    }
+  },
+  "primary_bootstrap_block_days": 7,
+  "resample_content_sha256": {
+    "development_b14_audit": "e5800525fb0a2db79f389aec90a23d64b2b46b759a7275858f2ee41cdbe99c58",
+    "development_b14_selection": "09c438f82db19268665ef57b5a5ae85ecbbfbdc760bce75e7a46e5a7a3f25430",
+    "development_b3_audit": "19b4814ec9c5608162734ea8610c2dfa674829ea94e3c0a8584f3510a34c2a1e",
+    "development_b3_selection": "663ae6c9d24cb63750e2b9ee1239a4a763e79a85a8f4479272f25117a459719c",
+    "development_b7_audit": "14a2effda609d6d0b2c1977ba66b13f3def4b0a6d3be15b6578140f5c91ec5a5",
+    "development_b7_selection": "e93e35c55858a67b3cdac52d5b3672f29ae6e101330501350b171900abee3fb8",
+    "report_b14_audit": "b36a6015543193084e98975285e1e7f032a009a2c62e396cb7b07fff879085c3",
+    "report_b14_selection": "6c168726fcd08075fb9a905082afda763f3d04fc967998876e96534cb7a841f3",
+    "report_b3_audit": "bd5c043bee50ac6e0a615e8aad00d710de0c1106cd17c983f5cd1642b87b40f9",
+    "report_b3_selection": "341ab1b6d1ce2b2e0843f8db1083fde15dc28b6da579f857ff256e8f72da4053",
+    "report_b7_audit": "1a05834d0310c9fb4d5d411973eed0d1936ae985f4b7433fc0040f22820dc5f6",
+    "report_b7_selection": "880e31194dcad9a5fdbeb8041243daed2ca015744ad4023ecd66ef97c72153bd"
+  },
+  "safety": {
+    "credentials_allowed": false,
+    "execution_allowed": false,
+    "financial_evaluation_allowed": false,
+    "live": false,
+    "network_allowed": false,
+    "orders_enabled": false,
+    "paper": false,
+    "promotion_authority": false,
+    "training_allowed": false
+  },
+  "sample_content_sha256": {
+    "1": "eaa09e2fa2bc1fd07e7b7623102d7d72d46b57d0407f486a72ab3a873bc42270",
+    "3": "995a3d5964903c50916770c8fa8a09b3ef893b328cad47aff51cc3ad5229cca7"
+  },
+  "schema": "cadence_matrix_registration/1",
+  "sha256": "bcf984dcd818a4b089f4e94f1927594e5727df7658cbbe0001552de8d433c292",
+  "source_pins": {
+    "Reports/Exia/Genetic_Primus/compact_forecast_v1_20261007_r2/preparation.json": {
+      "bytes": 7418,
+      "sha256": "ebb19e989b8fe0ab0fe68b3cb160b8ebda6a422b71513c49c7294bdc76502abb"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/observed_rate_bank.json": {
+      "bytes": 562507,
+      "sha256": "cefa36cb286b137b561e32853c09ec61b9ba030351f1710184086c3faa8aaa84"
+    },
+    "Reports/Exia/Genetic_Primus/compact_net_replay_v1_20261007/results.json": {
+      "bytes": 359292,
+      "sha256": "ccec0e90d25ba1c7a263ff7c6c075887c41b58fe53f598aff9fcb6d5f10a767f"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/data_bank.npz": {
+      "bytes": 3831285,
+      "sha256": "e12c2c2efcd9967ebbad90f5c11eaaf64af5e446b73a3d81de581b4c780f3389"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/modeled_rate_bank.json": {
+      "bytes": 393752,
+      "sha256": "98212cda74bdf7283726946a4691b772f7a5ce1789b5f376bbcfbab87180436a"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/receipt.json": {
+      "bytes": 10824,
+      "sha256": "b9878e299b6e8cbefeebca7dcdf7a7ccf7b863f29be4144aec6c9b68f43e0901"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/registration.json": {
+      "bytes": 11011,
+      "sha256": "dd78615d410de2466b6e0b80c30af6136defe081f9eaeccd80fd9c6a54007318"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/replay_linear6_uniform_normal.json": {
+      "bytes": 812023,
+      "sha256": "fffdf4a23df7c22e6f0f802c8989d4e894f9da918678831286667ceb77e46403"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/replay_linear6_uniform_stress.json": {
+      "bytes": 812431,
+      "sha256": "af34585ef823999cf07fe0df86c8b41f6d1261eef406319a81dcc57c69a486d5"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_00.json": {
+      "bytes": 41080,
+      "sha256": "07f60154a75c0bba2034e1b779b74123048c915436c1dfbad25975c82af0b091"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_01.json": {
+      "bytes": 41079,
+      "sha256": "a6e344c9ce91ee9f41a77fc26cadfef519616ab8a84eeece054698bceed3cf5d"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_02.json": {
+      "bytes": 41123,
+      "sha256": "974b0d374054b6f4191f21e9b6234c75f921add2ede474e15b927f93d0e27485"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_03.json": {
+      "bytes": 41112,
+      "sha256": "700dc5d41cb6ab7c0ad463bbd955fe7852937a6aa94c62a927fda85c8cf41fdf"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_04.json": {
+      "bytes": 41148,
+      "sha256": "af7888c398c81decc65fe55ec87f751190b44b8443e8d30da55d662109966f12"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_05.json": {
+      "bytes": 41076,
+      "sha256": "54411fe3fd31847695866f153af7997846326baff2f7e5b39373d8742b226f4f"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_06.json": {
+      "bytes": 41151,
+      "sha256": "cfa5b9cddfa44bbda76366d108c044cd532aca6aa3cad40fc7fe748437964805"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_07.json": {
+      "bytes": 41057,
+      "sha256": "56df284342f2567ad442c19a8221eea9e4af6559c6b53fd778381888f2276fa3"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_08.json": {
+      "bytes": 41060,
+      "sha256": "7fb4da593ac7400eccdd44b24f00d5b91347135027d46f848d711217fe8881dc"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_09.json": {
+      "bytes": 41041,
+      "sha256": "2805f0b74a0c855b5feaffde7d83d489646f68167c451b4674af23fec320c8c3"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_10.json": {
+      "bytes": 41112,
+      "sha256": "865478140191a8f28318b0396ccde68d5b82a0025230d2f9892a9090fd252dfb"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_11.json": {
+      "bytes": 41124,
+      "sha256": "7a1c620e3c3992fc3af3384353a2fc54ae40e9a850a1c2f4c4e91f0197af3274"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_12.json": {
+      "bytes": 41070,
+      "sha256": "d88979284a7da5a404fc967d9f8a403f8d7005ec036c8334d3bc5cd35683f870"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_13.json": {
+      "bytes": 40928,
+      "sha256": "2b58fd6d86cfba7773442d6519dec956abe6b45d3a705889a5452714e62b4357"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_14.json": {
+      "bytes": 41058,
+      "sha256": "423adbebebe240cde177fcb9381c2176594d415c9768374adfcbd192a8096aab"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_15.json": {
+      "bytes": 41094,
+      "sha256": "88ce71d1d850ea1f28c14772cb19ee3fa77ceae3f92ae396b8e967fa8aab9b47"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_16.json": {
+      "bytes": 41109,
+      "sha256": "9346aaf902d7baf074edd2477cc53e84085292ff02ef8d9451509c3456f055de"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_17.json": {
+      "bytes": 40994,
+      "sha256": "b1c3b6813d52c78ebec2f5d06f8e1ed58463b64ec328df78ba535858ac2ac4db"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_18.json": {
+      "bytes": 41098,
+      "sha256": "a814585ce216501354b0e6005b0f987869565623c5a4b9719454584c28e80a77"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_19.json": {
+      "bytes": 41046,
+      "sha256": "cbb022270459014ed85e19381d23a5d0c0cd87528ea47a4c88d3f64c7c6ef7ab"
+    },
+    "Reports/Exia/Genetic_Primus/compact_postclose_research_v1_20261008/report_origin_20.json": {
+      "bytes": 41106,
+      "sha256": "09eb151ec6f375aaf7910f0f42482b539842775f322e905802ddea47045a5342"
+    },
+    "Reports/Exia/Genetic_Primus/execution_input_audit_v1_20261008/terminal_funding_reports.json": {
+      "bytes": 8207,
+      "sha256": "255c714b0e18268a11b0e483517e88a4f0837ac1454466eb426403077da91abc"
+    },
+    "Retrodate/exia_full8_holdout_timeframes_v1_20260715_20260817/parts/full8_240m.parquet": {
+      "bytes": 55079,
+      "sha256": "cd2588c9e3c1f0915503c3f34dd5de49d21b12228d8938d330cde64d1a078375"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260818_20260903/parts/full8_240m.parquet": {
+      "bytes": 32889,
+      "sha256": "7e11fdc0a30f172986b68325719bbdf2b7709845fad874f0d22afd885e814fa0"
+    },
+    "Retrodate/exia_full8_prospective_timeframes_v1_20260904_20260906/parts/full8_240m.parquet": {
+      "bytes": 11149,
+      "sha256": "a9753c95035f08209fa488aad6a064259caf579fe2a1ec9915aa6b8d53184c04"
+    },
+    "Retrodate/exia_full8_timeframes_v1_20220101_20260714/parts/full8_240m.parquet": {
+      "bytes": 3003142,
+      "sha256": "b8539ddf39d22cd9b5518ed737e9dec71a5cf6bac85d73660ab7a954b4db4c36"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_03_240m.parquet": {
+      "bytes": 11234,
+      "sha256": "78cebf7dd3f4f7470934ceb7a5498ee5aae48ecda0f6bd8be4d0a50ce6b227be"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_04_240m.parquet": {
+      "bytes": 11070,
+      "sha256": "e50ae6282ba30e7cc125133f71d3b45f8f41ab48c80cebe4a2bd13aeda81ed47"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_05_240m.parquet": {
+      "bytes": 11128,
+      "sha256": "bc79193956b19172368d975d3a6f3c761a778826353de6eec6666e0f3d5b5131"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_06_240m.parquet": {
+      "bytes": 11195,
+      "sha256": "8737e3af8b784461be8b01497e8623630d5ecbe33be5b0008bd8d10eb368df5e"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_backfill_20260907_20260921_v2/derived_v1/origin_07_240m.parquet": {
+      "bytes": 11303,
+      "sha256": "4af42c81dd017700f40cc7a44c907e33100f6b2da2abe15891c424a9c5aacd98"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_final_20260928_20260930/derived_v1/origin_10_240m.parquet": {
+      "bytes": 11187,
+      "sha256": "dd3249e5c7c7f4ad527e6d44db182e00d011d3b6b0bb3b5a6e585405ecbab1a9"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_08_240m.parquet": {
+      "bytes": 11360,
+      "sha256": "d580e33f8961209153ea1e0e31e5e3f9926154aa95fff19b253d0c778b77b769"
+    },
+    "Retrodate/genetic_primus_v8_clean_ohlcv_tail_20260922_20260927/derived_v1/origin_09_240m.parquet": {
+      "bytes": 11257,
+      "sha256": "22d05504944cb044a9c6db4572c1e5bdc76835aa5e5980ebb6dd9ee44e07db5a"
+    }
+  },
+  "symbols": [
+    "ADA/USDT",
+    "BNB/USDT",
+    "BTC/USDT",
+    "DOGE/USDT",
+    "ETH/USDT",
+    "LINK/USDT",
+    "SOL/USDT",
+    "XRP/USDT"
+  ],
+  "unique_planned_fits": 197
+}
